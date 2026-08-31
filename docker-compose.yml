@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trato
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d trato"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./api
+      target: dev
+    env_file:
+      - ./api/.env
+    environment:
+      # Dentro de compose la base vive en el servicio "db".
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/trato
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+      # Volumen anónimo para que el node_modules del host no pise el de la imagen.
+      - /app/node_modules
+
+  web:
+    build:
+      context: ./web
+      target: dev
+    environment:
+      # Dentro de compose la API vive en el servicio "api".
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    volumes:
+      - ./web:/app
+      # Volúmenes anónimos: node_modules y .next del host no pisan los de la imagen.
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  pgdata:
