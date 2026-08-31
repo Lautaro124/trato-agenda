@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+/* Trato Design System tokens — portados de
+   _ds/trato-design-system-91720666-17a2-49bd-8064-a6a39ba271a0/_ds_bundle.css */
+:root {
+  /* primitivos */
+  --color-primitive-coral-50: #fbede7;
+  --color-primitive-coral-100: #f6d2c4;
+  --color-primitive-coral-200: #f0b29b;
+  --color-primitive-coral-300: #e88a66;
+  --color-primitive-coral-400: #e06f45;
+  --color-primitive-coral-500: #d85a30;
+  --color-primitive-coral-600: #b8481f;
+  --color-primitive-coral-700: #993c1d;
+  --color-primitive-coral-800: #712b13;
+  --color-primitive-coral-900: #4a1b0c;
+  --color-primitive-green-50: #e3f6ec;
+  --color-primitive-green-100: #b9e9cc;
+  --color-primitive-green-200: #86d8a8;
+  --color-primitive-green-300: #4fc582;
+  --color-primitive-green-400: #2db466;
+  --color-primitive-green-500: #1fa855;
+  --color-primitive-green-600: #178a46;
+  --color-primitive-green-700: #126e38;
+  --color-primitive-green-800: #0d5029;
+  --color-primitive-green-900: #08351b;
+  --color-primitive-neutral-0: #ffffff;
+  --color-primitive-neutral-50: #fbf7f2;
+  --color-primitive-neutral-100: #f3ede4;
+  --color-primitive-neutral-200: #e4dccf;
+  --color-primitive-neutral-300: #cfc6b7;
+  --color-primitive-neutral-400: #a8a093;
+  --color-primitive-neutral-500: #837c70;
+  --color-primitive-neutral-600: #625c52;
+  --color-primitive-neutral-700: #46423b;
+  --color-primitive-neutral-800: #2c2c2a;
+  --color-primitive-neutral-900: #1a1917;
+  --color-primitive-amber-50: #faeeda;
+  --color-primitive-amber-500: #e39a1f;
+  --color-primitive-amber-700: #854f0b;
+  --color-primitive-red-50: #fcebeb;
+  --color-primitive-red-500: #d64545;
+  --color-primitive-red-700: #a32d2d;
+  --color-primitive-blue-50: #e6f1fb;
+  --color-primitive-blue-500: #2f7fd1;
+  --color-primitive-blue-700: #185fa5;
+
+  /* semánticos */
+  --color-semantic-primary-default: #d85a30;
+  --color-semantic-primary-hover: #b8481f;
+  --color-semantic-primary-active: #993c1d;
+  --color-semantic-primary-subtle: #fbede7;
+  --color-semantic-primary-on: #ffffff;
+  --color-semantic-accent-default: #1fa855;
+  --color-semantic-accent-hover: #178a46;
+  --color-semantic-accent-subtle: #e3f6ec;
+  --color-semantic-accent-on: #ffffff;
+  --color-semantic-text-primary: #2c2c2a;
+  --color-semantic-text-secondary: #625c52;
+  --color-semantic-text-muted: #837c70;
+  --color-semantic-text-link: #b8481f;
+  --color-semantic-text-on-color: #ffffff;
+  --color-semantic-surface-page: #fbf7f2;
+  --color-semantic-surface-card: #ffffff;
+  --color-semantic-surface-sunken: #f3ede4;
+  --color-semantic-surface-hover: #f3ede4;
+  --color-semantic-border-default: #e4dccf;
+  --color-semantic-border-strong: #cfc6b7;
+  --color-semantic-border-focus: #d85a30;
+  --color-semantic-success-default: #1fa855;
+  --color-semantic-success-subtle: #e3f6ec;
+  --color-semantic-success-text: #126e38;
+  --color-semantic-warning-default: #e39a1f;
+  --color-semantic-warning-subtle: #faeeda;
+  --color-semantic-warning-text: #854f0b;
+  --color-semantic-danger-default: #d64545;
+  --color-semantic-danger-subtle: #fcebeb;
+  --color-semantic-danger-text: #a32d2d;
+  --color-semantic-info-default: #2f7fd1;
+  --color-semantic-info-subtle: #e6f1fb;
+  --color-semantic-info-text: #185fa5;
+
+  /* tipografía */
+  --typography-family-display: var(--font-jakarta), system-ui, sans-serif;
+  --typography-family-body: var(--font-manrope), system-ui, sans-serif;
+  --typography-family-mono: ui-monospace, Menlo, monospace;
+
+  /* espaciado */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* radios, bordes, sombras. Prefijo ds- para no auto-referenciar los
+     namespaces de radios y sombras que Tailwind ya define. */
+  --ds-radius-sm: 8px;
+  --ds-radius-md: 12px;
+  --ds-radius-lg: 16px;
+  --ds-radius-full: 999px;
+  --ds-border-width: 1px;
+  --ds-shadow-sm: 0 1px 2px rgba(44, 44, 42, 0.06);
+  --ds-shadow-md: 0 4px 12px rgba(44, 44, 42, 0.08);
+  --ds-shadow-lg: 0 12px 32px rgba(44, 44, 42, 0.1);
+
+  /* movimiento */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 320ms;
+  --motion-easing-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Puente a utilidades Tailwind: bg-page, text-muted, rounded-lg, p-6, font-display… */
+@theme inline {
+  --color-primary: var(--color-semantic-primary-default);
+  --color-primary-hover: var(--color-semantic-primary-hover);
+  --color-primary-active: var(--color-semantic-primary-active);
+  --color-primary-subtle: var(--color-semantic-primary-subtle);
+  --color-primary-on: var(--color-semantic-primary-on);
+  --color-accent: var(--color-semantic-accent-default);
+  --color-accent-hover: var(--color-semantic-accent-hover);
+  --color-accent-subtle: var(--color-semantic-accent-subtle);
+  --color-ink: var(--color-semantic-text-primary);
+  --color-ink-secondary: var(--color-semantic-text-secondary);
+  --color-muted: var(--color-semantic-text-muted);
+  --color-link: var(--color-semantic-text-link);
+  --color-page: var(--color-semantic-surface-page);
+  --color-card: var(--color-semantic-surface-card);
+  --color-sunken: var(--color-semantic-surface-sunken);
+  --color-line: var(--color-semantic-border-default);
+  --color-line-strong: var(--color-semantic-border-strong);
+  --color-success: var(--color-semantic-success-default);
+  --color-success-subtle: var(--color-semantic-success-subtle);
+  --color-success-text: var(--color-semantic-success-text);
+  --color-warning: var(--color-semantic-warning-default);
+  --color-warning-subtle: var(--color-semantic-warning-subtle);
+  --color-warning-text: var(--color-semantic-warning-text);
+  --color-danger: var(--color-semantic-danger-default);
+  --color-danger-subtle: var(--color-semantic-danger-subtle);
+  --color-danger-text: var(--color-semantic-danger-text);
+
+  --font-display: var(--typography-family-display);
+  --font-body: var(--typography-family-body);
+  --font-mono: var(--typography-family-mono);
+
+
+  --radius-sm: var(--ds-radius-sm);
+  --radius-md: var(--ds-radius-md);
+  --radius-lg: var(--ds-radius-lg);
+
+  --shadow-sm: var(--ds-shadow-sm);
+  --shadow-md: var(--ds-shadow-md);
+  --shadow-lg: var(--ds-shadow-lg);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background: var(--color-semantic-surface-page);
+    color: var(--color-semantic-text-primary);
+    font-family: var(--typography-family-body);
+  }
+
+  a {
+    color: var(--color-semantic-text-link);
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--color-semantic-primary-active);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-semantic-border-focus);
+    outline-offset: 2px;
+  }
+}
+
+/* Spinner del estado "Conectando…" (1g del canvas) */
+@keyframes trato-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
