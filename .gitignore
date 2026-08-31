@@ -1,0 +1,29 @@
+# Dependencias
+node_modules/
+
+# Secretos: api/.env tiene credenciales vivas de Google y las claves de firma.
+.env
+.env.*
+
+# Claves y certificados
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Build
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# Config local de Claude Code (permisos de esta máquina)
+.claude/settings.local.json
+
+# Sistema operativo / editor
+.DS_Store
+Thumbs.db
+*.swp
