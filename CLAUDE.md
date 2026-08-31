@@ -4,13 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Trato Agenda: a WhatsApp bot that manages Google Calendar meetings via chat. The repo currently holds only the onboarding web frontend (`web/`) — **there is no backend, no real Google OAuth, and no real WhatsApp linking yet**. Everything user-facing is a simulated MVP flow.
+Trato Agenda: a WhatsApp bot that manages Google Calendar meetings via chat. Monorepo: `api/` (NestJS 12 + Prisma 7 + Postgres 16) and `web/` (Next.js 16 onboarding frontend), wired together by `docker-compose.yml` (db :5432, api :4000, web :3000).
+
+**Google login is real and works end to end.** What is still simulated: the WhatsApp linking (`/vincular` fakes its states and its phone number), the Google Calendar calls, and the access-token refresh. There is no screen after linking — "Ir a mi agenda" restarts the demo.
 
 UI copy is in Spanish (`<html lang="es">`, rioplatense voseo). Code comments are also in Spanish. Match that when editing.
 
 ## Commands
 
-All run from `web/`:
+From the repo root — this is how you actually run the thing, since the login needs the API and the DB:
+
+```bash
+docker compose up --build
+docker compose exec api npx prisma migrate dev --name init   # first time only
+```
+
+The API needs `api/.env` (never committed; the variable table is in the root `README.md`). Without real `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, the API boots but Google rejects the consent screen.
+
+From `web/`:
 
 ```bash
 npm run dev      # dev server on :3000
@@ -19,23 +30,31 @@ npm run start    # serve the production build
 npm run lint     # eslint (flat config, eslint-config-next core-web-vitals + typescript)
 ```
 
-No test runner is configured.
+From `api/` (better via `docker compose exec api ...`): `npm run start:dev`, `npm run lint` (oxlint), `npm test` (vitest).
+
+The web side has no test runner configured.
 
 ## Stack
 
-Next.js 16 App Router (Turbopack), React 19, TypeScript strict, Tailwind CSS v4 (PostCSS plugin only — no `tailwind.config`), `qrcode` for QR generation. Path alias `@/*` → `web/src/*`.
+`web/`: Next.js 16 App Router (Turbopack), React 19, TypeScript strict, Tailwind CSS v4 (PostCSS plugin only — no `tailwind.config`), `qrcode` for QR generation. Path alias `@/*` → `web/src/*`. Its only env var is `NEXT_PUBLIC_API_URL` (inlined at build time — the Dockerfile takes it as a build arg).
+
+`api/`: NestJS 12 on ESM, Passport (`passport-google-oauth20` + `passport-jwt` reading the cookie), Prisma 7 with the `@prisma/adapter-pg` driver (connection URL in `prisma.config.ts`, generated client in `src/generated/prisma`), oxlint, vitest. The Google refresh token is stored AES-256-GCM-encrypted (`src/auth/token-crypto.ts`) and never leaves the API — `UsuarioPublico` (`src/auth/auth.types.ts`) is the only user shape the frontend sees. `googleapis` is not installed yet; the Calendar scope is requested but unused.
 
 `web/AGENTS.md` (imported by `web/CLAUDE.md`) is auto-generated and rewritten by `next dev`. It warns that this Next.js version differs from training data — consult `web/node_modules/next/dist/docs/` before writing Next-specific code, and commit AGENTS.md changes along with your work rather than reverting them.
 
 ## Architecture
 
-**Two-step onboarding flow.** `/` redirects to `/entrar`; `/entrar` fakes Google sign-in and pushes to `/vincular`; `/vincular` is the WhatsApp QR-linking screen. Nothing exists after linking — the "Ir a mi agenda" button just restarts the demo.
+**Two-step onboarding flow.** `/` redirects to `/entrar`; `/entrar` sends the browser to the API's `GET /auth/google`; the OAuth callback redirects back to `/vincular`, the WhatsApp QR-linking screen. Nothing exists after linking — the "Ir a mi agenda" button just restarts the demo.
 
-**Session is client-side and fake.** `src/lib/session.tsx` is a React context holding a hardcoded `MOCK_USER`; `signIn()` sets it, no network involved. `SessionProvider` wraps everything in `app/layout.tsx`. Notably `/vincular` imports `MOCK_USER` directly rather than reading the context — real auth will need to fix that.
+**The session lives in a cookie, and the API owns it.** `GET /auth/google/callback` (`api/src/auth/auth.controller.ts`) sets a `httpOnly` JWT cookie named `trato_session`. The frontend can never read it — `SessionProvider` (`web/src/lib/session.tsx`) asks `GET /auth/me` on mount and exposes `status: "loading" | "authenticated" | "anonymous"`. `useRequireSession()` is the route guard (redirects to `/entrar`); `signIn()` is a full-document `window.location` navigation, because `router.push` cannot cross origins. All API calls go through `apiFetch` (`web/src/lib/api.ts`), which sets `credentials: "include"`; CORS on the API side is `origin: FRONTEND_URL, credentials: true`.
+
+The guard is deliberately client-side: verifying the JWT in a Next `proxy.ts` (Next 16's renamed `middleware.ts`) would mean sharing `JWT_SECRET` with the frontend. Do not add one.
+
+Cookies are not scoped by port, so `:4000` and `:3000` share `localhost` and `sameSite: 'lax'` is enough locally. Separate production domains will need `sameSite: 'none'` + `secure`, or a shared domain.
 
 **`/vincular` is a state machine.** `LinkState = "active" | "connecting" | "connected" | "expired" | "error"` is declared in `src/app/vincular/page.tsx` and imported from there by components. Two effects drive it: a 1s interval counting down `TTL_SECONDS = 60` (active → expired) and a 2.5s timeout (connecting → connected). Each non-active state renders a card from `src/components/LinkStateCards.tsx`.
 
-`src/components/DemoStateSwitcher.tsx` is a floating pill that force-switches state — it exists only because no backend can produce those states. Delete it when real linking lands.
+`src/components/DemoStateSwitcher.tsx` is a floating pill that force-switches state — it exists only because no backend can produce those states. So does `TELEFONO_DEMO` in the same page: the real number will come from WhatsApp linking, never from the Google user. Delete both when real linking lands.
 
 The QR token is `trato-link:${crypto.randomUUID()}`, regenerated client-side; `QrCode.tsx` renders it at error-correction level `H` so the green center dot doesn't break scanning.
 

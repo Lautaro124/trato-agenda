@@ -9,13 +9,20 @@ import {
 } from "@/components/LinkStateCards";
 import { QrCode } from "@/components/QrCode";
 import { DemoStateSwitcher } from "@/components/DemoStateSwitcher";
+import { SessionChip } from "@/components/SessionChip";
 import { Button } from "@/components/ui/Button";
-import { MOCK_USER } from "@/lib/session";
+import { useRequireSession } from "@/lib/session";
 
 export type LinkState = "active" | "connecting" | "connected" | "expired" | "error";
 
 /** El código de vinculación dura un minuto, como dice el diseño. */
 const TTL_SECONDS = 60;
+
+/**
+ * Placeholder: el número real va a salir de la vinculación de WhatsApp, que
+ * todavía no tiene backend. No se deriva del usuario de Google.
+ */
+const TELEFONO_DEMO = "+54 9 11 5555-1234";
 
 const STEPS = [
   <>Abrí WhatsApp en tu teléfono.</>,
@@ -31,6 +38,7 @@ function newToken() {
 }
 
 export default function VincularPage() {
+  const { user, status } = useRequireSession();
   const [state, setState] = useState<LinkState>("active");
   const [token, setToken] = useState(newToken);
   const [secondsLeft, setSecondsLeft] = useState(TTL_SECONDS);
@@ -63,8 +71,22 @@ export default function VincularPage() {
     return () => clearTimeout(id);
   }, [state]);
 
+  // Mientras la API no conteste quién es, no mostramos el QR: si no hay sesión,
+  // useRequireSession ya está redirigiendo a /entrar.
+  if (status !== "authenticated" || !user) {
+    return (
+      <main className="grid min-h-dvh place-items-center bg-page p-6">
+        <p className="text-sm text-muted">Cargando tu sesión…</p>
+      </main>
+    );
+  }
+
   return (
-    <main className="grid min-h-dvh place-items-center bg-page p-6">
+    <main className="relative grid min-h-dvh place-items-center bg-page p-6">
+      <div className="absolute top-6 right-6">
+        <SessionChip user={user} />
+      </div>
+
       {state === "active" && (
         <div className="flex w-full max-w-[760px] flex-col overflow-hidden rounded-lg border border-line bg-card shadow-md md:flex-row">
           {/* Columna del código */}
@@ -124,7 +146,7 @@ export default function VincularPage() {
       {state === "connecting" && <ConnectingCard token={token} />}
       {state === "connected" && (
         // Todavía no existe la pantalla de agenda: el botón reinicia la demo.
-        <ConnectedCard phone={MOCK_USER.phone} onContinue={regenerate} />
+        <ConnectedCard phone={TELEFONO_DEMO} onContinue={regenerate} />
       )}
       {state === "expired" && (
         <ExpiredCard token={token} onRegenerate={regenerate} />

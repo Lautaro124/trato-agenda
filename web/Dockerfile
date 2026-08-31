@@ -14,6 +14,10 @@ CMD ["npm", "run", "dev", "--", "-H", "0.0.0.0", "-p", "3000"]
 
 FROM base AS build
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* se inlinea en el bundle durante el build: si no llega acá, la
+# imagen de producción queda apuntando al fallback http://localhost:4000.
+ARG NEXT_PUBLIC_API_URL=http://localhost:4000
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 COPY . .
 RUN npm run build
 

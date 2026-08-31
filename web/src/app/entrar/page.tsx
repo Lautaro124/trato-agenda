@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GoogleMark } from "@/components/GoogleMark";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
@@ -15,14 +15,21 @@ const PITCH = [
 
 export default function EntrarPage() {
   const router = useRouter();
-  const { signIn } = useSession();
+  const { status, signIn } = useSession();
   const [pending, setPending] = useState(false);
 
-  /** OAuth simulado: sin backend, sólo marca la sesión y sigue al paso 2. */
+  // Con cookie viva no tiene sentido mostrar el botón: seguimos al paso 2.
+  useEffect(() => {
+    if (status === "authenticated") router.replace("/vincular");
+  }, [status, router]);
+
+  /**
+   * OAuth real: la API redirige al consentimiento de Google y su callback
+   * vuelve a /vincular con la cookie de sesión puesta.
+   */
   function handleGoogle() {
     setPending(true);
     signIn();
-    router.push("/vincular");
   }
 
   return (
@@ -62,7 +69,7 @@ export default function EntrarPage() {
             variant="primary"
             size="lg"
             fullWidth
-            disabled={pending}
+            disabled={pending || status === "loading"}
             onClick={handleGoogle}
             icon={<GoogleMark onColor />}
           >

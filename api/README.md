@@ -48,6 +48,15 @@ docker compose exec api npx prisma studio     # inspeccionar la base
 docker compose logs -f api
 ```
 
+Si cambiás algo en `api/.env`, **`docker compose restart api` no alcanza**: el
+`env_file` se resuelve cuando se crea el contenedor, así que un restart reinicia el
+proceso con el entorno viejo. Con credenciales viejas Google contesta
+`Error 401: invalid_client`. Hay que recrearlo:
+
+```bash
+docker compose up -d --force-recreate api
+```
+
 Después de instalar una dependencia nueva hay que recrear el contenedor, porque
 `node_modules` vive en un volumen anónimo:
 
@@ -59,7 +68,8 @@ docker compose build api && docker compose rm -sfv api && docker compose up -d a
 
 1. Abrir `http://localhost:4000/auth/google`.
 2. Consentir en Google (pide perfil, email y **Calendar**).
-3. Vuelve al callback y redirige a `FRONTEND_URL`, dejando la cookie `trato_session`.
+3. Vuelve al callback y redirige a `FRONTEND_URL/vincular`, dejando la cookie
+   `trato_session`.
 4. `GET http://localhost:4000/auth/me` devuelve el usuario mientras la cookie viva.
 
 ## Endpoints
@@ -68,7 +78,7 @@ docker compose build api && docker compose rm -sfv api && docker compose up -d a
 | ------ | ---------------------- | ---------------------------------------------------- |
 | GET    | `/health`              | Ping para el healthcheck.                            |
 | GET    | `/auth/google`         | Redirige al consentimiento de Google.                |
-| GET    | `/auth/google/callback`| Crea/actualiza el usuario, setea la cookie, redirige.|
+| GET    | `/auth/google/callback`| Crea/actualiza el usuario, setea la cookie, va a `/vincular`.|
 | GET    | `/auth/me`             | Usuario de la sesión. 401 sin cookie válida.         |
 | POST   | `/auth/logout`         | Borra la cookie (204).                               |
 
@@ -88,12 +98,15 @@ docker compose build api && docker compose rm -sfv api && docker compose up -d a
 
 ## Todavía falta
 
-`web/` sigue usando el login simulado (`web/src/lib/session.tsx`). Para conectarlo:
+El login ya está conectado punta a punta: `web/` pide el usuario a `/auth/me` con
+la cookie (`web/src/lib/session.tsx`) y el callback vuelve a `FRONTEND_URL/vincular`.
 
-- `web/src/app/entrar/page.tsx`: reemplazar `signIn()` por
-  `window.location.href = \`${API_URL}/auth/google\``.
-- `SessionProvider`: pedir el usuario real con
-  `fetch(\`${API_URL}/auth/me\`, { credentials: 'include' })`.
+Lo que sigue pendiente:
 
-Tampoco existe todavía el refresh del access token de Google ni las llamadas a
-Calendar.
+- Refrescar el access token de Google a partir del refresh token guardado.
+- Las llamadas a Google Calendar (el scope ya se pide, pero nadie lo usa).
+- La vinculación real de WhatsApp: hoy `/vincular` simula los estados y el
+  teléfono es una constante en el front (`TELEFONO_DEMO`).
+- Cookie cross-domain: en local `:4000` y `:3000` comparten el site `localhost`,
+  así que `sameSite: 'lax'` alcanza. Con dominios distintos en producción va a
+  hacer falta `sameSite: 'none'` + `secure`, o servir todo bajo un mismo dominio.

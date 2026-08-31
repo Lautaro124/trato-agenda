@@ -1,36 +1,92 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { API_URL, apiFetch } from "./api";
 
-/** Usuario simulado: el MVP no tiene backend ni OAuth real todavía. */
-export type MockUser = {
+/** Espejo de `UsuarioPublico` en la API: nunca incluye el refresh token de Google. */
+export type Usuario = {
+  id: string;
   email: string;
-  initials: string;
-  /** Se completa recién cuando WhatsApp queda vinculado. */
-  phone: string;
+  name: string | null;
+  avatarUrl: string | null;
 };
 
-const MOCK_USER: MockUser = {
-  email: "lautaro@gmail.com",
-  initials: "LG",
-  phone: "+54 9 11 5555-1234",
-};
+/**
+ * "loading" es un estado real, no un detalle: sin él los guards mandarían a
+ * /entrar en el primer render, antes de que `/auth/me` conteste.
+ */
+export type SessionStatus = "loading" | "authenticated" | "anonymous";
 
 type SessionValue = {
-  user: MockUser | null;
+  user: Usuario | null;
+  status: SessionStatus;
   signIn: () => void;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 };
 
 const SessionContext = createContext<SessionValue | null>(null);
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<MockUser | null>(null);
+  const router = useRouter();
+  const [user, setUser] = useState<Usuario | null>(null);
+  const [status, setStatus] = useState<SessionStatus>("loading");
 
-  const signIn = useCallback(() => setUser(MOCK_USER), []);
-  const signOut = useCallback(() => setUser(null), []);
+  // La sesión vive en la cookie, no en React: hay que preguntarle a la API
+  // en cada carga de página quién está del otro lado.
+  useEffect(() => {
+    const ctrl = new AbortController();
 
-  const value = useMemo(() => ({ user, signIn, signOut }), [user, signIn, signOut]);
+    apiFetch("/auth/me", { signal: ctrl.signal })
+      .then(async (res) => {
+        if (!res.ok) {
+          // 401 es lo normal cuando no hay cookie: no es un error a reportar.
+          setUser(null);
+          setStatus("anonymous");
+          return;
+        }
+        setUser((await res.json()) as Usuario);
+        setStatus("authenticated");
+      })
+      .catch(() => {
+        if (ctrl.signal.aborted) return;
+        // La API caída se trata igual que no tener sesión.
+        setUser(null);
+        setStatus("anonymous");
+      });
+
+    return () => ctrl.abort();
+  }, []);
+
+  /** Navegación completa del browser: el consentimiento de Google es cross-origin. */
+  const signIn = useCallback(() => {
+    // API_URL apunta a otro origen (la API), no a una ruta de Next: router.push
+    // no puede salir del origen del front, así que la regla no aplica acá.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.href = `${API_URL}/auth/google`;
+  }, []);
+
+  const signOut = useCallback(async () => {
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } finally {
+      setUser(null);
+      setStatus("anonymous");
+      router.replace("/entrar");
+    }
+  }, [router]);
+
+  const value = useMemo(
+    () => ({ user, status, signIn, signOut }),
+    [user, status, signIn, signOut],
+  );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
@@ -41,4 +97,24 @@ export function useSession(): SessionValue {
   return ctx;
 }
 
-export { MOCK_USER };
+/** Igual que useSession, pero patea a /entrar si no hay sesión. */
+export function useRequireSession(): SessionValue {
+  const session = useSession();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (session.status === "anonymous") router.replace("/entrar");
+  }, [session.status, router]);
+
+  return session;
+}
+
+/** Iniciales para el avatar cuando Google no manda foto. */
+export function iniciales(user: Usuario): string {
+  const partes = (user.name ?? user.email.split("@")[0])
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+
+  const letras = partes.slice(0, 2).map((p) => p[0]);
+  return (letras.join("") || user.email[0]).toUpperCase();
+}

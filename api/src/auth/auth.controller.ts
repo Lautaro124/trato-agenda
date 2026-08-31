@@ -32,7 +32,8 @@ export class AuthController {
   ): Promise<void> {
     const token = await this.authService.issueSessionToken(user);
     res.cookie(this.cookieName, token, { ...this.cookieOptions, maxAge: SIETE_DIAS_MS });
-    res.redirect(this.config.get('FRONTEND_URL', { infer: true }));
+    // Post-login el usuario sigue con el paso 2 del onboarding: vincular WhatsApp.
+    res.redirect(`${this.config.get('FRONTEND_URL', { infer: true })}/vincular`);
   }
 
   @Get('me')
