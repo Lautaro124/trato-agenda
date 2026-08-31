@@ -1,0 +1,25 @@
+// Esquema de Trato Agenda: por ahora sólo el usuario que entra con Google.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // La URL de conexión vive en prisma.config.ts (Prisma 7).
+}
+
+model User {
+  id        String  @id @default(cuid())
+  googleId  String  @unique
+  email     String  @unique
+  name      String?
+  avatarUrl String?
+
+  /// Refresh token de Google cifrado con AES-256-GCM. Nunca se expone por la API.
+  googleRefreshToken String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
