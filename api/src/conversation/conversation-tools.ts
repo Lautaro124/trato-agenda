@@ -215,3 +215,130 @@ export const TOOLS: Record<AccionId, Tool> = {
   reprogramar_turno: reprogramarTurno,
   consultar_turno: consultarTurno,
 };
+
+/**
+ * Tools que sólo se ofrecen cuando quien habla es el dueño (el banco de
+ * pruebas del Home, nunca un cliente real de WhatsApp — ver
+ * conversation.service.ts `esConversacionDePrueba`). A diferencia de
+ * `Tool`, no tienen un `AccionId` de agent-catalog.ts: no son algo que el
+ * meta-agente pueda habilitarle a un agente que atiende clientes, porque le
+ * darían acceso a cualquier evento del calendario del dueño, no sólo a los
+ * turnos de esa conversación puntual.
+ */
+export type ToolPropietario = {
+  id: string;
+  definition: ToolDefinition;
+  execute(ctx: ToolContext, args: Record<string, unknown>): Promise<string>;
+};
+
+function parsearFechaOpcional(valor: unknown, campo: string): Date | undefined {
+  if (valor === undefined) return undefined;
+  return parsearFecha(valor, campo);
+}
+
+const listarEventosCalendario: ToolPropietario = {
+  id: 'listar_eventos_calendario',
+  definition: {
+    type: 'function',
+    function: {
+      name: 'listar_eventos_calendario',
+      description:
+        'Lista TODOS los eventos del Google Calendar del dueño en un rango de fechas, no sólo los agendados ' +
+        'en esta conversación. Usar antes de cancelar_evento_calendario o editar_evento_calendario para ' +
+        'encontrar el id del evento correcto.',
+      parameters: {
+        type: 'object',
+        properties: {
+          desde: { type: 'string', description: 'Inicio del rango, ISO 8601 con horario y offset.' },
+          hasta: { type: 'string', description: 'Fin del rango, ISO 8601 con horario y offset.' },
+        },
+        required: ['desde', 'hasta'],
+      },
+    },
+  },
+  async execute(ctx, args) {
+    const desde = parsearFecha(args.desde, 'desde');
+    const hasta = parsearFecha(args.hasta, 'hasta');
+    const eventos = await ctx.calendarService.listarProximos(ctx.user, desde, hasta);
+
+    if (eventos.length === 0) {
+      return `No hay eventos en el calendario entre ${formatearFecha(desde)} y ${formatearFecha(hasta)}.`;
+    }
+    return eventos
+      .map((evento) => `id=${evento.id} · ${evento.resumen || '(sin título)'} · ${evento.inicio ? formatearFecha(evento.inicio) : 'sin horario'}`)
+      .join('\n');
+  },
+};
+
+const cancelarEventoCalendario: ToolPropietario = {
+  id: 'cancelar_evento_calendario',
+  definition: {
+    type: 'function',
+    function: {
+      name: 'cancelar_evento_calendario',
+      description: 'Cancela (elimina) un evento del Google Calendar del dueño por su id.',
+      parameters: {
+        type: 'object',
+        properties: {
+          eventoId: { type: 'string', description: 'Id del evento, obtenido con listar_eventos_calendario.' },
+        },
+        required: ['eventoId'],
+      },
+    },
+  },
+  async execute(ctx, args) {
+    if (typeof args.eventoId !== 'string' || !args.eventoId.trim()) {
+      return 'Falta el id del evento a cancelar. Usá listar_eventos_calendario primero.';
+    }
+    await ctx.calendarService.eliminarEventoDesdeAgenda(ctx.user, ctx.user.id, args.eventoId);
+    return 'Evento cancelado.';
+  },
+};
+
+const editarEventoCalendario: ToolPropietario = {
+  id: 'editar_evento_calendario',
+  definition: {
+    type: 'function',
+    function: {
+      name: 'editar_evento_calendario',
+      description:
+        'Edita horario y/o título de un evento del Google Calendar del dueño por su id. Mandá sólo los ' +
+        'campos que cambian.',
+      parameters: {
+        type: 'object',
+        properties: {
+          eventoId: { type: 'string', description: 'Id del evento, obtenido con listar_eventos_calendario.' },
+          inicio: { type: 'string', description: 'Nuevo inicio, ISO 8601 con horario y offset (opcional).' },
+          fin: { type: 'string', description: 'Nuevo fin, ISO 8601 con horario y offset (opcional).' },
+          resumen: { type: 'string', description: 'Nuevo título del evento (opcional).' },
+        },
+        required: ['eventoId'],
+      },
+    },
+  },
+  async execute(ctx, args) {
+    if (typeof args.eventoId !== 'string' || !args.eventoId.trim()) {
+      return 'Falta el id del evento a editar. Usá listar_eventos_calendario primero.';
+    }
+    const inicio = parsearFechaOpcional(args.inicio, 'inicio');
+    const fin = parsearFechaOpcional(args.fin, 'fin');
+    const resumen = typeof args.resumen === 'string' ? args.resumen.trim() : undefined;
+
+    if (!inicio && !fin && !resumen) {
+      return 'No mandaste ningún cambio (inicio, fin o resumen). No se editó nada.';
+    }
+
+    await ctx.calendarService.editarEventoDesdeAgenda(ctx.user, ctx.user.id, args.eventoId, {
+      ...(inicio ? { inicio } : {}),
+      ...(fin ? { fin } : {}),
+      ...(resumen ? { resumen } : {}),
+    });
+    return 'Evento actualizado.';
+  },
+};
+
+export const HERRAMIENTAS_PROPIETARIO: Record<string, ToolPropietario> = {
+  listar_eventos_calendario: listarEventosCalendario,
+  cancelar_evento_calendario: cancelarEventoCalendario,
+  editar_evento_calendario: editarEventoCalendario,
+};

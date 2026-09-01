@@ -3,9 +3,9 @@ import { esAccionValida } from '../agents/agent-catalog.js';
 import { OpenRouterClient, OpenRouterError, type ChatMessage, type ToolCall } from '../agents/openrouter.client.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { CalendarUnavailableError } from '../calendar/google-calendar.client.js';
-import { Prisma, type Agent, type User } from '../generated/prisma/client.js';
+import { Prisma, type Agent, type Conversation, type User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { TOOLS } from './conversation-tools.js';
+import { HERRAMIENTAS_PROPIETARIO, TOOLS, type Tool, type ToolPropietario } from './conversation-tools.js';
 
 type AgentConUser = Agent & { user: User };
 
@@ -13,6 +13,24 @@ const TIMEZONE = 'America/Argentina/Buenos_Aires';
 const MAX_VUELTAS = 4;
 /** Cuántos mensajes previos de la conversación se mandan como contexto. */
 const VENTANA_HISTORIAL = 20;
+
+/** Prefijo del JID sintético del banco de pruebas del Home (ver conversation.controller.ts). */
+const WEB_TEST_JID_PREFIX = 'web-test:';
+
+/** JID sintético para separar el historial del banco de pruebas del Home de las conversaciones reales de WhatsApp. */
+export function jidDePrueba(userId: string): string {
+  return `${WEB_TEST_JID_PREFIX}${userId}`;
+}
+
+/**
+ * true si `remoteJid` es del banco de pruebas del Home (quien habla es el
+ * propio dueño, no un cliente de WhatsApp) — el prefijo sólo lo arma
+ * conversation.controller.ts a partir del usuario autenticado, así que un
+ * remoteJid real de Baileys nunca puede tomar este valor.
+ */
+function esConversacionDePrueba(remoteJid: string): boolean {
+  return remoteJid.startsWith(WEB_TEST_JID_PREFIX);
+}
 
 const MENSAJE_SIN_AGENTE = 'Este número todavía no está configurado. Avisale al dueño que complete el alta.';
 const MENSAJE_DISCULPA_GENERICO = 'Perdón, tuve un problema para responderte. Probá de nuevo en un rato.';
@@ -47,10 +65,14 @@ export class ConversationService {
 
     await this.guardarMensaje(conversation.id, 'user', { content: texto });
 
-    const toolDefs = agent.allowedActions.filter(esAccionValida).map((id) => TOOLS[id].definition);
+    const esPropietario = esConversacionDePrueba(remoteJid);
+    const toolDefs = [
+      ...agent.allowedActions.filter(esAccionValida).map((id) => TOOLS[id].definition),
+      ...(esPropietario ? Object.values(HERRAMIENTAS_PROPIETARIO).map((tool) => tool.definition) : []),
+    ];
     const systemMessage: ChatMessage = {
       role: 'system',
-      content: `${agent.systemPrompt}\n\n${this.contextoFijo()}`,
+      content: `${agent.systemPrompt}\n\n${this.contextoFijo(conversation, esPropietario)}`,
     };
 
     for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
@@ -76,7 +98,7 @@ export class ConversationService {
         });
 
         for (const call of respuesta.tool_calls) {
-          const resultado = await this.ejecutarTool(agent, conversation.id, call);
+          const resultado = await this.ejecutarTool(agent, conversation.id, call, esPropietario);
           await this.guardarMensaje(conversation.id, 'tool', {
             content: resultado,
             tool_call_id: call.id,
@@ -87,6 +109,9 @@ export class ConversationService {
 
       const textoFinal = respuesta.content?.trim() || '¿Podés repetirlo? No llegué a entenderlo bien.';
       await this.guardarMensaje(conversation.id, 'assistant', { content: textoFinal });
+      if (!esPropietario) {
+        await this.actualizarResumenCliente(conversation, texto, textoFinal);
+      }
       return textoFinal;
     }
 
@@ -98,9 +123,13 @@ export class ConversationService {
     agent: AgentConUser,
     conversationId: string,
     call: ToolCall,
+    esPropietario: boolean,
   ): Promise<string> {
     const nombre = call.function.name;
-    if (!esAccionValida(nombre) || !agent.allowedActions.includes(nombre)) {
+    const tool: Tool | ToolPropietario | undefined =
+      (esPropietario && HERRAMIENTAS_PROPIETARIO[nombre]) ||
+      (esAccionValida(nombre) && agent.allowedActions.includes(nombre) ? TOOLS[nombre] : undefined);
+    if (!tool) {
       return `La acción "${nombre}" no está habilitada para este agente.`;
     }
 
@@ -112,7 +141,7 @@ export class ConversationService {
     }
 
     try {
-      return await TOOLS[nombre].execute(
+      return await tool.execute(
         { user: agent.user, conversationId, calendarService: this.calendarService, prisma: this.prisma },
         args,
       );
@@ -156,12 +185,70 @@ export class ConversationService {
     });
   }
 
-  private contextoFijo(): string {
+  private contextoFijo(conversation: Conversation, esPropietario: boolean): string {
     const ahora = new Intl.DateTimeFormat('es-AR', {
       timeZone: TIMEZONE,
       dateStyle: 'full',
       timeStyle: 'short',
     }).format(new Date());
-    return `Contexto: estás hablando por WhatsApp con un cliente. Fecha y hora actual: ${ahora} (zona horaria ${TIMEZONE}). Usá siempre horarios en esa zona.`;
+    const base = `Fecha y hora actual: ${ahora} (zona horaria ${TIMEZONE}). Usá siempre horarios en esa zona.`;
+
+    if (esPropietario) {
+      return (
+        `Contexto: estás hablando con el dueño del negocio, de prueba por la web (no un cliente de WhatsApp). ` +
+        `Además de lo que ya podés hacer, tenés las herramientas listar_eventos_calendario, ` +
+        `cancelar_evento_calendario y editar_evento_calendario para listar, cancelar o editar CUALQUIER evento ` +
+        `de su Google Calendar, no sólo los turnos agendados en esta conversación — es él mismo, así que no hay ` +
+        `problema de privacidad. ${base}`
+      );
+    }
+
+    const numero = conversation.remoteJid.split('@')[0];
+    const memoria = conversation.resumen
+      ? `Ya escribió antes. Resumen de lo que sabés de este cliente: ${conversation.resumen}`
+      : 'Primera vez que te escribe este número.';
+    return `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${base}`;
+  }
+
+  /**
+   * Actualiza el resumen persistido del cliente para que el agente lo
+   * "recuerde" más allá de VENTANA_HISTORIAL. Nunca debe romper la respuesta
+   * al cliente: cualquier falla acá sólo se loguea.
+   */
+  private async actualizarResumenCliente(
+    conversation: Conversation,
+    mensajeCliente: string,
+    respuestaAgente: string,
+  ): Promise<void> {
+    try {
+      const resultado = await this.openRouter.chat({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Mantenés un resumen breve (1-2 oraciones) de un cliente para un negocio, a partir de su ' +
+              'resumen previo y el último intercambio. Respondé únicamente el texto del resumen actualizado, ' +
+              'sin JSON ni markdown.',
+          },
+          {
+            role: 'user',
+            content:
+              `Resumen previo (puede estar vacío): "${conversation.resumen ?? ''}"\n` +
+              `Último mensaje del cliente: "${mensajeCliente}"\n` +
+              `Última respuesta del agente: "${respuestaAgente}"`,
+          },
+        ],
+      });
+
+      const resumen = resultado.content?.trim();
+      if (!resumen) return;
+
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { resumen: resumen.slice(0, 500) },
+      });
+    } catch (error) {
+      this.logger.error(`No se pudo actualizar el resumen de la conversación ${conversation.id}`, error as Error);
+    }
   }
 }

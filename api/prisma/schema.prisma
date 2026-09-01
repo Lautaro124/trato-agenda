@@ -86,6 +86,11 @@ model Conversation {
   /// JID de Baileys del cliente que escribe, ej "5491122334455@s.whatsapp.net".
   remoteJid String
 
+  /// Resumen breve del cliente (quién es, qué buscó, preferencias), que el
+  /// agente actualiza tras cada intercambio para "recordarlo" más allá de la
+  /// ventana de mensajes recientes que se manda como contexto.
+  resumen String?
+
   messages Message[]
   turnos   Turno[]
 

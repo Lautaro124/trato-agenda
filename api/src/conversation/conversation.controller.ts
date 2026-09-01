@@ -4,17 +4,12 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { ConversationService } from './conversation.service.js';
+import { ConversationService, jidDePrueba } from './conversation.service.js';
 
 class EnviarMensajeDto {
   @IsString()
   @MinLength(1)
   message!: string;
-}
-
-/** JID sintético para separar el historial del banco de pruebas del Home de las conversaciones reales de WhatsApp. */
-function jidDePrueba(userId: string): string {
-  return `web-test:${userId}`;
 }
 
 @Controller('conversation')
