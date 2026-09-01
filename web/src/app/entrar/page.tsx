@@ -20,12 +20,12 @@ export default function EntrarPage() {
 
   // Con cookie viva no tiene sentido mostrar el botón: seguimos al paso 2.
   useEffect(() => {
-    if (status === "authenticated") router.replace("/vincular");
+    if (status === "authenticated") router.replace("/contanos");
   }, [status, router]);
 
   /**
    * OAuth real: la API redirige al consentimiento de Google y su callback
-   * vuelve a /vincular con la cookie de sesión puesta.
+   * vuelve a /contanos con la cookie de sesión puesta.
    */
   function handleGoogle() {
     setPending(true);
