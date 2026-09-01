@@ -43,6 +43,10 @@ export class AgentsService {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
+  findByUserId(userId: string): Promise<Agent | null> {
+    return this.prisma.agent.findUnique({ where: { userId } });
+  }
+
   async generate(userId: string, dto: GenerateAgentDto): Promise<Agent> {
     const modelo = this.config.get('OPENROUTER_MODEL', { infer: true });
     const config = await this.generarConReintento(dto);

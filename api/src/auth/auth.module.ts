@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { AgentsModule } from '../agents/agents.module.js';
 import type { Env } from '../config/env.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
@@ -12,6 +13,8 @@ import { JwtStrategy } from './jwt.strategy.js';
   imports: [
     // register() es el que provee AuthModuleOptions, que los guards inyectan.
     PassportModule.register({ session: false }),
+    // Para saber, en el callback, si el usuario ya tiene un Agent creado.
+    AgentsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

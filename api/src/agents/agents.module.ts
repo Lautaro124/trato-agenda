@@ -9,6 +9,6 @@ import { OpenRouterClient } from './openrouter.client.js';
   imports: [PassportModule.register({ session: false })],
   controllers: [AgentsController],
   providers: [AgentsService, OpenRouterClient],
-  exports: [OpenRouterClient],
+  exports: [OpenRouterClient, AgentsService],
 })
 export class AgentsModule {}

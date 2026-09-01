@@ -8,3 +8,9 @@ export type LinkEvent = {
   /** Presente sólo en estado "connected": el número recién vinculado. */
   phoneNumber?: string;
 };
+
+/** Estado de vinculación consultable fuera del SSE, para mostrar en el header. */
+export type WhatsappStatus = {
+  linked: boolean;
+  phoneNumber: string | null;
+};

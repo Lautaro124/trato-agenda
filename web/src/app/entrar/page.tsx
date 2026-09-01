@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { GoogleMark } from "@/components/GoogleMark";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
+import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
 const PITCH = [
@@ -18,9 +19,18 @@ export default function EntrarPage() {
   const { status, signIn } = useSession();
   const [pending, setPending] = useState(false);
 
-  // Con cookie viva no tiene sentido mostrar el botón: seguimos al paso 2.
+  // Con cookie viva no tiene sentido mostrar el botón: seguimos el onboarding
+  // donde haya quedado (paso 2) o, si ya tiene agente, vamos directo a la Home.
   useEffect(() => {
-    if (status === "authenticated") router.replace("/contanos");
+    if (status !== "authenticated") return;
+    const ctrl = new AbortController();
+    apiFetch("/agents/me", { signal: ctrl.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((agent) => router.replace(agent ? "/inicio" : "/contanos"))
+      .catch(() => {
+        if (!ctrl.signal.aborted) router.replace("/contanos");
+      });
+    return () => ctrl.abort();
   }, [status, router]);
 
   /**

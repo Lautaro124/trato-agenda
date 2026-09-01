@@ -1,6 +1,7 @@
 import { Controller, Get, HttpCode, HttpStatus, Post, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { CookieOptions, Response } from 'express';
+import { AgentsService } from '../agents/agents.service.js';
 import { AuthService } from './auth.service.js';
 import { aUsuarioPublico, type UsuarioPublico } from './auth.types.js';
 import { CurrentUser } from './current-user.decorator.js';
@@ -15,6 +16,7 @@ const SIETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000;
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly agentsService: AgentsService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -32,8 +34,11 @@ export class AuthController {
   ): Promise<void> {
     const token = await this.authService.issueSessionToken(user);
     res.cookie(this.cookieName, token, { ...this.cookieOptions, maxAge: SIETE_DIAS_MS });
-    // Post-login el usuario sigue con el paso 2 del onboarding: contar qué quiere agendar.
-    res.redirect(`${this.config.get('FRONTEND_URL', { infer: true })}/contanos`);
+
+    // Si ya tiene un agente generado, no repite el onboarding: va directo a su Home.
+    const yaTieneAgente = (await this.agentsService.findByUserId(user.id)) !== null;
+    const frontendUrl = this.config.get('FRONTEND_URL', { infer: true });
+    res.redirect(`${frontendUrl}${yaTieneAgente ? '/inicio' : '/contanos'}`);
   }
 
   @Get('me')

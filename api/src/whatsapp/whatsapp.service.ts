@@ -13,7 +13,7 @@ import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
-import type { LinkEvent } from './whatsapp.types.js';
+import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
 /** Falla recuperable de red, no una desvinculación: reintentamos con backoff. */
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -94,6 +94,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     this.reconnectAttempts.delete(userId);
     await this.connect(userId);
+  }
+
+  /** Estado de vinculación fuera del SSE, para el badge del header. */
+  async status(userId: string): Promise<WhatsappStatus> {
+    const session = await this.prisma.whatsappSession.findUnique({ where: { userId } });
+    return { linked: session?.registered ?? false, phoneNumber: session?.phoneNumber ?? null };
   }
 
   /** Cierra la sesión y borra las credenciales guardadas. */
