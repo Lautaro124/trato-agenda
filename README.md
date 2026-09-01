@@ -36,6 +36,8 @@ alguna, la API no arranca: la validación está en `api/src/config/env.ts`.
 | `SESSION_COOKIE_NAME` | Nombre de la cookie de sesión. Por defecto `trato_session`. |
 | `PORT` | Puerto de la API. Por defecto `4000`. |
 | `NODE_ENV` | `development` o `production`. |
+| `OPENROUTER_API_KEY` | Clave de [OpenRouter](https://openrouter.ai/), usada para generar la config del agente y para la conversación por WhatsApp. Sin ella la API arranca igual, pero esas dos funciones fallan con un error claro. |
+| `OPENROUTER_MODEL` | Modelo de OpenRouter a usar (formato `proveedor/modelo`, ej. `openai/gpt-4o-mini`). Por defecto `openai/gpt-4o-mini`. Elegir uno barato que soporte tool calling. |
 
 El frontend solo necesita `NEXT_PUBLIC_API_URL`, que `docker-compose.yml` ya
 define como `http://localhost:4000`.
