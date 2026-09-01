@@ -8,3 +8,8 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${API_URL}${path}`, { ...init, credentials: "include" });
 }
+
+/** URL completa para un EventSource: la cookie de sesión viaja con `withCredentials: true`. */
+export function sseUrl(path: string): string {
+  return `${API_URL}${path}`;
+}

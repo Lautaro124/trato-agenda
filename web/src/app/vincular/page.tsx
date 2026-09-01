@@ -8,21 +8,18 @@ import {
   ExpiredCard,
 } from "@/components/LinkStateCards";
 import { QrCode } from "@/components/QrCode";
-import { DemoStateSwitcher } from "@/components/DemoStateSwitcher";
 import { SessionChip } from "@/components/SessionChip";
 import { Button } from "@/components/ui/Button";
+import { apiFetch, sseUrl } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
 
 export type LinkState = "active" | "connecting" | "connected" | "expired" | "error";
 
-/** El código de vinculación dura un minuto, como dice el diseño. */
-const TTL_SECONDS = 60;
-
-/**
- * Placeholder: el número real va a salir de la vinculación de WhatsApp, que
- * todavía no tiene backend. No se deriva del usuario de Google.
- */
-const TELEFONO_DEMO = "+54 9 11 5555-1234";
+type LinkEvent = {
+  state: LinkState;
+  qr?: string;
+  phoneNumber?: string;
+};
 
 const STEPS = [
   <>Abrí WhatsApp en tu teléfono.</>,
@@ -33,43 +30,42 @@ const STEPS = [
   <>Apuntá la cámara al código de la izquierda.</>,
 ];
 
-function newToken() {
-  return `trato-link:${crypto.randomUUID()}`;
-}
-
 export default function VincularPage() {
   const { user, status } = useRequireSession();
   const [state, setState] = useState<LinkState>("active");
-  const [token, setToken] = useState(newToken);
-  const [secondsLeft, setSecondsLeft] = useState(TTL_SECONDS);
+  const [qr, setQr] = useState<string | null>(null);
+  const [phone, setPhone] = useState<string | null>(null);
 
+  const pedirLink = useCallback(
+    () => apiFetch("/whatsapp/link/start", { method: "POST" }),
+    [],
+  );
+
+  /** Para los botones "regenerar"/"reintentar": limpia lo que se ve y pide un QR nuevo. */
   const regenerate = useCallback(() => {
-    setToken(newToken());
-    setSecondsLeft(TTL_SECONDS);
+    setQr(null);
     setState("active");
-  }, []);
+    void pedirLink();
+  }, [pedirLink]);
 
-  // Cuenta regresiva: sólo corre mientras el código está vigente.
+  // Arranca (o resume) la vinculación real y se suscribe al stream de eventos
+  // que la API va empujando: QR nuevos, "conectando", "conectado", etc.
   useEffect(() => {
-    if (state !== "active") return;
-    const id = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          setState("expired");
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [state]);
+    if (status !== "authenticated") return;
 
-  // Vinculación simulada: "conectando" resuelve solo a los 2,5 s.
-  useEffect(() => {
-    if (state !== "connecting") return;
-    const id = setTimeout(() => setState("connected"), 2500);
-    return () => clearTimeout(id);
-  }, [state]);
+    void pedirLink();
+    const source = new EventSource(sseUrl("/whatsapp/link/stream"), {
+      withCredentials: true,
+    });
+    source.onmessage = (event) => {
+      const payload = JSON.parse(event.data) as LinkEvent;
+      setState(payload.state);
+      if (payload.qr) setQr(payload.qr);
+      if (payload.phoneNumber) setPhone(payload.phoneNumber);
+    };
+
+    return () => source.close();
+  }, [status, pedirLink]);
 
   // Mientras la API no conteste quién es, no mostramos el QR: si no hay sesión,
   // useRequireSession ya está redirigiendo a /entrar.
@@ -91,12 +87,18 @@ export default function VincularPage() {
         <div className="flex w-full max-w-[760px] flex-col overflow-hidden rounded-lg border border-line bg-card shadow-md md:flex-row">
           {/* Columna del código */}
           <div className="flex flex-col items-center justify-center gap-4 border-b border-line bg-sunken p-8 md:w-[44%] md:border-r md:border-b-0">
-            <div className="rounded-md bg-white p-3 shadow-sm">
-              <QrCode value={token} size={210} />
+            <div className="grid place-items-center rounded-md bg-white p-3 shadow-sm">
+              {qr ? (
+                <QrCode value={qr} size={210} />
+              ) : (
+                <div className="grid size-[210px] place-items-center">
+                  <span className="text-xs text-muted">Generando código…</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-[7px] text-xs text-muted">
               <span className="size-2 rounded-full bg-accent" />
-              Código activo · se renueva en {secondsLeft} s
+              Código activo · se renueva solo
             </div>
           </div>
 
@@ -123,13 +125,6 @@ export default function VincularPage() {
             <div className="my-6 h-px bg-line" />
 
             <div className="flex items-center gap-3">
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => setState("connecting")}
-              >
-                Vincular con un código
-              </Button>
               <Button variant="ghost" size="md">
                 Ayuda
               </Button>
@@ -143,23 +138,17 @@ export default function VincularPage() {
         </div>
       )}
 
-      {state === "connecting" && <ConnectingCard token={token} />}
+      {state === "connecting" && <ConnectingCard token={qr ?? ""} />}
       {state === "connected" && (
-        // Todavía no existe la pantalla de agenda: el botón reinicia la demo.
-        <ConnectedCard phone={TELEFONO_DEMO} onContinue={regenerate} />
+        // Todavía no existe la pantalla de agenda.
+        <ConnectedCard phone={phone ?? ""} onContinue={regenerate} />
       )}
       {state === "expired" && (
-        <ExpiredCard token={token} onRegenerate={regenerate} />
+        <ExpiredCard token={qr ?? ""} onRegenerate={regenerate} />
       )}
       {state === "error" && (
-        <ErrorCard code="error: link_timeout · 3f9a" onRetry={regenerate} />
+        <ErrorCard code="No pudimos vincular tu WhatsApp" onRetry={regenerate} />
       )}
-
-      <DemoStateSwitcher
-        state={state}
-        onChange={setState}
-        onRegenerate={regenerate}
-      />
     </main>
   );
 }

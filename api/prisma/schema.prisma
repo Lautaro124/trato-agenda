@@ -20,6 +20,31 @@ model User {
   /// Refresh token de Google cifrado con AES-256-GCM. Nunca se expone por la API.
   googleRefreshToken String?
 
+  whatsappSession WhatsappSession?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Sesión de WhatsApp (Baileys) vinculada a un usuario. Un usuario vincula un
+/// único número por ahora, de ahí el 1:1.
+model WhatsappSession {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// { creds, keys } de Baileys serializado con BufferJSON y cifrado entero
+  /// con AES-256-GCM (token-crypto.ts), igual que googleRefreshToken.
+  authState String
+
+  /// Número vinculado (sin '+'), recién disponible cuando abre la conexión.
+  phoneNumber String?
+
+  /// Espejo de creds.registered: si es true, al reiniciar la API se reconecta
+  /// esta sesión sin pedir un QR nuevo.
+  registered Boolean @default(false)
+
+  linkedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
