@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { MobileTabBar } from "@/components/MobileTabBar";
 import { TestChat } from "@/components/TestChat";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
@@ -69,7 +70,7 @@ export default function InicioPage() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="inicio" user={user} />
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 lg:grid-cols-[1fr_420px]">
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 pb-24 md:pb-5 lg:grid-cols-[1fr_420px]">
         {/* Columna de agenda */}
         <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
           <div>
@@ -117,9 +118,13 @@ export default function InicioPage() {
           </div>
         </div>
 
-        {/* Banco de pruebas del agente */}
-        <TestChat />
+        {/* Banco de pruebas del agente: en móvil vive en /chat */}
+        <div className="hidden min-h-0 lg:flex lg:flex-col">
+          <TestChat />
+        </div>
       </main>
+
+      <MobileTabBar active="inicio" />
     </div>
   );
 }

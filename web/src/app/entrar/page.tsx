@@ -45,11 +45,11 @@ export default function EntrarPage() {
   return (
     <main className="flex min-h-dvh flex-col lg:flex-row">
       {/* Panel de marca */}
-      <section className="flex flex-col justify-between gap-10 bg-primary p-12 text-white lg:w-[48%] lg:gap-0">
+      <section className="flex flex-col justify-between gap-10 bg-primary p-6 text-white sm:p-8 lg:w-[48%] lg:gap-0 lg:p-12">
         <Wordmark onColor />
 
         <div>
-          <h1 className="mb-6 font-display text-[34px] leading-[1.08] font-bold tracking-[-0.03em] text-pretty lg:text-[44px]">
+          <h1 className="mb-6 font-display text-[28px] leading-[1.08] font-bold tracking-[-0.03em] text-pretty sm:text-[34px] lg:text-[44px]">
             Coordiná reuniones sin salir del chat.
           </h1>
           <ul className="flex max-w-[400px] flex-col gap-3">
@@ -66,7 +66,7 @@ export default function EntrarPage() {
       </section>
 
       {/* Panel de ingreso */}
-      <section className="grid flex-1 place-items-center bg-card p-8">
+      <section className="grid flex-1 place-items-center bg-card p-6 sm:p-8">
         <div className="w-full max-w-[340px]">
           <h2 className="mb-2 font-display text-2xl font-bold tracking-[-0.02em] text-ink">
             Entrar

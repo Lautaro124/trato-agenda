@@ -48,6 +48,29 @@ export function formatDayNumber(date: Date): string {
   return new Intl.DateTimeFormat("es-AR", { timeZone: TIMEZONE, day: "numeric" }).format(date);
 }
 
+/** Primer día (00:00 Buenos Aires) del mes que contiene `date`. */
+export function firstDayOfMonth(date: Date): Date {
+  const [anio, mes] = isoDate(date).split("-");
+  return new Date(`${anio}-${mes}-01T00:00:00-03:00`);
+}
+
+/** Primer día del mes, `meses` meses antes/después del mes de `date`. */
+export function addMonths(date: Date, meses: number): Date {
+  const [anio, mes] = isoDate(firstDayOfMonth(date)).split("-").map(Number);
+  const total = mes - 1 + meses;
+  const nuevoAnio = anio + Math.floor(total / 12);
+  const nuevoMes = ((total % 12) + 12) % 12;
+  return new Date(`${nuevoAnio}-${String(nuevoMes + 1).padStart(2, "0")}-01T00:00:00-03:00`);
+}
+
+/** "Martes 1", para el header de la vista de un solo día. */
+export function formatDayLabel(date: Date): string {
+  const texto = new Intl.DateTimeFormat("es-AR", { timeZone: TIMEZONE, weekday: "long", day: "numeric" }).format(
+    date,
+  );
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
 /** Hora HH:MM (Buenos Aires) de un ISO, para las etiquetas de la columna izquierda. */
 export function formatHourLabel(hora: number): string {
   return `${String(hora).padStart(2, "0")}:00`;

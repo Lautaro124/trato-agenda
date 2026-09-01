@@ -63,7 +63,7 @@ export function TestChat() {
   }
 
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-line bg-card shadow-md">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-card shadow-md">
       <div className="flex flex-none items-center gap-3 border-b border-line p-4">
         <span className="grid size-[34px] flex-none place-items-center rounded-full bg-primary font-display text-sm font-bold text-primary-on">
           T

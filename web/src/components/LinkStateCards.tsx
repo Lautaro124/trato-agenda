@@ -14,7 +14,7 @@ function QrFrame({ children }: { children: React.ReactNode }) {
 
 function StateCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-[400px] w-[300px] max-w-full flex-col items-center justify-center gap-4 rounded-lg border border-line bg-card p-6 text-center shadow-md">
+    <div className="flex h-[400px] w-full max-w-[300px] flex-col items-center justify-center gap-4 rounded-lg border border-line bg-card p-6 text-center shadow-md">
       {children}
     </div>
   );

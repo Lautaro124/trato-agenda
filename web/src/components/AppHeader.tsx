@@ -8,7 +8,7 @@ import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
 import { iniciales, useSession, type Usuario } from "@/lib/session";
 
-type Tab = "inicio" | "vinculacion" | "calendario";
+type Tab = "inicio" | "vinculacion" | "calendario" | "chat";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 
@@ -36,7 +36,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
     <header className="flex h-[60px] flex-none items-center gap-4 border-b border-line bg-card px-5">
       <Wordmark size={19} />
 
-      <nav className="ml-4 flex gap-0.5">
+      <nav className="ml-4 hidden gap-0.5 md:flex">
         <Link
           href="/inicio"
           className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "inicio" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}

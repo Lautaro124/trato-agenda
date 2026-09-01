@@ -105,7 +105,7 @@ export default function ContanosPage() {
 
       <div className="flex w-full max-w-[860px] flex-col overflow-hidden rounded-lg border border-line bg-card shadow-md md:flex-row">
         {/* Columna del tipo de uso */}
-        <div className="flex flex-col gap-4 border-b border-line bg-sunken p-6 md:w-[38%] md:border-r md:border-b-0">
+        <div className="flex flex-col gap-4 border-b border-line bg-sunken p-4 sm:p-6 md:w-[38%] md:border-r md:border-b-0">
           <Badge tone="primary">Paso 2 de 3</Badge>
           <div>
             <h2 className="mb-2 font-display text-xl font-bold tracking-[-0.02em] text-ink">
@@ -140,7 +140,7 @@ export default function ContanosPage() {
         </div>
 
         {/* Columna de la descripción */}
-        <div className="flex-1 p-6">
+        <div className="flex-1 p-4 sm:p-6">
           <h1 className="mb-2 font-display text-2xl leading-[1.18] font-bold tracking-[-0.02em] text-ink text-pretty">
             Contanos qué querés agendar
           </h1>

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
 import { SessionProvider } from "@/lib/session";
 import "./globals.css";
@@ -19,6 +19,13 @@ export const metadata: Metadata = {
   title: "Trato Agenda",
   description:
     "Entrá con Google y el bot coordina tus reuniones desde WhatsApp: las crea, las mueve y te avisa.",
+};
+
+// viewport-fit=cover habilita env(safe-area-inset-*) para la barra inferior móvil.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

@@ -83,11 +83,11 @@ export default function VincularPage() {
     <div className="flex min-h-dvh flex-col">
       {state === "active" && <AppHeader active="vinculacion" user={user} />}
 
-      <main className="grid flex-1 place-items-center bg-page p-6">
+      <main className="grid flex-1 place-items-center bg-page p-4 md:p-6">
         {state === "active" && (
           <div className="flex w-full max-w-[760px] flex-col overflow-hidden rounded-lg border border-line bg-card shadow-md md:flex-row">
             {/* Columna del código */}
-            <div className="flex flex-col items-center justify-center gap-4 border-b border-line bg-sunken p-8 md:w-[44%] md:border-r md:border-b-0">
+            <div className="flex flex-col items-center justify-center gap-4 border-b border-line bg-sunken p-6 md:w-[44%] md:border-r md:border-b-0 md:p-8">
               <div className="grid place-items-center rounded-md bg-white p-3 shadow-sm">
                 {qr ? (
                   <QrCode value={qr} size={210} />
@@ -104,7 +104,7 @@ export default function VincularPage() {
             </div>
 
             {/* Columna de instrucciones */}
-            <div className="flex-1 p-8">
+            <div className="flex-1 p-6 md:p-8">
               <h1 className="mb-2 font-display text-2xl leading-[1.2] font-bold tracking-[-0.02em] text-ink">
                 Vinculá tu WhatsApp
               </h1>
