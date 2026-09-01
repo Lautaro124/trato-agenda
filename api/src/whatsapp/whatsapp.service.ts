@@ -1,9 +1,16 @@
 import { Injectable, Logger, type MessageEvent, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import makeWASocket, { Browsers, DisconnectReason, type WASocket } from '@whiskeysockets/baileys';
+import makeWASocket, {
+  Browsers,
+  DisconnectReason,
+  isJidGroup,
+  type WAMessage,
+  type WASocket,
+} from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { Observable, ReplaySubject, map } from 'rxjs';
 import type { Env } from '../config/env.js';
+import { ConversationService } from '../conversation/conversation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent } from './whatsapp.types.js';
@@ -33,6 +40,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
+    private readonly conversationService: ConversationService,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
@@ -117,6 +125,35 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.qrMostrado.delete(userId);
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', (update) => this.handleConnectionUpdate(userId, update));
+    sock.ev.on('messages.upsert', (upsert) => {
+      this.handleMessagesUpsert(userId, sock, upsert).catch((error: unknown) =>
+        this.logger.error(`Fallo procesando mensajes entrantes de ${userId}`, error as Error),
+      );
+    });
+  }
+
+  /**
+   * Mensajes entrantes de clientes del negocio (no del dueño): los pasamos al
+   * agente conversacional y mandamos su respuesta. Sólo chats 1:1 en vivo —
+   * se ignoran grupos, mensajes propios y el historial que llega al conectar.
+   */
+  private async handleMessagesUpsert(
+    userId: string,
+    sock: WASocket,
+    upsert: { messages: WAMessage[]; type: string },
+  ): Promise<void> {
+    if (upsert.type !== 'notify') return;
+
+    for (const mensaje of upsert.messages) {
+      const remoteJid = mensaje.key.remoteJid;
+      if (!remoteJid || mensaje.key.fromMe || isJidGroup(remoteJid)) continue;
+
+      const texto = mensaje.message?.conversation ?? mensaje.message?.extendedTextMessage?.text;
+      if (!texto) continue;
+
+      const respuesta = await this.conversationService.handleIncoming(userId, remoteJid, texto);
+      await sock.sendMessage(remoteJid, { text: respuesta });
+    }
   }
 
   private handleConnectionUpdate(

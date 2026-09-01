@@ -11,6 +11,8 @@ export type Env = {
   TOKEN_ENCRYPTION_KEY: string;
   FRONTEND_URL: string;
   SESSION_COOKIE_NAME: string;
+  OPENROUTER_API_KEY: string;
+  OPENROUTER_MODEL: string;
 };
 
 const REQUIRED = [
@@ -21,6 +23,10 @@ const REQUIRED = [
   'JWT_SECRET',
   'TOKEN_ENCRYPTION_KEY',
 ] as const;
+// OPENROUTER_API_KEY no está en REQUIRED a propósito: sin ella la API arranca
+// igual (login y vinculación de WhatsApp no la necesitan), pero
+// OpenRouterClient falla con un error claro apenas se intenta generar un
+// agente o procesar un mensaje.
 
 /**
  * Validación de entorno: mejor romper al arrancar que descubrir a mitad
@@ -57,5 +63,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     TOKEN_ENCRYPTION_KEY: claveHex,
     FRONTEND_URL: String(raw.FRONTEND_URL ?? 'http://localhost:3000'),
     SESSION_COOKIE_NAME: String(raw.SESSION_COOKIE_NAME ?? 'trato_session'),
+    OPENROUTER_API_KEY: String(raw.OPENROUTER_API_KEY ?? ''),
+    OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'openai/gpt-4o-mini'),
   };
 }

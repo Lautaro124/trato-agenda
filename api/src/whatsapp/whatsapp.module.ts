@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
+import { ConversationModule } from '../conversation/conversation.module.js';
 import { WhatsappController } from './whatsapp.controller.js';
 import { WhatsappService } from './whatsapp.service.js';
 
 @Module({
   // JwtAuthGuard (AuthGuard('jwt')) necesita AuthModuleOptions de PassportModule
   // en el árbol de DI de este módulo, igual que en AuthModule.
-  imports: [PassportModule.register({ session: false })],
+  imports: [PassportModule.register({ session: false }), ConversationModule],
   controllers: [WhatsappController],
   providers: [WhatsappService],
 })

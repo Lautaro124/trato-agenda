@@ -2,6 +2,7 @@ import type { ConfigService } from '@nestjs/config';
 import { DisconnectReason } from '@whiskeysockets/baileys';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
+import type { ConversationService } from '../conversation/conversation.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { WhatsappService } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
@@ -18,7 +19,8 @@ function crearServicio() {
     get: (clave: string) => (clave === 'NODE_ENV' ? 'test' : 'clave-de-prueba'),
   } as unknown as ConfigService<Env, true>;
 
-  const service = new WhatsappService(prisma, config);
+  const conversationService = { handleIncoming: vi.fn() } as unknown as ConversationService;
+  const service = new WhatsappService(prisma, config, conversationService);
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
 

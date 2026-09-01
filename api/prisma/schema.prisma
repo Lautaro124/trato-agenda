@@ -21,6 +21,8 @@ model User {
   googleRefreshToken String?
 
   whatsappSession WhatsappSession?
+  agent           Agent?
+  conversaciones  Conversation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -47,4 +49,84 @@ model WhatsappSession {
   linkedAt  DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+}
+
+/// Config del agente personalizado de un usuario, generada por el meta-agente
+/// (api/src/agents) a partir del tipo de uso + descripción que carga en
+/// /contanos. Un usuario tiene un único agente; volver a generar lo pisa.
+model Agent {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "comercio" | "consultorio" | "reuniones" | "visitas" | "personal" | "otro"
+  tipoUso     String
+  descripcion String
+
+  /// System prompt generado, usado por el runtime conversacional (api/src/conversation).
+  systemPrompt String
+
+  /// Subconjunto de agent-catalog.ts que el agente tiene habilitado.
+  allowedActions String[]
+
+  /// Modelo de OpenRouter usado para generar esta config.
+  model String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Conversación de WhatsApp entre un cliente (remoteJid) y el agente de un
+/// usuario (dueño del número vinculado).
+model Conversation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// JID de Baileys del cliente que escribe, ej "5491122334455@s.whatsapp.net".
+  remoteJid String
+
+  messages Message[]
+  turnos   Turno[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, remoteJid])
+}
+
+/// Un mensaje del historial de una Conversation, en el shape que espera
+/// OpenRouter (compatible OpenAI): { content } | { tool_calls } |
+/// { tool_call_id, content }. Se guarda tal cual para no tener que
+/// transformar nada al reconstruir el historial de cada turno del loop.
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  /// "user" | "assistant" | "tool"
+  role    String
+  content Json
+
+  createdAt DateTime @default(now())
+}
+
+/// Turno agendado (o cancelado) en Google Calendar a partir de una
+/// Conversation. Permite que cancelar_turno/reprogramar_turno operen sobre
+/// "el turno activo más reciente de esta conversación" sin que el modelo
+/// tenga que manejar ids de Google Calendar.
+model Turno {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  googleEventId String
+  inicio        DateTime
+  fin           DateTime
+
+  /// "confirmado" | "cancelado"
+  estado String @default("confirmado")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
