@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { encryptToken } from '../auth/token-crypto.js';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
+import type { PrismaService } from '../prisma/prisma.service.js';
 
 const { freebusyQuery, eventsInsert, eventsDelete, eventsPatch, eventsList, oauth2SetCredentials } =
   vi.hoisted(() => ({
@@ -47,6 +48,10 @@ function usuarioConToken(): Pick<User, 'googleRefreshToken'> {
   return { googleRefreshToken: encryptToken('1//refresh-de-prueba', CLAVE) };
 }
 
+function crearPrisma(): PrismaService {
+  return { turno: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) } } as unknown as PrismaService;
+}
+
 describe('CalendarService', () => {
   beforeEach(() => {
     freebusyQuery.mockReset();
@@ -57,7 +62,7 @@ describe('CalendarService', () => {
   });
 
   it('tira CalendarUnavailableError si el usuario no tiene refresh token', async () => {
-    const service = new CalendarService(crearConfig());
+    const service = new CalendarService(crearConfig(), crearPrisma());
 
     await expect(
       service.freeBusy({ googleRefreshToken: null }, new Date(), new Date()),
@@ -73,7 +78,7 @@ describe('CalendarService', () => {
         },
       },
     });
-    const service = new CalendarService(crearConfig());
+    const service = new CalendarService(crearConfig(), crearPrisma());
 
     const ocupados = await service.freeBusy(usuarioConToken(), new Date(), new Date());
 
@@ -84,7 +89,7 @@ describe('CalendarService', () => {
 
   it('crearEvento devuelve el id del evento creado', async () => {
     eventsInsert.mockResolvedValue({ data: { id: 'evento-123' } });
-    const service = new CalendarService(crearConfig());
+    const service = new CalendarService(crearConfig(), crearPrisma());
 
     const id = await service.crearEvento(usuarioConToken(), {
       resumen: 'Corte de pelo',
@@ -100,7 +105,7 @@ describe('CalendarService', () => {
 
   it('crearEvento traduce un error de la API a CalendarUnavailableError', async () => {
     eventsInsert.mockRejectedValue(new Error('403 forbidden'));
-    const service = new CalendarService(crearConfig());
+    const service = new CalendarService(crearConfig(), crearPrisma());
 
     await expect(
       service.crearEvento(usuarioConToken(), {
@@ -113,7 +118,7 @@ describe('CalendarService', () => {
 
   it('cancelarEvento llama a events.delete con el eventId', async () => {
     eventsDelete.mockResolvedValue({});
-    const service = new CalendarService(crearConfig());
+    const service = new CalendarService(crearConfig(), crearPrisma());
 
     await service.cancelarEvento(usuarioConToken(), 'evento-123');
 
@@ -122,7 +127,7 @@ describe('CalendarService', () => {
 
   it('reprogramarEvento llama a events.patch con el nuevo horario', async () => {
     eventsPatch.mockResolvedValue({});
-    const service = new CalendarService(crearConfig());
+    const service = new CalendarService(crearConfig(), crearPrisma());
     const inicio = new Date('2026-09-02T10:00:00Z');
     const fin = new Date('2026-09-02T10:30:00Z');
 
@@ -139,6 +144,52 @@ describe('CalendarService', () => {
     );
   });
 
+  it('eliminarEventoDesdeAgenda borra el evento y marca cancelado el Turno si existe', async () => {
+    eventsDelete.mockResolvedValue({});
+    const prisma = crearPrisma();
+    const service = new CalendarService(crearConfig(), prisma);
+
+    await service.eliminarEventoDesdeAgenda(usuarioConToken(), 'user-1', 'evento-123');
+
+    expect(eventsDelete).toHaveBeenCalledWith({ calendarId: 'primary', eventId: 'evento-123' });
+    expect(prisma.turno.updateMany).toHaveBeenCalledWith({
+      where: { googleEventId: 'evento-123', conversation: { userId: 'user-1' }, estado: 'confirmado' },
+      data: { estado: 'cancelado' },
+    });
+  });
+
+  it('editarEventoDesdeAgenda patchea el evento y actualiza el Turno cuando cambia inicio/fin', async () => {
+    eventsPatch.mockResolvedValue({});
+    const prisma = crearPrisma();
+    const service = new CalendarService(crearConfig(), prisma);
+    const inicio = new Date('2026-09-03T10:00:00Z');
+    const fin = new Date('2026-09-03T10:30:00Z');
+
+    await service.editarEventoDesdeAgenda(usuarioConToken(), 'user-1', 'evento-123', { inicio, fin, resumen: 'Nuevo título' });
+
+    expect(eventsPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calendarId: 'primary',
+        eventId: 'evento-123',
+        requestBody: expect.objectContaining({ summary: 'Nuevo título' }),
+      }),
+    );
+    expect(prisma.turno.updateMany).toHaveBeenCalledWith({
+      where: { googleEventId: 'evento-123', conversation: { userId: 'user-1' } },
+      data: { inicio, fin },
+    });
+  });
+
+  it('editarEventoDesdeAgenda no toca el Turno si sólo cambia el título', async () => {
+    eventsPatch.mockResolvedValue({});
+    const prisma = crearPrisma();
+    const service = new CalendarService(crearConfig(), prisma);
+
+    await service.editarEventoDesdeAgenda(usuarioConToken(), 'user-1', 'evento-123', { resumen: 'Sólo título' });
+
+    expect(prisma.turno.updateMany).not.toHaveBeenCalled();
+  });
+
   it('listarProximos mapea los eventos con start/end dateTime', async () => {
     eventsList.mockResolvedValue({
       data: {
@@ -152,7 +203,7 @@ describe('CalendarService', () => {
         ],
       },
     });
-    const service = new CalendarService(crearConfig());
+    const service = new CalendarService(crearConfig(), crearPrisma());
 
     const eventos = await service.listarProximos(usuarioConToken(), new Date(), new Date());
 

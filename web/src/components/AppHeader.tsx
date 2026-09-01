@@ -8,7 +8,7 @@ import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
 import { iniciales, useSession, type Usuario } from "@/lib/session";
 
-type Tab = "inicio" | "vinculacion";
+type Tab = "inicio" | "vinculacion" | "calendario";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 
@@ -43,9 +43,12 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
         >
           Inicio
         </Link>
-        <span className={`rounded-sm px-3 py-1.5 text-[13.5px] ${TAB_CLASSES.disabled}`}>
+        <Link
+          href="/calendario"
+          className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "calendario" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
+        >
           Calendario
-        </span>
+        </Link>
         <Link
           href="/vincular"
           className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "vinculacion" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}

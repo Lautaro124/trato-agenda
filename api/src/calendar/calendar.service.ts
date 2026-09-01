@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { CalendarUnavailableError, getCalendarClient } from './google-calendar.client.js';
 
 /** Zona horaria fija — el proyecto no soporta todavía timezone por usuario. */
@@ -26,7 +27,10 @@ function traducirError(error: unknown): CalendarUnavailableError {
  */
 @Injectable()
 export class CalendarService {
-  constructor(private readonly config: ConfigService<Env, true>) {}
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async freeBusy(
     user: Pick<User, 'googleRefreshToken'>,
@@ -86,7 +90,7 @@ export class CalendarService {
   async reprogramarEvento(
     user: Pick<User, 'googleRefreshToken'>,
     googleEventId: string,
-    datos: Pick<DatosEvento, 'inicio' | 'fin'>,
+    datos: Partial<Pick<DatosEvento, 'resumen' | 'inicio' | 'fin'>>,
   ): Promise<void> {
     const calendar = getCalendarClient(user, this.config);
     try {
@@ -94,12 +98,47 @@ export class CalendarService {
         calendarId: CALENDAR_ID,
         eventId: googleEventId,
         requestBody: {
-          start: { dateTime: datos.inicio.toISOString(), timeZone: TIMEZONE },
-          end: { dateTime: datos.fin.toISOString(), timeZone: TIMEZONE },
+          ...(datos.resumen !== undefined ? { summary: datos.resumen } : {}),
+          ...(datos.inicio ? { start: { dateTime: datos.inicio.toISOString(), timeZone: TIMEZONE } } : {}),
+          ...(datos.fin ? { end: { dateTime: datos.fin.toISOString(), timeZone: TIMEZONE } } : {}),
         },
       });
     } catch (error) {
       throw traducirError(error);
+    }
+  }
+
+  /**
+   * Elimina un evento desde la vista web del calendario (a diferencia de
+   * `cancelarEvento`, que usa el agente para el turno vigente de una
+   * conversación puntual). Si el evento corresponde a un Turno agendado por
+   * el agente, lo marca cancelado para no desincronizar el tracking.
+   */
+  async eliminarEventoDesdeAgenda(
+    user: Pick<User, 'googleRefreshToken'>,
+    userId: string,
+    googleEventId: string,
+  ): Promise<void> {
+    await this.cancelarEvento(user, googleEventId);
+    await this.prisma.turno.updateMany({
+      where: { googleEventId, conversation: { userId }, estado: 'confirmado' },
+      data: { estado: 'cancelado' },
+    });
+  }
+
+  /** Análogo a eliminarEventoDesdeAgenda pero para editar horario y/o título. */
+  async editarEventoDesdeAgenda(
+    user: Pick<User, 'googleRefreshToken'>,
+    userId: string,
+    googleEventId: string,
+    datos: Partial<Pick<DatosEvento, 'resumen' | 'inicio' | 'fin'>>,
+  ): Promise<void> {
+    await this.reprogramarEvento(user, googleEventId, datos);
+    if (datos.inicio && datos.fin) {
+      await this.prisma.turno.updateMany({
+        where: { googleEventId, conversation: { userId } },
+        data: { inicio: datos.inicio, fin: datos.fin },
+      });
     }
   }
 
@@ -126,5 +165,19 @@ export class CalendarService {
     } catch (error) {
       throw traducirError(error);
     }
+  }
+
+  /** Ids de evento de Google que corresponden a turnos agendados por el agente (no cancelados). */
+  async listarTurnosAgendados(userId: string, desde: Date, hasta: Date): Promise<Set<string>> {
+    const turnos = await this.prisma.turno.findMany({
+      where: {
+        conversation: { userId },
+        estado: 'confirmado',
+        inicio: { lt: hasta },
+        fin: { gt: desde },
+      },
+      select: { googleEventId: true },
+    });
+    return new Set(turnos.map((turno) => turno.googleEventId));
   }
 }
