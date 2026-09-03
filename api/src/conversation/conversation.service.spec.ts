@@ -24,6 +24,16 @@ function crearPrisma() {
 
 const USUARIO = { id: 'user-1', googleRefreshToken: 'cifrado' };
 
+/** Config de agenda que el runtime lee de la fila Agent (franja, tipos, nombres). */
+const AGENDA = {
+  tipoTitular: 'negocio',
+  nombreTitular: 'Tienda Centro',
+  nombreBot: 'Tati',
+  horaDesde: '09:00',
+  horaHasta: '18:00',
+  tiposEvento: [{ nombre: 'Corte de pelo', duracionMin: 30 }],
+};
+
 describe('ConversationService.handleIncoming', () => {
   it('sin Agent configurado, responde sin llamar a OpenRouter ni crear conversación', async () => {
     const prisma = crearPrisma();
@@ -46,6 +56,7 @@ describe('ConversationService.handleIncoming', () => {
     const prisma = crearPrisma();
     (prisma.agent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'agent-1',
+      ...AGENDA,
       allowedActions: [],
       systemPrompt: 'Sos el agente de una tienda.',
       user: USUARIO,
@@ -71,6 +82,7 @@ describe('ConversationService.handleIncoming', () => {
     const prisma = crearPrisma();
     (prisma.agent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'agent-1',
+      ...AGENDA,
       allowedActions: ['crear_turno'],
       systemPrompt: 'Sos el agente de una tienda.',
       user: USUARIO,
@@ -87,6 +99,7 @@ describe('ConversationService.handleIncoming', () => {
             function: {
               name: 'crear_turno',
               arguments: JSON.stringify({
+                nombreCliente: 'Juan',
                 resumen: 'Corte de pelo',
                 inicio: '2026-09-01T10:00:00-03:00',
                 fin: '2026-09-01T10:30:00-03:00',
@@ -111,10 +124,16 @@ describe('ConversationService.handleIncoming', () => {
     expect(chat).toHaveBeenCalledTimes(3); // tool call + respuesta final + actualización de resumen
     expect(calendarService.crearEvento).toHaveBeenCalledWith(
       USUARIO,
-      expect.objectContaining({ resumen: 'Corte de pelo' }),
+      expect.objectContaining({ resumen: 'Corte de pelo - Juan' }),
     );
     expect(prisma.turno.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ conversationId: 'conv-1', googleEventId: 'evento-abc' }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          conversationId: 'conv-1',
+          googleEventId: 'evento-abc',
+          nombreCliente: 'Juan',
+        }),
+      }),
     );
   });
 
@@ -122,6 +141,7 @@ describe('ConversationService.handleIncoming', () => {
     const prisma = crearPrisma();
     (prisma.agent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'agent-1',
+      ...AGENDA,
       allowedActions: ['crear_turno'],
       systemPrompt: 'Sos el agente de una tienda.',
       user: USUARIO,
@@ -138,6 +158,7 @@ describe('ConversationService.handleIncoming', () => {
             function: {
               name: 'crear_turno',
               arguments: JSON.stringify({
+                nombreCliente: 'Juan',
                 resumen: 'Corte de pelo',
                 inicio: '2026-09-01T10:00:00-03:00',
                 fin: '2026-09-01T10:30:00-03:00',
@@ -167,6 +188,7 @@ describe('ConversationService.handleIncoming', () => {
     const prisma = crearPrisma();
     (prisma.agent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'agent-1',
+      ...AGENDA,
       allowedActions: [], // el catálogo no incluye estas herramientas: no dependen de allowedActions
       systemPrompt: 'Sos el agente de una tienda.',
       user: USUARIO,
@@ -223,6 +245,7 @@ describe('ConversationService.handleIncoming', () => {
     const prisma = crearPrisma();
     (prisma.agent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'agent-1',
+      ...AGENDA,
       allowedActions: ['crear_turno'],
       systemPrompt: 'Sos el agente de una tienda.',
       user: USUARIO,

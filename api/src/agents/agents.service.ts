@@ -1,7 +1,7 @@
-import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
-import type { Agent } from '../generated/prisma/client.js';
+import { Prisma, type Agent } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ACCIONES_DISPONIBLES, ACCIONES_IDS, esAccionValida } from './agent-catalog.js';
 import type { GenerateAgentDto } from './agents.types.js';
@@ -22,7 +22,14 @@ ${CATALOGO_TEXTO}
 El "systemPrompt" que generes es el que va a usar el agente conversacional en runtime. Tiene que:
 - Estar en español rioplatense (voseo), tono profesional y amable.
 - Explicar el contexto del negocio/persona según la descripción dada.
-- Instruir a preguntar por los datos que falten (día, horario, con quién) antes de agendar.
+- Hacer que el agente se presente con el nombre de asistente que te pasan, como asistente del
+  titular ("Hola, soy <nombreBot>, el asistente de <nombreTitular>").
+- Instruir a preguntar por los datos que falten (día, horario, tipo de turno) antes de agendar.
+- Instruir a preguntar SIEMPRE el nombre de la persona antes de agendar un turno, salvo que ya
+  se lo hayan dicho antes en la conversación.
+- Instruir a no ofrecer nunca horarios fuera de la franja horaria de atención que te pasan.
+- Instruir a no superponer turnos y a dejar al menos 5 minutos libres entre un turno y el
+  siguiente.
 - Instruir a usar las herramientas disponibles para consultar disponibilidad antes de ofrecer un
   horario, y para agendar/cancelar/reprogramar sólo cuando el cliente confirmó.
 - No prometer nada que las acciones habilitadas no puedan cumplir.
@@ -32,6 +39,28 @@ Respondé ÚNICAMENTE un JSON con esta forma exacta, sin texto extra:
 
 /** Se lanza cuando OpenRouter no devuelve una config con la forma esperada, ni tras el retry. */
 export class GeneracionInvalidaError extends Error {}
+
+function listarTiposEvento(dto: GenerateAgentDto): string {
+  return dto.tiposEvento
+    .map((tipo) => `${tipo.nombre.trim()} (${tipo.duracionMin} min)`)
+    .join(', ');
+}
+
+/**
+ * Arma la descripción que antes escribía el usuario a mano en el textarea de
+ * /contanos, ahora a partir de los cinco datos del wizard. Es lo que ve el
+ * meta-agente y lo que queda persistido en `Agent.descripcion`.
+ */
+export function construirDescripcion(dto: GenerateAgentDto): string {
+  const titular = dto.nombreTitular.trim();
+  const quien = dto.tipoTitular === 'persona' ? 'Persona' : 'Negocio';
+  return (
+    `${quien}: ${titular} (${dto.tipoUso}). ` +
+    `Tipos de turno: ${listarTiposEvento(dto)}. ` +
+    `Atiende de ${dto.horaDesde} a ${dto.horaHasta}. ` +
+    `El asistente se llama ${dto.nombreBot.trim()}.`
+  );
+}
 
 @Injectable()
 export class AgentsService {
@@ -48,31 +77,47 @@ export class AgentsService {
   }
 
   async generate(userId: string, dto: GenerateAgentDto): Promise<Agent> {
+    if (dto.horaDesde >= dto.horaHasta) {
+      // Comparar "HH:MM" como strings alcanza: mismo largo y campos de ancho fijo.
+      throw new BadRequestException('La hora de fin tiene que ser posterior a la de inicio.');
+    }
+
     const modelo = this.config.get('OPENROUTER_MODEL', { infer: true });
-    const config = await this.generarConReintento(dto);
+    const descripcion = construirDescripcion(dto);
+    const config = await this.generarConReintento(dto, descripcion);
+
+    const datos = {
+      tipoUso: dto.tipoUso,
+      descripcion,
+      tipoTitular: dto.tipoTitular,
+      nombreTitular: dto.nombreTitular.trim(),
+      nombreBot: dto.nombreBot.trim(),
+      horaDesde: dto.horaDesde,
+      horaHasta: dto.horaHasta,
+      tiposEvento: dto.tiposEvento as unknown as Prisma.InputJsonValue,
+      systemPrompt: config.systemPrompt,
+      allowedActions: config.allowedActions,
+      model: modelo,
+    };
 
     return this.prisma.agent.upsert({
       where: { userId },
-      create: {
-        userId,
-        tipoUso: dto.tipoUso,
-        descripcion: dto.descripcion,
-        systemPrompt: config.systemPrompt,
-        allowedActions: config.allowedActions,
-        model: modelo,
-      },
-      update: {
-        tipoUso: dto.tipoUso,
-        descripcion: dto.descripcion,
-        systemPrompt: config.systemPrompt,
-        allowedActions: config.allowedActions,
-        model: modelo,
-      },
+      create: { userId, ...datos },
+      update: datos,
     });
   }
 
-  private async generarConReintento(dto: GenerateAgentDto): Promise<ConfigGenerada> {
-    const mensajeUsuario = `Tipo de uso: ${dto.tipoUso}\nDescripción: ${dto.descripcion}`;
+  private async generarConReintento(
+    dto: GenerateAgentDto,
+    descripcion: string,
+  ): Promise<ConfigGenerada> {
+    const mensajeUsuario =
+      `Tipo de uso: ${dto.tipoUso}\n` +
+      `Titular (${dto.tipoTitular}): ${dto.nombreTitular.trim()}\n` +
+      `Nombre del asistente: ${dto.nombreBot.trim()}\n` +
+      `Franja horaria de atención: de ${dto.horaDesde} a ${dto.horaHasta}\n` +
+      `Tipos de turno: ${listarTiposEvento(dto)}\n` +
+      `Descripción: ${descripcion}`;
     const messages: ChatMessage[] = [
       { role: 'system', content: META_SYSTEM_PROMPT },
       { role: 'user', content: mensajeUsuario },

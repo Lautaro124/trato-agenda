@@ -2,7 +2,8 @@ import type { ConfigService } from '@nestjs/config';
 import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { AgentsService } from './agents.service.js';
+import { AgentsService, construirDescripcion } from './agents.service.js';
+import type { GenerateAgentDto } from './agents.types.js';
 import type { OpenRouterClient } from './openrouter.client.js';
 
 function crearServicio(chatMock: ReturnType<typeof vi.fn>) {
@@ -19,7 +20,18 @@ function crearServicio(chatMock: ReturnType<typeof vi.fn>) {
   return { service: new AgentsService(prisma, openRouter, config), prisma };
 }
 
-const dto = { tipoUso: 'comercio' as const, descripcion: 'Turnos de 20 minutos para probarse ropa.' };
+const dto: GenerateAgentDto = {
+  tipoTitular: 'negocio',
+  nombreTitular: 'Tienda Centro',
+  tipoUso: 'comercio',
+  tiposEvento: [
+    { nombre: 'Probador', duracionMin: 20 },
+    { nombre: 'Presupuesto', duracionMin: 30 },
+  ],
+  horaDesde: '09:00',
+  horaHasta: '18:00',
+  nombreBot: 'Tati',
+};
 
 describe('AgentsService.generate', () => {
   it('persiste la config cuando OpenRouter devuelve un JSON válido de una', async () => {
@@ -79,5 +91,49 @@ describe('AgentsService.generate', () => {
 
     await expect(service.generate('user-1', dto)).rejects.toThrow();
     expect(prisma.agent.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rechaza una franja horaria invertida sin llamar a OpenRouter', async () => {
+    const chat = vi.fn();
+    const { service, prisma } = crearServicio(chat);
+
+    await expect(
+      service.generate('user-1', { ...dto, horaDesde: '18:00', horaHasta: '09:00' }),
+    ).rejects.toThrow();
+    expect(chat).not.toHaveBeenCalled();
+    expect(prisma.agent.upsert).not.toHaveBeenCalled();
+  });
+
+  it('persiste los campos del wizard y una descripción derivada de ellos', async () => {
+    const chat = vi.fn().mockResolvedValue({
+      content: JSON.stringify({ systemPrompt: 'ok', allowedActions: ['crear_turno'] }),
+    });
+    const { service, prisma } = crearServicio(chat);
+
+    await service.generate('user-1', dto);
+
+    expect(prisma.agent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          tipoTitular: 'negocio',
+          nombreTitular: 'Tienda Centro',
+          nombreBot: 'Tati',
+          horaDesde: '09:00',
+          horaHasta: '18:00',
+          tiposEvento: dto.tiposEvento,
+        }),
+      }),
+    );
+  });
+});
+
+describe('construirDescripcion', () => {
+  it('incluye titular, tipos de evento con su duración y la franja horaria', () => {
+    const descripcion = construirDescripcion(dto);
+
+    expect(descripcion).toContain('Tienda Centro');
+    expect(descripcion).toContain('Probador (20 min)');
+    expect(descripcion).toContain('Presupuesto (30 min)');
+    expect(descripcion).toContain('de 09:00 a 18:00');
   });
 });

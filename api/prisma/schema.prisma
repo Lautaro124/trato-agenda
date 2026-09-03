@@ -52,16 +52,36 @@ model WhatsappSession {
 }
 
 /// Config del agente personalizado de un usuario, generada por el meta-agente
-/// (api/src/agents) a partir del tipo de uso + descripción que carga en
-/// /contanos. Un usuario tiene un único agente; volver a generar lo pisa.
+/// (api/src/agents) a partir de los cinco datos que carga en /contanos. Un
+/// usuario tiene un único agente; volver a generar lo pisa.
 model Agent {
   id     String @id @default(cuid())
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// "comercio" | "consultorio" | "reuniones" | "visitas" | "personal" | "otro"
-  tipoUso     String
+  tipoUso String
+
+  /// Ya no la escribe el usuario: la arma el backend con los campos de abajo
+  /// (construirDescripcion en agents.service.ts) y es lo que ve el meta-agente.
   descripcion String
+
+  /// "persona" | "negocio" — define cómo se presenta el asistente.
+  tipoTitular String @default("negocio")
+
+  /// Nombre de la persona o del negocio que atiende.
+  nombreTitular String @default("")
+
+  /// Nombre con el que el asistente saluda por WhatsApp.
+  nombreBot String @default("Tati")
+
+  /// Franja horaria de atención, "HH:MM" en America/Argentina/Buenos_Aires.
+  /// El runtime no agenda nada fuera de esta franja.
+  horaDesde String @default("09:00")
+  horaHasta String @default("18:00")
+
+  /// [{ nombre: string, duracionMin: number }] — tipos de turno que toma.
+  tiposEvento Json @default("[]")
 
   /// System prompt generado, usado por el runtime conversacional (api/src/conversation).
   systemPrompt String
@@ -90,6 +110,10 @@ model Conversation {
   /// agente actualiza tras cada intercambio para "recordarlo" más allá de la
   /// ventana de mensajes recientes que se manda como contexto.
   resumen String?
+
+  /// Nombre del cliente, preguntado una única vez al agendar el primer turno
+  /// y reusado en los siguientes para no volver a pedirlo.
+  nombreCliente String?
 
   messages Message[]
   turnos   Turno[]
@@ -126,6 +150,8 @@ model Turno {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   googleEventId String
+  /// A nombre de quién quedó agendado el turno.
+  nombreCliente String?
   inicio        DateTime
   fin           DateTime
 

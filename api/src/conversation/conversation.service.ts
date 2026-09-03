@@ -1,11 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { esAccionValida } from '../agents/agent-catalog.js';
+import { leerTiposEvento } from '../agents/agents.types.js';
 import { OpenRouterClient, OpenRouterError, type ChatMessage, type ToolCall } from '../agents/openrouter.client.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { CalendarUnavailableError } from '../calendar/google-calendar.client.js';
 import { Prisma, type Agent, type Conversation, type User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { HERRAMIENTAS_PROPIETARIO, TOOLS, type Tool, type ToolPropietario } from './conversation-tools.js';
+import {
+  HERRAMIENTAS_PROPIETARIO,
+  MARGEN_MINIMO_MIN,
+  TOOLS,
+  type Tool,
+  type ToolPropietario,
+} from './conversation-tools.js';
 
 type AgentConUser = Agent & { user: User };
 
@@ -72,7 +79,7 @@ export class ConversationService {
     ];
     const systemMessage: ChatMessage = {
       role: 'system',
-      content: `${agent.systemPrompt}\n\n${this.contextoFijo(conversation, esPropietario)}`,
+      content: `${agent.systemPrompt}\n\n${this.contextoFijo(agent, conversation, esPropietario)}`,
     };
 
     for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
@@ -142,7 +149,13 @@ export class ConversationService {
 
     try {
       return await tool.execute(
-        { user: agent.user, conversationId, calendarService: this.calendarService, prisma: this.prisma },
+        {
+          user: agent.user,
+          agent,
+          conversationId,
+          calendarService: this.calendarService,
+          prisma: this.prisma,
+        },
         args,
       );
     } catch (error) {
@@ -185,7 +198,11 @@ export class ConversationService {
     });
   }
 
-  private contextoFijo(conversation: Conversation, esPropietario: boolean): string {
+  private contextoFijo(
+    agent: Agent,
+    conversation: Conversation,
+    esPropietario: boolean,
+  ): string {
     const ahora = new Intl.DateTimeFormat('es-AR', {
       timeZone: TIMEZONE,
       dateStyle: 'full',
@@ -202,7 +219,9 @@ export class ConversationService {
         `problema de privacidad. Antes de cancelar o editar cualquier evento, SIEMPRE tenés que buscarlo primero ` +
         `con listar_eventos_calendario, mostrarle al dueño de qué evento se trata (fecha, horario y título) en ` +
         `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
-        `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}`
+        `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}` +
+        // Las mismas reglas que con un cliente: crear_turno las aplica igual acá.
+        `\n\n${this.reglasDeAgenda(agent)}`
       );
     }
 
@@ -210,7 +229,36 @@ export class ConversationService {
     const memoria = conversation.resumen
       ? `Ya escribió antes. Resumen de lo que sabés de este cliente: ${conversation.resumen}`
       : 'Primera vez que te escribe este número.';
-    return `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${base}`;
+    const nombre = conversation.nombreCliente
+      ? `Ya sabés que se llama ${conversation.nombreCliente}: no se lo vuelvas a preguntar, usá ese nombre al agendar.`
+      : '';
+    return (
+      `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${nombre} ` +
+      `${base}\n\n${this.reglasDeAgenda(agent)}`
+    );
+  }
+
+  /**
+   * Reglas no negociables, armadas desde la fila `Agent` y no desde el
+   * systemPrompt generado: así sobreviven a cualquier regeneración del agente.
+   * Los tools (conversation-tools.ts) las aplican igual aunque el modelo las
+   * ignore — esto es para que no las intente violar y quede pidiendo perdón.
+   */
+  private reglasDeAgenda(agent: Agent): string {
+    const tipos = leerTiposEvento(agent);
+    const catalogo =
+      tipos.length > 0
+        ? tipos.map((tipo) => `${tipo.nombre} (${tipo.duracionMin} min)`).join(', ')
+        : 'todavía no hay tipos de turno cargados';
+
+    return (
+      `Reglas de la agenda de ${agent.nombreTitular || 'este negocio'} (no las rompas):\n` +
+      `- Te llamás ${agent.nombreBot} y sos el asistente de ${agent.nombreTitular || 'este negocio'}.\n` +
+      `- Sólo se atiende de ${agent.horaDesde} a ${agent.horaHasta}. Nunca ofrezcas ni agendes nada fuera de esa franja.\n` +
+      `- Tipos de turno y su duración: ${catalogo}. Calculá el fin sumándole la duración al inicio.\n` +
+      `- Nunca superpongas turnos y dejá al menos ${MARGEN_MINIMO_MIN} minutos libres entre un turno y el siguiente.\n` +
+      `- Antes de agendar, preguntá siempre a nombre de quién es el turno, salvo que ya te lo hayan dicho.`
+    );
   }
 
   /**

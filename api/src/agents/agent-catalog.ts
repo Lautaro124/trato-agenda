@@ -24,3 +24,8 @@ export function esAccionValida(id: string): id is AccionId {
 export const TIPOS_USO = ['comercio', 'consultorio', 'reuniones', 'visitas', 'personal', 'otro'] as const;
 
 export type TipoUso = (typeof TIPOS_USO)[number];
+
+/** Quién atiende: cambia cómo se presenta el asistente ("soy el asistente de …"). */
+export const TIPOS_TITULAR = ['persona', 'negocio'] as const;
+
+export type TipoTitular = (typeof TIPOS_TITULAR)[number];

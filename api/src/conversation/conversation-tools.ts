@@ -1,10 +1,18 @@
 import type { CalendarService } from '../calendar/calendar.service.js';
 import type { AccionId } from '../agents/agent-catalog.js';
+import type { PeriodoOcupado } from '../calendar/calendar.service.js';
 import type { ToolDefinition } from '../agents/openrouter.client.js';
-import type { User } from '../generated/prisma/client.js';
+import type { Agent, User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 
 const TIMEZONE = 'America/Argentina/Buenos_Aires';
+
+/**
+ * Colchón mínimo entre un turno y el siguiente. Se aplica ensanchando el rango
+ * que se le consulta a freeBusy, así el chequeo de superposición y el de margen
+ * son la misma operación.
+ */
+export const MARGEN_MINIMO_MIN = 5;
 
 const formateador = new Intl.DateTimeFormat('es-AR', {
   timeZone: TIMEZONE,
@@ -15,8 +23,68 @@ const formateador = new Intl.DateTimeFormat('es-AR', {
   minute: '2-digit',
 });
 
+/** Hora local "HH:MM" en TIMEZONE, comparable contra Agent.horaDesde/horaHasta. */
+const formateadorHora = new Intl.DateTimeFormat('es-AR', {
+  timeZone: TIMEZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
 function formatearFecha(fecha: Date): string {
   return formateador.format(fecha);
+}
+
+function horaLocal(fecha: Date): string {
+  // es-AR devuelve "24:00" a la medianoche; normalizarlo a "00:00".
+  return formateadorHora.format(fecha).replace(/^24:/, '00:');
+}
+
+/** El rango del turno más el margen mínimo de cada lado. */
+function conMargen(inicio: Date, fin: Date): [Date, Date] {
+  const margenMs = MARGEN_MINIMO_MIN * 60_000;
+  return [new Date(inicio.getTime() - margenMs), new Date(fin.getTime() + margenMs)];
+}
+
+/**
+ * Períodos ocupados que realmente bloquean el horario, descartando el evento
+ * del propio turno cuando se está reprogramando: sin esto, mover un turno unos
+ * minutos choca contra sí mismo por culpa del margen.
+ */
+function conflictos(
+  ocupados: PeriodoOcupado[],
+  ignorar?: { inicio: Date; fin: Date },
+): PeriodoOcupado[] {
+  if (!ignorar) return ocupados;
+  return ocupados.filter(
+    (periodo) =>
+      periodo.inicio.getTime() !== ignorar.inicio.getTime() ||
+      periodo.fin.getTime() !== ignorar.fin.getTime(),
+  );
+}
+
+function detalleOcupados(ocupados: PeriodoOcupado[]): string {
+  return ocupados
+    .map((periodo) => `${formatearFecha(periodo.inicio)} a ${formatearFecha(periodo.fin)}`)
+    .join('; ');
+}
+
+type AgentFranja = Pick<Agent, 'horaDesde' | 'horaHasta'>;
+
+/** true si el turno entero entra en la franja de atención del dueño. */
+function dentroDeFranja(agent: AgentFranja, inicio: Date, fin: Date): boolean {
+  const desde = horaLocal(inicio);
+  const hasta = horaLocal(fin);
+  // Un turno que cruza la medianoche siempre cae fuera de la franja.
+  if (hasta <= desde) return false;
+  return desde >= agent.horaDesde && hasta <= agent.horaHasta;
+}
+
+function mensajeFueraDeFranja(agent: AgentFranja): string {
+  return (
+    `Ese horario queda fuera de la franja de atención (de ${agent.horaDesde} a ${agent.horaHasta}). ` +
+    'Ofrecé un horario dentro de esa franja.'
+  );
 }
 
 /** `new Date(valor)` sin fallar silenciosamente en algo tipo "Invalid Date". */
@@ -33,6 +101,7 @@ function parsearFecha(valor: unknown, campo: string): Date {
 
 export type ToolContext = {
   user: User;
+  agent: Agent;
   conversationId: string;
   calendarService: CalendarService;
   prisma: PrismaService;
@@ -66,15 +135,23 @@ const consultarDisponibilidad: Tool = {
   async execute(ctx, args) {
     const desde = parsearFecha(args.desde, 'desde');
     const hasta = parsearFecha(args.hasta, 'hasta');
-    const ocupados = await ctx.calendarService.freeBusy(ctx.user, desde, hasta);
+    const [desdeMargen, hastaMargen] = conMargen(desde, hasta);
+    const ocupados = await ctx.calendarService.freeBusy(ctx.user, desdeMargen, hastaMargen);
+
+    const franja = dentroDeFranja(ctx.agent, desde, hasta)
+      ? ''
+      : ` Ojo: ese rango se sale de la franja de atención (de ${ctx.agent.horaDesde} a ${ctx.agent.horaHasta}), no lo ofrezcas.`;
 
     if (ocupados.length === 0) {
-      return `Libre: no hay nada agendado entre ${formatearFecha(desde)} y ${formatearFecha(hasta)}.`;
+      return (
+        `Libre: no hay nada agendado entre ${formatearFecha(desde)} y ${formatearFecha(hasta)}, ` +
+        `contando ${MARGEN_MINIMO_MIN} minutos de margen antes y después.${franja}`
+      );
     }
-    const detalle = ocupados
-      .map((periodo) => `${formatearFecha(periodo.inicio)} a ${formatearFecha(periodo.fin)}`)
-      .join('; ');
-    return `Ocupado en ese rango. Períodos ocupados: ${detalle}. Ofrecé otro horario.`;
+    return (
+      `Ocupado en ese rango (o a menos de ${MARGEN_MINIMO_MIN} minutos de algo agendado). ` +
+      `Períodos ocupados: ${detalleOcupados(ocupados)}. Ofrecé otro horario.${franja}`
+    );
   },
 };
 
@@ -85,34 +162,72 @@ const crearTurno: Tool = {
     function: {
       name: 'crear_turno',
       description:
-        'Agenda un turno nuevo. Usar sólo después de confirmar disponibilidad y que el cliente confirmó el horario.',
+        'Agenda un turno nuevo. Usar sólo después de confirmar disponibilidad, de saber el nombre ' +
+        'de la persona y de que el cliente confirmó el horario.',
       parameters: {
         type: 'object',
         properties: {
-          resumen: { type: 'string', description: 'Título corto del turno, ej "Corte de pelo - Juan".' },
+          nombreCliente: {
+            type: 'string',
+            description:
+              'Nombre de la persona para la que es el turno. Obligatorio: si no lo sabés, preguntáselo antes de llamar esta herramienta.',
+          },
+          resumen: { type: 'string', description: 'Tipo de turno, ej "Corte de pelo". El nombre se agrega solo.' },
           inicio: { type: 'string', description: 'Inicio del turno, ISO 8601 con horario y offset.' },
           fin: { type: 'string', description: 'Fin del turno, ISO 8601 con horario y offset.' },
         },
-        required: ['resumen', 'inicio', 'fin'],
+        required: ['nombreCliente', 'resumen', 'inicio', 'fin'],
       },
     },
   },
   async execute(ctx, args) {
-    const resumen = typeof args.resumen === 'string' && args.resumen.trim() ? args.resumen.trim() : 'Turno';
+    const nombreCliente = typeof args.nombreCliente === 'string' ? args.nombreCliente.trim() : '';
+    if (!nombreCliente) {
+      return 'Antes de agendar necesito el nombre de la persona. Preguntáselo y volvé a intentar.';
+    }
+
+    const tipo = typeof args.resumen === 'string' && args.resumen.trim() ? args.resumen.trim() : 'Turno';
     const inicio = parsearFecha(args.inicio, 'inicio');
     const fin = parsearFecha(args.fin, 'fin');
 
-    const ocupados = await ctx.calendarService.freeBusy(ctx.user, inicio, fin);
-    if (ocupados.length > 0) {
-      return `No se pudo agendar: ese horario se ocupó justo ahora. Consultá disponibilidad de nuevo y ofrecé otro.`;
+    if (fin <= inicio) {
+      return 'El fin del turno tiene que ser posterior al inicio. Recalculá el horario y reintentá.';
+    }
+    if (!dentroDeFranja(ctx.agent, inicio, fin)) {
+      return mensajeFueraDeFranja(ctx.agent);
     }
 
-    const googleEventId = await ctx.calendarService.crearEvento(ctx.user, { resumen, inicio, fin });
+    const [desde, hasta] = conMargen(inicio, fin);
+    const ocupados = await ctx.calendarService.freeBusy(ctx.user, desde, hasta);
+    if (ocupados.length > 0) {
+      return (
+        `No se pudo agendar: ese horario está ocupado o queda a menos de ${MARGEN_MINIMO_MIN} minutos ` +
+        `de otro turno (${detalleOcupados(ocupados)}). Ofrecé otro horario.`
+      );
+    }
+
+    const googleEventId = await ctx.calendarService.crearEvento(ctx.user, {
+      resumen: `${tipo} - ${nombreCliente}`,
+      inicio,
+      fin,
+    });
     await ctx.prisma.turno.create({
-      data: { conversationId: ctx.conversationId, googleEventId, inicio, fin, estado: 'confirmado' },
+      data: {
+        conversationId: ctx.conversationId,
+        googleEventId,
+        nombreCliente,
+        inicio,
+        fin,
+        estado: 'confirmado',
+      },
+    });
+    // Se pregunta una vez y queda en la conversación para los turnos siguientes.
+    await ctx.prisma.conversation.update({
+      where: { id: ctx.conversationId },
+      data: { nombreCliente },
     });
 
-    return `Turno agendado para ${formatearFecha(inicio)}.`;
+    return `Turno agendado para ${nombreCliente} el ${formatearFecha(inicio)}.`;
   },
 };
 
@@ -172,9 +287,23 @@ const reprogramarTurno: Tool = {
     const inicio = parsearFecha(args.inicio, 'inicio');
     const fin = parsearFecha(args.fin, 'fin');
 
-    const ocupados = await ctx.calendarService.freeBusy(ctx.user, inicio, fin);
+    if (fin <= inicio) {
+      return 'El fin del turno tiene que ser posterior al inicio. Recalculá el horario y reintentá.';
+    }
+    if (!dentroDeFranja(ctx.agent, inicio, fin)) {
+      return mensajeFueraDeFranja(ctx.agent);
+    }
+
+    const [desde, hasta] = conMargen(inicio, fin);
+    const ocupados = conflictos(await ctx.calendarService.freeBusy(ctx.user, desde, hasta), {
+      inicio: turno.inicio,
+      fin: turno.fin,
+    });
     if (ocupados.length > 0) {
-      return 'No se pudo reprogramar: ese horario está ocupado. Consultá disponibilidad de nuevo y ofrecé otro.';
+      return (
+        `No se pudo reprogramar: ese horario está ocupado o queda a menos de ${MARGEN_MINIMO_MIN} ` +
+        `minutos de otro turno (${detalleOcupados(ocupados)}). Ofrecé otro horario.`
+      );
     }
 
     await ctx.calendarService.reprogramarEvento(ctx.user, turno.googleEventId, { inicio, fin });
@@ -203,7 +332,12 @@ const consultarTurno: Tool = {
     if (turnos.length === 0) {
       return 'No hay turnos agendados en esta conversación.';
     }
-    return turnos.map((turno) => `Turno el ${formatearFecha(turno.inicio)}.`).join(' ');
+    return turnos
+      .map(
+        (turno) =>
+          `Turno el ${formatearFecha(turno.inicio)}${turno.nombreCliente ? ` a nombre de ${turno.nombreCliente}` : ''}.`,
+      )
+      .join(' ');
   },
 };
 
