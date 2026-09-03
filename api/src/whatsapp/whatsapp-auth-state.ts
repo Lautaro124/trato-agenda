@@ -33,6 +33,16 @@ export function extraerTelefono(creds: AuthenticationCreds): string | undefined 
 }
 
 /**
+ * `creds.registered` de Baileys sólo se marca `true` en el flujo de pairing
+ * por código telefónico; en el flujo QR que usamos acá nunca se toca. El
+ * indicador real de "ya vinculó" es que `creds.me` esté poblado, que es lo
+ * que `configureSuccessfulPairing` completa al escanear el QR.
+ */
+export function estaVinculado(creds: AuthenticationCreds): boolean {
+  return Boolean(creds.me?.id);
+}
+
+/**
  * Reemplazo de `useMultiFileAuthState` (que Baileys trae por defecto, basado en
  * archivos) por uno respaldado en Postgres: un solo blob `{ creds, keys }`
  * serializado con `BufferJSON` y cifrado entero con AES-256-GCM, igual que
@@ -78,7 +88,8 @@ export async function usePrismaAuthState(
 
   const persistir = () =>
     mutex.runExclusive(async () => {
-      if (creds.registered && !linkedAt) linkedAt = new Date();
+      const vinculado = estaVinculado(creds);
+      if (vinculado && !linkedAt) linkedAt = new Date();
 
       const blob = JSON.stringify({ creds, keys }, BufferJSON.replacer);
       const cifrado = encryptToken(blob, encryptionKey);
@@ -89,13 +100,13 @@ export async function usePrismaAuthState(
         create: {
           userId,
           authState: cifrado,
-          registered: creds.registered,
+          registered: vinculado,
           phoneNumber: telefono,
           linkedAt,
         },
         update: {
           authState: cifrado,
-          registered: creds.registered,
+          registered: vinculado,
           phoneNumber: telefono,
           linkedAt,
         },

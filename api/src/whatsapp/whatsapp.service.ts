@@ -12,7 +12,7 @@ import { Observable, ReplaySubject, map } from 'rxjs';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
+import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
 /** Falla recuperable de red, no una desvinculación: reintentamos con backoff. */
@@ -34,6 +34,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly sockets = new Map<string, WASocket>();
   private readonly events = new Map<string, ReplaySubject<LinkEvent>>();
   private readonly reconnectAttempts = new Map<string, number>();
+  /** Última promesa de `saveCreds` en vuelo por usuario, para no emitir "connected" antes de que persista. */
+  private readonly pendingSaves = new Map<string, Promise<void>>();
   /** Distingue el "connecting" del arranque del socket del "connecting" post-escaneo. */
   private readonly qrMostrado = new Set<string>();
 
@@ -79,7 +81,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    */
   async startLink(userId: string): Promise<void> {
     const socketVivo = this.sockets.get(userId);
-    if (socketVivo && socketVivo.authState.creds.registered) {
+    if (socketVivo && estaVinculado(socketVivo.authState.creds)) {
       this.emit(userId, {
         state: 'connected',
         phoneNumber: extraerTelefono(socketVivo.authState.creds),
@@ -129,7 +131,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     this.sockets.set(userId, sock);
     this.qrMostrado.delete(userId);
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', () => {
+      this.pendingSaves.set(userId, saveCreds());
+    });
     sock.ev.on('connection.update', (update) => this.handleConnectionUpdate(userId, update));
     sock.ev.on('messages.upsert', (upsert) => {
       this.handleMessagesUpsert(userId, sock, upsert).catch((error: unknown) =>
@@ -162,10 +166,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private handleConnectionUpdate(
+  private async handleConnectionUpdate(
     userId: string,
     update: Partial<{ connection: 'open' | 'connecting' | 'close'; qr: string; lastDisconnect: { error: unknown } }>,
-  ): void {
+  ): Promise<void> {
     if (update.qr) {
       this.qrMostrado.add(userId);
       this.emit(userId, { state: 'active', qr: update.qr });
@@ -183,6 +187,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       this.qrMostrado.delete(userId);
       const sock = this.sockets.get(userId);
       const phoneNumber = sock && extraerTelefono(sock.authState.creds);
+      // Esperamos a que el último `creds.update` haya persistido antes de avisar
+      // al frontend: si no, /whatsapp/status puede leer `registered: false` justo
+      // después de que el usuario ve "conectado".
+      await (this.pendingSaves.get(userId) ?? Promise.resolve());
       this.emit(userId, { state: 'connected', phoneNumber: phoneNumber || undefined });
       return;
     }

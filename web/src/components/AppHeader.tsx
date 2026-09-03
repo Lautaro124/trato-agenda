@@ -25,11 +25,25 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
 
   useEffect(() => {
     const ctrl = new AbortController();
-    apiFetch("/whatsapp/status", { signal: ctrl.signal })
-      .then((res) => (res.ok ? (res.json() as Promise<WhatsappStatus>) : null))
-      .then((data) => data && setWhatsapp(data))
-      .catch(() => {});
-    return () => ctrl.abort();
+
+    const fetchStatus = () => {
+      apiFetch("/whatsapp/status", { signal: ctrl.signal })
+        .then((res) => (res.ok ? (res.json() as Promise<WhatsappStatus>) : null))
+        .then((data) => data && setWhatsapp(data))
+        .catch(() => {});
+    };
+
+    fetchStatus();
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchStatus();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      ctrl.abort();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   return (
