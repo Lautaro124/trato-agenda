@@ -37,7 +37,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex h-dvh flex-col">
       <AppHeader active="chat" user={user} />
 
       <main className="flex min-h-0 flex-1 flex-col bg-page p-4 pb-24 md:pb-5">

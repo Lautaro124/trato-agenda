@@ -276,19 +276,30 @@ const cancelarEventoCalendario: ToolPropietario = {
     type: 'function',
     function: {
       name: 'cancelar_evento_calendario',
-      description: 'Cancela (elimina) un evento del Google Calendar del dueño por su id.',
+      description:
+        'Cancela (elimina) un evento del Google Calendar del dueño por su id. Flujo obligatorio en dos pasos: ' +
+        '1) usá listar_eventos_calendario para encontrar el evento y mostrale al dueño de cuál se trata (fecha, ' +
+        'horario y título) y esperá que confirme por texto; 2) recién cuando confirme, llamá esta herramienta ' +
+        'de nuevo con confirmado: true. Nunca mandes confirmado: true sin que el dueño haya confirmado antes.',
       parameters: {
         type: 'object',
         properties: {
           eventoId: { type: 'string', description: 'Id del evento, obtenido con listar_eventos_calendario.' },
+          confirmado: {
+            type: 'boolean',
+            description: 'true sólo si el dueño ya vio el evento (fecha, horario, título) y confirmó por texto que quiere cancelarlo.',
+          },
         },
-        required: ['eventoId'],
+        required: ['eventoId', 'confirmado'],
       },
     },
   },
   async execute(ctx, args) {
     if (typeof args.eventoId !== 'string' || !args.eventoId.trim()) {
       return 'Falta el id del evento a cancelar. Usá listar_eventos_calendario primero.';
+    }
+    if (args.confirmado !== true) {
+      return 'Todavía no está confirmado. Mostrale al dueño el evento (fecha, horario, título) y pedile que confirme antes de ejecutar esta acción.';
     }
     await ctx.calendarService.eliminarEventoDesdeAgenda(ctx.user, ctx.user.id, args.eventoId);
     return 'Evento cancelado.';
@@ -303,7 +314,10 @@ const editarEventoCalendario: ToolPropietario = {
       name: 'editar_evento_calendario',
       description:
         'Edita horario y/o título de un evento del Google Calendar del dueño por su id. Mandá sólo los ' +
-        'campos que cambian.',
+        'campos que cambian. Flujo obligatorio en dos pasos: 1) usá listar_eventos_calendario para encontrar ' +
+        'el evento y mostrale al dueño de cuál se trata (fecha, horario y título) junto con el cambio propuesto, ' +
+        'y esperá que confirme por texto; 2) recién cuando confirme, llamá esta herramienta de nuevo con ' +
+        'confirmado: true. Nunca mandes confirmado: true sin que el dueño haya confirmado antes.',
       parameters: {
         type: 'object',
         properties: {
@@ -311,14 +325,21 @@ const editarEventoCalendario: ToolPropietario = {
           inicio: { type: 'string', description: 'Nuevo inicio, ISO 8601 con horario y offset (opcional).' },
           fin: { type: 'string', description: 'Nuevo fin, ISO 8601 con horario y offset (opcional).' },
           resumen: { type: 'string', description: 'Nuevo título del evento (opcional).' },
+          confirmado: {
+            type: 'boolean',
+            description: 'true sólo si el dueño ya vio el evento y el cambio propuesto, y confirmó por texto que quiere editarlo.',
+          },
         },
-        required: ['eventoId'],
+        required: ['eventoId', 'confirmado'],
       },
     },
   },
   async execute(ctx, args) {
     if (typeof args.eventoId !== 'string' || !args.eventoId.trim()) {
       return 'Falta el id del evento a editar. Usá listar_eventos_calendario primero.';
+    }
+    if (args.confirmado !== true) {
+      return 'Todavía no está confirmado. Mostrale al dueño el evento (fecha, horario, título) y el cambio propuesto, y pedile que confirme antes de ejecutar esta acción.';
     }
     const inicio = parsearFechaOpcional(args.inicio, 'inicio');
     const fin = parsearFechaOpcional(args.fin, 'fin');

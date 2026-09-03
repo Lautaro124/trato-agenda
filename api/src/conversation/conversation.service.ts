@@ -199,7 +199,10 @@ export class ConversationService {
         `Además de lo que ya podés hacer, tenés las herramientas listar_eventos_calendario, ` +
         `cancelar_evento_calendario y editar_evento_calendario para listar, cancelar o editar CUALQUIER evento ` +
         `de su Google Calendar, no sólo los turnos agendados en esta conversación — es él mismo, así que no hay ` +
-        `problema de privacidad. ${base}`
+        `problema de privacidad. Antes de cancelar o editar cualquier evento, SIEMPRE tenés que buscarlo primero ` +
+        `con listar_eventos_calendario, mostrarle al dueño de qué evento se trata (fecha, horario y título) en ` +
+        `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
+        `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}`
       );
     }
 

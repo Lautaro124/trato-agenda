@@ -67,7 +67,7 @@ export default function InicioPage() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex h-dvh flex-col">
       <AppHeader active="inicio" user={user} />
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 pb-24 md:pb-5 lg:grid-cols-[1fr_420px]">

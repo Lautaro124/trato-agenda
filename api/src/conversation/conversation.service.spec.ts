@@ -193,7 +193,10 @@ describe('ConversationService.handleIncoming', () => {
           {
             id: 'call-2',
             type: 'function' as const,
-            function: { name: 'cancelar_evento_calendario', arguments: JSON.stringify({ eventoId: 'evt-ajeno' }) },
+            function: {
+              name: 'cancelar_evento_calendario',
+              arguments: JSON.stringify({ eventoId: 'evt-ajeno', confirmado: true }),
+            },
           },
         ],
       })
