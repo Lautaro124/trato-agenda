@@ -34,7 +34,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
 
   return (
     <header className="flex h-[60px] flex-none items-center gap-4 border-b border-line bg-card px-5">
-      <Wordmark size={19} />
+      <Wordmark size={23} />
 
       <nav className="ml-4 hidden gap-0.5 md:flex">
         <Link
