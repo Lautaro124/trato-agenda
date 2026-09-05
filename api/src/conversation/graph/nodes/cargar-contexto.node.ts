@@ -7,7 +7,7 @@
  */
 import { Logger } from '@nestjs/common';
 import { leerTiposEvento } from '../../../agents/agents.types.js';
-import type { CalendarService } from '../../../calendar/calendar.service.js';
+import type { CalendarService, PeriodoOcupado } from '../../../calendar/calendar.service.js';
 import { CalendarUnavailableError } from '../../../calendar/google-calendar.client.js';
 import type { Agent } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
@@ -136,6 +136,22 @@ function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: 
   );
 }
 
+/**
+ * Une dos listas de períodos ocupados sin repetir los idénticos: `conflictos`
+ * descarta el evento del turno que se reprograma comparando timestamps exactos,
+ * así que un duplicado dejaría un choque fantasma contra el propio turno.
+ */
+function unirOcupados(base: PeriodoOcupado[], extra: PeriodoOcupado[]): PeriodoOcupado[] {
+  const nuevos = extra.filter(
+    (periodo) =>
+      !base.some(
+        (otro) =>
+          otro.inicio.getTime() === periodo.inicio.getTime() && otro.fin.getTime() === periodo.fin.getTime(),
+      ),
+  );
+  return nuevos.length > 0 ? [...base, ...nuevos] : base;
+}
+
 export function crearNodoCargarContexto(deps: DepsContexto) {
   const logger = new Logger('CargarContextoNode');
 
@@ -161,9 +177,24 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
 
     const desde = new Date();
     const hasta = new Date(desde.getTime() + DIAS_VENTANA * 24 * 60 * 60_000);
-    let agenda: SnapshotAgenda = { desde, hasta, ocupados: [], falla: false };
+
+    // Los turnos propios salen de la base, no de Google: cubren lo que freeBusy
+    // todavía no propagó y los eventos que el dueño marcó como "Disponible",
+    // que freeBusy nunca informa como ocupados.
+    const turnos = await deps.prisma.turno.findMany({
+      where: {
+        conversation: { userId: state.ownerUserId },
+        estado: 'confirmado',
+        inicio: { lt: hasta },
+        fin: { gt: desde },
+      },
+      select: { inicio: true, fin: true },
+    });
+
+    let agenda: SnapshotAgenda = { desde, hasta, ocupados: turnos, falla: false };
     try {
-      agenda = { desde, hasta, ocupados: await deps.calendarService.freeBusy(agent.user, desde, hasta), falla: false };
+      const deGoogle = await deps.calendarService.freeBusy(agent.user, desde, hasta);
+      agenda = { desde, hasta, ocupados: unirOcupados(deGoogle, turnos), falla: false };
     } catch (error) {
       if (!(error instanceof CalendarUnavailableError)) throw error;
       logger.error(`No se pudo leer la agenda del usuario ${state.ownerUserId}`, error);

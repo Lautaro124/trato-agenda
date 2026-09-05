@@ -5,6 +5,8 @@ import {
   conMargen,
   conflictos,
   dentroDeFranja,
+  detalleSugerencias,
+  horariosCercanos,
   huecosDelDia,
   ocupadosEnRango,
   parsearFecha,
@@ -126,9 +128,74 @@ describe('resumirDisponibilidad', () => {
   });
 });
 
+describe('horariosCercanos', () => {
+  const VENTANA_DESDE = hora('00:00');
+  const VENTANA_HASTA = hora('00:00', '2026-09-08');
+
+  it('sugiere el horario más cercano al pedido dentro del mismo hueco', () => {
+    const ocupados = [{ inicio: hora('10:00'), fin: hora('10:30') }];
+    const sugerencias = horariosCercanos(
+      AGENT,
+      ocupados,
+      hora('10:03'),
+      hora('10:33'),
+      VENTANA_DESDE,
+      VENTANA_HASTA,
+      1,
+    );
+
+    // 10:30 + 5 de margen: el punto del hueco posterior más pegado a lo pedido.
+    expect(sugerencias).toEqual([{ inicio: hora('10:35'), fin: hora('11:05') }]);
+  });
+
+  it('pasa al día siguiente cuando el día pedido está lleno', () => {
+    const ocupados = [{ inicio: hora('09:00'), fin: hora('18:00') }];
+    const sugerencias = horariosCercanos(
+      AGENT,
+      ocupados,
+      hora('14:00'),
+      hora('14:30'),
+      VENTANA_DESDE,
+      VENTANA_HASTA,
+      1,
+    );
+
+    // Lo más cercano en el tiempo es la apertura del día siguiente, no la misma
+    // hora del día siguiente.
+    expect(sugerencias).toEqual([
+      { inicio: hora('09:00', '2026-09-02'), fin: hora('09:30', '2026-09-02') },
+    ]);
+  });
+
+  it('devuelve vacío si no hay ningún hueco de esa duración en la ventana', () => {
+    const ocupados = [{ inicio: hora('00:00'), fin: hora('00:00', '2026-09-08') }];
+    expect(
+      horariosCercanos(AGENT, ocupados, hora('14:00'), hora('14:30'), VENTANA_DESDE, VENTANA_HASTA),
+    ).toEqual([]);
+    expect(detalleSugerencias([])).toBe('');
+  });
+});
+
 describe('parsearFecha', () => {
   it('falla con un mensaje claro si no es ISO 8601', () => {
     expect(() => parsearFecha('el martes', 'inicio')).toThrow('inicio');
     expect(() => parsearFecha(undefined, 'inicio')).toThrow('inicio');
+  });
+
+  it('ancla a la zona del negocio un ISO sin offset, no a la del proceso', () => {
+    // El contenedor de la API corre en UTC: sin anclar, "14:00" era otro instante.
+    expect(parsearFecha('2026-09-08T14:00:00', 'inicio').toISOString()).toBe(
+      new Date('2026-09-08T14:00:00-03:00').toISOString(),
+    );
+    expect(parsearFecha('2026-09-08T14:00', 'inicio').toISOString()).toBe(
+      new Date('2026-09-08T14:00:00-03:00').toISOString(),
+    );
+    expect(parsearFecha('2026-09-08', 'desde').toISOString()).toBe(
+      new Date('2026-09-08T00:00:00-03:00').toISOString(),
+    );
+  });
+
+  it('respeta el offset cuando el ISO ya lo trae', () => {
+    expect(parsearFecha('2026-09-08T14:00:00Z', 'inicio').toISOString()).toBe('2026-09-08T14:00:00.000Z');
   });
 });

@@ -79,6 +79,14 @@ function llamada(name: string, args: Record<string, unknown>) {
   return new AIMessage({ content: '', tool_calls: [{ id: 'call-1', name, args }] });
 }
 
+/** Un solo AIMessage con varias tool calls, como cuando el modelo agenda dos turnos de una. */
+function llamadas(...calls: { name: string; args: Record<string, unknown> }[]) {
+  return new AIMessage({
+    content: '',
+    tool_calls: calls.map((call, indice) => ({ id: `call-${indice}`, name: call.name, args: call.args })),
+  });
+}
+
 function correr(deps: {
   prisma: PrismaService;
   calendarService: CalendarService;
@@ -181,7 +189,8 @@ describe('grafo conversacional', () => {
     expect(prisma.conversation.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'conv-1' }, data: { nombreCliente: 'Juan' } }),
     );
-    expect(calendarService.freeBusy).toHaveBeenCalledTimes(1);
+    // El snapshot del mensaje, más la relectura del rango justo antes de escribir.
+    expect(calendarService.freeBusy).toHaveBeenCalledTimes(2);
   });
 
   it('rechaza un horario fuera de la franja sin tocar Google', async () => {
@@ -226,6 +235,9 @@ describe('grafo conversacional', () => {
     expect(calendarService.crearEvento).not.toHaveBeenCalled();
     const rechazo = resultado.messages.find((mensaje) => mensaje.getType() === 'tool');
     expect(rechazo?.content).toContain('No se pudo agendar');
+    // El rechazo tiene que acercarle el horario libre más cercano, no un "no" pelado.
+    expect(rechazo?.content).toContain('Lo más cercano que tengo libre es');
+    expect(rechazo?.content).toContain('10:05');
   });
 
   it('sin nombre del cliente no agenda y pide el nombre', async () => {
@@ -285,9 +297,57 @@ describe('grafo conversacional', () => {
 
     const resultado = await correr({ prisma, calendarService, llm });
 
-    expect(prisma.turno.findMany).not.toHaveBeenCalled();
+    // La única lectura de turnos es la del snapshot: consultar_turno no corrió.
+    expect(prisma.turno.findMany).toHaveBeenCalledTimes(1);
     const rechazo = resultado.messages.find((mensaje) => mensaje.getType() === 'tool');
     expect(rechazo?.content).toContain('no está habilitada');
+  });
+
+  it('dos crear_turno superpuestos en el mismo mensaje: sólo se agenda uno', async () => {
+    const prisma = crearPrisma();
+    const calendarService = crearCalendar();
+    const llm = crearModelo([
+      llamadas(
+        { name: 'crear_turno', args: { nombreCliente: 'Juan', resumen: 'Corte', inicio: hora('10:00'), fin: hora('10:30') } },
+        { name: 'crear_turno', args: { nombreCliente: 'Ana', resumen: 'Corte', inicio: hora('10:15'), fin: hora('10:45') } },
+      ),
+      new AIMessage('El de Ana no lo pude agendar.'),
+    ]);
+
+    const resultado = await correr({ prisma, calendarService, llm });
+
+    expect(calendarService.crearEvento).toHaveBeenCalledTimes(1);
+    const rechazo = resultado.messages.find(
+      (mensaje) => mensaje.getType() === 'tool' && String(mensaje.content).includes('No se pudo agendar'),
+    );
+    expect(rechazo?.content).toContain('ocupado');
+  });
+
+  it('no escribe si el horario se ocupó entre el snapshot y la escritura', async () => {
+    const prisma = crearPrisma();
+    const calendarService = crearCalendar();
+    (calendarService.freeBusy as ReturnType<typeof vi.fn>)
+      // Snapshot del mensaje: libre.
+      .mockResolvedValueOnce([])
+      // Relectura previa a escribir: alguien lo tomó en el medio.
+      .mockResolvedValue([{ inicio: new Date(hora('10:00')), fin: new Date(hora('10:30')) }]);
+    const llm = crearModelo([
+      llamada('crear_turno', {
+        nombreCliente: 'Juan',
+        resumen: 'Corte',
+        inicio: hora('10:00'),
+        fin: hora('10:30'),
+      }),
+      new AIMessage('Se ocupó recién, ¿te sirve más tarde?'),
+    ]);
+
+    const resultado = await correr({ prisma, calendarService, llm });
+
+    expect(calendarService.crearEvento).not.toHaveBeenCalled();
+    expect(prisma.turno.create).not.toHaveBeenCalled();
+    const rechazo = resultado.messages.find((mensaje) => mensaje.getType() === 'tool');
+    expect(rechazo?.content).toContain('se ocupó recién');
+    expect(rechazo?.content).toContain('Lo más cercano que tengo libre es');
   });
 
   it('con la agenda de Google caída no agenda nada', async () => {

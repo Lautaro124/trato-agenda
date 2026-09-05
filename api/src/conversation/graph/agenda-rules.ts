@@ -137,12 +137,29 @@ export function mensajeFueraDeFranja(agent: AgentFranja): string {
   );
 }
 
+/** "2026-09-08T14:00" o "2026-09-08T14:00:00(.000)": ISO sin zona horaria. */
+const SIN_ZONA = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+/** "2026-09-08": sólo fecha, sin horario. */
+const SOLO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Un ISO sin offset lo interpreta `new Date` en la zona del proceso, y la API
+ * corre en UTC dentro de Docker: "14:00" terminaba siendo las 11:00 de acá, y
+ * la comparación contra los períodos ocupados se hacía sobre otro instante.
+ * Todo lo que llega sin zona se ancla a TIMEZONE, que es la zona del negocio.
+ */
+function anclarZona(valor: string): string {
+  if (SIN_ZONA.test(valor)) return `${valor}${OFFSET}`;
+  if (SOLO_FECHA.test(valor)) return `${valor}T00:00:00${OFFSET}`;
+  return valor;
+}
+
 /** `new Date(valor)` sin fallar silenciosamente en algo tipo "Invalid Date". */
 export function parsearFecha(valor: unknown, campo: string): Date {
   if (typeof valor !== 'string') {
     throw new Error(`Falta o es inválido el campo "${campo}" (tiene que ser string ISO 8601).`);
   }
-  const fecha = new Date(valor);
+  const fecha = new Date(anclarZona(valor.trim()));
   if (Number.isNaN(fecha.getTime())) {
     throw new Error(`El campo "${campo}" no es una fecha ISO 8601 válida: "${valor}".`);
   }
@@ -226,4 +243,79 @@ export function resumirDisponibilidad(
   }
 
   return lineas.join('\n');
+}
+
+export type Sugerencia = Hueco;
+
+/** Tope de días que se recorren buscando alternativas (la ventana cargada son 14). */
+const MAX_DIAS_SUGERENCIA = 14;
+
+/**
+ * Los horarios libres más cercanos al que pidió el cliente, ordenados por
+ * cercanía al inicio pedido. Se apoya en `huecosDelDia`, así que ya respeta la
+ * franja de atención y el margen mínimo: dentro de cada hueco se elige el punto
+ * más cercano a lo pedido, no el arranque del hueco (si pidió 10:03 y el turno
+ * anterior termina 10:00, la sugerencia es 10:05, no las 09:00).
+ */
+export function horariosCercanos(
+  agent: AgentFranja,
+  ocupados: PeriodoOcupado[],
+  inicio: Date,
+  fin: Date,
+  desde: Date,
+  hasta: Date,
+  cantidad = 2,
+): Sugerencia[] {
+  const duracionMs = fin.getTime() - inicio.getTime();
+  if (duracionMs <= 0) return [];
+
+  const candidatos: Sugerencia[] = [];
+  const cursor = new Date(desde);
+  for (let dias = 0; cursor < hasta && dias < MAX_DIAS_SUGERENCIA; dias += 1) {
+    const dia = claveDia(cursor);
+    for (const hueco of huecosDelDia(agent, ocupados, dia, desde, duracionMs / 60_000)) {
+      const ultimoInicio = hueco.fin.getTime() - duracionMs;
+      const arranque = Math.min(Math.max(inicio.getTime(), hueco.inicio.getTime()), ultimoInicio);
+      if (arranque + duracionMs <= hasta.getTime()) {
+        candidatos.push({ inicio: new Date(arranque), fin: new Date(arranque + duracionMs) });
+      }
+    }
+    // Avanzar al día siguiente parándose al mediodía, para no depender de la hora.
+    cursor.setTime(fechaEnDia(dia, '12:00').getTime() + 24 * 60 * 60_000);
+  }
+
+  const distancia = (fecha: Date) => Math.abs(fecha.getTime() - inicio.getTime());
+  return candidatos.sort((a, b) => distancia(a.inicio) - distancia(b.inicio)).slice(0, cantidad);
+}
+
+export function detalleSugerencias(sugerencias: Sugerencia[]): string {
+  return sugerencias
+    .map((sugerencia) => `${formatearFecha(sugerencia.inicio)} a ${horaLocal(sugerencia.fin)}`)
+    .join(' o ');
+}
+
+/**
+ * El rechazo por superposición, con la alternativa libre más cercana adentro.
+ * Lo comparten el nodo de validación y el de calendario (que vuelve a leer
+ * Google justo antes de escribir), para que el modelo reciba siempre el mismo
+ * texto y no tenga que inventar el horario alternativo por su cuenta.
+ */
+export function mensajeOcupado(
+  agent: AgentFranja,
+  ocupados: PeriodoOcupado[],
+  choques: PeriodoOcupado[],
+  inicio: Date,
+  fin: Date,
+  desde: Date,
+  hasta: Date,
+): string {
+  const alternativas = detalleSugerencias(horariosCercanos(agent, ocupados, inicio, fin, desde, hasta));
+  const cierre = alternativas
+    ? `Lo más cercano que tengo libre es ${alternativas}. Ofrecéselo al cliente.`
+    : 'No me queda ningún hueco de esa duración en los próximos días; pedile otra fecha.';
+
+  return (
+    `Ese horario está ocupado o queda a menos de ${MARGEN_MINIMO_MIN} minutos de otro turno ` +
+    `(${detalleOcupados(choques)}). ${cierre}`
+  );
 }

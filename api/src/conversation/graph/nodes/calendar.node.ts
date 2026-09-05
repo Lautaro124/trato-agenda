@@ -1,7 +1,10 @@
 /**
  * Nodo de gestión de calendario: la única puerta a Google Calendar y a las
- * filas `Turno`. Ejecuta sólo lo que el nodo de validación ya aprobó, así que
- * acá no se vuelven a chequear reglas de agenda. Cada operación deja su
+ * filas `Turno`. Ejecuta lo que el nodo de validación ya aprobó contra el
+ * snapshot; las reglas de agenda siguen viviendo en agenda-rules.ts y no se
+ * reevalúan acá, pero antes de escribir se relee el rango en Google, porque
+ * entre la foto del snapshot y este momento pudo entrar otra conversación o el
+ * propio dueño cargando algo a mano. Cada operación deja su
  * resultado como ToolMessage y, si cambió la agenda, actualiza el snapshot en
  * memoria para que el resto de la misma vuelta no tenga que releer Google.
  */
@@ -14,8 +17,10 @@ import { MENSAJE_CALENDAR_CAIDO } from '../../mensajes.js';
 import {
   MARGEN_MINIMO_MIN,
   conMargen,
+  conflictos,
   detalleOcupados,
   formatearFecha,
+  mensajeOcupado,
   parsearFecha,
   parsearFechaOpcional,
 } from '../agenda-rules.js';
@@ -43,6 +48,18 @@ function agregarOcupado(agenda: SnapshotAgenda, periodo: PeriodoOcupado): Snapsh
   return { ...agenda, ocupados: [...agenda.ocupados, periodo] };
 }
 
+/** Suma períodos recién leídos de Google al snapshot, sin duplicar los que ya estaban. */
+function fusionarOcupados(agenda: SnapshotAgenda, periodos: PeriodoOcupado[]): SnapshotAgenda {
+  const nuevos = periodos.filter(
+    (periodo) =>
+      !agenda.ocupados.some(
+        (otro) =>
+          otro.inicio.getTime() === periodo.inicio.getTime() && otro.fin.getTime() === periodo.fin.getTime(),
+      ),
+  );
+  return nuevos.length > 0 ? { ...agenda, ocupados: [...agenda.ocupados, ...nuevos] } : agenda;
+}
+
 function quitarOcupado(agenda: SnapshotAgenda, periodo: PeriodoOcupado): SnapshotAgenda {
   return {
     ...agenda,
@@ -56,6 +73,42 @@ function quitarOcupado(agenda: SnapshotAgenda, periodo: PeriodoOcupado): Snapsho
 
 export function crearNodoCalendar(deps: DepsCalendar) {
   const logger = new Logger('CalendarNode');
+
+  /**
+   * Última barrera contra la superposición: relee en Google sólo el rango del
+   * turno (más el margen) justo antes de escribirlo. Es una lectura chica y por
+   * turno agendado, no por mensaje. Devuelve el efecto de rechazo, o null si
+   * está libre y se puede escribir.
+   */
+  async function choqueDeUltimoMomento(
+    agenda: SnapshotAgenda,
+    contexto: ContextoTurno,
+    inicio: Date,
+    fin: Date,
+    ignorar?: PeriodoOcupado,
+  ): Promise<Efecto | null> {
+    const { agent } = contexto;
+    const [desde, hasta] = conMargen(inicio, fin);
+    const ocupados = await deps.calendarService.freeBusy(agent.user, desde, hasta);
+    const choques = conflictos(ocupados, ignorar);
+    if (choques.length === 0) return null;
+
+    // Los ocupados recién leídos entran al snapshot para que la sugerencia sea
+    // correcta y el modelo no reintente el mismo horario en la vuelta siguiente.
+    const actualizada = fusionarOcupados(agenda, ocupados);
+    return {
+      texto: mensajeOcupado(
+        agent,
+        conflictos(actualizada.ocupados, ignorar),
+        choques,
+        inicio,
+        fin,
+        actualizada.desde,
+        actualizada.hasta,
+      ),
+      agenda: actualizada,
+    };
+  }
 
   async function ejecutar(
     agenda: SnapshotAgenda,
@@ -91,6 +144,11 @@ export function crearNodoCalendar(deps: DepsCalendar) {
         const tipo = typeof args.resumen === 'string' && args.resumen.trim() ? args.resumen.trim() : 'Turno';
         const inicio = parsearFecha(args.inicio, 'inicio');
         const fin = parsearFecha(args.fin, 'fin');
+
+        const choque = await choqueDeUltimoMomento(agenda, contexto, inicio, fin);
+        if (choque) {
+          return { ...choque, texto: `No se pudo agendar: ese horario se ocupó recién. ${choque.texto}` };
+        }
 
         const googleEventId = await deps.calendarService.crearEvento(agent.user, {
           resumen: `${tipo} - ${nombreCliente}`,
@@ -140,6 +198,14 @@ export function crearNodoCalendar(deps: DepsCalendar) {
         }
         const inicio = parsearFecha(args.inicio, 'inicio');
         const fin = parsearFecha(args.fin, 'fin');
+
+        const choque = await choqueDeUltimoMomento(agenda, contexto, inicio, fin, {
+          inicio: turnoActivo.inicio,
+          fin: turnoActivo.fin,
+        });
+        if (choque) {
+          return { ...choque, texto: `No se pudo reprogramar: ese horario se ocupó recién. ${choque.texto}` };
+        }
 
         await deps.calendarService.reprogramarEvento(agent.user, turnoActivo.googleEventId, { inicio, fin });
         const turno = await deps.prisma.turno.update({

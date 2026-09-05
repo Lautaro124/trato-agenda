@@ -24,6 +24,10 @@ services:
     environment:
       # Dentro de compose la base vive en el servicio "db".
       DATABASE_URL: postgresql://postgres:postgres@db:5432/trato
+      # La zona del negocio, para que los logs y cualquier `new Date` suelto no
+      # queden en UTC. Las fechas de la agenda no dependen de esto: agenda-rules
+      # ancla explícitamente lo que llega sin offset.
+      TZ: America/Argentina/Buenos_Aires
     ports:
       - "4000:4000"
     depends_on:

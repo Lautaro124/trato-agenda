@@ -7,6 +7,7 @@
  */
 import { ToolMessage } from '@langchain/core/messages';
 import { esAccionValida } from '../../../agents/agent-catalog.js';
+import type { PeriodoOcupado } from '../../../calendar/calendar.service.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO } from '../../conversation-tools.js';
 import {
   MARGEN_MINIMO_MIN,
@@ -14,8 +15,11 @@ import {
   conflictos,
   dentroDeFranja,
   detalleOcupados,
+  detalleSugerencias,
   formatearFecha,
+  horariosCercanos,
   mensajeFueraDeFranja,
+  mensajeOcupado,
   ocupadosEnRango,
   parsearFecha,
 } from '../agenda-rules.js';
@@ -36,8 +40,20 @@ function dentroDeVentana(agenda: SnapshotAgenda, desde: Date, hasta: Date): bool
   return desde >= agenda.desde && hasta <= agenda.hasta;
 }
 
+/**
+ * Alternativa libre más cercana a lo pedido, para que el rechazo no sea sólo un
+ * "no": el modelo recibe el horario concreto que sí puede ofrecer.
+ */
+function sugerencia(state: EstadoConversacionValue, ocupados: PeriodoOcupado[], inicio: Date, fin: Date): string {
+  const alternativas = detalleSugerencias(
+    horariosCercanos(state.contexto.agent, ocupados, inicio, fin, state.agenda.desde, state.agenda.hasta),
+  );
+  return alternativas ? ` Lo más cercano que tengo libre es ${alternativas}.` : '';
+}
+
 function chequearHorario(
   state: EstadoConversacionValue,
+  ocupadosBase: PeriodoOcupado[],
   inicio: Date,
   fin: Date,
   ignorar?: { inicio: Date; fin: Date },
@@ -48,7 +64,8 @@ function chequearHorario(
     return { ok: false, motivo: 'El fin del turno tiene que ser posterior al inicio. Recalculá el horario y reintentá.' };
   }
   if (!dentroDeFranja(agent, inicio, fin)) {
-    return { ok: false, motivo: mensajeFueraDeFranja(agent) };
+    const alternativas = state.agenda.falla ? '' : sugerencia(state, ocupadosBase, inicio, fin);
+    return { ok: false, motivo: `${mensajeFueraDeFranja(agent)}${alternativas}` };
   }
   if (state.agenda.falla) {
     return {
@@ -69,13 +86,19 @@ function chequearHorario(
     };
   }
 
-  const ocupados = conflictos(ocupadosEnRango(state.agenda.ocupados, desde, hasta), ignorar);
-  if (ocupados.length > 0) {
+  const choques = conflictos(ocupadosEnRango(ocupadosBase, desde, hasta), ignorar);
+  if (choques.length > 0) {
     return {
       ok: false,
-      motivo:
-        `Ese horario está ocupado o queda a menos de ${MARGEN_MINIMO_MIN} minutos de otro turno ` +
-        `(${detalleOcupados(ocupados)}). Ofrecé otro horario.`,
+      motivo: mensajeOcupado(
+        agent,
+        conflictos(ocupadosBase, ignorar),
+        choques,
+        inicio,
+        fin,
+        state.agenda.desde,
+        state.agenda.hasta,
+      ),
     };
   }
   return OK;
@@ -85,9 +108,14 @@ function chequearHorario(
  * `consultar_disponibilidad` se responde acá mismo con el snapshot: mientras el
  * rango caiga en la ventana ya leída, no hace falta volver a llamar a Google.
  */
-function responderDisponibilidad(state: EstadoConversacionValue, desde: Date, hasta: Date): string {
+function responderDisponibilidad(
+  state: EstadoConversacionValue,
+  ocupadosBase: PeriodoOcupado[],
+  desde: Date,
+  hasta: Date,
+): string {
   const [desdeMargen, hastaMargen] = conMargen(desde, hasta);
-  const ocupados = ocupadosEnRango(state.agenda.ocupados, desdeMargen, hastaMargen);
+  const ocupados = ocupadosEnRango(ocupadosBase, desdeMargen, hastaMargen);
   const { agent } = state.contexto;
   const franja = dentroDeFranja(agent, desde, hasta)
     ? ''
@@ -101,15 +129,20 @@ function responderDisponibilidad(state: EstadoConversacionValue, desde: Date, ha
   }
   return (
     `Ocupado en ese rango (o a menos de ${MARGEN_MINIMO_MIN} minutos de algo agendado). ` +
-    `Períodos ocupados: ${detalleOcupados(ocupados)}. Ofrecé otro horario.${franja}`
+    `Períodos ocupados: ${detalleOcupados(ocupados)}.${sugerencia(state, ocupadosBase, desde, hasta)}${franja}`
   );
 }
 
 type Resultado =
   | { tipo: 'respuesta'; texto: string }
-  | { tipo: 'pendiente'; operacion: OperacionPendiente };
+  /** `reserva` es el rango que la operación va a ocupar: se anota para que otra tool call del mismo mensaje no lo pise. */
+  | { tipo: 'pendiente'; operacion: OperacionPendiente; reserva?: PeriodoOcupado };
 
-function validarLlamada(state: EstadoConversacionValue, llamada: OperacionPendiente): Resultado {
+function validarLlamada(
+  state: EstadoConversacionValue,
+  ocupadosBase: PeriodoOcupado[],
+  llamada: OperacionPendiente,
+): Resultado {
   const { nombre, args } = llamada;
   const esquema = state.esPropietario
     ? (ESQUEMAS_PROPIETARIO[nombre] ??
@@ -134,7 +167,7 @@ function validarLlamada(state: EstadoConversacionValue, llamada: OperacionPendie
     };
   }
 
-  const pendiente: Resultado = { tipo: 'pendiente', operacion: llamada };
+  const pendiente = { tipo: 'pendiente', operacion: llamada } as const;
 
   switch (nombre) {
     case 'consultar_disponibilidad': {
@@ -145,7 +178,7 @@ function validarLlamada(state: EstadoConversacionValue, llamada: OperacionPendie
       if (state.agenda.falla || !dentroDeVentana(state.agenda, desdeMargen, hastaMargen)) {
         return pendiente;
       }
-      return { tipo: 'respuesta', texto: responderDisponibilidad(state, desde, hasta) };
+      return { tipo: 'respuesta', texto: responderDisponibilidad(state, ocupadosBase, desde, hasta) };
     }
 
     case 'crear_turno': {
@@ -158,11 +191,11 @@ function validarLlamada(state: EstadoConversacionValue, llamada: OperacionPendie
       }
       const inicio = parsearFecha(args.inicio, 'inicio');
       const fin = parsearFecha(args.fin, 'fin');
-      const veredicto = chequearHorario(state, inicio, fin);
+      const veredicto = chequearHorario(state, ocupadosBase, inicio, fin);
       if (!veredicto.ok) {
         return { tipo: 'respuesta', texto: `No se pudo agendar: ${veredicto.motivo}` };
       }
-      return pendiente;
+      return { ...pendiente, reserva: { inicio, fin } };
     }
 
     case 'reprogramar_turno': {
@@ -172,11 +205,11 @@ function validarLlamada(state: EstadoConversacionValue, llamada: OperacionPendie
       }
       const inicio = parsearFecha(args.inicio, 'inicio');
       const fin = parsearFecha(args.fin, 'fin');
-      const veredicto = chequearHorario(state, inicio, fin, { inicio: turno.inicio, fin: turno.fin });
+      const veredicto = chequearHorario(state, ocupadosBase, inicio, fin, { inicio: turno.inicio, fin: turno.fin });
       if (!veredicto.ok) {
         return { tipo: 'respuesta', texto: `No se pudo reprogramar: ${veredicto.motivo}` };
       }
-      return pendiente;
+      return { ...pendiente, reserva: { inicio, fin } };
     }
 
     case 'cancelar_turno': {
@@ -227,11 +260,17 @@ export function crearNodoValidacion() {
 
     const mensajes: ToolMessage[] = [];
     const pendientes: OperacionPendiente[] = [];
+    /**
+     * Rangos ya aprobados en este mismo mensaje. Sin esto, dos `crear_turno` en
+     * una sola respuesta del modelo se validan los dos contra la misma foto de
+     * la agenda y terminan superpuestos.
+     */
+    const provisorios: PeriodoOcupado[] = [];
 
     for (const llamada of llamadas) {
       let resultado: Resultado;
       try {
-        resultado = validarLlamada(state, llamada);
+        resultado = validarLlamada(state, [...state.agenda.ocupados, ...provisorios], llamada);
       } catch (error) {
         resultado = { tipo: 'respuesta', texto: (error as Error).message };
       }
@@ -240,6 +279,7 @@ export function crearNodoValidacion() {
         mensajes.push(new ToolMessage({ content: resultado.texto, tool_call_id: llamada.id, name: llamada.nombre }));
       } else {
         pendientes.push(resultado.operacion);
+        if (resultado.reserva) provisorios.push(resultado.reserva);
       }
     }
 
