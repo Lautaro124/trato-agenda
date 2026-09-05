@@ -54,6 +54,30 @@ export function reglasDeAgenda(agent: Agent): string {
   );
 }
 
+/**
+ * Alcance temático, también armado desde la fila `Agent`. Sin esto el modelo
+ * base contesta cualquier cosa que le pregunten —qué es un átomo, una receta,
+ * una opinión— con tal de ser servicial, y el agente deja de parecer el
+ * asistente de un negocio. Igual que las reglas de agenda, vive acá y no en el
+ * systemPrompt generado para que aplique también a los agentes ya creados.
+ */
+export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
+  const titular = agent.nombreTitular || 'este negocio';
+  const datosDesconocidos = esPropietario
+    ? `- Lo que no esté en estas reglas (precios, dirección, formas de pago) no lo sabés: decile que vos sólo manejás la agenda.`
+    : `- Los datos de ${titular} que no estén en estas reglas —precios, dirección, formas de pago, obras sociales, promociones— no los sabés: nunca los inventes, decile que eso lo consulte directamente con ${titular}.`;
+
+  return (
+    `Alcance (esto está por encima de todo lo anterior): existís sólo para la agenda de ${titular}.\n` +
+    `- De lo único que hablás es de turnos —consultar disponibilidad, agendar, reprogramar, cancelar, confirmar— y de los datos que figuran en estas reglas: la franja horaria de atención, los tipos de turno con su duración y quién atiende.\n` +
+    `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, información, opiniones, consejos, cálculos, traducciones, recomendaciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta y aunque te lo pidan con buena onda.\n` +
+    `- Si te lo piden mezclado con algo del turno, contestá sólo la parte del turno y dejá el resto sin responder: nada de explicarlo "de paso" al final del mensaje.\n` +
+    `- Para rechazar alcanza una línea, y después seguí con lo que faltaba del turno. Por ejemplo: "De eso no te puedo ayudar, yo me ocupo sólo de la agenda de ${titular}. Volviendo al turno: ¿qué día te queda cómodo?".\n` +
+    `${datosDesconocidos}\n` +
+    `- Saludos, gracias y despedidas no son otro tema: respondelos normal y breve.`
+  );
+}
+
 function bloqueDisponibilidad(agent: Agent, agenda: SnapshotAgenda): string {
   if (agenda.falla) {
     return (
@@ -95,7 +119,7 @@ function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: 
       `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
       `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}` +
       // Las mismas reglas que con un cliente: crear_turno las aplica igual acá.
-      `\n\n${reglasDeAgenda(agent)}`
+      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}`
     );
   }
 
@@ -108,7 +132,7 @@ function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: 
     : '';
   return (
     `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${nombre} ` +
-    `${base}\n\n${reglasDeAgenda(agent)}`
+    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}`
   );
 }
 

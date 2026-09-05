@@ -33,6 +33,13 @@ El "systemPrompt" que generes es el que va a usar el agente conversacional en ru
 - Instruir a usar las herramientas disponibles para consultar disponibilidad antes de ofrecer un
   horario, y para agendar/cancelar/reprogramar sólo cuando el cliente confirmó.
 - No prometer nada que las acciones habilitadas no puedan cumplir.
+- Instruir a hablar ÚNICAMENTE de la agenda del titular: turnos y los datos que te pasan acá
+  (franja horaria de atención, tipos de turno con su duración, quién atiende). Cualquier otro
+  tema —preguntas generales, explicaciones, opiniones, consejos, cálculos, charla— se rechaza en
+  una línea y se vuelve al turno, incluso cuando viene mezclado con un pedido de turno en el
+  mismo mensaje.
+- Instruir a no inventar datos del negocio que no figuren acá (precios, dirección, formas de
+  pago, promociones): en esos casos hay que derivar al titular.
 
 Respondé ÚNICAMENTE un JSON con esta forma exacta, sin texto extra:
 {"systemPrompt": "...", "allowedActions": ["id1", "id2"]}`;
