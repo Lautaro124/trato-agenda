@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Mutex } from 'async-mutex';
 import {
   BufferJSON,
@@ -9,6 +10,11 @@ import {
 } from '@whiskeysockets/baileys';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { decryptToken, encryptToken } from '../auth/token-crypto.js';
+
+const logger = new Logger('WhatsappAuthState');
+
+/** `P2003` de Prisma: la fila de `User` que apunta la sesión ya no existe. */
+const CODIGO_FK_VIOLADA = 'P2003';
 
 type KeyBucket = { [category: string]: { [id: string]: unknown } };
 
@@ -95,22 +101,33 @@ export async function usePrismaAuthState(
       const cifrado = encryptToken(blob, encryptionKey);
       const telefono = extraerTelefono(creds) ?? null;
 
-      await prisma.whatsappSession.upsert({
-        where: { userId },
-        create: {
-          userId,
-          authState: cifrado,
-          registered: vinculado,
-          phoneNumber: telefono,
-          linkedAt,
-        },
-        update: {
-          authState: cifrado,
-          registered: vinculado,
-          phoneNumber: telefono,
-          linkedAt,
-        },
-      });
+      try {
+        await prisma.whatsappSession.upsert({
+          where: { userId },
+          create: {
+            userId,
+            authState: cifrado,
+            registered: vinculado,
+            phoneNumber: telefono,
+            linkedAt,
+          },
+          update: {
+            authState: cifrado,
+            registered: vinculado,
+            phoneNumber: telefono,
+            linkedAt,
+          },
+        });
+      } catch (error) {
+        // Si el usuario dejó de existir (por ejemplo, un `prisma migrate reset`
+        // con la API levantada), no hay dónde guardar la sesión. Propagar el
+        // error acá lo rompe adentro de Baileys, que lo arrastra hasta la
+        // conexión: mejor avisar y seguir, que el socket ya se va a caer solo.
+        if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === CODIGO_FK_VIOLADA)) {
+          throw error;
+        }
+        logger.warn(`No se pudo guardar la sesión de WhatsApp: el usuario ${userId} ya no existe.`);
+      }
     });
 
   return {
