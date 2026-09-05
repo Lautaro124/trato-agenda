@@ -127,6 +127,24 @@ describe('AgentsService.generate', () => {
   });
 });
 
+describe('META_SYSTEM_PROMPT', () => {
+  it('le pide al meta-agente que acote el agente generado a la agenda', async () => {
+    const chat = vi.fn().mockResolvedValue({
+      content: JSON.stringify({ systemPrompt: 'ok', allowedActions: ['crear_turno'] }),
+    });
+    const { service } = crearServicio(chat);
+
+    await service.generate('user-1', dto);
+
+    const [{ messages }] = chat.mock.calls[0] as [{ messages: { role: string; content: string }[] }];
+    const sistema = messages.find((mensaje) => mensaje.role === 'system')?.content ?? '';
+
+    expect(sistema).toContain('hablar ÚNICAMENTE de la agenda del titular');
+    expect(sistema).toContain('mezclado con un pedido de turno');
+    expect(sistema).toContain('no inventar datos del negocio');
+  });
+});
+
 describe('construirDescripcion', () => {
   it('incluye titular, tipos de evento con su duración y la franja horaria', () => {
     const descripcion = construirDescripcion(dto);

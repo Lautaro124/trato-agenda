@@ -123,6 +123,24 @@ describe('grafo conversacional', () => {
     expect(prisma.message.create).toHaveBeenCalledTimes(2);
   });
 
+  it('le pasa al modelo el system prompt con las reglas de agenda y el alcance', async () => {
+    const prisma = crearPrisma();
+    const calendarService = crearCalendar();
+    const llm = crearModelo([new AIMessage('Hola, soy Tati.')]);
+
+    await correr({ prisma, calendarService, llm });
+
+    const [mensajes] = llm.invoke.mock.calls[0] as unknown as [BaseMessage[]];
+    const sistema = String(mensajes[0].content);
+
+    // El prompt generado del Agent va primero, y las reglas de código después.
+    expect(sistema).toContain(AGENT.systemPrompt);
+    expect(sistema).toContain('Reglas de la agenda de Tienda Centro');
+    expect(sistema).toContain('existís sólo para la agenda de Tienda Centro');
+    expect(sistema).toContain('Cualquier otro tema queda afuera');
+    expect(sistema).toContain('mezclado con algo del turno');
+  });
+
   it('lee la agenda una sola vez por mensaje entrante', async () => {
     const prisma = crearPrisma();
     const calendarService = crearCalendar();
