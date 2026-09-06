@@ -9,6 +9,7 @@ Monorepo:
 | `api/` | Backend NestJS 12 + Prisma 7 + Postgres 16. Login real con Google OAuth2, sesión en cookie `httpOnly`. Ver [`api/README.md`](api/README.md). |
 | `web/` | Frontend Next.js 16 (App Router) + React 19 + Tailwind v4. Onboarding: login con Google y vinculación de WhatsApp por QR. |
 | `docker-compose.yml` | Levanta `db` (:5432), `api` (:4000) y `web` (:3000). |
+| `docs/DEPLOY-RAILWAY.md` | Cómo desplegarlo en Railway (tres servicios, variables y verificación). |
 
 ## Arrancar
 
@@ -17,6 +18,13 @@ Monorepo:
 docker compose up --build
 docker compose exec api npx prisma migrate dev --name init
 ```
+
+## Deploy
+
+El deploy en Railway está documentado paso a paso en
+[`docs/DEPLOY-RAILWAY.md`](docs/DEPLOY-RAILWAY.md): tres servicios (Postgres, `api`, `web`)
+construidos desde los `Dockerfile` del repo, con las migraciones de Prisma corriendo
+solas en cada deploy.
 
 ## Variables de entorno
 
@@ -34,6 +42,8 @@ alguna, la API no arranca: la validación está en `api/src/config/env.ts`.
 | `TOKEN_ENCRYPTION_KEY` | Clave AES-256-GCM que cifra el refresh token de Google en la base. **32 bytes exactos**: `openssl rand -hex 32`. |
 | `FRONTEND_URL` | Origen del frontend, usado para el CORS y para el redirect post-login. En local: `http://localhost:3000`. |
 | `SESSION_COOKIE_NAME` | Nombre de la cookie de sesión. Por defecto `trato_session`. |
+| `COOKIE_SAMESITE` | `lax` (default), `none` o `strict`. Si el front vive en otro *site* que la API — dos subdominios de `*.up.railway.app`, por ejemplo — tiene que ser `none`, o el navegador no manda la cookie. |
+| `COOKIE_SECURE` | `true`/`false`. Por defecto sigue a `NODE_ENV === 'production'`. `COOKIE_SAMESITE=none` la exige en `true` (y por lo tanto HTTPS). |
 | `PORT` | Puerto de la API. Por defecto `4000`. |
 | `NODE_ENV` | `development` o `production`. |
 | `OPENROUTER_API_KEY` | Clave de [OpenRouter](https://openrouter.ai/), usada para generar la config del agente y para la conversación por WhatsApp. Sin ella la API arranca igual, pero esas dos funciones fallan con un error claro. |

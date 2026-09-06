@@ -34,6 +34,8 @@ From `api/` (better via `docker compose exec api ...`): `npm run start:dev`, `np
 
 The web side has no test runner configured.
 
+Both Dockerfiles have a `prod` stage that `docker-compose.yml` never builds (it uses `dev`), so it only gets exercised on deploy. Two things about it are load-bearing: the build stage passes a throwaway `DATABASE_URL` to `prisma generate`, because `prisma.config.ts` resolves `env('DATABASE_URL')` on load and aborts without it; and it deliberately skips `npm prune --omit=dev`, because the prod `CMD` is `npx prisma migrate deploy && node dist/main` and that needs the Prisma CLI plus `typescript` to read the TS config. `docs/DEPLOY-RAILWAY.md` is the deploy guide; `api/railway.json` and `web/railway.json` hold the per-service config, and the API's `numReplicas: 1` is not optional — the Baileys socket is per-process in-memory state.
+
 ## Stack
 
 `web/`: Next.js 16 App Router (Turbopack), React 19, TypeScript strict, Tailwind CSS v4 (PostCSS plugin only — no `tailwind.config`), `qrcode` for QR generation. Path alias `@/*` → `web/src/*`. Its only env var is `NEXT_PUBLIC_API_URL` (inlined at build time — the Dockerfile takes it as a build arg).
@@ -72,7 +74,7 @@ The three agenda rules — no overlapping, at least `MARGEN_MINIMO_MIN` (5) minu
 
 The guard is deliberately client-side: verifying the JWT in a Next `proxy.ts` (Next 16's renamed `middleware.ts`) would mean sharing `JWT_SECRET` with the frontend. Do not add one.
 
-Cookies are not scoped by port, so `:4000` and `:3000` share `localhost` and `sameSite: 'lax'` is enough locally. Separate production domains will need `sameSite: 'none'` + `secure`, or a shared domain.
+Cookies are not scoped by port, so `:4000` and `:3000` share `localhost` and `sameSite: 'lax'` is enough locally. For deploys where the frontend lives on a different site, the cookie's `sameSite` and `secure` come from `COOKIE_SAMESITE` / `COOKIE_SECURE` (`src/config/env.ts`), not from hardcoded values — `validateEnv` rejects `none` without `secure`, which the browser would silently drop. The Railway deploy documented in `docs/DEPLOY-RAILWAY.md` runs on `none` + `secure`, with the caveat that a `SameSite=None` cookie is a third-party cookie and Safari drops it; a shared registrable domain (`app.` + `api.` of the same domain) is the real fix and goes back to `lax`.
 
 **`/vincular` is a state machine.** `LinkState = "active" | "connecting" | "connected" | "expired" | "error"` is declared in `src/app/vincular/page.tsx` and imported from there by components. Two effects drive it: a 1s interval counting down `TTL_SECONDS = 60` (active → expired) and a 2.5s timeout (connecting → connected). Each non-active state renders a card from `src/components/LinkStateCards.tsx`.
 
