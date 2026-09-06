@@ -57,11 +57,18 @@ export class AuthController {
     return this.config.get('SESSION_COOKIE_NAME', { infer: true });
   }
 
+  /**
+   * Opciones de la cookie de sesión. `sameSite` y `secure` salen del entorno
+   * porque su valor correcto depende del deploy: si el front comparte site con
+   * la API alcanza 'lax'; si vive en otro site (dos subdominios de
+   * *.up.railway.app, por ejemplo) hace falta 'none' + secure para que el
+   * navegador la mande en las llamadas de `apiFetch` y en el SSE del QR.
+   */
   private get cookieOptions(): CookieOptions {
     return {
       httpOnly: true,
-      sameSite: 'lax',
-      secure: this.config.get('NODE_ENV', { infer: true }) === 'production',
+      sameSite: this.config.get('COOKIE_SAMESITE', { infer: true }),
+      secure: this.config.get('COOKIE_SECURE', { infer: true }),
       path: '/',
     };
   }
