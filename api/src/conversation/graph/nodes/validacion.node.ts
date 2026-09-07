@@ -11,18 +11,25 @@ import type { PeriodoOcupado } from '../../../calendar/calendar.service.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO } from '../../conversation-tools.js';
 import {
   MARGEN_MINIMO_MIN,
+  type AgentFranja,
+  claveDia,
   conMargen,
   conflictos,
   dentroDeFranja,
   detalleOcupados,
   detalleSugerencias,
+  esDiaHabil,
   formatearFecha,
+  horaLocal,
   horariosCercanos,
+  mensajeDiaNoHabil,
   mensajeFueraDeFranja,
   mensajeOcupado,
   ocupadosEnRango,
   parsearFecha,
+  resumenDelDia,
 } from '../agenda-rules.js';
+import { duracionMinima } from './cargar-contexto.node.js';
 import {
   llamadasDe,
   type EstadoConversacionUpdate,
@@ -62,6 +69,10 @@ function chequearHorario(
 
   if (fin <= inicio) {
     return { ok: false, motivo: 'El fin del turno tiene que ser posterior al inicio. Recalculá el horario y reintentá.' };
+  }
+  if (!esDiaHabil(claveDia(inicio))) {
+    const alternativas = state.agenda.falla ? '' : sugerencia(state, ocupadosBase, inicio, fin);
+    return { ok: false, motivo: `${mensajeDiaNoHabil()}${alternativas}` };
   }
   if (!dentroDeFranja(agent, inicio, fin)) {
     const alternativas = state.agenda.falla ? '' : sugerencia(state, ocupadosBase, inicio, fin);
@@ -104,6 +115,25 @@ function chequearHorario(
   return OK;
 }
 
+/** Debajo de esto la consulta se lee como puntual y no como "¿qué tenés ese día?". */
+const CONSULTA_DE_DIA_MS = 4 * 60 * 60_000;
+
+/**
+ * true si la consulta es por un día entero (o por un fin de semana, que se
+ * responde igual de corto): mismo día de punta a punta y un rango largo, o uno
+ * que cubre toda la franja de atención.
+ */
+function esConsultaDeUnDia(agent: AgentFranja, desde: Date, hasta: Date): boolean {
+  const dia = claveDia(desde);
+  // `hasta - 1ms`: "de las 00:00 del martes a las 00:00 del miércoles" es un día.
+  const mismoDia = dia === claveDia(new Date(Math.max(hasta.getTime() - 1, desde.getTime())));
+  if (!mismoDia) return false;
+  if (!esDiaHabil(dia)) return true;
+
+  const cubreFranja = horaLocal(desde) <= agent.horaDesde && horaLocal(hasta) >= agent.horaHasta;
+  return cubreFranja || hasta.getTime() - desde.getTime() >= CONSULTA_DE_DIA_MS;
+}
+
 /**
  * `consultar_disponibilidad` se responde acá mismo con el snapshot: mientras el
  * rango caiga en la ventana ya leída, no hace falta volver a llamar a Google.
@@ -114,9 +144,9 @@ function responderDisponibilidad(
   desde: Date,
   hasta: Date,
 ): string {
+  const { agent } = state.contexto;
   const [desdeMargen, hastaMargen] = conMargen(desde, hasta);
   const ocupados = ocupadosEnRango(ocupadosBase, desdeMargen, hastaMargen);
-  const { agent } = state.contexto;
   const franja = dentroDeFranja(agent, desde, hasta)
     ? ''
     : ` Ojo: ese rango se sale de la franja de atención (de ${agent.horaDesde} a ${agent.horaHasta}), no lo ofrezcas.`;
@@ -173,6 +203,27 @@ function validarLlamada(
     case 'consultar_disponibilidad': {
       const desde = parsearFecha(args.desde, 'desde');
       const hasta = parsearFecha(args.hasta, 'hasta');
+      const { agent } = state.contexto;
+
+      // "¿Qué tenés el martes?" se contesta con el resumen corto del día: es lo
+      // que evita que el agente le vuelque la agenda entera al cliente. Alcanza
+      // con que el día pise la ventana cargada (el resumen recorta solo lo que
+      // ya pasó), así que no se le exige entrar entero como al resto.
+      const pisaVentana = hasta > state.agenda.desde && desde < state.agenda.hasta;
+      if (!state.agenda.falla && pisaVentana && esConsultaDeUnDia(agent, desde, hasta)) {
+        return {
+          tipo: 'respuesta',
+          texto: resumenDelDia(
+            agent,
+            ocupadosBase,
+            claveDia(desde),
+            state.agenda.desde,
+            state.agenda.hasta,
+            duracionMinima(agent),
+          ),
+        };
+      }
+
       const [desdeMargen, hastaMargen] = conMargen(desde, hasta);
       // Fuera de la ventana precargada (o con la agenda caída) sí hay que ir a Google.
       if (state.agenda.falla || !dentroDeVentana(state.agenda, desdeMargen, hastaMargen)) {

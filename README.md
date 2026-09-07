@@ -37,7 +37,7 @@ alguna, la API no arranca: la validación está en `api/src/config/env.ts`.
 | `PORT` | Puerto de la API. Por defecto `4000`. |
 | `NODE_ENV` | `development` o `production`. |
 | `OPENROUTER_API_KEY` | Clave de [OpenRouter](https://openrouter.ai/), usada para generar la config del agente y para la conversación por WhatsApp. Sin ella la API arranca igual, pero esas dos funciones fallan con un error claro. |
-| `OPENROUTER_MODEL` | Modelo de OpenRouter a usar (formato `proveedor/modelo`, ej. `openai/gpt-4o-mini`). Por defecto `openai/gpt-4o-mini`. Elegir uno barato que soporte tool calling. |
+| `OPENROUTER_MODEL` | Modelo de OpenRouter a usar (formato `proveedor/modelo`). Por defecto `google/gemma-4-31b-it`. Tiene que soportar tool calling **y** reasoning: el runtime conversacional lo llama con `reasoning: { effort: 'low' }` ([lista filtrada](https://openrouter.ai/models?supported_parameters=tools,reasoning)). |
 
 El frontend solo necesita `NEXT_PUBLIC_API_URL`, que `docker-compose.yml` ya
 define como `http://localhost:4000`.

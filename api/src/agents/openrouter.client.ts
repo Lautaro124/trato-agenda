@@ -30,6 +30,17 @@ export type ChatCompletionMessage = {
   tool_calls?: ToolCall[];
 };
 
+/**
+ * Control de razonamiento de OpenRouter (parámetro unificado, funciona con
+ * cualquier modelo que lo soporte). El runtime conversacional lo quiere
+ * prendido; el meta-agente y el resumen de cliente lo apagan a propósito.
+ */
+export type Razonamiento = {
+  enabled?: boolean;
+  effort?: 'low' | 'medium' | 'high';
+  exclude?: boolean;
+};
+
 export type ChatOptions = {
   messages: ChatMessage[];
   tools?: ToolDefinition[];
@@ -37,6 +48,8 @@ export type ChatOptions = {
   jsonMode?: boolean;
   /** Override puntual del modelo; por defecto usa OPENROUTER_MODEL. */
   model?: string;
+  /** Sin esto se usa el default del modelo (que en Gemma 4 es pensar). */
+  reasoning?: Razonamiento;
 };
 
 /** Se lanza cuando OpenRouter no está configurado o la llamada falla. */
@@ -81,6 +94,7 @@ export class OpenRouterClient {
           messages: options.messages,
           ...(options.tools ? { tools: options.tools, tool_choice: 'auto' } : {}),
           ...(options.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+          ...(options.reasoning ? { reasoning: options.reasoning } : {}),
         }),
       });
 

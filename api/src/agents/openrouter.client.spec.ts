@@ -53,6 +53,22 @@ describe('OpenRouterClient', () => {
     expect(JSON.parse(init?.body as string).model).toBe('openai/gpt-4o-mini');
   });
 
+  it('manda reasoning sólo cuando se lo pasan', async () => {
+    // Una Response nueva por llamada: el body se consume una sola vez.
+    vi.mocked(fetch).mockImplementation(async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 }),
+    );
+    const client = crearCliente();
+
+    await client.chat({ messages: [{ role: 'user', content: 'hola' }] });
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]?.body as string).reasoning).toBeUndefined();
+
+    await client.chat({ messages: [{ role: 'user', content: 'hola' }], reasoning: { enabled: false } });
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]?.body as string).reasoning).toEqual({
+      enabled: false,
+    });
+  });
+
   it('propaga tool_calls cuando vienen en la respuesta', async () => {
     const toolCalls = [{ id: 'call_1', type: 'function' as const, function: { name: 'crear_turno', arguments: '{}' } }];
     vi.mocked(fetch).mockResolvedValue(

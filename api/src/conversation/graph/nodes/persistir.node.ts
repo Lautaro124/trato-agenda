@@ -96,6 +96,8 @@ export function crearNodoPersistir(deps: DepsPersistir) {
               `Última respuesta del agente: "${respuestaAgente}"`,
           },
         ],
+        // Resumir dos líneas es mecánico: pensar acá sólo agrega latencia y costo.
+        reasoning: { enabled: false },
       });
 
       const resumen = resultado.content?.trim();

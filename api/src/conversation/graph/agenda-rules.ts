@@ -24,6 +24,15 @@ const OFFSET = '-03:00';
  */
 export const MARGEN_MINIMO_MIN = 5;
 
+/**
+ * Días en los que se atiende, en el formato de `Date#getUTCDay` (0 = domingo).
+ * Sábados y domingos no cuentan para la agenda: no se ofrecen, no se listan y
+ * no se agenda nada en ellos. Vive acá, en código, y no en la fila `Agent`, por
+ * la misma razón que el resto de las reglas duras: aplica también a los agentes
+ * ya generados, sin migración ni regeneración.
+ */
+const DIAS_HABILES = new Set([1, 2, 3, 4, 5]);
+
 const formateador = new Intl.DateTimeFormat('es-AR', {
   timeZone: TIMEZONE,
   weekday: 'long',
@@ -73,6 +82,19 @@ export function claveDia(fecha: Date): string {
 /** Un "HH:MM" de la franja del Agent, sobre un día concreto, como Date. */
 export function fechaEnDia(dia: string, hhmm: string): Date {
   return new Date(`${dia}T${hhmm}:00${OFFSET}`);
+}
+
+/**
+ * true si en ese día se atiende. El mediodía local cae siempre en el mismo día
+ * en UTC (el offset es -03:00), así que `getUTCDay` alcanza y no hace falta otro
+ * formateador de Intl.
+ */
+export function esDiaHabil(dia: string): boolean {
+  return DIAS_HABILES.has(fechaEnDia(dia, '12:00').getUTCDay());
+}
+
+export function mensajeDiaNoHabil(): string {
+  return 'Ese día no se atiende: sólo de lunes a viernes, sábados y domingos no.';
 }
 
 /** El rango del turno más el margen mínimo de cada lado. */
@@ -185,6 +207,8 @@ export function huecosDelDia(
   desde: Date,
   duracionMinimaMin: number,
 ): Hueco[] {
+  if (!esDiaHabil(dia)) return [];
+
   const aperturaDia = fechaEnDia(dia, agent.horaDesde);
   const cierre = fechaEnDia(dia, agent.horaHasta);
   const apertura = aperturaDia.getTime() > desde.getTime() ? aperturaDia : desde;
@@ -231,13 +255,17 @@ export function resumirDisponibilidad(
 
   while (cursor < hasta && lineas.length < maxDias) {
     const dia = claveDia(cursor);
-    const huecos = huecosDelDia(agent, ocupados, dia, desde, duracionMinimaMin);
-    const etiqueta = formateadorEtiquetaDia.format(cursor);
-    lineas.push(
-      huecos.length > 0
-        ? `${etiqueta}: ${huecos.map((h) => `${horaLocal(h.inicio)}-${horaLocal(h.fin)}`).join(', ')}`
-        : `${etiqueta}: sin huecos`,
-    );
+    // Los fines de semana no se listan: imprimirlos como "sin huecos" gastaría
+    // tokens y le daría al modelo la idea de que son días que existen.
+    if (esDiaHabil(dia)) {
+      const huecos = huecosDelDia(agent, ocupados, dia, desde, duracionMinimaMin);
+      const etiqueta = formateadorEtiquetaDia.format(cursor);
+      lineas.push(
+        huecos.length > 0
+          ? `${etiqueta}: ${huecos.map((h) => `${horaLocal(h.inicio)}-${horaLocal(h.fin)}`).join(', ')}`
+          : `${etiqueta}: sin huecos`,
+      );
+    }
     // Avanzar al día siguiente parándose al mediodía, para no depender de la hora.
     cursor.setTime(fechaEnDia(dia, '12:00').getTime() + 24 * 60 * 60_000);
   }
@@ -317,5 +345,102 @@ export function mensajeOcupado(
   return (
     `Ese horario está ocupado o queda a menos de ${MARGEN_MINIMO_MIN} minutos de otro turno ` +
     `(${detalleOcupados(choques)}). ${cierre}`
+  );
+}
+
+/** Tope de horarios concretos que se le pasan al modelo para un mismo día. */
+export const MAX_OPCIONES_DIA = 3;
+
+/**
+ * Un puñado chico de horarios concretos de un día, sobre una grilla del largo
+ * del turno. Se reparten parejo a lo largo de la jornada en vez de devolver los
+ * primeros seguidos: con tres opciones el cliente elige, y el mensaje sigue
+ * entrando en una línea de WhatsApp.
+ */
+export function opcionesDelDia(
+  agent: AgentFranja,
+  ocupados: PeriodoOcupado[],
+  dia: string,
+  desde: Date,
+  duracionMin: number,
+  cantidad = MAX_OPCIONES_DIA,
+): Date[] {
+  const pasoMs = Math.max(duracionMin, 1) * 60_000;
+  const candidatos: Date[] = [];
+  for (const hueco of huecosDelDia(agent, ocupados, dia, desde, duracionMin)) {
+    for (let t = hueco.inicio.getTime(); t + pasoMs <= hueco.fin.getTime(); t += pasoMs) {
+      candidatos.push(new Date(t));
+    }
+  }
+
+  if (candidatos.length <= cantidad) return candidatos;
+  if (cantidad <= 1) return [candidatos[0]];
+
+  const paso = (candidatos.length - 1) / (cantidad - 1);
+  return Array.from({ length: cantidad }, (_, i) => candidatos[Math.round(i * paso)]);
+}
+
+/** "lunes 8/9", a partir de la clave de día. */
+function etiquetaDia(dia: string): string {
+  return formateadorEtiquetaDia.format(fechaEnDia(dia, '12:00'));
+}
+
+/**
+ * Lo que el nodo de validación le contesta al modelo cuando la consulta es de
+ * un día solo. El objetivo es que la respuesta al cliente sea corta: si el día
+ * está entero libre se dice el rango y listo; si ya hay turnos se le pide al
+ * modelo que pregunte mañana o tarde y ofrezca a lo sumo tres horarios, en vez
+ * de volcarle la agenda completa.
+ */
+export function resumenDelDia(
+  agent: AgentFranja,
+  ocupados: PeriodoOcupado[],
+  dia: string,
+  desde: Date,
+  hasta: Date,
+  duracionMin: number,
+): string {
+  const etiqueta = etiquetaDia(dia);
+
+  if (!esDiaHabil(dia)) {
+    return `${mensajeDiaNoHabil()} Ofrecele el día hábil más cercano.`;
+  }
+
+  const huecos = huecosDelDia(agent, ocupados, dia, desde, duracionMin);
+  if (huecos.length === 0) {
+    const apertura = fechaEnDia(dia, agent.horaDesde);
+    const alternativas = detalleSugerencias(
+      horariosCercanos(
+        agent,
+        ocupados,
+        apertura,
+        new Date(apertura.getTime() + duracionMin * 60_000),
+        desde,
+        hasta,
+        1,
+      ),
+    );
+    return alternativas
+      ? `El ${etiqueta} no queda nada libre. Lo más cercano que tengo es ${alternativas}: ofrecéselo en una línea.`
+      : `El ${etiqueta} no queda nada libre y tampoco tengo huecos cerca; pedile otra fecha.`;
+  }
+
+  const apertura = huecos[0].inicio;
+  const cierre = fechaEnDia(dia, agent.horaHasta);
+  const libreEntero = huecos.length === 1 && huecos[0].fin.getTime() >= cierre.getTime();
+  if (libreEntero) {
+    return (
+      `El ${etiqueta} está libre de ${horaLocal(apertura)} a ${horaLocal(huecos[0].fin)}. ` +
+      'Decíselo así, como un rango, sin enumerar horarios.'
+    );
+  }
+
+  const opciones = opcionesDelDia(agent, ocupados, dia, desde, duracionMin)
+    .map((inicio) => horaLocal(inicio))
+    .join(', ');
+  return (
+    `El ${etiqueta} ya tiene turnos. Horarios libres para ofrecer: ${opciones}. ` +
+    `Preguntale si prefiere por la mañana o por la tarde y pasale como mucho ${MAX_OPCIONES_DIA} horarios, ` +
+    'nunca la lista completa del día.'
   );
 }

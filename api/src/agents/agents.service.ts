@@ -27,7 +27,11 @@ El "systemPrompt" que generes es el que va a usar el agente conversacional en ru
 - Instruir a preguntar por los datos que falten (día, horario, tipo de turno) antes de agendar.
 - Instruir a preguntar SIEMPRE el nombre de la persona antes de agendar un turno, salvo que ya
   se lo hayan dicho antes en la conversación.
-- Instruir a no ofrecer nunca horarios fuera de la franja horaria de atención que te pasan.
+- Instruir a no ofrecer nunca horarios fuera de la franja horaria de atención que te pasan, y a no
+  agendar nada los sábados y domingos: sólo se atiende de lunes a viernes.
+- Instruir a escribir como se escribe por WhatsApp: una o dos frases cortas, sin markdown ni listas,
+  nunca más de 3 horarios por mensaje, y preguntando "¿mañana o tarde?" cuando el día ya tiene turnos
+  en vez de enumerar todos los huecos.
 - Instruir a no superponer turnos y a dejar al menos 5 minutos libres entre un turno y el
   siguiente.
 - Instruir a usar las herramientas disponibles para consultar disponibilidad antes de ofrecer un
@@ -162,7 +166,12 @@ export class AgentsService {
   }
 
   private async pedir(messages: ChatMessage[]): Promise<string> {
-    const respuesta = await this.openRouter.chat({ messages, jsonMode: true });
+    // Sin reasoning: es una generación de JSON con formato fijo, no una charla.
+    const respuesta = await this.openRouter.chat({
+      messages,
+      jsonMode: true,
+      reasoning: { enabled: false },
+    });
     if (!respuesta.content) {
       throw new GeneracionInvalidaError('OpenRouter devolvió una respuesta vacía.');
     }

@@ -11,25 +11,35 @@ import type { CalendarService, PeriodoOcupado } from '../../../calendar/calendar
 import { CalendarUnavailableError } from '../../../calendar/google-calendar.client.js';
 import type { Agent } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
-import { MARGEN_MINIMO_MIN, TIMEZONE, resumirDisponibilidad } from '../agenda-rules.js';
+import { MARGEN_MINIMO_MIN, MAX_OPCIONES_DIA, TIMEZONE, resumirDisponibilidad } from '../agenda-rules.js';
 import type { AgentConUser, ContextoTurno, EstadoConversacionUpdate, EstadoConversacionValue, SnapshotAgenda } from '../state.js';
 
 /** Cuántos días hacia adelante se traen de Google en la única llamada a freeBusy. */
 export const DIAS_VENTANA = 14;
-/** Cuántos días de esa ventana se le muestran al modelo (el resto se consulta a demanda). */
-const DIAS_RESUMEN = 7;
+/**
+ * Cuántos días hábiles de esa ventana se le muestran al modelo (el resto se
+ * consulta a demanda). Cinco es una semana laboral: alcanza para ofrecer y
+ * mantiene el prompt corto, que también es latencia.
+ */
+const DIAS_RESUMEN = 5;
+
 /** Duración por defecto de un hueco útil cuando el agente no tiene tipos de turno cargados. */
 const DURACION_POR_DEFECTO_MIN = 30;
+
+/**
+ * El turno más corto que toma el agente: define qué hueco es útil. Vive acá y no
+ * en agenda-rules.ts para que ese módulo siga sin depender de los DTOs con
+ * decoradores de `agents.types` (sus tests corren sin reflect-metadata).
+ */
+export function duracionMinima(agent: Agent): number {
+  const duraciones = leerTiposEvento(agent).map((tipo) => tipo.duracionMin);
+  return duraciones.length > 0 ? Math.min(...duraciones) : DURACION_POR_DEFECTO_MIN;
+}
 
 export type DepsContexto = {
   prisma: PrismaService;
   calendarService: CalendarService;
 };
-
-function duracionMinima(agent: Agent): number {
-  const duraciones = leerTiposEvento(agent).map((tipo) => tipo.duracionMin);
-  return duraciones.length > 0 ? Math.min(...duraciones) : DURACION_POR_DEFECTO_MIN;
-}
 
 /**
  * Reglas no negociables, armadas desde la fila `Agent` y no desde el
@@ -47,6 +57,7 @@ export function reglasDeAgenda(agent: Agent): string {
   return (
     `Reglas de la agenda de ${agent.nombreTitular || 'este negocio'} (no las rompas):\n` +
     `- Te llamás ${agent.nombreBot} y sos el asistente de ${agent.nombreTitular || 'este negocio'}.\n` +
+    `- Sólo se atiende de lunes a viernes: sábados y domingos no se agenda nada, aunque el cliente insista.\n` +
     `- Sólo se atiende de ${agent.horaDesde} a ${agent.horaHasta}. Nunca ofrezcas ni agendes nada fuera de esa franja.\n` +
     `- Tipos de turno y su duración: ${catalogo}. Calculá el fin sumándole la duración al inicio.\n` +
     `- Nunca superpongas turnos y dejá al menos ${MARGEN_MINIMO_MIN} minutos libres entre un turno y el siguiente.\n` +
@@ -78,6 +89,25 @@ export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
   );
 }
 
+/**
+ * Cómo se escribe, no qué se dice. Esto es WhatsApp: un mensaje largo con la
+ * agenda entera enumerada se lee peor que dos líneas con tres horarios. Vive en
+ * código, igual que las otras reglas, así que aplica también a los agentes ya
+ * generados. El nodo de validación empuja para el mismo lado: para un día suelto
+ * le devuelve al modelo un puñado chico de horarios, no la lista completa.
+ */
+export function reglasDeEstilo(): string {
+  return (
+    'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
+    '- Contestá en una o dos frases cortas. Nada de markdown, viñetas, títulos ni listas numeradas.\n' +
+    `- Nunca pases más de ${MAX_OPCIONES_DIA} horarios en un mismo mensaje, aunque tengas muchos libres.\n` +
+    '- Si el día está libre entero, decilo como rango ("el martes tengo de 09:00 a 18:00") en vez de enumerar horas.\n' +
+    `- Si ese día ya tiene turnos, preguntá primero "¿preferís por la mañana o por la tarde?" y recién ahí pasá hasta ${MAX_OPCIONES_DIA} horarios.\n` +
+    '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.\n' +
+    '- Confirmá un turno en una línea: día, horario y nombre, sin resumir toda la charla.'
+  );
+}
+
 function bloqueDisponibilidad(agent: Agent, agenda: SnapshotAgenda): string {
   if (agenda.falla) {
     return (
@@ -94,8 +124,9 @@ function bloqueDisponibilidad(agent: Agent, agenda: SnapshotAgenda): string {
     DIAS_RESUMEN,
   );
   return (
-    `Disponibilidad real de los próximos días (huecos libres, ya descontados los ${MARGEN_MINIMO_MIN} ` +
-    `minutos de margen). Ofrecé horarios de acá y no llames a consultar_disponibilidad para estas fechas:\n` +
+    `Disponibilidad real de los próximos días hábiles (huecos libres, ya descontados los ${MARGEN_MINIMO_MIN} ` +
+    `minutos de margen; los días que no figuran no se atienden). Ofrecé horarios de acá y no llames a ` +
+    `consultar_disponibilidad para estas fechas:\n` +
     `${resumen}`
   );
 }
@@ -119,7 +150,7 @@ function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: 
       `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
       `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}` +
       // Las mismas reglas que con un cliente: crear_turno las aplica igual acá.
-      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}`
+      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo()}`
     );
   }
 
@@ -132,7 +163,7 @@ function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: 
     : '';
   return (
     `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${nombre} ` +
-    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}`
+    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo()}`
   );
 }
 

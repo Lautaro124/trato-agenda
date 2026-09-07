@@ -11,7 +11,21 @@ import type { Env } from '../config/env.js';
 export const LLM_CONVERSACION = 'LLM_CONVERSACION';
 
 const BASE_URL = 'https://openrouter.ai/api/v1';
-const TIMEOUT_MS = 20_000;
+/**
+ * Con reasoning activo la primera respuesta tarda más: con 20s el cliente se
+ * comía la disculpa genérica en mensajes largos.
+ */
+const TIMEOUT_MS = 40_000;
+
+/**
+ * `reasoning` es el parámetro unificado de OpenRouter. `effort: 'low'` es el
+ * equilibrio que buscamos: alcanza para desambiguar cómo escribe la gente por
+ * WhatsApp ("el jueves a la tardecita", "mejor movelo una hora") sin agregar la
+ * latencia de un modelo pensando de más. `exclude: true` deja el bloque de
+ * pensamiento fuera de la respuesta: se paga igual, pero no ensucia el `content`
+ * que se manda por WhatsApp ni el checkpoint de la conversación.
+ */
+const RAZONAMIENTO = { effort: 'low', exclude: true } as const;
 
 export const llmProvider = {
   provide: LLM_CONVERSACION,
@@ -22,6 +36,7 @@ export const llmProvider = {
       apiKey: config.get('OPENROUTER_API_KEY', { infer: true }) || 'sin-configurar',
       timeout: TIMEOUT_MS,
       maxRetries: 1,
+      modelKwargs: { reasoning: RAZONAMIENTO },
       configuration: {
         baseURL: BASE_URL,
         defaultHeaders: {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Agent } from '../../../generated/prisma/client.js';
-import { reglasDeAgenda, reglasDeAlcance } from './cargar-contexto.node.js';
+import { reglasDeAgenda, reglasDeAlcance, reglasDeEstilo } from './cargar-contexto.node.js';
 
 const AGENT = {
   nombreTitular: 'Tienda Centro',
@@ -18,6 +18,21 @@ describe('reglasDeAgenda', () => {
     expect(reglas).toContain('Tati');
     expect(reglas).toContain('de 09:00 a 18:00');
     expect(reglas).toContain('Probador (20 min)');
+  });
+
+  it('deja afuera sábados y domingos', () => {
+    expect(reglasDeAgenda(AGENT)).toContain('de lunes a viernes');
+  });
+});
+
+describe('reglasDeEstilo', () => {
+  it('pide mensajes cortos y un pool chico de horarios', () => {
+    const estilo = reglasDeEstilo();
+
+    expect(estilo).toContain('una o dos frases cortas');
+    expect(estilo).toContain('más de 3 horarios');
+    expect(estilo).toContain('¿preferís por la mañana o por la tarde?');
+    expect(estilo).toContain('libre entero');
   });
 });
 

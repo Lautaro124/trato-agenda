@@ -2,14 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { Agent } from '../../generated/prisma/client.js';
 import {
   MARGEN_MINIMO_MIN,
+  MAX_OPCIONES_DIA,
   conMargen,
   conflictos,
   dentroDeFranja,
   detalleSugerencias,
+  esDiaHabil,
   horariosCercanos,
   huecosDelDia,
   ocupadosEnRango,
+  opcionesDelDia,
   parsearFecha,
+  resumenDelDia,
   resumirDisponibilidad,
   horaLocal,
 } from './agenda-rules.js';
@@ -197,5 +201,135 @@ describe('parsearFecha', () => {
 
   it('respeta el offset cuando el ISO ya lo trae', () => {
     expect(parsearFecha('2026-09-08T14:00:00Z', 'inicio').toISOString()).toBe('2026-09-08T14:00:00.000Z');
+  });
+});
+
+describe('esDiaHabil', () => {
+  it('atiende de lunes a viernes', () => {
+    expect(esDiaHabil('2026-09-07')).toBe(true); // lunes
+    expect(esDiaHabil('2026-09-04')).toBe(true); // viernes
+  });
+
+  it('no atiende sábados ni domingos', () => {
+    expect(esDiaHabil('2026-09-05')).toBe(false); // sábado
+    expect(esDiaHabil('2026-09-06')).toBe(false); // domingo
+  });
+});
+
+describe('huecosDelDia en fin de semana', () => {
+  it('no devuelve ningún hueco aunque el día esté vacío', () => {
+    expect(huecosDelDia(AGENT, [], '2026-09-05', hora('00:00'), 30)).toEqual([]);
+    expect(huecosDelDia(AGENT, [], '2026-09-06', hora('00:00'), 30)).toEqual([]);
+  });
+});
+
+describe('resumirDisponibilidad en fin de semana', () => {
+  it('ni siquiera lista el sábado y el domingo', () => {
+    const resumen = resumirDisponibilidad(
+      AGENT,
+      [],
+      hora('08:00', '2026-09-04'),
+      hora('08:00', '2026-09-08'),
+      30,
+      5,
+    );
+
+    const lineas = resumen.split('\n');
+    expect(lineas).toHaveLength(2);
+    expect(lineas[0]).toContain('viernes');
+    expect(lineas[1]).toContain('lunes');
+    expect(resumen).not.toContain('sábado');
+    expect(resumen).not.toContain('domingo');
+  });
+});
+
+describe('horariosCercanos con el fin de semana en el medio', () => {
+  it('saltea el sábado y sugiere el lunes', () => {
+    const viernes = '2026-09-04';
+    const sugerencias = horariosCercanos(
+      AGENT,
+      [{ inicio: hora('09:00', viernes), fin: hora('18:00', viernes) }],
+      hora('14:00', viernes),
+      hora('14:30', viernes),
+      hora('00:00', viernes),
+      hora('00:00', '2026-09-08'),
+      1,
+    );
+
+    expect(sugerencias).toEqual([
+      { inicio: hora('09:00', '2026-09-07'), fin: hora('09:30', '2026-09-07') },
+    ]);
+  });
+});
+
+describe('opcionesDelDia', () => {
+  it('devuelve como mucho tres horarios, repartidos a lo largo del día', () => {
+    const opciones = opcionesDelDia(AGENT, [], '2026-09-01', hora('00:00'), 60);
+
+    expect(opciones).toHaveLength(MAX_OPCIONES_DIA);
+    expect(opciones.map(horaLocal)).toEqual(['09:00', '13:00', '17:00']);
+  });
+
+  it('respeta los huecos ocupados y el margen', () => {
+    const opciones = opcionesDelDia(
+      AGENT,
+      [{ inicio: hora('10:00'), fin: hora('16:00') }],
+      '2026-09-01',
+      hora('00:00'),
+      30,
+      2,
+    );
+
+    expect(opciones.map(horaLocal)).toEqual(['09:00', '17:05']);
+  });
+
+  it('no ofrece nada en fin de semana', () => {
+    expect(opcionesDelDia(AGENT, [], '2026-09-05', hora('00:00'), 30)).toEqual([]);
+  });
+});
+
+describe('resumenDelDia', () => {
+  const VENTANA_DESDE = hora('00:00');
+  const VENTANA_HASTA = hora('00:00', '2026-09-08');
+
+  it('con el día entero libre devuelve el rango, sin enumerar horarios', () => {
+    const resumen = resumenDelDia(AGENT, [], '2026-09-01', VENTANA_DESDE, VENTANA_HASTA, 30);
+
+    expect(resumen).toContain('libre de 09:00 a 18:00');
+    expect(resumen).toContain('sin enumerar');
+  });
+
+  it('con turnos cargados pasa hasta tres horarios y pide preguntar mañana o tarde', () => {
+    const resumen = resumenDelDia(
+      AGENT,
+      [{ inicio: hora('11:00'), fin: hora('12:00') }],
+      '2026-09-01',
+      VENTANA_DESDE,
+      VENTANA_HASTA,
+      60,
+    );
+
+    expect(resumen).toContain('mañana o por la tarde');
+    expect(resumen.match(/\d{2}:\d{2}/g) ?? []).toHaveLength(MAX_OPCIONES_DIA);
+  });
+
+  it('sin huecos ofrece la alternativa más cercana', () => {
+    const resumen = resumenDelDia(
+      AGENT,
+      [{ inicio: hora('09:00'), fin: hora('18:00') }],
+      '2026-09-01',
+      VENTANA_DESDE,
+      VENTANA_HASTA,
+      30,
+    );
+
+    expect(resumen).toContain('no queda nada libre');
+    expect(resumen).toContain('miércoles');
+  });
+
+  it('en fin de semana avisa que no se atiende', () => {
+    const resumen = resumenDelDia(AGENT, [], '2026-09-05', VENTANA_DESDE, VENTANA_HASTA, 30);
+
+    expect(resumen).toContain('sólo de lunes a viernes');
   });
 });

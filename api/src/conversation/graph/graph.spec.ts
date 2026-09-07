@@ -214,6 +214,48 @@ describe('grafo conversacional', () => {
     expect(rechazo?.content).toContain('fuera de la franja');
   });
 
+  it('rechaza un sábado sin tocar Google y ofrece el lunes', async () => {
+    const prisma = crearPrisma();
+    const calendarService = crearCalendar();
+    const llm = crearModelo([
+      llamada('crear_turno', {
+        nombreCliente: 'Juan',
+        resumen: 'Corte',
+        // 2026-09-05 es sábado.
+        inicio: hora('10:00', '2026-09-05'),
+        fin: hora('10:30', '2026-09-05'),
+      }),
+      new AIMessage('Los sábados no atiendo, ¿te viene bien el lunes?'),
+    ]);
+
+    const resultado = await correr({ prisma, calendarService, llm });
+
+    expect(calendarService.crearEvento).not.toHaveBeenCalled();
+    expect(prisma.turno.create).not.toHaveBeenCalled();
+    // Sólo la lectura del snapshot: no hubo relectura previa a escribir.
+    expect(calendarService.freeBusy).toHaveBeenCalledTimes(1);
+    const rechazo = resultado.messages.find((mensaje) => mensaje.getType() === 'tool');
+    expect(rechazo?.content).toContain('sólo de lunes a viernes');
+    expect(rechazo?.content).toContain('lunes');
+  });
+
+  it('una consulta por un día entero devuelve el resumen corto, no la agenda completa', async () => {
+    const prisma = crearPrisma();
+    const calendarService = crearCalendar([
+      { inicio: new Date(hora('11:00')), fin: new Date(hora('12:00')) },
+    ]);
+    const llm = crearModelo([
+      llamada('consultar_disponibilidad', { desde: hora('00:00'), hasta: hora('23:59') }),
+      new AIMessage('¿Preferís por la mañana o por la tarde?'),
+    ]);
+
+    const resultado = await correr({ prisma, calendarService, llm });
+
+    const respuesta = resultado.messages.find((mensaje) => mensaje.getType() === 'tool');
+    expect(respuesta?.content).toContain('mañana o por la tarde');
+    expect(respuesta?.content).toContain('como mucho 3 horarios');
+  });
+
   it('rechaza un turno pegado a otro por el margen de 5 minutos', async () => {
     const prisma = crearPrisma();
     // Turno anterior de 09:30 a 10:00: a 3 minutos del nuevo, cae dentro del margen.

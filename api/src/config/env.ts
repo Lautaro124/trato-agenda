@@ -64,6 +64,6 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     FRONTEND_URL: String(raw.FRONTEND_URL ?? 'http://localhost:3000'),
     SESSION_COOKIE_NAME: String(raw.SESSION_COOKIE_NAME ?? 'trato_session'),
     OPENROUTER_API_KEY: String(raw.OPENROUTER_API_KEY ?? ''),
-    OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'openai/gpt-4o-mini'),
+    OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'google/gemma-4-31b-it'),
   };
 }
