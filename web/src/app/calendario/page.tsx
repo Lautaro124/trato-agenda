@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { AvisoSuscripcion } from "@/components/AvisoSuscripcion";
 import { DayGrid } from "@/components/calendar/DayGrid";
 import { EventDetailModal } from "@/components/calendar/EventDetailModal";
 import { MonthGrid } from "@/components/calendar/MonthGrid";
@@ -89,6 +90,7 @@ export default function CalendarioPage() {
   return (
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="calendario" user={user} />
+      <AvisoSuscripcion />
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 pb-24 md:pb-5 lg:grid-cols-[1fr_320px]">
         <div className="flex min-h-0 flex-col gap-4">

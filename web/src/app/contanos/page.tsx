@@ -32,7 +32,8 @@ export default function ContanosPage() {
       return;
     }
 
-    router.push("/vincular");
+    // /listo avisa que arrancó el mes de prueba; de ahí se sigue a /vincular.
+    router.push("/listo");
   }
 
   if (status !== "authenticated" || !user) {

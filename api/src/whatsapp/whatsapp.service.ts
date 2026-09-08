@@ -12,6 +12,7 @@ import { Observable, ReplaySubject, map } from 'rxjs';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { SubscriptionService } from '../subscription/subscription.service.js';
 import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
@@ -43,6 +44,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
     private readonly conversationService: ConversationService,
+    private readonly subscriptionService: SubscriptionService,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
@@ -146,6 +148,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * Mensajes entrantes de clientes del negocio (no del dueño): los pasamos al
    * agente conversacional y mandamos su respuesta. Sólo chats 1:1 en vivo —
    * se ignoran grupos, mensajes propios y el historial que llega al conectar.
+   *
+   * Si se venció el mes de prueba y no hay suscripción, el asistente queda en
+   * silencio: no contestamos nada. La sesión de Baileys sigue vinculada, así
+   * que cuando el dueño paga vuelve a responder sin re-escanear el QR.
    */
   private async handleMessagesUpsert(
     userId: string,
@@ -160,6 +166,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       const texto = mensaje.message?.conversation ?? mensaje.message?.extendedTextMessage?.text;
       if (!texto) continue;
+
+      if (!(await this.subscriptionService.asistenteActivo(userId))) {
+        this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
+        continue;
+      }
 
       const respuesta = await this.conversationService.handleIncoming(userId, remoteJid, texto);
       await sock.sendMessage(remoteJid, { text: respuesta });

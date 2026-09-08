@@ -7,3 +7,7 @@ export const MENSAJE_LOOP_AGOTADO = 'Dejame confirmarlo con más calma y te avis
 export const MENSAJE_SIN_RESPUESTA = '¿Podés repetirlo? No llegué a entenderlo bien.';
 export const MENSAJE_CALENDAR_CAIDO =
   'No pude acceder a la agenda de Google Calendar ahora mismo. Avisale al dueño del negocio.';
+
+/** Sólo se ve en el banco de pruebas del Home: quien lee es el dueño, no un cliente. */
+export const MENSAJE_SUSCRIPCION_VENCIDA =
+  'Se terminó tu mes de prueba, así que el asistente dejó de responder por WhatsApp. Activá el plan y vuelve a andar al toque.';

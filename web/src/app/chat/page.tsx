@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { AvisoSuscripcion } from "@/components/AvisoSuscripcion";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { TestChat } from "@/components/TestChat";
 import { apiFetch } from "@/lib/api";
@@ -39,6 +40,7 @@ export default function ChatPage() {
   return (
     <div className="flex h-dvh flex-col">
       <AppHeader active="chat" user={user} />
+      <AvisoSuscripcion />
 
       <main className="flex min-h-0 flex-1 flex-col bg-page p-4 pb-24 md:pb-5">
         <TestChat />
