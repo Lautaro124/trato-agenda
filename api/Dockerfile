@@ -26,4 +26,9 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/package.json ./package.json
 EXPOSE 4000
-CMD ["node", "dist/main"]
+# Las migraciones corren al arrancar el contenedor, no a mano: en un deploy
+# (Railway y compañía) la base arranca vacía y nadie entra a correr
+# `prisma migrate deploy`. Es idempotente, así que repetirlo no molesta.
+# Por eso el CLI de prisma vive en `dependencies` y no en `devDependencies`:
+# `npm prune --omit=dev` se lo llevaría.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]

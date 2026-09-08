@@ -21,6 +21,8 @@ docker compose exec api npx prisma migrate dev --name init   # first time only
 
 The API needs `api/.env` (never committed; the variable table is in the root `README.md`). Without real `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, the API boots but Google rejects the consent screen.
 
+Postgres credentials are not hardcoded in `docker-compose.yml` any more: `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` (and `NEXT_PUBLIC_API_URL`) come from an optional `.env` at the repo root — `.env.example` is the template, and every one of them has a default in the compose file, so `docker compose up` still works with no config. The same three build the `db` service's credentials **and** the `DATABASE_URL` handed to the API, so the two can't drift apart. None of that file matters in a deploy: there the platform provides `DATABASE_URL` and the API just reads it. The production image (`api/Dockerfile`, `prod` stage) runs `prisma migrate deploy` before `node dist/main`, which is why the Prisma CLI sits in `dependencies` — `npm prune --omit=dev` would strip it otherwise. `NEXT_PUBLIC_API_URL` is inlined at build time and only reaches a Dockerfile build through the `ARG` already declared in `web/Dockerfile`'s `build` stage.
+
 From `web/`:
 
 ```bash

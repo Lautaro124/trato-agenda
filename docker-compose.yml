@@ -2,15 +2,17 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: trato
+      # Los defaults dejan que `docker compose up` ande sin configurar nada;
+      # para pisarlos, definilos en el .env de la raíz (ver .env.example).
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-trato}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d trato"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-trato}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,8 +24,10 @@ services:
     env_file:
       - ./api/.env
     environment:
-      # Dentro de compose la base vive en el servicio "db".
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/trato
+      # Dentro de compose la base vive en el servicio "db", y las credenciales
+      # son las mismas que arriba. Fuera de compose (Railway, por ejemplo) esta
+      # variable la define el proveedor y el resto del archivo no interviene.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-trato}
       # La zona del negocio, para que los logs y cualquier `new Date` suelto no
       # queden en UTC. Las fechas de la agenda no dependen de esto: agenda-rules
       # ancla explícitamente lo que llega sin offset.
@@ -42,9 +46,14 @@ services:
     build:
       context: ./web
       target: dev
+      args:
+        # NEXT_PUBLIC_* se inlinea durante el build: en la imagen de producción
+        # tiene que llegar como build arg, no como variable de runtime.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
     environment:
-      # Dentro de compose la API vive en el servicio "api".
-      NEXT_PUBLIC_API_URL: http://localhost:4000
+      # El browser habla con la API por el puerto publicado en el host, no por
+      # el nombre del servicio: "api" no resuelve fuera de la red de compose.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       NEXT_TELEMETRY_DISABLED: "1"
     ports:
       - "3000:3000"
