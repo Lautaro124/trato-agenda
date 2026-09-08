@@ -19,6 +19,7 @@ import {
   detalleOcupados,
   detalleSugerencias,
   esDiaHabil,
+  fechaEnDia,
   formatearFecha,
   horaLocal,
   horariosCercanos,
@@ -115,13 +116,13 @@ function chequearHorario(
   return OK;
 }
 
-/** Debajo de esto la consulta se lee como puntual y no como "¿qué tenés ese día?". */
-const CONSULTA_DE_DIA_MS = 4 * 60 * 60_000;
-
 /**
  * true si la consulta es por un día entero (o por un fin de semana, que se
- * responde igual de corto): mismo día de punta a punta y un rango largo, o uno
- * que cubre toda la franja de atención.
+ * responde igual de corto): mismo día de punta a punta y cubriendo la franja de
+ * atención completa. Una consulta más angosta ("¿tenés algo el martes a la
+ * mañana?") NO cuenta: si la tomáramos como un día entero le contestaríamos con
+ * horarios de la tarde y le pediríamos que elija mañana o tarde algo que el
+ * cliente ya dijo.
  */
 function esConsultaDeUnDia(agent: AgentFranja, desde: Date, hasta: Date): boolean {
   const dia = claveDia(desde);
@@ -130,8 +131,9 @@ function esConsultaDeUnDia(agent: AgentFranja, desde: Date, hasta: Date): boolea
   if (!mismoDia) return false;
   if (!esDiaHabil(dia)) return true;
 
-  const cubreFranja = horaLocal(desde) <= agent.horaDesde && horaLocal(hasta) >= agent.horaHasta;
-  return cubreFranja || hasta.getTime() - desde.getTime() >= CONSULTA_DE_DIA_MS;
+  // El cierre se compara como Date y no como "HH:MM" para que "hasta las 00:00
+  // del día siguiente" cuente como que cubre la franja.
+  return horaLocal(desde) <= agent.horaDesde && hasta.getTime() >= fechaEnDia(dia, agent.horaHasta).getTime();
 }
 
 /**
@@ -204,24 +206,36 @@ function validarLlamada(
       const desde = parsearFecha(args.desde, 'desde');
       const hasta = parsearFecha(args.hasta, 'hasta');
       const { agent } = state.contexto;
+      const dia = claveDia(desde);
+      const resumenCorto = () => ({
+        tipo: 'respuesta' as const,
+        texto: resumenDelDia(
+          agent,
+          ocupadosBase,
+          dia,
+          state.agenda.desde,
+          state.agenda.hasta,
+          duracionMinima(agent),
+        ),
+      });
+
+      // Un fin de semana se contesta siempre igual ("no se atiende"), esté o no
+      // dentro de la ventana cargada: no hace falta leer Google para saberlo, y
+      // si no lo cortáramos acá el agente podría ofrecer un sábado que después
+      // el propio nodo de validación se niega a agendar.
+      if (esConsultaDeUnDia(agent, desde, hasta) && !esDiaHabil(dia)) {
+        return resumenCorto();
+      }
 
       // "¿Qué tenés el martes?" se contesta con el resumen corto del día: es lo
-      // que evita que el agente le vuelque la agenda entera al cliente. Alcanza
-      // con que el día pise la ventana cargada (el resumen recorta solo lo que
-      // ya pasó), así que no se le exige entrar entero como al resto.
-      const pisaVentana = hasta > state.agenda.desde && desde < state.agenda.hasta;
-      if (!state.agenda.falla && pisaVentana && esConsultaDeUnDia(agent, desde, hasta)) {
-        return {
-          tipo: 'respuesta',
-          texto: resumenDelDia(
-            agent,
-            ocupadosBase,
-            claveDia(desde),
-            state.agenda.desde,
-            state.agenda.hasta,
-            duracionMinima(agent),
-          ),
-        };
+      // que evita que el agente le vuelque la agenda entera al cliente. Se exige
+      // que la jornada entera esté dentro de la ventana ya leída: el último día
+      // de la ventana está cargado sólo hasta la hora actual, y resumirlo sin
+      // eso ofrecería huecos que nunca se consultaron (y que después
+      // `chequearHorario` rechaza por quedar fuera de los días cargados).
+      const diaCargado = fechaEnDia(dia, agent.horaHasta) <= state.agenda.hasta;
+      if (!state.agenda.falla && diaCargado && esConsultaDeUnDia(agent, desde, hasta)) {
+        return resumenCorto();
       }
 
       const [desdeMargen, hastaMargen] = conMargen(desde, hasta);

@@ -400,12 +400,11 @@ export function resumenDelDia(
   hasta: Date,
   duracionMin: number,
 ): string {
-  const etiqueta = etiquetaDia(dia);
-
   if (!esDiaHabil(dia)) {
     return `${mensajeDiaNoHabil()} Ofrecele el día hábil más cercano.`;
   }
 
+  const etiqueta = etiquetaDia(dia);
   const huecos = huecosDelDia(agent, ocupados, dia, desde, duracionMin);
   if (huecos.length === 0) {
     const apertura = fechaEnDia(dia, agent.horaDesde);

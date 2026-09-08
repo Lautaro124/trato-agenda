@@ -124,9 +124,11 @@ function bloqueDisponibilidad(agent: Agent, agenda: SnapshotAgenda): string {
     DIAS_RESUMEN,
   );
   return (
-    `Disponibilidad real de los próximos días hábiles (huecos libres, ya descontados los ${MARGEN_MINIMO_MIN} ` +
-    `minutos de margen; los días que no figuran no se atienden). Ofrecé horarios de acá y no llames a ` +
-    `consultar_disponibilidad para estas fechas:\n` +
+    `Disponibilidad real de los próximos ${DIAS_RESUMEN} días hábiles (huecos libres, ya descontados los ` +
+    `${MARGEN_MINIMO_MIN} minutos de margen; los sábados y domingos no figuran porque no se atiende). ` +
+    `Ofrecé horarios de acá y no llames a consultar_disponibilidad para estas fechas. Para cualquier otra ` +
+    `fecha más adelante sí se atiende (si cae de lunes a viernes): consultala con consultar_disponibilidad ` +
+    `antes de ofrecer nada.\n` +
     `${resumen}`
   );
 }

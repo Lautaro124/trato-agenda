@@ -256,6 +256,25 @@ describe('grafo conversacional', () => {
     expect(respuesta?.content).toContain('como mucho 3 horarios');
   });
 
+  it('una consulta por media jornada se contesta con ese rango, no con el día entero', async () => {
+    const prisma = crearPrisma();
+    const calendarService = crearCalendar([
+      { inicio: new Date(hora('11:00')), fin: new Date(hora('12:00')) },
+    ]);
+    const llm = crearModelo([
+      // "¿Tenés algo el martes a la mañana?": no hay que volver a preguntarle
+      // mañana o tarde, ni ofrecerle horarios de la tarde.
+      llamada('consultar_disponibilidad', { desde: hora('09:00'), hasta: hora('13:00') }),
+      new AIMessage('Tengo libre antes de las 11.'),
+    ]);
+
+    const resultado = await correr({ prisma, calendarService, llm });
+
+    const respuesta = resultado.messages.find((mensaje) => mensaje.getType() === 'tool');
+    expect(respuesta?.content).not.toContain('mañana o por la tarde');
+    expect(respuesta?.content).toContain('Ocupado en ese rango');
+  });
+
   it('rechaza un turno pegado a otro por el margen de 5 minutos', async () => {
     const prisma = crearPrisma();
     // Turno anterior de 09:30 a 10:00: a 3 minutos del nuevo, cae dentro del margen.
