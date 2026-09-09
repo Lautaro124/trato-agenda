@@ -23,6 +23,7 @@ model User {
   whatsappSession WhatsappSession?
   agent           Agent?
   conversaciones  Conversation[]
+  suscripcion     Subscription?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -157,6 +158,35 @@ model Turno {
 
   /// "confirmado" | "cancelado"
   estado String @default("confirmado")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Suscripción paga del dueño. La fila recién existe cuando arranca un pago:
+/// el mes de prueba gratis se deriva de `User.createdAt` (ver
+/// api/src/subscription/subscription.rules.ts), así que un usuario sin fila
+/// está en prueba o vencido, y no hace falta backfill.
+model Subscription {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "pendiente" | "activa" | "pausada" | "cancelada"
+  estado String @default("pendiente")
+
+  /// Id del preapproval de Mercado Pago: es la llave con la que llega el webhook.
+  mpPreapprovalId String? @unique
+  /// Último `status` crudo que devolvió Mercado Pago, para diagnóstico.
+  mpStatus        String?
+
+  /// Importe mensual en la unidad menor de la moneda (centavos).
+  montoCentavos Int
+  moneda        String @default("ARS")
+
+  ultimoPagoAt   DateTime?
+  proximoCobroAt DateTime?
+  canceladaAt    DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

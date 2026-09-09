@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 
-type Tab = "inicio" | "calendario" | "chat";
+// "plan" no tiene ítem propio: se incluye para que esa pantalla pueda montar
+// la barra sin marcar ninguna pestaña como activa.
+type Tab = "inicio" | "calendario" | "chat" | "plan";
 
 const ITEMS: Array<{ tab: Tab; href: string; label: string; icon: React.ReactNode }> = [
   {

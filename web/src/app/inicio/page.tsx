@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { AvisoSuscripcion } from "@/components/AvisoSuscripcion";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { TestChat } from "@/components/TestChat";
 import { apiFetch } from "@/lib/api";
@@ -69,6 +70,7 @@ export default function InicioPage() {
   return (
     <div className="flex h-dvh flex-col">
       <AppHeader active="inicio" user={user} />
+      <AvisoSuscripcion />
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 pb-24 md:pb-5 lg:grid-cols-[1fr_420px]">
         {/* Columna de agenda */}

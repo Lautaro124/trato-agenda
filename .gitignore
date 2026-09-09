@@ -4,6 +4,8 @@ node_modules/
 # Secretos: api/.env tiene credenciales vivas de Google y las claves de firma.
 .env
 .env.*
+# ...menos la plantilla sin valores reales, que sí se versiona.
+!.env.example
 
 # Claves y certificados
 *.pem

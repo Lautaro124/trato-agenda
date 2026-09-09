@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
 import type { ConversationService } from '../conversation/conversation.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import type { SubscriptionService } from '../subscription/subscription.service.js';
 import { WhatsappService } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
 
@@ -20,14 +21,17 @@ function crearServicio() {
   } as unknown as ConfigService<Env, true>;
 
   const conversationService = { handleIncoming: vi.fn() } as unknown as ConversationService;
-  const service = new WhatsappService(prisma, config, conversationService);
+  const subscriptionService = {
+    asistenteActivo: vi.fn().mockResolvedValue(true),
+  } as unknown as SubscriptionService;
+  const service = new WhatsappService(prisma, config, conversationService, subscriptionService);
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
 
   const eventos: LinkEvent[] = [];
   service.linkEvents$('user-1').subscribe((mensaje) => eventos.push(mensaje.data as LinkEvent));
 
-  return { service, prisma, connectSpy, eventos };
+  return { service, prisma, connectSpy, eventos, conversationService, subscriptionService };
 }
 
 /** Atajo: dispara handleConnectionUpdate como si Baileys hubiera cerrado la conexión. */
@@ -89,5 +93,41 @@ describe('WhatsappService — ramas de handleConnectionUpdate', () => {
       expect(connectSpy).toHaveBeenCalledTimes(5);
       expect(eventos.at(-1)).toEqual({ state: 'error' });
     });
+  });
+});
+
+describe('WhatsappService — el asistente calla si venció la suscripción', () => {
+  /** Dispara handleMessagesUpsert con un mensaje 1:1 de un cliente. */
+  async function recibirMensaje(service: WhatsappService, sock: { sendMessage: unknown }) {
+    await (
+      service as unknown as {
+        handleMessagesUpsert: (u: string, s: unknown, e: unknown) => Promise<void>;
+      }
+    ).handleMessagesUpsert('user-1', sock, {
+      type: 'notify',
+      messages: [{ key: { remoteJid: '5491111@s.whatsapp.net', fromMe: false }, message: { conversation: 'hola' } }],
+    });
+  }
+
+  it('con la prueba vigente contesta como siempre', async () => {
+    const { service, conversationService } = crearServicio();
+    vi.mocked(conversationService.handleIncoming).mockResolvedValue('¡Hola!');
+    const sock = { sendMessage: vi.fn() };
+
+    await recibirMensaje(service, sock);
+
+    expect(conversationService.handleIncoming).toHaveBeenCalledOnce();
+    expect(sock.sendMessage).toHaveBeenCalledWith('5491111@s.whatsapp.net', { text: '¡Hola!' });
+  });
+
+  it('vencida: no invoca al grafo ni manda nada por WhatsApp', async () => {
+    const { service, conversationService, subscriptionService } = crearServicio();
+    vi.mocked(subscriptionService.asistenteActivo).mockResolvedValue(false);
+    const sock = { sendMessage: vi.fn() };
+
+    await recibirMensaje(service, sock);
+
+    expect(conversationService.handleIncoming).not.toHaveBeenCalled();
+    expect(sock.sendMessage).not.toHaveBeenCalled();
   });
 });

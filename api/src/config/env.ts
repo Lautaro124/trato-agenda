@@ -13,6 +13,9 @@ export type Env = {
   SESSION_COOKIE_NAME: string;
   OPENROUTER_API_KEY: string;
   OPENROUTER_MODEL: string;
+  MERCADOPAGO_ACCESS_TOKEN: string;
+  MERCADOPAGO_WEBHOOK_SECRET: string;
+  SUSCRIPCION_PRECIO_ARS: number;
 };
 
 const REQUIRED = [
@@ -26,7 +29,9 @@ const REQUIRED = [
 // OPENROUTER_API_KEY no está en REQUIRED a propósito: sin ella la API arranca
 // igual (login y vinculación de WhatsApp no la necesitan), pero
 // OpenRouterClient falla con un error claro apenas se intenta generar un
-// agente o procesar un mensaje.
+// agente o procesar un mensaje. Lo mismo vale para las MERCADOPAGO_*: sin
+// ellas el producto funciona entero durante el mes de prueba y sólo falla al
+// intentar suscribirse.
 
 /**
  * Validación de entorno: mejor romper al arrancar que descubrir a mitad
@@ -65,5 +70,8 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     SESSION_COOKIE_NAME: String(raw.SESSION_COOKIE_NAME ?? 'trato_session'),
     OPENROUTER_API_KEY: String(raw.OPENROUTER_API_KEY ?? ''),
     OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'google/gemma-4-31b-it'),
+    MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),
+    MERCADOPAGO_WEBHOOK_SECRET: String(raw.MERCADOPAGO_WEBHOOK_SECRET ?? ''),
+    SUSCRIPCION_PRECIO_ARS: Number(raw.SUSCRIPCION_PRECIO_ARS ?? 20000),
   };
 }

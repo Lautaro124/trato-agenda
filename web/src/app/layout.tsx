@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
 import { SessionProvider } from "@/lib/session";
+import { SuscripcionProvider } from "@/lib/suscripcion";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -36,7 +37,9 @@ export default function RootLayout({
     // se declaran en :root y necesitan resolverlas en ese mismo elemento.
     <html lang="es" className={`${manrope.variable} ${jakarta.variable}`}>
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <SuscripcionProvider>{children}</SuscripcionProvider>
+        </SessionProvider>
       </body>
     </html>
   );
