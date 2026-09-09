@@ -41,6 +41,11 @@ services:
       - ./api:/app
       # Volumen anónimo para que el node_modules del host no pise el de la imagen.
       - /app/node_modules
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   web:
     build:
