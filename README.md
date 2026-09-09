@@ -66,32 +66,63 @@ El frontend solo necesita `NEXT_PUBLIC_API_URL`, que sale del `.env` de la raíz
 
 ## Deploy
 
-La imagen de producción de la API (`api/Dockerfile`, etapa `prod`) corre
-`prisma migrate deploy` antes de arrancar, así que una base vacía se migra sola
-en el primer deploy — por eso el CLI de Prisma está en `dependencies` y no en
-`devDependencies`, que `npm prune --omit=dev` se lo llevaría.
+Producción vive en [Railway](https://docs.railway.com/), proyecto **trato-agenda**,
+environment `production`: el plugin de Postgres más un servicio por carpeta, cada
+uno con su `rootDirectory` (`/api`, `/web`) y su Dockerfile. Las dos imágenes
+terminan en la etapa `prod`, así que Railway buildea la correcta sin `--target`.
 
-En [Railway](https://docs.railway.com/), un servicio por carpeta (`api/` y
-`web/`) más el plugin de Postgres. Tres cosas que no son obvias:
+| Servicio | Dominio |
+| -------- | ------- |
+| `web` | https://web-production-8d1ba.up.railway.app |
+| `api` | https://api-production-a4a0.up.railway.app |
 
-- **`DATABASE_URL`** no se escribe a mano: en el servicio de la API se
-  referencia la del plugin, `${{ Postgres.DATABASE_URL }}`. Nada del
-  `docker-compose.yml` interviene en el deploy; ahí sólo importa que la API lea
-  esa variable del entorno, que es lo que hace.
-- **`NEXT_PUBLIC_API_URL` se resuelve en build, no en runtime.** Railway aísla
-  el build del entorno salvo que la variable esté declarada con `ARG` en la
-  etapa que la usa; `web/Dockerfile` ya la declara en la etapa `build`, así que
-  alcanza con definirla en el servicio, apuntándola al dominio de la API
-  (`https://${{ api.RAILWAY_PUBLIC_DOMAIN }}`). Si se olvida, el bundle queda
-  hablándole a `http://localhost:4000` y el síntoma es un front que carga pero
-  no autentica nunca.
-- **`GOOGLE_CALLBACK_URL` y `FRONTEND_URL`** pasan a los dominios reales, y la
-  callback hay que autorizarla también en la consola de Google. Con dominios
-  distintos para front y API, la cookie de sesión necesita `sameSite: 'none'` +
-  `secure` (hoy es `lax`, ver `api/src/auth/auth.controller.ts`).
+**El deploy es automático**: los dos servicios están conectados al repo de GitHub
+en la rama `main`, así que cada push buildea y despliega. Los *watch paths*
+(`api/**` y `web/**`) hacen que un cambio en el front no rebuildee la API y
+viceversa. La imagen de la API corre `prisma migrate deploy` al arrancar, así que
+las migraciones también viajan solas (el healthcheck es `/health`, con 300s de
+timeout para que la migración entre).
 
-La URL del webhook de Mercado Pago (`POST /suscripcion/webhook`) se carga en el
-panel de la aplicación apuntando al dominio público de la API.
+### Variables en Railway
+
+En el servicio `api`, además de las de la tabla de arriba:
+
+- `DATABASE_URL` es una **referencia**, `${{Postgres.DATABASE_URL}}`, no un
+  literal: si Railway rota las credenciales de la base, la API las sigue.
+- `FRONTEND_URL` y `GOOGLE_CALLBACK_URL` apuntan a los dominios de arriba.
+  `FRONTEND_URL` va sin barra final: es el `origin` exacto del CORS.
+- `JWT_SECRET` y `TOKEN_ENCRYPTION_KEY` son **propias de producción**, generadas
+  con `openssl rand -hex 32`. No se reusan las locales: `TOKEN_ENCRYPTION_KEY`
+  cifra los refresh tokens de Google, y una vez elegida no se rota sin invalidar
+  todas las cuentas ya vinculadas.
+- `TZ=America/Argentina/Buenos_Aires`.
+
+En el servicio `web`, `NEXT_PUBLIC_API_URL` apunta al dominio de la API. Se
+resuelve **en el build** (Railway la pasa como build arg porque `web/Dockerfile`
+la declara con `ARG` en la etapa `build`): cambiarla exige rebuildear, no alcanza
+con reiniciar.
+
+### Tres cosas que hay que hacer a mano
+
+1. **Consola de Google**: autorizar
+   `https://api-production-a4a0.up.railway.app/auth/google/callback` como *redirect
+   URI* y el dominio del front como *JavaScript origin*.
+2. **Mercado Pago**: apuntar el webhook de la aplicación a
+   `https://api-production-a4a0.up.railway.app/suscripcion/webhook`.
+3. **Railway GitHub App**: darle acceso al repo si todavía no lo tiene.
+
+### Dos límites que conviene tener presentes
+
+- **La API no escala a más de una réplica.** `WhatsappService.onModuleInit` resume
+  todas las sesiones vinculadas al arrancar; con dos réplicas habría dos sockets
+  de Baileys peleándose la misma sesión. Por lo mismo, `sleepApplication` está en
+  `false`: el socket tiene que seguir vivo entre mensajes.
+- **El login no funciona en Safari/iOS.** Con front y API en subdominios distintos
+  de `up.railway.app` la cookie de sesión es cross-site, así que en producción va
+  con `sameSite: 'none'` + `secure` (ver `api/src/auth/auth.controller.ts`), y
+  Safari bloquea las cookies de terceros aunque sean `SameSite=None`. Se arregla
+  cuando front y API compartan dominio: subdominios de un dominio propio (y ahí la
+  cookie vuelve a `lax`), o un rewrite `/api/*` en Next que proxee a la API.
 
 ## Seguridad
 

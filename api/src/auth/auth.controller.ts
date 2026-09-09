@@ -58,10 +58,18 @@ export class AuthController {
   }
 
   private get cookieOptions(): CookieOptions {
+    const enProduccion = this.config.get('NODE_ENV', { infer: true }) === 'production';
     return {
       httpOnly: true,
-      sameSite: 'lax',
-      secure: this.config.get('NODE_ENV', { infer: true }) === 'production',
+      // En producción el front y la API viven en dominios distintos
+      // (*.up.railway.app está en la Public Suffix List, así que ni siquiera son
+      // el mismo sitio): con 'lax' el browser no manda la cookie en las llamadas
+      // del front y /auth/me contesta 401 siempre. 'none' exige secure, que ahí ya está.
+      // Contra conocida: Safari/iOS bloquea las cookies de terceros aunque sean
+      // SameSite=None, así que el login falla en ese browser hasta que front y API
+      // compartan dominio (subdominios propios, o un rewrite /api/* en Next).
+      sameSite: enProduccion ? 'none' : 'lax',
+      secure: enProduccion,
       path: '/',
     };
   }

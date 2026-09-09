@@ -23,6 +23,8 @@ The API needs `api/.env` (never committed; the variable table is in the root `RE
 
 Postgres credentials are not hardcoded in `docker-compose.yml` any more: `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` (and `NEXT_PUBLIC_API_URL`) come from an optional `.env` at the repo root — `.env.example` is the template, and every one of them has a default in the compose file, so `docker compose up` still works with no config. The same three build the `db` service's credentials **and** the `DATABASE_URL` handed to the API, so the two can't drift apart. None of that file matters in a deploy: there the platform provides `DATABASE_URL` and the API just reads it. The production image (`api/Dockerfile`, `prod` stage) runs `prisma migrate deploy` before `node dist/main`, which is why the Prisma CLI sits in `dependencies` — `npm prune --omit=dev` would strip it otherwise. `NEXT_PUBLIC_API_URL` is inlined at build time and only reaches a Dockerfile build through the `ARG` already declared in `web/Dockerfile`'s `build` stage.
 
+Production lives on Railway (project `trato-agenda`): the Postgres plugin plus one service per folder, each with its `rootDirectory` and watch paths (`api/**`, `web/**`) so one side's push doesn't rebuild the other, both connected to `main` — a push is the deploy. The API service is pinned to a single replica with `sleepApplication: false`: `WhatsappService.onModuleInit` resumes every linked session at boot, so a second replica would fight over the same Baileys socket. The deploy variables and the manual steps (Google console, Mercado Pago webhook) are in the root `README.md`.
+
 From `web/`:
 
 ```bash
@@ -82,7 +84,7 @@ On the web side `SuscripcionProvider` (`web/src/lib/suscripcion.tsx`) fetches `G
 
 The guard is deliberately client-side: verifying the JWT in a Next `proxy.ts` (Next 16's renamed `middleware.ts`) would mean sharing `JWT_SECRET` with the frontend. Do not add one.
 
-Cookies are not scoped by port, so `:4000` and `:3000` share `localhost` and `sameSite: 'lax'` is enough locally. Separate production domains will need `sameSite: 'none'` + `secure`, or a shared domain.
+Cookies are not scoped by port, so `:4000` and `:3000` share `localhost` and `sameSite: 'lax'` is enough locally. Production is on separate Railway domains, so `cookieOptions` already switches to `sameSite: 'none'` + `secure` when `NODE_ENV === 'production'` — with the known cost that Safari/iOS blocks third-party cookies outright, so the login only works there once front and API share a domain (own subdomains, or a Next `/api/*` rewrite).
 
 **`/vincular` is a state machine.** `LinkState = "active" | "connecting" | "connected" | "expired" | "error"` is declared in `src/app/vincular/page.tsx` and imported from there by components. Two effects drive it: a 1s interval counting down `TTL_SECONDS = 60` (active → expired) and a 2.5s timeout (connecting → connected). Each non-active state renders a card from `src/components/LinkStateCards.tsx`.
 
