@@ -122,7 +122,12 @@ con reiniciar.
   con `sameSite: 'none'` + `secure` (ver `api/src/auth/auth.controller.ts`), y
   Safari bloquea las cookies de terceros aunque sean `SameSite=None`. Se arregla
   cuando front y API compartan dominio: subdominios de un dominio propio (y ahí la
-  cookie vuelve a `lax`), o un rewrite `/api/*` en Next que proxee a la API.
+  cookie vuelve a `lax`), o un rewrite `/api/*` en Next que proxee a la API. Perder
+  `lax` también deja a la API sin la defensa de CSRF del browser, así que
+  `main.ts` monta `chequeoDeOrigen` (`api/src/auth/csrf-origin.ts`): todo método
+  que cambia estado con un `Origin` que no es `FRONTEND_URL` se corta con 403. Un
+  pedido sin `Origin` pasa a propósito: así llega el webhook de Mercado Pago, que
+  se autentica por firma y no por la cookie.
 
 ## Seguridad
 
