@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -6,6 +6,7 @@ import type { User } from '../generated/prisma/client.js';
 import type { Env } from '../config/env.js';
 import type { JwtPayload, PerfilGoogle } from './auth.types.js';
 import { encryptToken } from './token-crypto.js';
+import { esGoogleIdDev, googleIdDev } from './usuario-dev.js';
 
 @Injectable()
 export class AuthService {
@@ -48,6 +49,24 @@ export class AuthService {
         avatarUrl: perfil.avatarUrl,
         ...(refreshCifrado ? { googleRefreshToken: refreshCifrado } : {}),
       },
+    });
+  }
+
+  /**
+   * Usuario del login de desarrollo: sin refresh token de Google, con un
+   * `googleId` que CalendarService reconoce para usar el calendario falso.
+   * Nunca pisa a un usuario real que ya entró con Google con ese email.
+   */
+  async upsertUsuarioDev(email: string): Promise<User> {
+    const existente = await this.prisma.user.findUnique({ where: { email } });
+    if (existente && !esGoogleIdDev(existente.googleId)) {
+      throw new ConflictException('Ese email ya es de un usuario de Google: usá otro para el login de desarrollo.');
+    }
+
+    return this.prisma.user.upsert({
+      where: { googleId: googleIdDev(email) },
+      create: { googleId: googleIdDev(email), email, name: 'Usuario dev' },
+      update: {},
     });
   }
 

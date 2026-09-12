@@ -35,8 +35,9 @@ const { CalendarUnavailableError } = await import('./google-calendar.client.js')
 
 const CLAVE = randomBytes(32).toString('hex');
 
-function crearConfig(): ConfigService<Env, true> {
+function crearConfig(nodeEnv: Env['NODE_ENV'] = 'development'): ConfigService<Env, true> {
   const valores: Record<string, string> = {
+    NODE_ENV: nodeEnv,
     TOKEN_ENCRYPTION_KEY: CLAVE,
     GOOGLE_CLIENT_ID: 'client-id',
     GOOGLE_CLIENT_SECRET: 'client-secret',
@@ -44,9 +45,16 @@ function crearConfig(): ConfigService<Env, true> {
   return { get: (clave: string) => valores[clave] } as unknown as ConfigService<Env, true>;
 }
 
-function usuarioConToken(): Pick<User, 'googleRefreshToken'> {
-  return { googleRefreshToken: encryptToken('1//refresh-de-prueba', CLAVE) };
+function usuarioConToken(): Pick<User, 'id' | 'googleId' | 'googleRefreshToken'> {
+  return { id: 'user-1', googleId: '1234567890', googleRefreshToken: encryptToken('1//refresh-de-prueba', CLAVE) };
 }
+
+/** Usuario del login de desarrollo: sin token, con el prefijo "dev:". */
+const USUARIO_DEV: Pick<User, 'id' | 'googleId' | 'googleRefreshToken'> = {
+  id: 'user-dev',
+  googleId: 'dev:dev@trato.local',
+  googleRefreshToken: null,
+};
 
 function crearPrisma(): PrismaService {
   return { turno: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) } } as unknown as PrismaService;
@@ -65,9 +73,60 @@ describe('CalendarService', () => {
     const service = new CalendarService(crearConfig(), crearPrisma());
 
     await expect(
-      service.freeBusy({ googleRefreshToken: null }, new Date(), new Date()),
+      service.freeBusy({ id: 'user-1', googleId: '1234567890', googleRefreshToken: null }, new Date(), new Date()),
     ).rejects.toThrow(CalendarUnavailableError);
     expect(freebusyQuery).not.toHaveBeenCalled();
+  });
+
+  describe('usuario del login de desarrollo', () => {
+    const inicio = new Date('2026-09-14T10:00:00-03:00');
+    const fin = new Date('2026-09-14T10:30:00-03:00');
+    const dia: [Date, Date] = [new Date('2026-09-14T00:00:00-03:00'), new Date('2026-09-15T00:00:00-03:00')];
+
+    it('crea, lista, reprograma y cancela en el calendario falso sin tocar Google', async () => {
+      const service = new CalendarService(crearConfig(), crearPrisma());
+
+      const id = await service.crearEvento(USUARIO_DEV, { resumen: 'Control - Caro', inicio, fin });
+      expect(await service.freeBusy(USUARIO_DEV, ...dia)).toEqual([{ inicio, fin }]);
+
+      const nuevoInicio = new Date('2026-09-14T11:00:00-03:00');
+      const nuevoFin = new Date('2026-09-14T11:30:00-03:00');
+      await service.reprogramarEvento(USUARIO_DEV, id, { inicio: nuevoInicio, fin: nuevoFin });
+      expect(await service.listarProximos(USUARIO_DEV, ...dia)).toEqual([
+        { id, resumen: 'Control - Caro', inicio: nuevoInicio, fin: nuevoFin },
+      ]);
+
+      await service.cancelarEvento(USUARIO_DEV, id);
+      expect(await service.listarProximos(USUARIO_DEV, ...dia)).toEqual([]);
+
+      expect(freebusyQuery).not.toHaveBeenCalled();
+      expect(eventsInsert).not.toHaveBeenCalled();
+      expect(eventsPatch).not.toHaveBeenCalled();
+      expect(eventsDelete).not.toHaveBeenCalled();
+      expect(eventsList).not.toHaveBeenCalled();
+    });
+
+    it('eliminarEventoDesdeAgenda también marca cancelado el Turno del usuario dev', async () => {
+      const prisma = crearPrisma();
+      const service = new CalendarService(crearConfig(), prisma);
+      const id = await service.crearEvento(USUARIO_DEV, { resumen: 'Control', inicio, fin });
+
+      await service.eliminarEventoDesdeAgenda(USUARIO_DEV, USUARIO_DEV.id, id);
+
+      expect(prisma.turno.updateMany).toHaveBeenCalledWith({
+        where: { googleEventId: id, conversation: { userId: 'user-dev' }, estado: 'confirmado' },
+        data: { estado: 'cancelado' },
+      });
+    });
+
+    it('en producción un googleId "dev:" no abre el calendario falso: va a Google y falla sin token', async () => {
+      const service = new CalendarService(crearConfig('production'), crearPrisma());
+
+      await expect(service.freeBusy(USUARIO_DEV, ...dia)).rejects.toThrow(CalendarUnavailableError);
+      await expect(service.crearEvento(USUARIO_DEV, { resumen: 'x', inicio, fin })).rejects.toThrow(
+        CalendarUnavailableError,
+      );
+    });
   });
 
   it('freeBusy mapea los períodos ocupados de la respuesta', async () => {

@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const TIMEOUT_MS = 20_000;
 
 export type ChatMessage =
@@ -25,9 +24,18 @@ export type ToolDefinition = {
   };
 };
 
+/** Consumo que informa OpenRouter. Sólo lo mira el eval de modelos. */
+export type UsoTokens = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost?: number;
+};
+
 export type ChatCompletionMessage = {
   content: string | null;
   tool_calls?: ToolCall[];
+  usage?: UsoTokens;
 };
 
 /**
@@ -41,19 +49,41 @@ export type Razonamiento = {
   exclude?: boolean;
 };
 
+/** Schema JSON para structured outputs (`response_format: json_schema`). */
+export type EsquemaJson = {
+  name: string;
+  schema: Record<string, unknown>;
+};
+
 export type ChatOptions = {
   messages: ChatMessage[];
   tools?: ToolDefinition[];
   /** Pide JSON estructurado. Sin tools, típicamente usado por el meta-agente. */
   jsonMode?: boolean;
+  /**
+   * Structured outputs estricto: el proveedor tiene que respetar el schema.
+   * Tiene prioridad sobre `jsonMode` y fuerza `require_parameters`, así
+   * OpenRouter no enruta a un proveedor que lo ignore en silencio.
+   */
+  jsonSchema?: EsquemaJson;
   /** Override puntual del modelo; por defecto usa OPENROUTER_MODEL. */
   model?: string;
   /** Sin esto se usa el default del modelo (que en Gemma 4 es pensar). */
   reasoning?: Razonamiento;
+  /** Override del timeout: escribir un system prompt entero tarda más que una respuesta corta. */
+  timeoutMs?: number;
+  /** Tope de tokens de salida, para que una respuesta desbocada no se coma el timeout. */
+  maxTokens?: number;
 };
 
 /** Se lanza cuando OpenRouter no está configurado o la llamada falla. */
 export class OpenRouterError extends Error {}
+
+/**
+ * La llamada no volvió a tiempo. Separada del resto porque reintentarla
+ * duplica la espera sin arreglar nada (así fallaba la generación en prod).
+ */
+export class OpenRouterTimeoutError extends OpenRouterError {}
 
 /**
  * Wrapper delgado sobre el endpoint de chat completions de OpenRouter (API
@@ -76,11 +106,13 @@ export class OpenRouterClient {
       );
     }
 
+    const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const baseUrl = this.config.get('OPENROUTER_BASE_URL', { infer: true });
 
     try {
-      const res = await fetch(OPENROUTER_URL, {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         signal: controller.signal,
         headers: {
@@ -93,8 +125,9 @@ export class OpenRouterClient {
           model: options.model ?? this.config.get('OPENROUTER_MODEL', { infer: true }),
           messages: options.messages,
           ...(options.tools ? { tools: options.tools, tool_choice: 'auto' } : {}),
-          ...(options.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+          ...formatoDeRespuesta(options),
           ...(options.reasoning ? { reasoning: options.reasoning } : {}),
+          ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
         }),
       });
 
@@ -107,17 +140,22 @@ export class OpenRouterClient {
 
       const data = (await res.json()) as {
         choices?: Array<{ message?: ChatCompletionMessage }>;
+        usage?: UsoTokens;
       };
       const mensaje = data.choices?.[0]?.message;
       if (!mensaje) {
         throw new OpenRouterError('OpenRouter no devolvió ningún choice.');
       }
 
-      return { content: mensaje.content ?? null, tool_calls: mensaje.tool_calls };
+      return {
+        content: mensaje.content ?? null,
+        tool_calls: mensaje.tool_calls,
+        ...(data.usage ? { usage: data.usage } : {}),
+      };
     } catch (error) {
       if (error instanceof OpenRouterError) throw error;
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new OpenRouterError(`OpenRouter no respondió en ${TIMEOUT_MS}ms.`);
+        throw new OpenRouterTimeoutError(`OpenRouter no respondió en ${timeoutMs}ms.`);
       }
       this.logger.error('Fallo llamando a OpenRouter', error as Error);
       throw new OpenRouterError(`No se pudo llamar a OpenRouter: ${(error as Error).message}`);
@@ -125,4 +163,17 @@ export class OpenRouterClient {
       clearTimeout(timeout);
     }
   }
+}
+
+function formatoDeRespuesta(options: ChatOptions): Record<string, unknown> {
+  if (options.jsonSchema) {
+    return {
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: options.jsonSchema.name, strict: true, schema: options.jsonSchema.schema },
+      },
+      provider: { require_parameters: true },
+    };
+  }
+  return options.jsonMode ? { response_format: { type: 'json_object' } } : {};
 }

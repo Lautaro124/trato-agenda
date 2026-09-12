@@ -10,7 +10,6 @@ import type { Env } from '../config/env.js';
 
 export const LLM_CONVERSACION = 'LLM_CONVERSACION';
 
-const BASE_URL = 'https://openrouter.ai/api/v1';
 /**
  * Con reasoning activo la primera respuesta tarda más: con 20s el cliente se
  * comía la disculpa genérica en mensajes largos.
@@ -38,7 +37,8 @@ export const llmProvider = {
       maxRetries: 1,
       modelKwargs: { reasoning: RAZONAMIENTO },
       configuration: {
-        baseURL: BASE_URL,
+        // Configurable para que los E2E hablen con un OpenRouter falso y determinista.
+        baseURL: config.get('OPENROUTER_BASE_URL', { infer: true }),
         defaultHeaders: {
           'HTTP-Referer': 'https://github.com/trato-agenda',
           'X-Title': 'Trato Agenda',

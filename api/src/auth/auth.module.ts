@@ -6,6 +6,7 @@ import { AgentsModule } from '../agents/agents.module.js';
 import type { Env } from '../config/env.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import { DevAuthController } from './dev-auth.controller.js';
 import { GoogleStrategy } from './google.strategy.js';
 import { JwtStrategy } from './jwt.strategy.js';
 
@@ -24,7 +25,8 @@ import { JwtStrategy } from './jwt.strategy.js';
       }),
     }),
   ],
-  controllers: [AuthController],
+  // Primer candado del login con contraseña: en producción la ruta ni existe.
+  controllers: [AuthController, ...(process.env.NODE_ENV === 'production' ? [] : [DevAuthController])],
   providers: [AuthService, GoogleStrategy, JwtStrategy],
   exports: [AuthService],
 })

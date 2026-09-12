@@ -22,6 +22,12 @@ out/
 build/
 *.tsbuildinfo
 
+# Salidas de tests E2E (Playwright) y de los evals de modelos
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+api/evals/resultados/
+
 # Config local de Claude Code (permisos de esta máquina)
 .claude/settings.local.json
 

@@ -4,6 +4,10 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
   HORAS,
+  LARGO_MAX_BOT,
+  LARGO_MAX_NOMBRE_EVENTO,
+  LARGO_MAX_TITULAR,
+  MAX_TIPOS_EVENTO,
   PRESETS_FRANJA,
   SUGERENCIAS_BOT,
   TIPOS_USO,
@@ -50,6 +54,9 @@ export function CampoNombreTitular({ ob, conLabel = true }: { ob: Onboarding; co
         id="nombre-titular"
         value={ob.nombreTitular}
         onChange={(e) => ob.setNombreTitular(e.target.value)}
+        maxLength={LARGO_MAX_TITULAR}
+        // En móvil no hay <label>: sin esto el campo no tiene nombre accesible.
+        aria-label={conLabel ? undefined : "Nombre de la persona o del negocio"}
         placeholder={esPersona ? "Ej.: Lucía Fernández" : "Ej.: Consultorio Belgrano"}
         className={INPUT}
       />
@@ -92,6 +99,7 @@ export function ListaEventos({ ob, className }: { ob: Onboarding; className?: st
             key={evento.nombre}
             role="button"
             tabIndex={0}
+            aria-pressed={activo}
             onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -108,6 +116,7 @@ export function ListaEventos({ ob, className }: { ob: Onboarding; className?: st
             <span
               role="button"
               tabIndex={-1}
+              aria-label={`Duración de ${evento.nombre}: ${duracion} min`}
               title="Tocá para cambiar la duración"
               onClick={(e) => {
                 // El pill cicla la duración sin apagar el tipo de evento.
@@ -130,22 +139,30 @@ export function ListaEventos({ ob, className }: { ob: Onboarding; className?: st
 
 export function AgregarEvento({ ob }: { ob: Onboarding }) {
   return (
-    <div className="flex items-center gap-2">
-      <input
-        value={ob.personalizado}
-        onChange={(e) => ob.setPersonalizado(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            ob.agregarPersonalizado();
-          }
-        }}
-        placeholder="Agregar otro tipo (ej.: control anual)"
-        className="box-border flex-1 rounded-md border border-line bg-card px-[13px] py-[11px] font-body text-[13.5px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]"
-      />
-      <Button variant="secondary" size="md" onClick={ob.agregarPersonalizado}>
-        Agregar
-      </Button>
+    <div>
+      <div className="flex items-center gap-2">
+        <input
+          value={ob.personalizado}
+          onChange={(e) => ob.setPersonalizado(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              ob.agregarPersonalizado();
+            }
+          }}
+          maxLength={LARGO_MAX_NOMBRE_EVENTO}
+          disabled={ob.tiposLlenos}
+          aria-label="Nuevo tipo de evento"
+          placeholder="Agregar otro tipo (ej.: control anual)"
+          className="box-border flex-1 rounded-md border border-line bg-card px-[13px] py-[11px] font-body text-[13.5px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)] disabled:bg-sunken"
+        />
+        <Button variant="secondary" size="md" onClick={ob.agregarPersonalizado} disabled={ob.tiposLlenos}>
+          Agregar
+        </Button>
+      </div>
+      {ob.tiposLlenos && (
+        <p className="mt-2 text-[12.5px] text-muted">Llegaste al máximo de {MAX_TIPOS_EVENTO} tipos de evento.</p>
+      )}
     </div>
   );
 }
@@ -227,6 +244,8 @@ export function CampoBot({ ob }: { ob: Onboarding }) {
       <input
         value={ob.nombreBot}
         onChange={(e) => ob.setNombreBot(e.target.value)}
+        maxLength={LARGO_MAX_BOT}
+        aria-label="Nombre del asistente"
         placeholder="Ej.: Tati"
         className={INPUT}
       />

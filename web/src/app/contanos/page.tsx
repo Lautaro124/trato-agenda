@@ -9,6 +9,15 @@ import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
 import { useOnboarding } from "./useOnboarding";
 
+/** Qué decirle al usuario según cómo falló POST /agents/generate. */
+function mensajeDeError(status: number): string {
+  if (status === 400) return "Revisá los datos: hay algún campo que no es válido.";
+  if (status === 401) return "Tu sesión venció. Volvé a entrar para crear tu asistente.";
+  // 502/504: OpenRouter no contestó a tiempo o devolvió algo inservible dos veces.
+  if (status === 502 || status === 504) return "El asistente tardó demasiado en armarse. Probá de nuevo.";
+  return "No pudimos crear tu asistente. Probá de nuevo.";
+}
+
 export default function ContanosPage() {
   const router = useRouter();
   const { user, status } = useRequireSession();
@@ -20,14 +29,21 @@ export default function ContanosPage() {
     setEnviando(true);
     setError(null);
 
-    const res = await apiFetch("/agents/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(ob.payload()),
-    });
+    let res: Response;
+    try {
+      res = await apiFetch("/agents/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ob.payload()),
+      });
+    } catch {
+      setError("No pudimos conectarnos. Revisá tu conexión y probá de nuevo.");
+      setEnviando(false);
+      return;
+    }
 
     if (!res.ok) {
-      setError("No pudimos crear tu asistente. Probá de nuevo.");
+      setError(mensajeDeError(res.status));
       setEnviando(false);
       return;
     }
@@ -44,6 +60,9 @@ export default function ContanosPage() {
     );
   }
 
+  // Generar el prompt lleva varios segundos: sin este aviso parece colgado.
+  const aviso = enviando ? "Estamos armando tu asistente, puede tardar hasta un minuto." : null;
+
   return (
     <main className="min-h-dvh bg-page">
       {/* Escritorio: el wizard paso a paso. */}
@@ -52,15 +71,33 @@ export default function ContanosPage() {
           <SessionChip user={user} />
         </div>
         <WizardEscritorio ob={ob} enviando={enviando} onFinalizar={finalizar} />
-        {error && (
-          <p className="absolute bottom-6 text-[12.5px] text-danger-text">{error}</p>
-        )}
+        <div className="absolute bottom-6">
+          {error && (
+            <p role="alert" className="text-[12.5px] text-danger-text">
+              {error}
+            </p>
+          )}
+          {aviso && (
+            <p role="status" className="text-[12.5px] text-muted">
+              {aviso}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Móvil: las mismas preguntas apiladas en un solo scroll. */}
       <div className="md:hidden">
         <FormularioMovil ob={ob} enviando={enviando} onFinalizar={finalizar} />
-        {error && <p className="px-5 pb-4 text-[12.5px] text-danger-text">{error}</p>}
+        {error && (
+          <p role="alert" className="px-5 pb-4 text-[12.5px] text-danger-text">
+            {error}
+          </p>
+        )}
+        {aviso && (
+          <p role="status" className="px-5 pb-4 text-[12.5px] text-muted">
+            {aviso}
+          </p>
+        )}
       </div>
     </main>
   );

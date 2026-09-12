@@ -1,0 +1,21 @@
+{
+  "name": "trato-agenda-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Tests end to end de Trato Agenda con Playwright, contra el stack de docker compose.",
+  "scripts": {
+    "e2e": "playwright test --project=escritorio --project=movil",
+    "e2e:ui": "playwright test --ui --project=escritorio --project=movil",
+    "e2e:real": "E2E_REAL=1 playwright test --project=real",
+    "e2e:reporte": "playwright show-report",
+    "e2e:stack": "docker compose -p trato-e2e -f ../docker-compose.yml -f ../docker-compose.e2e.yml up --build -d",
+    "e2e:stack:down": "docker compose -p trato-e2e -f ../docker-compose.yml -f ../docker-compose.e2e.yml down -v",
+    "stub": "node openrouter-stub/server.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5"
+  }
+}

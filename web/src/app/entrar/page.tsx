@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { GoogleMark } from "@/components/GoogleMark";
+import { LoginDev } from "@/components/LoginDev";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
@@ -92,6 +93,9 @@ export default function EntrarPage() {
               cuando quieras.
             </p>
           </div>
+
+          {/* NODE_ENV se inlinea en el build: en producción este bloque ni llega al bundle. */}
+          {process.env.NODE_ENV !== "production" && <LoginDev />}
         </div>
       </section>
     </main>

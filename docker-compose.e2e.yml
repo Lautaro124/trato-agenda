@@ -1,0 +1,36 @@
+# Override para los E2E de Playwright (paquete e2e/). Suma un OpenRouter falso
+# y determinista, y le prende a la API el login de desarrollo:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+#   cd e2e && npm run e2e
+#
+# `environment` pisa lo que venga de api/.env, así que la clave real de
+# OpenRouter nunca se usa mientras este override esté activo.
+services:
+  openrouter-stub:
+    image: node:24-alpine
+    working_dir: /stub
+    command: ["node", "server.mjs"]
+    volumes:
+      - ./e2e/openrouter-stub:/stub:ro
+    ports:
+      - "4010:4010"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4010/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  api:
+    # El stack de e2e corre con su propio nombre de proyecto (ver e2e/package.json),
+    # así que arranca con una base vacía: las migraciones van antes de levantar.
+    command: ["sh", "-c", "npx prisma generate && npx prisma migrate deploy && npm run start:dev"]
+    environment:
+      OPENROUTER_BASE_URL: http://openrouter-stub:4010/api/v1
+      OPENROUTER_API_KEY: e2e
+      OPENROUTER_MODEL: stub/conversacion
+      OPENROUTER_MODEL_AGENTES: stub/agentes
+      DEV_LOGIN_PASSWORD: e2e-password
+    depends_on:
+      openrouter-stub:
+        condition: service_healthy

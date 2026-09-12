@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { esGoogleIdDev } from '../auth/usuario-dev.js';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { CalendarioDev } from './calendario-dev.js';
 import { CalendarUnavailableError, getCalendarClient } from './google-calendar.client.js';
 
 /** Zona horaria fija — el proyecto no soporta todavía timezone por usuario. */
@@ -12,6 +14,9 @@ const CALENDAR_ID = 'primary';
 export type PeriodoOcupado = { inicio: Date; fin: Date };
 export type DatosEvento = { resumen: string; inicio: Date; fin: Date };
 export type EventoListado = { id: string; resumen: string; inicio: Date | null; fin: Date | null };
+
+/** Lo que hace falta del usuario para decidir a qué calendario ir y autenticarse en Google. */
+export type UsuarioCalendario = Pick<User, 'id' | 'googleId' | 'googleRefreshToken'>;
 
 function traducirError(error: unknown): CalendarUnavailableError {
   if (error instanceof CalendarUnavailableError) return error;
@@ -24,19 +29,27 @@ function traducirError(error: unknown): CalendarUnavailableError {
  * (token revocado, red, etc.) se traduce a CalendarUnavailableError para que
  * quien llame (conversation.service.ts) no tenga que conocer la forma de
  * los errores de `googleapis`.
+ *
+ * Los usuarios del login de desarrollo no tienen Google: fuera de producción
+ * van a un `CalendarioDev` en memoria con el mismo contrato.
  */
 @Injectable()
 export class CalendarService {
+  private readonly calendarioDev = new CalendarioDev();
+
   constructor(
     private readonly config: ConfigService<Env, true>,
     private readonly prisma: PrismaService,
   ) {}
 
-  async freeBusy(
-    user: Pick<User, 'googleRefreshToken'>,
-    desde: Date,
-    hasta: Date,
-  ): Promise<PeriodoOcupado[]> {
+  /** En producción nunca: un googleId "dev:" ahí sólo podría venir de datos manipulados. */
+  private usaCalendarioDev(user: UsuarioCalendario): boolean {
+    return this.config.get('NODE_ENV', { infer: true }) !== 'production' && esGoogleIdDev(user.googleId);
+  }
+
+  async freeBusy(user: UsuarioCalendario, desde: Date, hasta: Date): Promise<PeriodoOcupado[]> {
+    if (this.usaCalendarioDev(user)) return this.calendarioDev.freeBusy(user.id, desde, hasta);
+
     const calendar = getCalendarClient(user, this.config);
     try {
       const res = await calendar.freebusy.query({
@@ -55,7 +68,9 @@ export class CalendarService {
     }
   }
 
-  async crearEvento(user: Pick<User, 'googleRefreshToken'>, datos: DatosEvento): Promise<string> {
+  async crearEvento(user: UsuarioCalendario, datos: DatosEvento): Promise<string> {
+    if (this.usaCalendarioDev(user)) return this.calendarioDev.crear(user.id, datos);
+
     const calendar = getCalendarClient(user, this.config);
     try {
       const res = await calendar.events.insert({
@@ -75,10 +90,12 @@ export class CalendarService {
     }
   }
 
-  async cancelarEvento(
-    user: Pick<User, 'googleRefreshToken'>,
-    googleEventId: string,
-  ): Promise<void> {
+  async cancelarEvento(user: UsuarioCalendario, googleEventId: string): Promise<void> {
+    if (this.usaCalendarioDev(user)) {
+      this.calendarioDev.cancelar(user.id, googleEventId);
+      return;
+    }
+
     const calendar = getCalendarClient(user, this.config);
     try {
       await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: googleEventId });
@@ -88,10 +105,15 @@ export class CalendarService {
   }
 
   async reprogramarEvento(
-    user: Pick<User, 'googleRefreshToken'>,
+    user: UsuarioCalendario,
     googleEventId: string,
     datos: Partial<Pick<DatosEvento, 'resumen' | 'inicio' | 'fin'>>,
   ): Promise<void> {
+    if (this.usaCalendarioDev(user)) {
+      this.calendarioDev.reprogramar(user.id, googleEventId, datos);
+      return;
+    }
+
     const calendar = getCalendarClient(user, this.config);
     try {
       await calendar.events.patch({
@@ -115,7 +137,7 @@ export class CalendarService {
    * el agente, lo marca cancelado para no desincronizar el tracking.
    */
   async eliminarEventoDesdeAgenda(
-    user: Pick<User, 'googleRefreshToken'>,
+    user: UsuarioCalendario,
     userId: string,
     googleEventId: string,
   ): Promise<void> {
@@ -128,7 +150,7 @@ export class CalendarService {
 
   /** Análogo a eliminarEventoDesdeAgenda pero para editar horario y/o título. */
   async editarEventoDesdeAgenda(
-    user: Pick<User, 'googleRefreshToken'>,
+    user: UsuarioCalendario,
     userId: string,
     googleEventId: string,
     datos: Partial<Pick<DatosEvento, 'resumen' | 'inicio' | 'fin'>>,
@@ -142,11 +164,9 @@ export class CalendarService {
     }
   }
 
-  async listarProximos(
-    user: Pick<User, 'googleRefreshToken'>,
-    desde: Date,
-    hasta: Date,
-  ): Promise<EventoListado[]> {
+  async listarProximos(user: UsuarioCalendario, desde: Date, hasta: Date): Promise<EventoListado[]> {
+    if (this.usaCalendarioDev(user)) return this.calendarioDev.listar(user.id, desde, hasta);
+
     const calendar = getCalendarClient(user, this.config);
     try {
       const res = await calendar.events.list({

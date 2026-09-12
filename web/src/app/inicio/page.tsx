@@ -37,7 +37,13 @@ export default function InicioPage() {
   useEffect(() => {
     if (status !== "authenticated") return;
     apiFetch("/agents/me")
-      .then((res) => (res.ok ? res.json() : null))
+      // Sin agente la API contesta 200 con el cuerpo vacío (un `null` de Nest):
+      // `res.json()` explotaba, caía en el catch y dejaba entrar al Home igual.
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const texto = await res.text();
+        return texto ? JSON.parse(texto) : null;
+      })
       .then((agent) => {
         if (!agent) {
           router.replace("/contanos");

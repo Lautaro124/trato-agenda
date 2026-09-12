@@ -61,6 +61,13 @@ export const CATALOGO_EVENTOS: Record<TipoUsoId, TipoEvento[]> = {
 /** Duraciones por las que cicla el pill de cada tipo de evento. */
 export const DURACIONES = [15, 20, 30, 45, 60, 90];
 
+/** Límites de GenerateAgentDto (api/src/agents/agents.types.ts): superarlos es un 400. */
+export const MAX_TIPOS_EVENTO = 20;
+export const LARGO_MIN_NOMBRE_EVENTO = 2;
+export const LARGO_MAX_NOMBRE_EVENTO = 60;
+export const LARGO_MAX_TITULAR = 80;
+export const LARGO_MAX_BOT = 40;
+
 export const PRESETS_FRANJA = [
   { label: "Mañana", desde: "09:00", hasta: "13:00" },
   { label: "Tarde", desde: "14:00", hasta: "19:00" },
@@ -118,7 +125,10 @@ export function useOnboarding() {
 
   const alternarEvento = useCallback((nombre: string, duracionMin: number) => {
     setElegidos((previos) => {
-      if (!previos[nombre]) return { ...previos, [nombre]: duracionMin };
+      if (!previos[nombre]) {
+        if (Object.keys(previos).length >= MAX_TIPOS_EVENTO) return previos;
+        return { ...previos, [nombre]: duracionMin };
+      }
       const resto = { ...previos };
       delete resto[nombre];
       return resto;
@@ -135,9 +145,13 @@ export function useOnboarding() {
   }, []);
 
   const agregarPersonalizado = useCallback(() => {
-    const nombre = personalizado.trim();
-    if (!nombre) return;
-    setElegidos((previos) => ({ ...previos, [nombre]: 30 }));
+    const nombre = personalizado.trim().slice(0, LARGO_MAX_NOMBRE_EVENTO);
+    if (nombre.length < LARGO_MIN_NOMBRE_EVENTO) return;
+    setElegidos((previos) => {
+      // Mismos límites que GenerateAgentDto: mejor frenarlo acá que recibir un 400.
+      if (previos[nombre] || Object.keys(previos).length >= MAX_TIPOS_EVENTO) return previos;
+      return { ...previos, [nombre]: 30 };
+    });
     setPersonalizado("");
   }, [personalizado]);
 
@@ -203,6 +217,7 @@ export function useOnboarding() {
     personalizado,
     setPersonalizado,
     agregarPersonalizado,
+    tiposLlenos: seleccionados.length >= MAX_TIPOS_EVENTO,
     horaDesde,
     setHoraDesde,
     horaHasta,

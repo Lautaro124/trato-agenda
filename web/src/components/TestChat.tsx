@@ -138,6 +138,7 @@ export function TestChat() {
             type="button"
             disabled={busy || !draft.trim()}
             onClick={() => void send()}
+            aria-label="Enviar"
             className="grid size-[42px] flex-none cursor-pointer place-items-center rounded-md bg-primary text-primary-on hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-[var(--color-primitive-neutral-200)] disabled:text-muted"
           >
             →
