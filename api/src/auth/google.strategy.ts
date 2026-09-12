@@ -5,11 +5,27 @@ import { Profile, Strategy, VerifyCallback } from 'passport-google-oauth20';
 import type { Env } from '../config/env.js';
 import { AuthService } from './auth.service.js';
 
-/** Scope de Calendar: lo pedimos ya en el login porque el bot lo va a necesitar. */
+/**
+ * Los scopes son el mínimo que la app usa de verdad, y eso es deliberado: la
+ * verificación de Google rechaza pedir más de lo que se puede justificar.
+ *
+ * - `calendar.events` cubre las cuatro llamadas de eventos que hacemos
+ *   (insert, patch, delete, list). `calendar.app.created` no alcanza: la
+ *   disponibilidad tiene que contar también los eventos que el titular cargó
+ *   a mano, que esa variante no deja ver.
+ * - `calendar.freebusy` es lo único que necesita `freebusy.query`, que es la
+ *   única lectura del calendario en el flujo de clientes.
+ *
+ * Antes se pedía `auth/calendar` entero (lectura y escritura de todos los
+ * calendarios, ACLs y settings). No volver a ampliarlo sin justificarlo ante
+ * Google: cambiar esta lista obliga a todos los usuarios a consentir de nuevo.
+ */
 export const GOOGLE_SCOPES = [
+  'openid',
   'profile',
   'email',
-  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar.freebusy',
 ];
 
 @Injectable()

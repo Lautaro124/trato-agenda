@@ -5,7 +5,11 @@ import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CalendarioDev } from './calendario-dev.js';
-import { CalendarUnavailableError, getCalendarClient } from './google-calendar.client.js';
+import {
+  CalendarUnavailableError,
+  GoogleReconsentimientoError,
+  getCalendarClient,
+} from './google-calendar.client.js';
 
 /** Zona horaria fija — el proyecto no soporta todavía timezone por usuario. */
 const TIMEZONE = 'America/Argentina/Buenos_Aires';
@@ -18,8 +22,26 @@ export type EventoListado = { id: string; resumen: string; inicio: Date | null; 
 /** Lo que hace falta del usuario para decidir a qué calendario ir y autenticarse en Google. */
 export type UsuarioCalendario = Pick<User, 'id' | 'googleId' | 'googleRefreshToken'>;
 
+/**
+ * Distingue "Google está caído" de "este usuario tiene que volver a consentir".
+ * `googleapis` tira un GaxiosError: el 403 por scope insuficiente llega con
+ * "Insufficient Permission" y el token revocado con `invalid_grant`.
+ */
+function necesitaReconsentimiento(error: unknown): boolean {
+  const posible = error as { code?: number | string; status?: number; message?: unknown };
+  const codigo = typeof posible?.code === 'number' ? posible.code : posible?.status;
+  const mensaje = String(posible?.message ?? '');
+  if (/invalid_grant/i.test(mensaje)) return true;
+  return (codigo === 403 || codigo === 401) && /insufficient/i.test(mensaje);
+}
+
 function traducirError(error: unknown): CalendarUnavailableError {
   if (error instanceof CalendarUnavailableError) return error;
+  if (necesitaReconsentimiento(error)) {
+    return new GoogleReconsentimientoError(
+      'El acceso a Google Calendar dejó de ser válido: hay que volver a entrar con Google.',
+    );
+  }
   return new CalendarUnavailableError(`Google Calendar no respondió: ${(error as Error).message}`);
 }
 

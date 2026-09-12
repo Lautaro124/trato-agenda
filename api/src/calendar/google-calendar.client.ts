@@ -8,6 +8,16 @@ import type { User } from '../generated/prisma/client.js';
 export class CalendarUnavailableError extends Error {}
 
 /**
+ * El refresh token guardado ya no sirve para lo que la app pide: o fue revocado
+ * (`invalid_grant`), o se consintió con scopes más viejos que los de
+ * `GOOGLE_SCOPES` y Google contesta 403 insufficient permissions. En los dos
+ * casos la salida es la misma y no es un error nuestro: el titular tiene que
+ * volver a entrar con Google. Hereda de CalendarUnavailableError para que el
+ * grafo de conversación siga tratándolo como "no pude leer la agenda".
+ */
+export class GoogleReconsentimientoError extends CalendarUnavailableError {}
+
+/**
  * Arma un cliente de Google Calendar autenticado para un usuario a partir de
  * su refresh token cifrado. `googleapis` refresca el access token solo en
  * cada llamada (no hay que cachearlo ni persistirlo) — esto reemplaza el
