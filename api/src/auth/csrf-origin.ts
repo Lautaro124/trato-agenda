@@ -6,11 +6,13 @@ const METODOS_SEGUROS = new Set(['GET', 'HEAD', 'OPTIONS']);
 /**
  * ¿Puede este `Origin` mandar una request que cambia estado?
  *
- * En producción la cookie de sesión va con `sameSite: 'none'` (front y API
- * viven en dominios distintos), así que el browser ya no filtra los pedidos
- * cross-site: cualquier página podría hacer un `POST /whatsapp/unlink` con la
- * sesión de la víctima adentro. Un POST sin preflight (form o text/plain) no lo
- * frena el CORS, que sólo tapa la *lectura* de la respuesta.
+ * Cuando la cookie de sesión cae en `sameSite: 'none'` (front y API en sitios
+ * distintos, ver `cookie.ts`) el browser ya no filtra los pedidos cross-site:
+ * cualquier página podría hacer un `POST /whatsapp/unlink` —o un
+ * `DELETE /auth/me`— con la sesión de la víctima adentro. Un POST sin preflight
+ * (form o text/plain) no lo frena el CORS, que sólo tapa la *lectura* de la
+ * respuesta. El chequeo queda montado incluso con `sameSite: 'lax'`: es la misma
+ * regla, no depende de la configuración de la cookie y no cuesta nada.
  *
  * `undefined` es válido a propósito: los pedidos que no salen de un browser no
  * mandan `Origin`, y de ahí llega el webhook de Mercado Pago, que se autentica
