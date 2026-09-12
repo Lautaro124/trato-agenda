@@ -1,7 +1,11 @@
 import Link from "next/link";
+import { FooterLegal } from "@/components/FooterLegal";
+import { CUIT, EMAIL_SOPORTE, RESPONSABLE } from "@/lib/contacto";
 
 export const metadata = {
   title: "Términos de servicio — Trato Agenda",
+  description:
+    "Condiciones de uso de Trato Agenda: el servicio, la prueba gratuita, la suscripción, el alcance del permiso sobre tu Google Calendar y cómo darte de baja.",
 };
 
 function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
@@ -24,7 +28,7 @@ export default function TerminosPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Términos de servicio
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 9 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 12 de septiembre de 2026</p>
 
         <Seccion titulo="El servicio">
           <p>
@@ -66,27 +70,63 @@ export default function TerminosPage() {
 
         <Seccion titulo="Tu cuenta de Google">
           <p>
-            Al conectar tu cuenta nos das permiso para leer y escribir eventos en tu Google Calendar,
-            únicamente para el funcionamiento del asistente. Podés revocar ese permiso en cualquier
-            momento desde la configuración de tu cuenta de Google; al hacerlo, el asistente deja de poder
-            operar tu agenda.
+            Al conectar tu cuenta nos das dos permisos sobre tu calendario, y sólo esos:{" "}
+            <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
+              calendar.events
+            </code>{" "}
+            para crear, mover, cancelar y listar eventos, y{" "}
+            <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
+              calendar.freebusy
+            </code>{" "}
+            para ver qué horarios tenés ocupados. Se usan únicamente para el funcionamiento del
+            asistente.
+          </p>
+          <p>
+            Podés revocar ese permiso en cualquier momento desde{" "}
+            <a
+              href="https://myaccount.google.com/permissions"
+              className="text-link"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              la configuración de tu cuenta de Google
+            </a>
+            ; al hacerlo, el asistente deja de poder operar tu agenda. El detalle de qué leemos y qué
+            no está en la{" "}
+            <Link href="/privacidad" className="text-link">
+              política de privacidad
+            </Link>
+            .
           </p>
         </Seccion>
 
         <Seccion titulo="Cambios y baja del servicio">
           <p>
             Podemos actualizar estos términos o el servicio con el tiempo; los cambios importantes se
-            publican en esta página. Podés pedir la baja completa de tu cuenta y tus datos escribiendo a{" "}
-            <a href="mailto:lautaro.gonzalez4949@gmail.com" className="text-link">
-              lautaro.gonzalez4949@gmail.com
+            publican en esta página.
+          </p>
+          <p>
+            Podés borrar tu cuenta y todos tus datos vos mismo, desde <strong className="font-semibold text-ink">Cuenta → Eliminar mi cuenta</strong>{" "}
+            en la aplicación: eso revoca el acceso a tu Google Calendar y borra todo, sin pasar por
+            nosotros. Si preferís que lo hagamos, escribinos a{" "}
+            <a href={`mailto:${EMAIL_SOPORTE}`} className="text-link">
+              {EMAIL_SOPORTE}
             </a>
             .
           </p>
         </Seccion>
 
-        <Seccion titulo="Ley aplicable">
-          <p>Estos términos se rigen por las leyes de la República Argentina.</p>
+        <Seccion titulo="Quién presta el servicio y ley aplicable">
+          <p>
+            Trato Agenda lo presta{" "}
+            <strong className="font-semibold text-ink">
+              {RESPONSABLE}, CUIT {CUIT}
+            </strong>
+            , desde la República Argentina. Estos términos se rigen por las leyes argentinas.
+          </p>
         </Seccion>
+
+        <FooterLegal className="mt-9" />
       </div>
     </main>
   );

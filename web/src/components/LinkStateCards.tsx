@@ -2,6 +2,7 @@
 
 import { QrCode } from "@/components/QrCode";
 import { Button } from "@/components/ui/Button";
+import { EMAIL_SOPORTE } from "@/lib/contacto";
 
 /** Marco blanco que envuelve al QR en todos los estados (1g del canvas). */
 function QrFrame({ children }: { children: React.ReactNode }) {
@@ -133,9 +134,12 @@ export function ErrorCard({
         <Button variant="primary" size="md" fullWidth onClick={onRetry}>
           Reintentar
         </Button>
-        <Button variant="ghost" size="sm" fullWidth>
+        <a
+          href={`mailto:${EMAIL_SOPORTE}`}
+          className="inline-flex w-full items-center justify-center rounded-md px-3 py-1 text-[13px] font-semibold text-primary hover:bg-primary-subtle"
+        >
           Escribir a soporte
-        </Button>
+        </a>
       </div>
     </StateCard>
   );

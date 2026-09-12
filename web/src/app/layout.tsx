@@ -19,7 +19,7 @@ const jakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: "Trato Agenda",
   description:
-    "Entrá con Google y el bot coordina tus reuniones desde WhatsApp: las crea, las mueve y te avisa.",
+    "Entrá con Google y tu asistente coordina los turnos por WhatsApp: los crea en tu Google Calendar, los mueve y te avisa.",
 };
 
 // viewport-fit=cover habilita env(safe-area-inset-*) para la barra inferior móvil.

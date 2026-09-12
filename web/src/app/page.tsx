@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
+import { EMAIL_SOPORTE } from "@/lib/contacto";
 
 export const metadata = {
   title: "Trato Agenda — turnos por WhatsApp, agenda en Google Calendar",
@@ -23,7 +24,7 @@ const PASOS = [
   {
     numero: 3,
     titulo: "Se agenda solo",
-    texto: "El asistente contesta, ofrece horarios libres, confirma y recuerda el turno.",
+    texto: "El asistente, que funciona con un modelo de lenguaje, contesta, ofrece horarios libres, confirma y recuerda el turno.",
   },
 ];
 
@@ -284,7 +285,7 @@ export default function Home() {
             <Link href="/terminos" className="text-muted">
               Términos
             </Link>
-            <a href="mailto:lautaro.gonzalez4949@gmail.com" className="text-muted">
+            <a href={`mailto:${EMAIL_SOPORTE}`} className="text-muted">
               Ayuda
             </a>
           </div>

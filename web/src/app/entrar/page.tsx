@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { FooterLegal } from "@/components/FooterLegal";
 import { GoogleMark } from "@/components/GoogleMark";
 import { LoginDev } from "@/components/LoginDev";
 import { Wordmark } from "@/components/Wordmark";
@@ -96,6 +97,10 @@ export default function EntrarPage() {
 
           {/* NODE_ENV se inlinea en el build: en producción este bloque ni llega al bundle. */}
           {process.env.NODE_ENV !== "production" && <LoginDev />}
+
+          {/* Los enlaces legales tienen que estar en la pantalla que dispara el
+              consentimiento de Google: es donde los busca quien revisa la app. */}
+          <FooterLegal className="mt-8" />
         </div>
       </section>
     </main>
