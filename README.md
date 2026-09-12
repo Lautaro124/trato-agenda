@@ -77,6 +77,21 @@ Las tres primeras arman a la vez las credenciales del servicio `db` y la
 | `OPENROUTER_MODEL` | Modelo de OpenRouter a usar (formato `proveedor/modelo`). Por defecto `google/gemma-4-31b-it`. Tiene que soportar tool calling **y** reasoning: el runtime conversacional lo llama con `reasoning: { effort: 'low' }` ([lista filtrada](https://openrouter.ai/models?supported_parameters=tools,reasoning)). |
 | `OPENROUTER_MODEL_AGENTES` | Opcional. Modelo sólo para **generar** agentes en `/contanos`; vacío usa `OPENROUTER_MODEL`. Generar la config es mecánico (JSON con structured outputs, sin reasoning), así que puede ir a un modelo más rápido y barato. El sufijo `:nitro` le pide a OpenRouter el proveedor con más throughput. Tiene que soportar structured outputs. |
 | `OPENROUTER_BASE_URL` | Opcional. Base del endpoint OpenAI-compatible. Por defecto `https://openrouter.ai/api/v1`; los E2E la apuntan al OpenRouter falso. |
+
+Sobre el modelo: **toda** llamada a OpenRouter viaja con
+`provider: { data_collection: 'deny', zdr: true }` (`POLITICA_DE_PROVEEDOR` en
+`api/src/agents/openrouter.client.ts`, importada también por
+`api/src/conversation/llm.provider.ts`). Eso restringe el ruteo a proveedores que
+no guardan los prompts ni entrenan con ellos, es lo que la app declara en
+`/privacidad` y es un requisito de Limited Use de Google — no sacarlo. Como
+también restringe el conjunto de proveedores elegibles, un modelo sin endpoint
+ZDR deja de estar disponible: correr `npm run eval` antes de cambiar
+`OPENROUTER_MODEL`. La corrida del 12/09/2026 confirmó que ningún modelo de la
+lista perdió el ruteo, pero que `google/gemma-4-31b-it` quedó el doble de lento
+bajo ZDR (p50 de 5.9s a 12.1s, con casos que pasan el timeout de 40s del
+runtime). Los números y las alternativas están en
+[`docs/modelo-y-zdr.md`](docs/modelo-y-zdr.md); la decisión de qué modelo usar
+está pendiente.
 | `DEV_LOGIN_PASSWORD` | Opcional, **sólo desarrollo**. Prende el login con contraseña y el calendario falso (ver arriba). Si está definida con `NODE_ENV=production`, la API no arranca. |
 | `MERCADOPAGO_ACCESS_TOKEN` | Access token de la aplicación de [Mercado Pago](https://www.mercadopago.com.ar/developers/panel) con la que se cobra la suscripción. Sin ella la API arranca igual; sólo falla el checkout. **Secreto real, nunca commitear.** |
 | `MERCADOPAGO_WEBHOOK_SECRET` | Clave secreta de las notificaciones de esa misma aplicación: con ella se verifica la firma `x-signature` de cada webhook. Sin ella, los webhooks se descartan. |
@@ -191,8 +206,16 @@ terminan en la etapa `prod`, así que Railway buildea la correcta sin `--target`
 
 | Servicio | Dominio |
 | -------- | ------- |
-| `web` | https://web-production-8d1ba.up.railway.app |
-| `api` | https://api-production-a4a0.up.railway.app |
+| `web` | https://tratoagenda.com |
+| `api` | https://api.tratoagenda.com |
+
+Los dos son dominios propios (custom domains en Railway, certificado válido y DNS
+propagado); los `*.up.railway.app` que Railway genera siguen respondiendo pero no
+se usan. Que la API sea un **subdominio** del front no es cosmético: hace que la
+cookie de sesión sea same-site y por eso `cookie.ts` la manda con
+`sameSite: 'lax'`, lo que arregla el login en Safari/iOS. Además la verificación
+OAuth de Google exige que la homepage y la política de privacidad estén en un
+dominio propio verificado.
 
 **El deploy es automático**: los dos servicios están conectados al repo de GitHub
 en la rama `main`, así que cada push buildea y despliega. Los *watch paths*
@@ -224,10 +247,12 @@ con reiniciar.
 ### Tres cosas que hay que hacer a mano
 
 1. **Consola de Google**: autorizar
-   `https://api-production-a4a0.up.railway.app/auth/google/callback` como *redirect
-   URI* y el dominio del front como *JavaScript origin*.
+   `https://api.tratoagenda.com/auth/google/callback` como *redirect URI* y
+   `https://tratoagenda.com` como *JavaScript origin*. El estado de la
+   verificación OAuth y lo que falta para reenviarla están en
+   [`docs/verificacion-google.md`](docs/verificacion-google.md).
 2. **Mercado Pago**: apuntar el webhook de la aplicación a
-   `https://api-production-a4a0.up.railway.app/suscripcion/webhook`.
+   `https://api.tratoagenda.com/suscripcion/webhook`.
 3. **Railway GitHub App**: darle acceso al repo si todavía no lo tiene.
 
 ### Dos límites que conviene tener presentes
@@ -236,13 +261,15 @@ con reiniciar.
   todas las sesiones vinculadas al arrancar; con dos réplicas habría dos sockets
   de Baileys peleándose la misma sesión. Por lo mismo, `sleepApplication` está en
   `false`: el socket tiene que seguir vivo entre mensajes.
-- **El login no funciona en Safari/iOS.** Con front y API en subdominios distintos
-  de `up.railway.app` la cookie de sesión es cross-site, así que en producción va
-  con `sameSite: 'none'` + `secure` (ver `api/src/auth/cookie.ts`), y
-  Safari bloquea las cookies de terceros aunque sean `SameSite=None`. Se arregla
-  cuando front y API compartan dominio: subdominios de un dominio propio (y ahí la
-  cookie vuelve a `lax`), o un rewrite `/api/*` en Next que proxee a la API. Perder
-  `lax` también deja a la API sin la defensa de CSRF del browser, así que
+- **La cookie de sesión depende de que front y API compartan sitio.**
+  `opcionesDeCookie` (`api/src/auth/cookie.ts`) compara `FRONTEND_URL` con
+  `GOOGLE_CALLBACK_URL` y usa `sameSite: 'lax'` sólo si una es el mismo host o un
+  subdominio de la otra — que es el caso hoy (`tratoagenda.com` +
+  `api.tratoagenda.com`), y es lo que hace que el login funcione en Safari/iOS.
+  Si algún día vuelven a dos subdominios hermanos de `up.railway.app` (que está en
+  la Public Suffix List, así que **no** son el mismo sitio) cae solo a
+  `sameSite: 'none'` + `secure`, y ahí Safari bloquea la cookie de nuevo. Con
+  `none` la API queda sin la defensa de CSRF del browser, así que
   `main.ts` monta `chequeoDeOrigen` (`api/src/auth/csrf-origin.ts`): todo método
   que cambia estado con un `Origin` que no es `FRONTEND_URL` se corta con 403. Un
   pedido sin `Origin` pasa a propósito: así llega el webhook de Mercado Pago, que

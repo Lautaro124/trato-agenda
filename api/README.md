@@ -11,10 +11,18 @@ En [Google Cloud Console](https://console.cloud.google.com/):
 
 1. Crear un proyecto.
 2. Habilitar la **Google Calendar API**.
-3. Pantalla de consentimiento OAuth: tipo *External*, modo *Testing*, y agregar tu
-   mail como *test user* (si no, Google rechaza el login).
+3. Pantalla de consentimiento OAuth: tipo *External*. En desarrollo alcanza el
+   modo *Testing* con tu mail como *test user* (si no, Google rechaza el login);
+   producción necesita la app verificada — ver
+   [`docs/verificacion-google.md`](../docs/verificacion-google.md).
 4. *Credentials* → *Create credentials* → *OAuth client ID* → **Web application**.
    - Authorized redirect URI: `http://localhost:4000/auth/google/callback`
+
+Los scopes que pide la app son los de `GOOGLE_SCOPES`
+(`src/auth/google.strategy.ts`): `openid`, `profile`, `email`,
+`calendar.events` y `calendar.freebusy`. Son el mínimo que se usa de verdad y
+están justificados uno por uno en el documento de verificación: ampliarlos obliga
+a todos los usuarios a consentir de nuevo.
 
 ## 2. Variables de entorno
 
@@ -101,12 +109,9 @@ docker compose build api && docker compose rm -sfv api && docker compose up -d a
 El login ya está conectado punta a punta: `web/` pide el usuario a `/auth/me` con
 la cookie (`web/src/lib/session.tsx`) y el callback vuelve a `FRONTEND_URL/vincular`.
 
-Lo que sigue pendiente:
-
-- Refrescar el access token de Google a partir del refresh token guardado.
-- Las llamadas a Google Calendar (el scope ya se pide, pero nadie lo usa).
-- La vinculación real de WhatsApp: hoy `/vincular` simula los estados y el
-  teléfono es una constante en el front (`TELEFONO_DEMO`).
-- Cookie cross-domain: en local `:4000` y `:3000` comparten el site `localhost`,
-  así que `sameSite: 'lax'` alcanza. Con dominios distintos en producción va a
-  hacer falta `sameSite: 'none'` + `secure`, o servir todo bajo un mismo dominio.
+Google Calendar, la vinculación de WhatsApp y la conversación son reales: el
+refresh token se guarda cifrado y `googleapis` refresca el access token en cada
+llamada (`src/calendar/google-calendar.client.ts`), `/vincular` hace un pairing
+real por Baileys (`src/whatsapp/`) y el asistente contesta con el grafo de
+`src/conversation/`. La cookie de sesión va `sameSite: 'lax'` cuando front y API
+comparten sitio y cae a `'none'` + `secure` cuando no (`src/auth/cookie.ts`).
