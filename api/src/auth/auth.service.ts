@@ -29,8 +29,10 @@ export class AuthService {
       : undefined;
 
     if (!refreshCifrado) {
+      // Se loguea el googleId y no el email: es igual de útil para depurar y
+      // no deja datos de la cuenta de Google en los logs.
       this.logger.warn(
-        `Google no devolvió refresh token para ${perfil.email}; se mantiene el anterior si existía.`,
+        `Google no devolvió refresh token para ${perfil.googleId}; se mantiene el anterior si existía.`,
       );
     }
 

@@ -7,6 +7,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { AIMessage, SystemMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import { esAccionValida } from '../../../agents/agent-catalog.js';
+import { resumenDeError } from '../../../agents/openrouter.client.js';
 import { MENSAJE_DISCULPA_GENERICO } from '../../mensajes.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO, type EsquemaHerramienta } from '../../conversation-tools.js';
 import type { EstadoConversacionUpdate, EstadoConversacionValue } from '../state.js';
@@ -43,8 +44,7 @@ export function crearNodoConversacion(deps: DepsConversacion) {
       return { messages: [respuesta] };
     } catch (error) {
       logger.error(
-        `El modelo falló para la conversación ${contexto.conversation.id}`,
-        error as Error,
+        `El modelo falló para la conversación ${contexto.conversation.id}: ${resumenDeError(error)}`,
       );
       // Se responde con la disculpa como si fuera el turno final: sin tool
       // calls, el router manda directo a persistir y termina la vuelta.

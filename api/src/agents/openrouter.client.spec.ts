@@ -1,7 +1,12 @@
 import type { ConfigService } from '@nestjs/config';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
-import { OpenRouterClient, OpenRouterError, OpenRouterTimeoutError } from './openrouter.client.js';
+import {
+  OpenRouterClient,
+  OpenRouterError,
+  OpenRouterTimeoutError,
+  POLITICA_DE_PROVEEDOR,
+} from './openrouter.client.js';
 
 function crearCliente(overrides: Partial<Record<keyof Env, string>> = {}) {
   const valores: Record<string, string> = {
@@ -97,11 +102,11 @@ describe('OpenRouterClient', () => {
       type: 'json_schema',
       json_schema: { name: 'config_agente', strict: true, schema },
     });
-    expect(cuerpo.provider).toEqual({ require_parameters: true });
+    expect(cuerpo.provider).toEqual({ ...POLITICA_DE_PROVEEDOR, require_parameters: true });
     expect(cuerpo.max_tokens).toBe(3000);
   });
 
-  it('sin maxTokens ni jsonSchema no manda max_tokens ni provider', async () => {
+  it('sin maxTokens ni jsonSchema no manda max_tokens ni require_parameters', async () => {
     vi.mocked(fetch).mockResolvedValue(respuestaOk());
 
     await crearCliente().chat({ messages: [{ role: 'user', content: 'hola' }], jsonMode: true });
@@ -109,7 +114,16 @@ describe('OpenRouterClient', () => {
     const cuerpo = cuerpoEnviado();
     expect(cuerpo.response_format).toEqual({ type: 'json_object' });
     expect(cuerpo.max_tokens).toBeUndefined();
-    expect(cuerpo.provider).toBeUndefined();
+    // La política de datos va siempre; `require_parameters` sólo con jsonSchema.
+    expect(cuerpo.provider).toEqual(POLITICA_DE_PROVEEDOR);
+  });
+
+  it('manda la política de no-entrenamiento / ZDR en toda llamada', async () => {
+    vi.mocked(fetch).mockResolvedValue(respuestaOk());
+
+    await crearCliente().chat({ messages: [{ role: 'user', content: 'hola' }] });
+
+    expect(cuerpoEnviado().provider).toMatchObject({ data_collection: 'deny', zdr: true });
   });
 
   it('respeta timeoutMs y tira OpenRouterTimeoutError', async () => {

@@ -6,6 +6,7 @@
  */
 import { ChatOpenAI } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
+import { POLITICA_DE_PROVEEDOR } from '../agents/openrouter.client.js';
 import type { Env } from '../config/env.js';
 
 export const LLM_CONVERSACION = 'LLM_CONVERSACION';
@@ -35,7 +36,9 @@ export const llmProvider = {
       apiKey: config.get('OPENROUTER_API_KEY', { infer: true }) || 'sin-configurar',
       timeout: TIMEOUT_MS,
       maxRetries: 1,
-      modelKwargs: { reasoning: RAZONAMIENTO },
+      // `provider` es la misma política de no-entrenamiento / ZDR que usa el
+      // meta-agente: viaja en cada request, no sólo en la política de privacidad.
+      modelKwargs: { reasoning: RAZONAMIENTO, provider: POLITICA_DE_PROVEEDOR },
       configuration: {
         // Configurable para que los E2E hablen con un OpenRouter falso y determinista.
         baseURL: config.get('OPENROUTER_BASE_URL', { infer: true }),

@@ -6,7 +6,7 @@
  */
 import type { BaseMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
-import type { OpenRouterClient } from '../../../agents/openrouter.client.js';
+import { resumenDeError, type OpenRouterClient } from '../../../agents/openrouter.client.js';
 import type { Prisma } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import type { EstadoConversacionUpdate, EstadoConversacionValue } from '../state.js';
@@ -108,7 +108,9 @@ export function crearNodoPersistir(deps: DepsPersistir) {
         data: { resumen: resumen.slice(0, 500) },
       });
     } catch (error) {
-      logger.error(`No se pudo actualizar el resumen de la conversación ${conversationId}`, error as Error);
+      logger.error(
+        `No se pudo actualizar el resumen de la conversación ${conversationId}: ${resumenDeError(error)}`,
+      );
     }
   }
 
