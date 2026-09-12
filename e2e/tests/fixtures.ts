@@ -87,7 +87,7 @@ export type LlamadaStub = {
   model: string;
   max_tokens: number | null;
   response_format: { type: string; json_schema?: { name: string; strict: boolean } } | null;
-  provider: { require_parameters?: boolean } | null;
+  provider: { require_parameters?: boolean; data_collection?: string; zdr?: boolean } | null;
   reasoning: Record<string, unknown> | null;
 };
 
