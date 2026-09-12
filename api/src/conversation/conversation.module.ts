@@ -14,6 +14,8 @@ import { llmProvider } from './llm.provider.js';
   imports: [AgentsModule, CalendarModule, SubscriptionModule, PassportModule.register({ session: false })],
   controllers: [ConversationController],
   providers: [ConversationService, CheckpointerService, llmProvider, grafoProvider],
-  exports: [ConversationService],
+  // CheckpointerService se exporta para que el borrado de cuenta pueda limpiar
+  // los threads de LangGraph, que están fuera del cascade de Prisma.
+  exports: [ConversationService, CheckpointerService],
 })
 export class ConversationModule {}

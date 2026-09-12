@@ -120,6 +120,13 @@ export class SaverAutoReparable extends PostgresSaver {
   ): ReturnType<PostgresSaver['putWrites']> {
     return this.reparador.ejecutar(() => super.putWrites(...args));
   }
+
+  /** Lo usa la baja de cuenta: borrar un thread que no existe no es un error. */
+  deleteThread(
+    ...args: Parameters<PostgresSaver['deleteThread']>
+  ): ReturnType<PostgresSaver['deleteThread']> {
+    return this.reparador.ejecutar(() => super.deleteThread(...args));
+  }
 }
 
 @Injectable()

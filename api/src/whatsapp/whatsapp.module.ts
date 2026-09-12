@@ -9,6 +9,8 @@ import { WhatsappService } from './whatsapp.service.js';
   // JwtAuthGuard (AuthGuard('jwt')) necesita AuthModuleOptions de PassportModule
   // en el árbol de DI de este módulo, igual que en AuthModule.
   imports: [PassportModule.register({ session: false }), ConversationModule, SubscriptionModule],
+  // Exportado para la baja de cuenta, que necesita cerrar el socket de Baileys.
+  exports: [WhatsappService],
   controllers: [WhatsappController],
   providers: [WhatsappService],
 })

@@ -1,8 +1,9 @@
-import { Controller, Get, HttpCode, HttpStatus, Post, Res, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, HttpStatus, Post, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import { AgentsService } from '../agents/agents.service.js';
 import { AuthService } from './auth.service.js';
+import { CuentaService } from './cuenta.service.js';
 import { aUsuarioPublico, type UsuarioPublico } from './auth.types.js';
 import { nombreCookie, opcionesDeCookie, SIETE_DIAS_MS } from './cookie.js';
 import { CurrentUser } from './current-user.decorator.js';
@@ -15,6 +16,7 @@ import type { Env } from '../config/env.js';
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly cuentaService: CuentaService,
     private readonly agentsService: AgentsService,
     private readonly config: ConfigService<Env, true>,
   ) {}
@@ -48,6 +50,22 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   logout(@Res({ passthrough: true }) res: Response): void {
+    res.clearCookie(nombreCookie(this.config), opcionesDeCookie(this.config));
+  }
+
+  /**
+   * Baja de cuenta: revoca el acceso a Google y borra todos los datos. No tiene
+   * vuelta atrás, así que el front pide confirmación escrita antes de llamar.
+   * `chequeoDeOrigen` ya corta cualquier DELETE que no venga del front.
+   */
+  @Delete('me')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async eliminarCuenta(
+    @CurrentUser() user: User,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    await this.cuentaService.eliminar(user);
     res.clearCookie(nombreCookie(this.config), opcionesDeCookie(this.config));
   }
 
