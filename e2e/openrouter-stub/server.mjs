@@ -10,8 +10,11 @@
 //   - resumen del cliente (ni tools ni response_format): texto fijo.
 //
 // Marcas en el nombre del titular para probar los caminos de error:
-//   [json-roto] -> el primer intento devuelve texto que no es JSON;
-//   [falla]     -> responde 500 siempre (la API termina en 502).
+//   [json-roto]  -> el primer intento devuelve texto que no es JSON;
+//   [falla]      -> responde 500 siempre (la API termina en 502);
+//   [corte-N]    -> corta la respuesta a los primeros N caracteres del JSON
+//                   completo y marca finish_reason:"length", simulando un
+//                   presupuesto de tokens de salida agotado a mitad de camino.
 //
 // Sin dependencias: corre con `node server.mjs` o dentro de node:24-alpine.
 import http from 'node:http';
@@ -45,6 +48,13 @@ function completion(model, message) {
     ],
     usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0 },
   };
+}
+
+/** Como `completion()`, pero con el contenido cortado y finish_reason:"length". */
+function completionCortada(model, contenidoCompleto, longitud) {
+  const base = completion(model, { content: contenidoCompleto.slice(0, longitud) });
+  base.choices[0].finish_reason = 'length';
+  return base;
 }
 
 function textoDe(mensaje) {
@@ -89,7 +99,14 @@ function generar(body, res) {
       'Preguntá siempre el nombre antes de agendar y hablá sólo de la agenda.',
     allowedActions: ACCIONES,
   };
-  return responder(res, 200, completion(body.model, { content: JSON.stringify(config) }));
+  const contenidoCompleto = JSON.stringify(config);
+
+  const corte = perfil.titular.match(/\[corte-(\d+)\]/);
+  if (corte) {
+    return responder(res, 200, completionCortada(body.model, contenidoCompleto, Number(corte[1])));
+  }
+
+  return responder(res, 200, completion(body.model, { content: contenidoCompleto }));
 }
 
 // --- Conversación ----------------------------------------------------------
