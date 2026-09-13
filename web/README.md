@@ -25,10 +25,12 @@ la API y Postgres, que el login necesita).
 | Variable | Descripción |
 | -------- | ----------- |
 | `NEXT_PUBLIC_API_URL` | Base de la API. Por defecto `http://localhost:4000` (`src/lib/api.ts`). `docker-compose.yml` ya la define para el contenedor. |
+| `NEXT_PUBLIC_PRECIO_ARS` | Precio del plan mostrado en la landing, sin sesión. Por defecto `20000` (`src/lib/api.ts`). Debe coincidir a mano con `SUSCRIPCION_PRECIO_ARS` de la API. |
 
-Como toda `NEXT_PUBLIC_*`, se **inlinea en tiempo de build**: para la imagen de
-producción hay que pasarla como build arg
-(`docker build --build-arg NEXT_PUBLIC_API_URL=...`), no como variable de runtime.
+Como toda `NEXT_PUBLIC_*`, se **inlinean en tiempo de build**: para la imagen de
+producción hay que pasarlas como build arg
+(`docker build --build-arg NEXT_PUBLIC_API_URL=... --build-arg NEXT_PUBLIC_PRECIO_ARS=...`),
+no como variable de runtime.
 
 ## Qué hay adentro
 

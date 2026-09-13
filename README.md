@@ -54,6 +54,7 @@ Hay dos archivos, ninguno versionado:
 | `POSTGRES_PASSWORD` | Su contraseña. Por defecto `postgres`. Si tiene `@ : / ?`, escribila percent-encoded: termina adentro de la `DATABASE_URL`. |
 | `POSTGRES_DB` | Nombre de la base. Por defecto `trato`. |
 | `NEXT_PUBLIC_API_URL` | Origen desde el que **el browser** ve la API. Por defecto `http://localhost:4000`. Se inlinea en el bundle durante el build, no es una variable de runtime. |
+| `NEXT_PUBLIC_PRECIO_ARS` | Precio mostrado en la landing, sin sesión. Por defecto `20000`. Debe coincidir a mano con `SUSCRIPCION_PRECIO_ARS` de la API; también se inlinea en el build. |
 
 Las tres primeras arman a la vez las credenciales del servicio `db` y la
 `DATABASE_URL` que recibe la API, así que no pueden desincronizarse.
@@ -97,7 +98,7 @@ está pendiente.
 | `MERCADOPAGO_WEBHOOK_SECRET` | Clave secreta de las notificaciones de esa misma aplicación: con ella se verifica la firma `x-signature` de cada webhook. Sin ella, los webhooks se descartan. |
 | `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan en pesos. Por defecto `20000`. |
 
-El frontend solo necesita `NEXT_PUBLIC_API_URL`, que sale del `.env` de la raíz.
+El frontend solo necesita `NEXT_PUBLIC_API_URL` y `NEXT_PUBLIC_PRECIO_ARS`, que salen del `.env` de la raíz.
 
 ## Tests
 
@@ -239,9 +240,10 @@ En el servicio `api`, además de las de la tabla de arriba:
 - `TZ=America/Argentina/Buenos_Aires`.
 - **Nunca** `DEV_LOGIN_PASSWORD`: la API se niega a arrancar si la ve.
 
-En el servicio `web`, `NEXT_PUBLIC_API_URL` apunta al dominio de la API. Se
-resuelve **en el build** (Railway la pasa como build arg porque `web/Dockerfile`
-la declara con `ARG` en la etapa `build`): cambiarla exige rebuildear, no alcanza
+En el servicio `web`, `NEXT_PUBLIC_API_URL` apunta al dominio de la API y
+`NEXT_PUBLIC_PRECIO_ARS` fija el precio de la landing. Ambas se resuelven **en
+el build** (Railway las pasa como build args porque `web/Dockerfile` las
+declara con `ARG` en la etapa `build`): cambiarlas exige rebuildear, no alcanza
 con reiniciar.
 
 ### Tres cosas que hay que hacer a mano

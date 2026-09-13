@@ -81,14 +81,7 @@ export function useSuscripcion(): SuscripcionValue {
   return ctx;
 }
 
-/** "$20.000", como se escribe en Argentina. */
-export function formatearMonto(monto: number, moneda = "ARS"): string {
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: moneda,
-    maximumFractionDigits: 0,
-  }).format(monto);
-}
+export { formatearMonto } from "./formato";
 
 /** "8 de octubre" — la fecha en que termina la prueba, sin el año. */
 export function formatearFechaCorta(iso: string): string {

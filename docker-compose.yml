@@ -55,10 +55,12 @@ services:
         # NEXT_PUBLIC_* se inlinea durante el build: en la imagen de producción
         # tiene que llegar como build arg, no como variable de runtime.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_PRECIO_ARS: ${NEXT_PUBLIC_PRECIO_ARS:-20000}
     environment:
       # El browser habla con la API por el puerto publicado en el host, no por
       # el nombre del servicio: "api" no resuelve fuera de la red de compose.
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      NEXT_PUBLIC_PRECIO_ARS: ${NEXT_PUBLIC_PRECIO_ARS:-20000}
       NEXT_TELEMETRY_DISABLED: "1"
     ports:
       - "3000:3000"

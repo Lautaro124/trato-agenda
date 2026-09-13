@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { EMAIL_SOPORTE } from "@/lib/contacto";
+import { PRECIO_ARS } from "@/lib/api";
+import { formatearMonto } from "@/lib/formato";
 
 export const metadata = {
   title: "Trato Agenda — turnos por WhatsApp, agenda en Google Calendar",
@@ -224,7 +226,7 @@ export default function Home() {
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <div className="font-display text-[38px] leading-none font-bold tracking-[-0.03em] text-ink md:text-[46px]">
-                  $20.000
+                  {formatearMonto(PRECIO_ARS)}
                 </div>
                 <div className="mt-1.5 text-sm text-muted">por mes · después del mes gratis</div>
               </div>
