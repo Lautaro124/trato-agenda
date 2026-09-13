@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Matriz de cobertura adversarial — columnas de matriz-cobertura.csv",
+  "description": "Una fila = un escenario/variante atómico y trazable. El id es estable entre corridas: no se reescribe, sólo se agrega estado/evidencia.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Estable, formato <seccion>-<numero>, ej B-014, F-007, RL4-003. No se reescribe entre corridas." },
+    "seccion": { "type": "string", "description": "A..G (secciones de la spec) o RL1..RL7 (dimensiones de recursos limitados)." },
+    "requisito": { "type": "string", "description": "Qué regla o comportamiento se está probando, en una frase." },
+    "fuente_archivo_linea": { "type": "string", "description": "path/al/archivo.ts:linea donde vive el requisito en el código real." },
+    "riesgo": { "type": "string", "enum": ["alto", "medio", "bajo"] },
+    "capa": { "type": "string", "enum": ["unit", "integration", "e2e", "property", "fuzz", "manual"] },
+    "precondiciones": { "type": "string" },
+    "entrada": { "type": "string" },
+    "fallo_inyectado": { "type": "string", "description": "Vacío si el caso no inyecta ningún fallo (camino feliz o límite)." },
+    "resultado_esperado": { "type": "string" },
+    "efectos_permitidos": { "type": "string" },
+    "efectos_prohibidos": { "type": "string" },
+    "metodo_verificacion": { "type": "string", "description": "Qué se assertea y con qué (spec file, expect, log)." },
+    "tipo_prueba": { "type": "string", "enum": ["determinista_offline", "llm_real", "recursos_limitados", "metamorfica", "fuzzing"] },
+    "dimension_recursos": { "type": "string", "description": "contexto|salida|reasoning|tiempo|cpu_ram|carga|cuotas, o vacío si no aplica." },
+    "requiere_presupuesto": { "type": "boolean" },
+    "repeticiones_planeadas": { "type": "integer" },
+    "estado": { "type": "string", "enum": ["planeado", "implementado", "ejecutado_pass", "ejecutado_fail", "bloqueado", "no_aplicable"] },
+    "evidencia": { "type": "string", "description": "path relativo a spec:test-name, o a resultados/*.jsonl:linea." },
+    "notas": { "type": "string" }
+  },
+  "required": ["id", "seccion", "requisito", "fuente_archivo_linea", "riesgo", "capa", "estado"]
+}

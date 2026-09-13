@@ -1,0 +1,36 @@
+{
+  "generadoEl": "2026-09-13T03:03:14.086Z",
+  "escenariosUnicos": 135,
+  "filasEnCsv": 135,
+  "idsDuplicados": [],
+  "porEstado": {
+    "planeado": 5,
+    "implementado": 119,
+    "ejecutado_pass": 2,
+    "ejecutado_fail": 2,
+    "bloqueado": 5,
+    "no_aplicable": 2
+  },
+  "porSeccion": {
+    "A": 21,
+    "B": 30,
+    "C": 20,
+    "D": 10,
+    "E": 8,
+    "F": 15,
+    "G": 10,
+    "RL1": 1,
+    "RL2": 2,
+    "RL3": 2,
+    "RL4": 4,
+    "RL5": 3,
+    "RL6": 2,
+    "RL7": 2,
+    "metamorfica": 4,
+    "control_negativo": 1
+  },
+  "requierenPresupuesto": 5,
+  "repeticionesPlaneadasTotales": 135,
+  "porcentajeEjecutado": 3,
+  "nota": "implementado cuenta como evidencia de spec verde, no como \"ejecutado\" en el sentido de la sección 6 (que reserva ejecutado_pass/ejecutado_fail para el resultado del caso adversarial en sí)."
+}
