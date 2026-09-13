@@ -1,0 +1,25 @@
+# Override experimental de recursos limitados, sólo para medición manual — no
+# es parte de ningún `npm test` ni de CI. Se aplica sobre el stack de e2e (que
+# ya reemplaza OpenRouter por el stub, así que nunca golpea la red real):
+#
+#   docker compose down   # liberar 5432/4000/3000 si el stack de dev está arriba
+#   docker compose -p trato-recursos -f docker-compose.yml -f docker-compose.e2e.yml \
+#     -f docker-compose.recursos-limitados.yml up -d
+#   docker stats --no-stream
+#   docker compose -p trato-recursos -f docker-compose.yml -f docker-compose.e2e.yml \
+#     -f docker-compose.recursos-limitados.yml down -v
+#
+# Perfil por defecto acá: 1 CPU / 512MiB. Para el perfil de 0.5 CPU / 256MiB,
+# pisar los dos valores con variables de entorno:
+#
+#   RECURSOS_CPU=0.5 RECURSOS_MEM=256M docker compose ... up -d
+#
+# Estos son perfiles EXPERIMENTALES para medir arranque/RSS/recuperación, no
+# mínimos garantizados de producción (Railway no aplica estos límites).
+services:
+  api:
+    deploy:
+      resources:
+        limits:
+          cpus: "${RECURSOS_CPU:-1}"
+          memory: "${RECURSOS_MEM:-512M}"
