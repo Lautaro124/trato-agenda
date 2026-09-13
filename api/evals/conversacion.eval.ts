@@ -9,7 +9,7 @@
  */
 import 'dotenv/config';
 import 'reflect-metadata';
-import { AIMessage, HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +19,7 @@ import { OPENROUTER_BASE_URL_POR_DEFECTO, type Env } from '../src/config/env.js'
 import { LIMITE_RECURSION, construirGrafo } from '../src/conversation/graph/graph.factory.js';
 import { llmProvider } from '../src/conversation/llm.provider.js';
 import type { PrismaService } from '../src/prisma/prisma.service.js';
+import { contarToolCallsNuevas } from './adversarial/medicion.js';
 import { HAY_CLAVE, modelosDelEval } from './modelos.js';
 import { guardarReporte, normalizar, type Resultado } from './reporte.js';
 
@@ -241,6 +242,12 @@ describe.skipIf(!HAY_CLAVE)('eval: conversación con textos difíciles', () => {
         };
         const respuestas: string[] = [];
         const herramientas: string[] = [];
+        // Cursor + set de ids ya vistos: el checkpointer es el mismo durante todo
+        // el caso (mismo thread_id), así que `estado.messages` crece en cada
+        // invoke e incluye los AIMessage de vueltas anteriores. Contarlos con una
+        // ventana fija podía recontar tool calls ya sumadas (ver medicion.ts).
+        let cursor = 0;
+        const idsDeHerramientaVistos = new Set<string>();
 
         try {
           for (const texto of caso.mensajes) {
@@ -251,10 +258,9 @@ describe.skipIf(!HAY_CLAVE)('eval: conversación con textos difíciles', () => {
             );
             resultado.latenciasMs.push(Math.round(performance.now() - inicio));
 
-            const nuevos = estado.messages.slice(-12).filter((mensaje) => mensaje instanceof AIMessage) as AIMessage[];
-            for (const mensaje of nuevos) {
-              for (const llamada of mensaje.tool_calls ?? []) herramientas.push(llamada.name);
-            }
+            const conteo = contarToolCallsNuevas(estado.messages, cursor, idsDeHerramientaVistos);
+            herramientas.push(...conteo.herramientas);
+            cursor = conteo.cursor;
             const ultimo = estado.messages.at(-1);
             respuestas.push(typeof ultimo?.content === 'string' ? ultimo.content : '');
           }
