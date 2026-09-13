@@ -31,6 +31,9 @@ services:
       OPENROUTER_MODEL: stub/conversacion
       OPENROUTER_MODEL_AGENTES: stub/agentes
       DEV_LOGIN_PASSWORD: e2e-password
+      # Secreto fijo sólo para este stack: permite a los specs de e2e firmar un
+      # webhook de Mercado Pago válido sin conocer (ni imprimir) el secreto real.
+      MERCADOPAGO_WEBHOOK_SECRET: e2e-webhook-secret
     depends_on:
       openrouter-stub:
         condition: service_healthy

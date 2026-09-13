@@ -10,5 +10,8 @@ export const STUB_URL = process.env.E2E_STUB_URL ?? 'http://localhost:4010';
 /** La de docker-compose.e2e.yml. Para `e2e:real`, la que tenga api/.env. */
 export const DEV_PASSWORD = process.env.E2E_DEV_PASSWORD ?? 'e2e-password';
 
+/** La de docker-compose.e2e.yml. No existe equivalente para `e2e:real` (no hay test de webhook ahí). */
+export const MERCADOPAGO_WEBHOOK_SECRET = process.env.E2E_MP_WEBHOOK_SECRET ?? 'e2e-webhook-secret';
+
 /** `npm run e2e:real`: sin OpenRouter falso, contra el modelo configurado en api/.env. */
 export const MODO_REAL = process.env.E2E_REAL === '1';
