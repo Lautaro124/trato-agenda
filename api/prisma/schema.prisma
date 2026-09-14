@@ -90,8 +90,14 @@ model Agent {
   /// Subconjunto de agent-catalog.ts que el agente tiene habilitado.
   allowedActions String[]
 
-  /// Modelo de OpenRouter usado para generar esta config.
-  model String
+  /// Modelo de OpenRouter usado para generar esta config. Null si se generó
+  /// con la plantilla determinista (ver `templateVersion`); se conserva tal
+  /// cual en los agentes generados por IA antes de este campo existir.
+  model String?
+
+  /// Versión de la plantilla determinista (agent-template.ts) que generó
+  /// esta config. Null en agentes generados por IA antes de este campo.
+  templateVersion Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -71,8 +71,14 @@ test.describe('borrado de cuenta', () => {
 
 test.describe('política de datos hacia el modelo', () => {
   test('toda llamada al modelo viaja con data_collection deny y zdr', async ({ context, usuarioDev }) => {
+    // La generación del agente ya no llama al modelo (plantilla determinista):
+    // la política de proveedor se prueba contra una charla real, que sigue
+    // usando OpenRouter.
     const agente = await crearAgentePorApi(context.request);
     expect(usuarioDev.email).toBeTruthy();
+
+    const res = await context.request.post(`${API_URL}/conversation/test`, { data: { message: 'hola' } });
+    expect(res.ok()).toBe(true);
 
     const llamadas = await llamadasDelStub(context.request, agente.nombreTitular);
     expect(llamadas.length).toBeGreaterThan(0);

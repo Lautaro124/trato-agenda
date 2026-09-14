@@ -13,8 +13,6 @@ export type Env = {
   SESSION_COOKIE_NAME: string;
   OPENROUTER_API_KEY: string;
   OPENROUTER_MODEL: string;
-  /** Modelo sólo para generar agentes. Vacío = usa OPENROUTER_MODEL. */
-  OPENROUTER_MODEL_AGENTES: string;
   /** Base del endpoint OpenAI-compatible. Los E2E la apuntan a un OpenRouter falso. */
   OPENROUTER_BASE_URL: string;
   /** Contraseña del login de desarrollo. Vacía = login dev apagado. Prohibida en producción. */
@@ -86,7 +84,6 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     SESSION_COOKIE_NAME: String(raw.SESSION_COOKIE_NAME ?? 'trato_session'),
     OPENROUTER_API_KEY: String(raw.OPENROUTER_API_KEY ?? ''),
     OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'google/gemma-4-31b-it'),
-    OPENROUTER_MODEL_AGENTES: String(raw.OPENROUTER_MODEL_AGENTES ?? ''),
     OPENROUTER_BASE_URL: String(raw.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_POR_DEFECTO).replace(/\/+$/, ''),
     DEV_LOGIN_PASSWORD: devLoginPassword,
     MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),

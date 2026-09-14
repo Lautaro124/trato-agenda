@@ -2,31 +2,21 @@
 // OpenAI-compatible que usa la API (`POST /api/v1/chat/completions`), pero de
 // forma determinista: los tests no dependen de un modelo real ni gastan plata.
 //
-// Distingue los tres tipos de pedido que hace la API:
-//   - generación del agente (trae `response_format`): arma la config a partir
-//     del mensaje de usuario del meta-agente;
+// La generación del agente (POST /agents/generate) ya no llama al modelo —
+// usa una plantilla determinista (api/src/agents/agent-template.ts) — así que
+// este stub sólo distingue dos tipos de pedido:
 //   - conversación (trae `tools`): un guion por palabras clave del último
 //     mensaje humano, que agenda/mueve/cancela con tool calls reales;
-//   - resumen del cliente (ni tools ni response_format): texto fijo.
-//
-// Marcas en el nombre del titular para probar los caminos de error:
-//   [json-roto]  -> el primer intento devuelve texto que no es JSON;
-//   [falla]      -> responde 500 siempre (la API termina en 502);
-//   [corte-N]    -> corta la respuesta a los primeros N caracteres del JSON
-//                   completo y marca finish_reason:"length", simulando un
-//                   presupuesto de tokens de salida agotado a mitad de camino.
+//   - resumen del cliente (sin tools): texto fijo.
 //
 // Sin dependencias: corre con `node server.mjs` o dentro de node:24-alpine.
 import http from 'node:http';
 
 const PUERTO = Number(process.env.PORT ?? 4010);
 const ZONA = 'America/Argentina/Buenos_Aires';
-const ACCIONES = ['consultar_disponibilidad', 'crear_turno', 'cancelar_turno', 'reprogramar_turno', 'consultar_turno'];
 
 /** Registro de pedidos para que los tests afirmen qué mandó la API. */
 let llamadas = [];
-/** Intentos de generación por titular, para el caso [json-roto]. */
-const intentos = new Map();
 
 function responder(res, status, cuerpo) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -50,66 +40,20 @@ function completion(model, message) {
   };
 }
 
-/** Como `completion()`, pero con el contenido cortado y finish_reason:"length". */
-function completionCortada(model, contenidoCompleto, longitud) {
-  const base = completion(model, { content: contenidoCompleto.slice(0, longitud) });
-  base.choices[0].finish_reason = 'length';
-  return base;
-}
-
 function textoDe(mensaje) {
   if (typeof mensaje?.content === 'string') return mensaje.content;
   if (Array.isArray(mensaje?.content)) return mensaje.content.map((parte) => parte.text ?? '').join('');
   return '';
 }
 
-function campo(texto, regex) {
-  return texto.match(regex)?.[1]?.trim() ?? '';
-}
-
-// --- Generación del agente -------------------------------------------------
-
-function datosDelPerfil(body) {
-  const usuario = textoDe(body.messages?.find((mensaje) => mensaje.role === 'user'));
-  return {
-    titular: campo(usuario, /^Titular \((?:persona|negocio)\): (.*)$/m),
-    bot: campo(usuario, /^Nombre del asistente: (.*)$/m),
-    franja: campo(usuario, /^Franja horaria de atención: (.*)$/m),
-    tipos: campo(usuario, /^Tipos de turno: (.*)$/m),
-  };
-}
-
-function generar(body, res) {
-  const perfil = datosDelPerfil(body);
-  const intento = (intentos.get(perfil.titular) ?? 0) + 1;
-  intentos.set(perfil.titular, intento);
-  llamadas.push({ tipo: 'generacion', titular: perfil.titular, intento, ...resumenDelPedido(body) });
-
-  if (perfil.titular.includes('[falla]')) {
-    return responder(res, 500, { error: { message: 'Proveedor caído (stub)' } });
-  }
-  if (perfil.titular.includes('[json-roto]') && intento === 1) {
-    return responder(res, 200, completion(body.model, { content: 'Claro, acá va tu config: {systemPrompt: sin comillas' }));
-  }
-
-  const config = {
-    systemPrompt:
-      `Sos ${perfil.bot}, el asistente de ${perfil.titular}. ` +
-      `Tomás turnos de: ${perfil.tipos}. Atendés de lunes a viernes, ${perfil.franja}. ` +
-      'Preguntá siempre el nombre antes de agendar y hablá sólo de la agenda.',
-    allowedActions: ACCIONES,
-  };
-  const contenidoCompleto = JSON.stringify(config);
-
-  const corte = perfil.titular.match(/\[corte-(\d+)\]/);
-  if (corte) {
-    return responder(res, 200, completionCortada(body.model, contenidoCompleto, Number(corte[1])));
-  }
-
-  return responder(res, 200, completion(body.model, { content: contenidoCompleto }));
-}
-
 // --- Conversación ----------------------------------------------------------
+//
+// El system prompt que arma el runtime siempre incluye, en código (no en el
+// texto generado por IA o por la plantilla), el bloque "Reglas de la agenda
+// de <titular> ... Tipos de turno y su duración: ..." — ver
+// `reglasDeAgenda` en api/src/conversation/graph/nodes/cargar-contexto.node.ts.
+// Este stub lee el titular y el primer tipo de turno de ahí en vez de una
+// convención propia, así no depende de cómo se generó el agente.
 
 /** "YYYY-MM-DD" del día hábil siguiente a hoy, en la zona del negocio. */
 function proximoDiaHabil() {
@@ -149,15 +93,22 @@ function conversar(body, res) {
   const indiceUsuario = mensajes.findLastIndex((mensaje) => mensaje.role === 'user');
   const ultimoUsuario = normalizar(textoDe(mensajes[indiceUsuario]));
   const resultadoTool = mensajes.slice(indiceUsuario + 1).findLast((mensaje) => mensaje.role === 'tool');
-  llamadas.push({ tipo: 'conversacion', mensaje: ultimoUsuario, conResultado: Boolean(resultadoTool), ...resumenDelPedido(body) });
+  const titular = sistema.match(/Reglas de la agenda de (.*?) \(no las rompas\)/)?.[1]?.trim();
+  llamadas.push({
+    tipo: 'conversacion',
+    titular,
+    mensaje: ultimoUsuario,
+    conResultado: Boolean(resultadoTool),
+    ...resumenDelPedido(body),
+  });
 
   // Ya se ejecutó la herramienta de este mensaje: se cierra con lo que devolvió.
   if (resultadoTool) {
     return responder(res, 200, completion(body.model, { content: `Listo: ${textoDe(resultadoTool)}` }));
   }
 
-  // El primer tipo de turno del prompt generado por este mismo stub.
-  const tipo = sistema.match(/Tomás turnos de: ([^,(]+?) \((\d+) min\)/);
+  // El primer tipo de turno del bloque de reglas que agrega el código.
+  const tipo = sistema.match(/Tipos de turno y su duración: ([^,(]+?) \((\d+) min\)/);
   const resumen = tipo?.[1]?.trim() ?? 'Turno';
   const duracion = Number(tipo?.[2] ?? 30);
   const dia = proximoDiaHabil();
@@ -244,7 +195,6 @@ const servidor = http.createServer(async (req, res) => {
     } catch {
       return responder(res, 400, { error: { message: 'JSON inválido' } });
     }
-    if (body.response_format) return generar(body, res);
     if (Array.isArray(body.tools) && body.tools.length > 0) return conversar(body, res);
 
     llamadas.push({ tipo: 'resumen', ...resumenDelPedido(body) });

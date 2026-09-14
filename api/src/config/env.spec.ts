@@ -33,11 +33,4 @@ describe('validateEnv', () => {
       'http://openrouter-stub:4010/api/v1',
     );
   });
-
-  it('OPENROUTER_MODEL_AGENTES es opcional', () => {
-    expect(validateEnv(BASE).OPENROUTER_MODEL_AGENTES).toBe('');
-    expect(validateEnv({ ...BASE, OPENROUTER_MODEL_AGENTES: 'google/gemma-4-26b-a4b-it:nitro' }).OPENROUTER_MODEL_AGENTES).toBe(
-      'google/gemma-4-26b-a4b-it:nitro',
-    );
-  });
 });

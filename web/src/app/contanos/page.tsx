@@ -13,8 +13,9 @@ import { useOnboarding } from "./useOnboarding";
 function mensajeDeError(status: number): string {
   if (status === 400) return "Revisá los datos: hay algún campo que no es válido.";
   if (status === 401) return "Tu sesión venció. Volvé a entrar para crear tu asistente.";
-  // 502/504: OpenRouter no contestó a tiempo o devolvió algo inservible dos veces.
-  if (status === 502 || status === 504) return "El asistente tardó demasiado en armarse. Probá de nuevo.";
+  // La config del agente ya no depende de OpenRouter: un 502/504 acá es un
+  // problema de infraestructura (DB, deploy), no un timeout de un modelo.
+  if (status === 502 || status === 504) return "Tuvimos un problema para guardar tu asistente. Probá de nuevo.";
   return "No pudimos crear tu asistente. Probá de nuevo.";
 }
 
@@ -60,9 +61,6 @@ export default function ContanosPage() {
     );
   }
 
-  // Generar el prompt lleva varios segundos: sin este aviso parece colgado.
-  const aviso = enviando ? "Estamos armando tu asistente, puede tardar hasta un minuto." : null;
-
   return (
     <main className="min-h-dvh bg-page">
       {/* Escritorio: el wizard paso a paso. */}
@@ -77,11 +75,6 @@ export default function ContanosPage() {
               {error}
             </p>
           )}
-          {aviso && (
-            <p role="status" className="text-[12.5px] text-muted">
-              {aviso}
-            </p>
-          )}
         </div>
       </div>
 
@@ -91,11 +84,6 @@ export default function ContanosPage() {
         {error && (
           <p role="alert" className="px-5 pb-4 text-[12.5px] text-danger-text">
             {error}
-          </p>
-        )}
-        {aviso && (
-          <p role="status" className="px-5 pb-4 text-[12.5px] text-muted">
-            {aviso}
           </p>
         )}
       </div>

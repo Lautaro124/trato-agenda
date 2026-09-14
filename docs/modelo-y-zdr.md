@@ -1,7 +1,18 @@
 # Decisión pendiente: qué modelo usar con Zero Data Retention
 
-**Estado: sin decidir.** El código está deployable como está; este documento junta
-los datos para elegir si se cambia `OPENROUTER_MODEL`, y a cuál.
+**Estado: sin decidir (sólo para conversación).** El código está deployable
+como está; este documento junta los datos para elegir si se cambia
+`OPENROUTER_MODEL`, y a cuál.
+
+**Nota (post cambio a plantilla determinista):** la generación de agentes en
+`/contanos` ya no llama a ningún modelo — usa una plantilla determinista
+(`api/src/agents/agent-template.ts`), sin OpenRouter de por medio. Todo lo que
+este documento dice sobre la generación (`generacion-agentes.eval.ts`,
+`OPENROUTER_MODEL_AGENTES`, la Opción C de "separar los dos caminos", las
+columnas "generación" de las tablas) queda como **registro histórico** de la
+corrida del 12/09/2026, de antes de ese cambio — ya no hay una decisión
+pendiente ahí. Lo que sigue abierto es sólo qué modelo usar para la
+**conversación** (`OPENROUTER_MODEL`).
 
 Fecha de los datos: 12 de septiembre de 2026.
 

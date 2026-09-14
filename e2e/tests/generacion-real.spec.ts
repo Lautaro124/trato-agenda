@@ -1,31 +1,16 @@
-import { agenteActual, esperarRuta, expect, sufijo, test } from './fixtures';
-import { completarWizardEscritorio, payloadEsperado, perfilProduccion } from './onboarding';
+import { crearAgentePorApi, expect, test } from './fixtures';
 
 /**
  * Contra OpenRouter de verdad (`npm run e2e:real`, stack SIN el override de
- * e2e). Cuesta centavos por corrida. Es la prueba de que el modelo configurado
- * en OPENROUTER_MODEL_AGENTES / OPENROUTER_MODEL genera a tiempo el perfil
- * que en producción terminó en 502.
+ * e2e). Cuesta centavos por corrida. La generación del agente ya no depende
+ * de OpenRouter (plantilla determinista, cubierto sin costo en
+ * `generacion-escritorio.spec.ts`): lo único que sigue necesitando un modelo
+ * real acá es la charla por WhatsApp/Home.
  */
-test.describe('generación contra OpenRouter real', { tag: '@real' }, () => {
-  test('el caso de producción genera en menos de 60s y el agente contesta', async ({ page, context, usuarioDev }) => {
+test.describe('conversación contra OpenRouter real', { tag: '@real' }, () => {
+  test('el agente creado por la plantilla contesta con un modelo real', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    const perfil = perfilProduccion(sufijo());
-
-    await page.goto('/contanos');
-    await completarWizardEscritorio(page, perfil);
-
-    const inicio = Date.now();
-    const respuesta = page.waitForResponse('**/agents/generate', { timeout: 120_000 });
-    await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
-    const res = await respuesta;
-    const demora = Date.now() - inicio;
-
-    console.log(`Generación real: HTTP ${res.status()} en ${demora} ms`);
-    expect(res.status()).toBe(201);
-    expect(demora).toBeLessThan(60_000);
-    await esperarRuta(page, '/listo');
-    expect(await agenteActual(context.request)).toMatchObject(payloadEsperado(perfil));
+    await crearAgentePorApi(context.request);
 
     await page.goto('/inicio');
     await page.getByPlaceholder('Escribile al agente…').fill('Hola! ¿Qué tipos de turno tomás?');

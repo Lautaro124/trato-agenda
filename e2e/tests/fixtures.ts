@@ -81,9 +81,10 @@ export async function agenteActual(request: APIRequestContext): Promise<AgentePu
 }
 
 export type LlamadaStub = {
-  tipo: 'generacion' | 'conversacion' | 'resumen';
+  // La generación del agente ya no llama al modelo (plantilla determinista):
+  // sólo quedan la conversación y el resumen del cliente.
+  tipo: 'conversacion' | 'resumen';
   titular?: string;
-  intento?: number;
   model: string;
   max_tokens: number | null;
   response_format: { type: string; json_schema?: { name: string; strict: boolean } } | null;

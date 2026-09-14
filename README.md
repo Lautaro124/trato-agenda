@@ -73,9 +73,8 @@ Las tres primeras arman a la vez las credenciales del servicio `db` y la
 | `SESSION_COOKIE_NAME` | Nombre de la cookie de sesión. Por defecto `trato_session`. |
 | `PORT` | Puerto de la API. Por defecto `4000`. |
 | `NODE_ENV` | `development` o `production`. |
-| `OPENROUTER_API_KEY` | Clave de [OpenRouter](https://openrouter.ai/), usada para generar la config del agente y para la conversación por WhatsApp. Sin ella la API arranca igual, pero esas dos funciones fallan con un error claro. |
+| `OPENROUTER_API_KEY` | Clave de [OpenRouter](https://openrouter.ai/), usada para la conversación por WhatsApp y el resumen de cliente. La generación de la config del agente en `/contanos` no la necesita: usa una plantilla determinista (`api/src/agents/agent-template.ts`), sin llamadas al modelo. Sin esta clave la API arranca igual, pero la conversación falla con un error claro. |
 | `OPENROUTER_MODEL` | Modelo de OpenRouter a usar (formato `proveedor/modelo`). Por defecto `google/gemma-4-31b-it`. Tiene que soportar tool calling **y** reasoning: el runtime conversacional lo llama con `reasoning: { effort: 'low' }` ([lista filtrada](https://openrouter.ai/models?supported_parameters=tools,reasoning)). |
-| `OPENROUTER_MODEL_AGENTES` | Opcional. Modelo sólo para **generar** agentes en `/contanos`; vacío usa `OPENROUTER_MODEL`. Generar la config es mecánico (JSON con structured outputs, sin reasoning), así que puede ir a un modelo más rápido y barato. El sufijo `:nitro` le pide a OpenRouter el proveedor con más throughput. Tiene que soportar structured outputs. |
 | `OPENROUTER_BASE_URL` | Opcional. Base del endpoint OpenAI-compatible. Por defecto `https://openrouter.ai/api/v1`; los E2E la apuntan al OpenRouter falso. |
 
 Sobre el modelo: **toda** llamada a OpenRouter viaja con
@@ -111,9 +110,9 @@ docker compose exec api npm test    # vitest, todo mockeado
 
 `e2e/` prueba el producto de punta a punta en un browser real: login dev, el
 wizard de `/contanos` en escritorio y en móvil (incluido el perfil con cinco
-tipos propios que falló en producción), las validaciones, los errores del modelo
-(JSON roto, proveedor caído, sesión vencida), el agente generado agendando,
-moviendo y cancelando desde el chat de prueba, y el paso a `/vincular`.
+tipos propios que rompía la generación vieja por IA), las validaciones, el
+error de sesión vencida, el agente generado agendando, moviendo y cancelando
+desde el chat de prueba, y el paso a `/vincular`.
 
 Corren contra el stack de docker compose con `docker-compose.e2e.yml`, que suma
 `e2e/openrouter-stub/server.mjs`: un OpenRouter falso y determinista, así que los
@@ -138,11 +137,10 @@ levantá el stack normal (sin el override), con `DEV_LOGIN_PASSWORD` en
 ### Eval de modelos
 
 `api/evals/` compara modelos de OpenRouter con llamadas reales (cuesta centavos
-por corrida, no corre con `npm test`):
+por corrida, no corre con `npm test`). La generación de agentes ya no llama a
+un modelo (plantilla determinista en `/contanos`), así que lo único que queda
+para evaluar es el runtime conversacional:
 
-- `generacion-agentes.eval.ts`: seis perfiles de `/contanos` (el caso de
-  producción, 20 tipos, nombres raros…). Mide si genera de primera, latencia,
-  tokens, costo y si el prompt nombra bot, titular, tipos y franja.
 - `conversacion.eval.ts`: el grafo conversacional completo con textos difíciles
   ("el jueves a la tardecita", "movelo una hora más tarde", pedidos para el
   sábado, preguntas de precio). Los checks miran el calendario final, no la
@@ -150,15 +148,14 @@ por corrida, no corre con `npm test`):
 
 ```bash
 docker compose exec api npm run eval                      # lista corta de evals/modelos.ts
-docker compose exec -e EVAL_MODELOS=deepseek/deepseek-v4-flash,google/gemma-4-26b-a4b-it api npm run eval -- generacion
+docker compose exec -e EVAL_MODELOS=deepseek/deepseek-v4-flash,google/gemma-4-26b-a4b-it api npm run eval -- conversacion
 docker compose exec -e EVAL_NITRO=1 api npm run eval      # suma la variante :nitro de cada modelo
 ```
 
 Imprime una tabla por modelo (casos y checks aprobados, p50/p90 de latencia,
 tokens, costo) y deja el detalle en `api/evals/resultados/`. Criterio sugerido: el
-más barato con ≥ 95% de checks, p90 de generación < 20s y p90 por mensaje < 8s.
-Cambiar de modelo en producción es sólo tocar `OPENROUTER_MODEL` /
-`OPENROUTER_MODEL_AGENTES` en Railway.
+más barato con ≥ 95% de checks y p90 por mensaje < 8s. Cambiar de modelo en
+producción es sólo tocar `OPENROUTER_MODEL` en Railway.
 
 #### Corrida del 2026-09-11 (7 modelos, una pasada)
 
@@ -187,15 +184,17 @@ Lo que se aprendió:
   reprogramar ("mejor movelo una hora más tarde"): contestaron que no había turno
   agendado en vez de usar `reprogramar_turno`.
 
-Recomendación a partir de estos números: `OPENROUTER_MODEL=qwen/qwen3.8-flash`
-(100% de checks con el p90 por mensaje más bajo de los que aciertan todo) y
-`OPENROUTER_MODEL_AGENTES=google/gemini-3.1-flash-lite` (el más consistente
-generando; el costo por agente es de centésimas de centavo y se paga una vez por
-usuario). `inception/mercury-2.5` es más rápido y barato todavía, pero es nuevo y
-fue el más flojo generando, así que conviene volver a correr el eval antes de
-mandarlo a producción. Es una sola pasada por caso: repetila antes de decidir, y
-si cambiás de modelo, agregá `:nitro` para que OpenRouter elija el proveedor más
-rápido.
+Recomendación a partir de estos números para el modelo conversacional:
+`OPENROUTER_MODEL=qwen/qwen3.8-flash` (100% de checks con el p90 por mensaje
+más bajo de los que aciertan todo). Es una sola pasada por caso: repetila antes
+de decidir, y si cambiás de modelo, agregá `:nitro` para que OpenRouter elija
+el proveedor más rápido.
+
+(La mitad de esta corrida que comparaba modelos **de generación** —
+`OPENROUTER_MODEL_AGENTES`, `inception/mercury-2.5` como candidato, etc. — ya
+no aplica: la generación de agentes pasó a una plantilla determinista sin
+modelo. Los números de generación de la tabla de arriba quedan como registro
+histórico de la corrida del 2026-09-11, de antes de ese cambio.)
 
 ## Deploy
 

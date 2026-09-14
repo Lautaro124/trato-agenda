@@ -1,13 +1,4 @@
-import {
-  agenteActual,
-  crearAgentePorApi,
-  esperarRuta,
-  expect,
-  llamadasDelStub,
-  sufijo,
-  test,
-  visible,
-} from './fixtures';
+import { agenteActual, crearAgentePorApi, esperarRuta, expect, sufijo, test, visible } from './fixtures';
 import { completarWizardEscritorio, payloadEsperado, perfilProduccion, type PerfilWizard } from './onboarding';
 
 test.describe('generación de agente: wizard de escritorio', () => {
@@ -34,18 +25,6 @@ test.describe('generación de agente: wizard de escritorio', () => {
       expect.arrayContaining(['consultar_disponibilidad', 'crear_turno', 'cancelar_turno', 'reprogramar_turno']),
     );
     expect(agente).not.toHaveProperty('systemPrompt');
-
-    // Y la API le pidió la config al modelo de agentes, con structured outputs y tope de tokens.
-    const llamadas = await llamadasDelStub(context.request, perfil.nombreTitular);
-    expect(llamadas).toHaveLength(1);
-    expect(llamadas[0]).toMatchObject({
-      tipo: 'generacion',
-      model: 'stub/agentes',
-      max_tokens: 3000,
-      response_format: { type: 'json_schema', json_schema: { name: 'config_agente', strict: true } },
-      provider: { require_parameters: true },
-      reasoning: { enabled: false },
-    });
 
     await page.getByRole('button', { name: 'Vincular WhatsApp y empezar' }).click();
     await esperarRuta(page, '/vincular');
@@ -77,7 +56,7 @@ test.describe('generación de agente: wizard de escritorio', () => {
     expect(agente).toMatchObject(payloadEsperado(perfil));
   });
 
-  test('mientras genera, el botón queda deshabilitado y avisa que puede tardar', async ({ page, context, usuarioDev }) => {
+  test('mientras se guarda, el botón queda deshabilitado', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     const perfil = perfilProduccion(sufijo());
 
@@ -92,7 +71,6 @@ test.describe('generación de agente: wizard de escritorio', () => {
     await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
 
     await expect(page.getByRole('button', { name: 'Creando tu asistente…' })).toBeDisabled();
-    await expect(page.getByRole('status')).toHaveText('Estamos armando tu asistente, puede tardar hasta un minuto.');
     await esperarRuta(page, '/listo');
   });
 });

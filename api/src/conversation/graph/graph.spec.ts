@@ -2,6 +2,8 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { construirConfiguracion } from '../../agents/agent-template.js';
+import type { GenerateAgentDto } from '../../agents/agents.types.js';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { CalendarService, PeriodoOcupado } from '../../calendar/calendar.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
@@ -432,5 +434,85 @@ describe('grafo conversacional', () => {
     expect(calendarService.crearEvento).not.toHaveBeenCalled();
     const rechazo = resultado.messages.find((mensaje) => mensaje.getType() === 'tool');
     expect(rechazo?.content).toContain('No se pudo leer la agenda');
+  });
+});
+
+describe('grafo conversacional con un Agent generado por la plantilla determinista', () => {
+  // Mismos datos que el DTO de /contanos que originaría el fixture AGENT de
+  // arriba, para probar que un Agent generado sin IA se integra igual: el
+  // runtime no distingue de dónde salió systemPrompt/allowedActions.
+  const dto: GenerateAgentDto = {
+    tipoTitular: 'negocio',
+    nombreTitular: 'Tienda Centro',
+    tipoUso: 'comercio',
+    tiposEvento: [{ nombre: 'Corte de pelo', duracionMin: 30 }],
+    horaDesde: '09:00',
+    horaHasta: '18:00',
+    nombreBot: 'Tati',
+  };
+  const config = construirConfiguracion(dto);
+  const AGENTE_PLANTILLA = { ...AGENT, systemPrompt: config.systemPrompt, allowedActions: config.allowedActions };
+
+  function crearPrismaConAgentePlantilla() {
+    const prisma = crearPrisma();
+    (prisma.agent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(AGENTE_PLANTILLA);
+    return prisma;
+  }
+
+  it('el system prompt generado por la plantilla llega igual al modelo, junto con las reglas de código', async () => {
+    const prisma = crearPrismaConAgentePlantilla();
+    const calendarService = crearCalendar();
+    const llm = crearModelo([new AIMessage('Hola, soy Tati.')]);
+
+    await correr({ prisma, calendarService, llm });
+
+    const [mensajes] = llm.invoke.mock.calls[0] as unknown as [BaseMessage[]];
+    const sistema = String(mensajes[0].content);
+
+    expect(sistema).toContain(config.systemPrompt);
+    expect(sistema).toContain('Reglas de la agenda de Tienda Centro');
+    expect(sistema).toContain('existís sólo para la agenda de Tienda Centro');
+  });
+
+  it('agenda un turno válido igual que con un Agent generado por IA', async () => {
+    const prisma = crearPrismaConAgentePlantilla();
+    const calendarService = crearCalendar();
+    const llm = crearModelo([
+      llamada('crear_turno', {
+        nombreCliente: 'Juan',
+        resumen: 'Corte',
+        inicio: hora('10:00'),
+        fin: hora('10:30'),
+      }),
+      new AIMessage('Listo Juan, te esperamos.'),
+    ]);
+
+    await correr({ prisma, calendarService, llm });
+
+    expect(calendarService.crearEvento).toHaveBeenCalledWith(
+      AGENT.user,
+      expect.objectContaining({ resumen: 'Corte - Juan' }),
+    );
+    expect(prisma.turno.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ nombreCliente: 'Juan' }) }),
+    );
+  });
+
+  it('bindea las 5 acciones del catálogo (todas habilitadas por la plantilla)', async () => {
+    const prisma = crearPrismaConAgentePlantilla();
+    const calendarService = crearCalendar();
+    const llm = crearModelo([
+      llamada('consultar_turno', {}),
+      new AIMessage('No tenés turnos agendados.'),
+    ]);
+
+    const resultado = await correr({ prisma, calendarService, llm });
+
+    // A diferencia del fixture AGENT (sin consultar_turno), acá sí está
+    // habilitada: no debería rechazarse por falta de permiso.
+    const rechazo = resultado.messages.find(
+      (mensaje) => mensaje.getType() === 'tool' && String(mensaje.content).includes('no está habilitada'),
+    );
+    expect(rechazo).toBeUndefined();
   });
 });

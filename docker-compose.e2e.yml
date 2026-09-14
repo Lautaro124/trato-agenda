@@ -29,7 +29,6 @@ services:
       OPENROUTER_BASE_URL: http://openrouter-stub:4010/api/v1
       OPENROUTER_API_KEY: e2e
       OPENROUTER_MODEL: stub/conversacion
-      OPENROUTER_MODEL_AGENTES: stub/agentes
       DEV_LOGIN_PASSWORD: e2e-password
       # Secreto fijo sólo para este stack: permite a los specs de e2e firmar un
       # webhook de Mercado Pago válido sin conocer (ni imprimir) el secreto real.

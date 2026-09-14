@@ -167,8 +167,11 @@ antes de mandarlo.
 >   them (Zero Data Retention). The same restriction is enforced account-wide in
 >   our OpenRouter privacy settings. Screenshot attached.
 > - What is sent to the model: the business configuration the owner typed during
->   onboarding, derived free-slot time ranges (times only, no event content), and
->   the WhatsApp conversation with the client. Google Calendar event titles are
+>   onboarding (compiled locally into the assistant's own instructions, with no
+>   model call at that step) is included in the system prompt sent to the model
+>   on every WhatsApp turn, along with derived free-slot time ranges (times
+>   only, no event content) and the conversation with the client. Google
+>   Calendar event titles are
 >   sent only when the owner themselves opens their own dashboard to review their
 >   own calendar; that path is unreachable for WhatsApp end users.
 > - No self-hosted or offline model is used.

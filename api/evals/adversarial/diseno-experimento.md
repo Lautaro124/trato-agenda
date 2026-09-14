@@ -2,6 +2,15 @@
 
 Estado: documento completo, ejecución real bloqueada — nada de esto corrió contra OpenRouter en esta sesión.
 
+**Nota (post cambio a plantilla determinista):** la generación de agentes ya
+no llama a ningún modelo (`api/src/agents/agent-template.ts`, función pura),
+así que toda mención de comparar modelos **de generación** en este documento
+— `agents.service.ts` como tarea a evaluar, `OPENROUTER_MODEL_AGENTES`,
+`api/evals/generacion-agentes.eval.ts` (eliminado) y
+`e2e/tests/salida-truncada.spec.ts` (eliminado, RL2-001 ya no aplica sin LLM
+en el alta) — queda descartada, no pendiente. Lo que sigue vigente es sólo la
+comparación de modelos de **conversación** y de **resumen**.
+
 ## Baseline y candidatos
 
 - Baseline: el modelo configurado actualmente en producción, `OPENROUTER_MODEL=google/gemma-4-31b-it` (`api/src/config/env.ts`).
