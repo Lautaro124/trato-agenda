@@ -53,12 +53,12 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 12 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 17 de septiembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
-            Trato Agenda es un servicio que conecta tu cuenta de Google Calendar con un asistente de
-            WhatsApp para coordinar turnos con tus clientes. Se opera desde la República Argentina y
+            Trato Agenda es un asistente de WhatsApp que coordina turnos con tus clientes, sobre una
+            agenda que guardamos nosotros o, si lo elegís, sobre tu Google Calendar. Se opera desde la República Argentina y
             está disponible en{" "}
             <a href="https://tratoagenda.com" className="text-link">
               tratoagenda.com
@@ -81,8 +81,18 @@ export default function PrivacidadPage() {
 
         <Seccion titulo="Qué datos recopilamos">
           <p>
-            <Fuerte>De tu cuenta de Google.</Fuerte> Al entrar con Google te pedimos estos permisos, y
-            ninguno más:
+            <Fuerte>Si creás la cuenta con WhatsApp.</Fuerte> Tu número de WhatsApp es tu cuenta: lo
+            usamos para reconocerte y, si olvidás tu contraseña, para mandarte a tu propio chat un
+            código para recuperarla (guardamos sólo una huella del código, que vence a los 10
+            minutos). <Fuerte>Tu contraseña nunca se guarda en claro</Fuerte>: sólo una huella
+            (scrypt) que sirve para comprobarla y no para recuperarla. Tu agenda —los
+            turnos y los horarios que bloqueás— queda guardada en nuestra base: título, inicio y fin
+            de cada evento. Si más adelante querés pagar la suscripción, te pedimos un email para
+            Mercado Pago.
+          </p>
+          <p>
+            <Fuerte>De tu cuenta de Google, si la conectás.</Fuerte> Google es opcional. Al entrar con
+            Google, o al conectarlo después, te pedimos estos permisos, y ninguno más:
           </p>
           <Lista>
             <Punto>
@@ -116,7 +126,7 @@ export default function PrivacidadPage() {
         <Seccion titulo="Para qué usamos cada dato">
           <p>
             Usamos tus datos únicamente para hacer funcionar el servicio que contrataste: coordinar
-            turnos por WhatsApp y reflejarlos en tu calendario. No hacemos publicidad, no hacemos
+            turnos por WhatsApp y reflejarlos en tu agenda. No hacemos publicidad, no hacemos
             perfilado con fines comerciales y no vendemos datos a nadie.
           </p>
           <p>
@@ -260,8 +270,13 @@ export default function PrivacidadPage() {
               de esa conversación.
             </Punto>
             <Punto>
-              <Fuerte>Turnos:</Fuerte> se conservan mientras tu cuenta exista, porque son el registro
-              de tu agenda.
+              <Fuerte>Turnos y eventos de tu agenda:</Fuerte> se conservan mientras tu cuenta exista,
+              porque son el registro de tu agenda. Si conectás Google Calendar, copiamos ahí los
+              eventos que todavía no pasaron y borramos nuestra copia; los que ya pasaron se borran.
+            </Punto>
+            <Punto>
+              <Fuerte>Un registro con WhatsApp que no se terminó</Fuerte> (se pidió el código QR pero
+              nunca se escaneó): se borra dentro de las 24 horas.
             </Punto>
             <Punto>
               <Fuerte>Tu cuenta:</Fuerte> mientras la tengas abierta.
@@ -276,15 +291,15 @@ export default function PrivacidadPage() {
           </p>
           <Lista>
             <Punto>
-              <Fuerte>Revocamos en Google</Fuerte> el acceso que nos habías dado, así que dejamos de
-              poder ver o tocar tu calendario.
+              Si habías conectado Google, <Fuerte>revocamos en Google</Fuerte> el acceso que nos habías
+              dado, así que dejamos de poder ver o tocar tu calendario.
             </Punto>
             <Punto>
               Cerramos tu sesión de WhatsApp y borramos sus credenciales.
             </Punto>
             <Punto>
-              Borramos tu usuario, tu asistente, tus conversaciones, los mensajes, los turnos, el
-              estado interno de las conversaciones y tu suscripción. Si había un cobro activo, lo
+              Borramos tu usuario, tu asistente, tus conversaciones, los mensajes, los turnos, tu
+              agenda, la huella de tu contraseña, los códigos de acceso, el estado interno de las conversaciones y tu suscripción. Si había un cobro activo, lo
               cancelamos.
             </Punto>
           </Lista>

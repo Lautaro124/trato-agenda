@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
@@ -88,6 +89,15 @@ export default function InicioPage() {
             <p className="text-sm leading-[1.6] text-ink-secondary">{formatearFecha()}</p>
           </div>
 
+          {user.debePonerPassword && (
+            <div role="status" className="rounded-md border border-line bg-card p-4 text-[13.5px] text-ink">
+              Todavía no elegiste una contraseña: sin ella no vas a poder volver a entrar con tu número.{" "}
+              <Link href="/contrasena" className="font-semibold text-link">
+                Elegir contraseña
+              </Link>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <div className="flex-1 rounded-lg border border-line bg-card p-4">
               <div className="font-display text-2xl font-bold text-ink">{resumen?.hoy.length ?? "–"}</div>
@@ -106,7 +116,9 @@ export default function InicioPage() {
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-5 py-4">
               {errorAgenda && (
                 <p className="text-sm text-danger-text">
-                  No pudimos cargar tu agenda de Google Calendar ahora mismo.
+                  {user.calendario === "google"
+                    ? "No pudimos cargar tu agenda de Google Calendar ahora mismo."
+                    : "No pudimos cargar tu agenda ahora mismo."}
                 </p>
               )}
               {!errorAgenda && resumen && resumen.hoy.length === 0 && (

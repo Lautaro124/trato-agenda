@@ -11,12 +11,23 @@ import {
 } from "react";
 import { API_URL, apiFetch } from "./api";
 
-/** Espejo de `UsuarioPublico` en la API: nunca incluye el refresh token de Google. */
+/**
+ * Espejo de `UsuarioPublico` en la API: nunca incluye el refresh token de Google.
+ * Una cuenta creada sólo con WhatsApp no tiene email; una de Google puede no
+ * tener teléfono hasta que vincula.
+ */
 export type Usuario = {
   id: string;
-  email: string;
+  email: string | null;
   name: string | null;
   avatarUrl: string | null;
+  phoneNumber: string | null;
+  /** Dónde vive la agenda: Google Calendar o la base de Trato. */
+  calendario: "google" | "local";
+  /** Si hay contraseña para entrar con el número (nunca el hash). */
+  tienePassword: boolean;
+  /** Cuenta de WhatsApp que todavía no eligió contraseña. */
+  debePonerPassword: boolean;
 };
 
 /**
@@ -109,12 +120,23 @@ export function useRequireSession(): SessionValue {
   return session;
 }
 
+/** "+5491122334455" para mostrar; el número se guarda sin "+". */
+export function telefonoVisible(telefono: string): string {
+  return `+${telefono}`;
+}
+
+/** Cómo se identifica la cuenta en la UI: email si hay, si no el número. */
+export function identificador(user: Usuario): string {
+  if (user.email) return user.email;
+  if (user.phoneNumber) return telefonoVisible(user.phoneNumber);
+  return user.name ?? "Tu cuenta";
+}
+
 /** Iniciales para el avatar cuando Google no manda foto. */
 export function iniciales(user: Usuario): string {
-  const partes = (user.name ?? user.email.split("@")[0])
-    .split(/[\s._-]+/)
-    .filter(Boolean);
+  const base = user.name ?? user.email?.split("@")[0] ?? "";
+  const partes = base.split(/[\s._-]+/).filter(Boolean);
 
   const letras = partes.slice(0, 2).map((p) => p[0]);
-  return (letras.join("") || user.email[0]).toUpperCase();
+  return (letras.join("") || identificador(user).replace("+", "")[0] || "T").toUpperCase();
 }

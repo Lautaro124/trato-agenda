@@ -45,6 +45,7 @@ export default function CalendarioPage() {
   const [eventos, setEventos] = useState<EventoSemana[] | null>(null);
   const [error, setError] = useState(false);
   const [eventoSeleccionado, setEventoSeleccionado] = useState<EventoSemana | null>(null);
+  const [creando, setCreando] = useState(false);
 
   const cargarEventos = useCallback(() => {
     if (status !== "authenticated") return;
@@ -87,6 +88,8 @@ export default function CalendarioPage() {
     );
   }
 
+  const conGoogle = user.calendario === "google";
+
   return (
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="calendario" user={user} />
@@ -125,6 +128,9 @@ export default function CalendarioPage() {
               >
                 ›
               </button>
+              <Button size="sm" onClick={() => setCreando(true)} className="ml-1.5">
+                Nuevo evento
+              </Button>
               <div className="ml-1.5 hidden overflow-hidden rounded-sm border border-line bg-card md:flex">
                 <button type="button" onClick={() => setVista("dia")} className={tabClase("dia")}>
                   Día
@@ -141,7 +147,9 @@ export default function CalendarioPage() {
 
           {error ? (
             <p className="text-sm text-danger-text">
-              No pudimos cargar tu agenda de Google Calendar ahora mismo.
+              {conGoogle
+                ? "No pudimos cargar tu agenda de Google Calendar ahora mismo."
+                : "No pudimos cargar tu agenda ahora mismo."}
             </p>
           ) : (
             <>
@@ -180,7 +188,7 @@ export default function CalendarioPage() {
               </div>
               <div className="flex items-center gap-2.5 text-[12.5px] text-ink-secondary">
                 <span className="size-3 flex-none rounded-[3px] border border-line-strong bg-sunken" />
-                De tu Google Calendar
+                {conGoogle ? "De tu Google Calendar" : "Cargado por vos"}
               </div>
             </div>
           </div>
@@ -202,6 +210,14 @@ export default function CalendarioPage() {
         <EventDetailModal
           evento={eventoSeleccionado}
           onClose={() => setEventoSeleccionado(null)}
+          onChanged={cargarEventos}
+        />
+      )}
+      {creando && (
+        <EventDetailModal
+          evento={null}
+          fechaInicial={fecha}
+          onClose={() => setCreando(false)}
           onChanged={cargarEventos}
         />
       )}
