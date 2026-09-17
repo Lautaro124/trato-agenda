@@ -28,9 +28,22 @@ export function emailUnico(prefijo = 'e2e'): string {
   return `${prefijo}-${sufijo()}@trato.local`;
 }
 
-/** Número de WhatsApp único (Argentina, 13 dígitos): cada test tiene su cuenta y sus límites. */
+/**
+ * Número de WhatsApp único (Argentina, 13 dígitos): cada test tiene su cuenta y
+ * sus límites. Con el 11 de Buenos Aires porque un número nacional que empieza
+ * con 9 es ambiguo — no se sabe si ese 9 es el de WhatsApp o parte del número.
+ */
 export function telefonoUnico(): string {
-  return `549${String(Math.floor(Math.random() * 1e10)).padStart(10, '0')}`;
+  return `54911${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+}
+
+/**
+ * La parte que se tipea en el campo de número, con Argentina ya elegida en el
+ * selector de país. `con9: false` imita a quien dicta su número como lo dice
+ * ("11 2233 4455"), sin el 9 que WhatsApp guarda: el API lo resuelve igual.
+ */
+export function nacional(telefono: string, { con9 = true } = {}): string {
+  return telefono.slice(con9 ? 2 : 3);
 }
 
 /**

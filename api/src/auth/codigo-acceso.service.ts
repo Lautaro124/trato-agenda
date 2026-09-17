@@ -6,6 +6,7 @@ import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { Limitador } from './limitador.js';
+import { buscarUsuarioPorTelefono, claveDeTelefono } from './telefono.js';
 
 export const MINUTOS_VIGENCIA_CODIGO = 10;
 export const MAX_INTENTOS_POR_CODIGO = 5;
@@ -71,7 +72,9 @@ export class CodigoAccesoService {
   solicitar(telefono: string, ip: string): void {
     // Por IP sólo en producción: los E2E salen todos de localhost. Por número, siempre.
     const limitaIp = this.enProduccion();
-    if ((limitaIp && !this.pedidosPorIp.permitir(ip)) || !this.pedidosPorTelefono.permitir(telefono)) {
+    // Por la clave y no por el número tipeado: las distintas formas de
+    // escribir el mismo número comparten el límite.
+    if ((limitaIp && !this.pedidosPorIp.permitir(ip)) || !this.pedidosPorTelefono.permitir(claveDeTelefono(telefono))) {
       throw new HttpException('Esperá un momento antes de pedir otro código.', HttpStatus.TOO_MANY_REQUESTS);
     }
     this.pendiente = this.generarYEnviar(telefono).catch((error: unknown) =>
@@ -80,7 +83,7 @@ export class CodigoAccesoService {
   }
 
   private async generarYEnviar(telefono: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({ where: { phoneNumber: telefono }, select: { id: true } });
+    const user = await buscarUsuarioPorTelefono(this.prisma, telefono);
     if (!user) return;
 
     const codigo = String(randomInt(0, 1_000_000)).padStart(6, '0');
@@ -101,7 +104,7 @@ export class CodigoAccesoService {
 
     if (!this.enProduccion()) {
       // Sin socket (login dev, E2E): el código queda a mano para /auth/dev/ultimo-codigo.
-      this.ultimosDev.set(telefono, codigo);
+      this.ultimosDev.set(claveDeTelefono(telefono), codigo);
       this.logger.debug(`Código de acceso dev para ${telefono}: ${codigo}`);
       return;
     }
@@ -110,11 +113,11 @@ export class CodigoAccesoService {
   }
 
   async verificar(telefono: string, codigo: string): Promise<User> {
-    if (!this.verificacionesPorTelefono.permitir(telefono)) {
+    if (!this.verificacionesPorTelefono.permitir(claveDeTelefono(telefono))) {
       throw new HttpException('Demasiados intentos: probá más tarde.', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const user = await this.prisma.user.findUnique({ where: { phoneNumber: telefono } });
+    const user = await buscarUsuarioPorTelefono(this.prisma, telefono);
     const guardado = user
       ? await this.prisma.codigoAcceso.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } })
       : null;
@@ -131,13 +134,13 @@ export class CodigoAccesoService {
     }
 
     await this.prisma.codigoAcceso.deleteMany({ where: { userId: user.id } });
-    this.ultimosDev.delete(telefono);
+    this.ultimosDev.delete(claveDeTelefono(telefono));
     return user;
   }
 
   /** Nunca en producción: lo expone DevAuthController, que ahí ni se registra. */
   ultimoCodigoDev(telefono: string): string | null {
     if (this.enProduccion()) return null;
-    return this.ultimosDev.get(telefono) ?? null;
+    return this.ultimosDev.get(claveDeTelefono(telefono)) ?? null;
   }
 }

@@ -6,6 +6,7 @@ import {
   esperarRuta,
   expect,
   loginDev,
+  nacional,
   ponerPassword,
   telefonoUnico,
   test,
@@ -46,7 +47,7 @@ test.describe('recuperar la contraseña con un código al chat propio', () => {
     await page.getByRole('link', { name: '¿Olvidaste tu contraseña?' }).click();
     await esperarRuta(page, '/entrar/codigo');
 
-    await page.getByLabel('Número de WhatsApp').fill(`+${telefono}`);
+    await page.getByLabel('Número de WhatsApp').fill(nacional(telefono));
     await page.getByRole('button', { name: 'Mandarme el código' }).click();
     await expect(page.getByRole('heading', { name: 'Revisá tu WhatsApp' })).toBeVisible();
 
@@ -72,7 +73,7 @@ test.describe('recuperar la contraseña con un código al chat propio', () => {
     const telefono = await cuentaDeWhatsapp();
 
     await page.goto('/entrar/codigo');
-    await page.getByLabel('Número de WhatsApp').fill(telefono);
+    await page.getByLabel('Número de WhatsApp').fill(nacional(telefono));
     await page.getByRole('button', { name: 'Mandarme el código' }).click();
     const correcto = await ultimoCodigo(page.context().request, telefono);
 
@@ -89,7 +90,7 @@ test.describe('recuperar la contraseña con un código al chat propio', () => {
     const telefono = await cuentaDeWhatsapp();
 
     await page.goto('/entrar/codigo');
-    await page.getByLabel('Número de WhatsApp').fill(telefono);
+    await page.getByLabel('Número de WhatsApp').fill(nacional(telefono));
     await page.getByRole('button', { name: 'Mandarme el código' }).click();
     const codigo = await ultimoCodigo(page.context().request, telefono);
 
@@ -103,7 +104,7 @@ test.describe('recuperar la contraseña con un código al chat propio', () => {
 
   test('un número sin cuenta avanza igual: la pantalla no revela si existe', async ({ page }) => {
     await page.goto('/entrar/codigo');
-    await page.getByLabel('Número de WhatsApp').fill(telefonoUnico());
+    await page.getByLabel('Número de WhatsApp').fill(nacional(telefonoUnico()));
     await page.getByRole('button', { name: 'Mandarme el código' }).click();
 
     await expect(page.getByRole('heading', { name: 'Revisá tu WhatsApp' })).toBeVisible();

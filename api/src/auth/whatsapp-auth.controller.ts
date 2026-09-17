@@ -27,7 +27,7 @@ import { CodigoAccesoService } from './codigo-acceso.service.js';
 import { opcionesDeCookie } from './cookie.js';
 import { COOKIE_ALTA, SEGUNDOS_ALTA } from './cookies-de-paso.js';
 import { AltaGuard, type RequestConAlta } from './guards/alta.guard.js';
-import { normalizarTelefono } from './limitador.js';
+import { normalizarTelefono } from './telefono.js';
 import { LoginWhatsappService } from './login-whatsapp.service.js';
 import { ReglasDePassword } from './password.dto.js';
 import { PASSWORD_MAX } from './password.js';

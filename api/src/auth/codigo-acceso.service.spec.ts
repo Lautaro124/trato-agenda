@@ -13,8 +13,11 @@ function crear(opciones: { nodeEnv?: string; socketVivo?: boolean; hayUsuario?: 
   let codigos: FilaCodigo[] = [];
   const prisma = {
     user: {
-      findUnique: vi.fn().mockImplementation(({ where }: { where: { phoneNumber: string } }) =>
-        opciones.hayUsuario !== false && where.phoneNumber === TELEFONO ? { id: 'user-1', phoneNumber: TELEFONO } : null,
+      // La búsqueda prueba varias formas del mismo número: alcanza con que una sea la del usuario.
+      findMany: vi.fn().mockImplementation(({ where }: { where: { phoneNumber: { in: string[] } } }) =>
+        opciones.hayUsuario !== false && where.phoneNumber.in.includes(TELEFONO)
+          ? [{ id: 'user-1', phoneNumber: TELEFONO }]
+          : [],
       ),
     },
     codigoAcceso: {

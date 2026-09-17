@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
+import { CampoTelefono } from "@/components/ui/CampoTelefono";
 import { apiFetch } from "@/lib/api";
 import { INPUT_FORM } from "@/lib/password";
+import { PAIS_POR_DEFECTO, telefonoCompleto, type Pais } from "@/lib/telefono";
 
 function mensajeDeError(status: number): string {
   if (status === 401) return "El número o la contraseña no son correctos.";
@@ -15,10 +17,13 @@ function mensajeDeError(status: number): string {
 
 /** Entrar con el número de WhatsApp y la contraseña que se eligió después del QR. */
 export function LoginWhatsapp() {
-  const [telefono, setTelefono] = useState("");
+  const [pais, setPais] = useState<Pais>(PAIS_POR_DEFECTO);
+  const [nacional, setNacional] = useState("");
   const [password, setPassword] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const telefono = telefonoCompleto(pais, nacional);
 
   async function entrar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -28,7 +33,7 @@ export function LoginWhatsapp() {
       const res = await apiFetch("/auth/whatsapp/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telefono: telefono.replace(/\D/g, ""), password }),
+        body: JSON.stringify({ telefono, password }),
       });
       if (!res.ok) {
         setError(mensajeDeError(res.status));
@@ -46,17 +51,7 @@ export function LoginWhatsapp() {
 
   return (
     <form onSubmit={(e) => void entrar(e)} aria-label="Entrar con WhatsApp" className="flex flex-col gap-2.5">
-      <input
-        type="tel"
-        inputMode="tel"
-        autoComplete="tel"
-        value={telefono}
-        onChange={(e) => setTelefono(e.target.value)}
-        placeholder="Tu WhatsApp, ej. +54 9 11 2233 4455"
-        aria-label="Número de WhatsApp"
-        required
-        className={INPUT_FORM}
-      />
+      <CampoTelefono pais={pais} onPais={setPais} nacional={nacional} onNacional={setNacional} />
       <input
         type="password"
         autoComplete="current-password"
@@ -72,7 +67,7 @@ export function LoginWhatsapp() {
           {error}
         </p>
       )}
-      <Button type="submit" size="lg" fullWidth disabled={enviando || !telefono || !password}>
+      <Button type="submit" size="lg" fullWidth disabled={enviando || telefono.length < 8 || !password}>
         {enviando ? "Entrando…" : "Entrar"}
       </Button>
       <Link href="/entrar/codigo" className="self-end text-[13px] text-link">

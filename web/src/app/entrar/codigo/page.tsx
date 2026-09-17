@@ -6,13 +6,11 @@ import { useEffect, useState, type FormEvent } from "react";
 import { FooterLegal } from "@/components/FooterLegal";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
+import { CampoTelefono } from "@/components/ui/CampoTelefono";
 import { apiFetch } from "@/lib/api";
 import { INPUT_FORM as INPUT, PASSWORD_MIN, problemaDePassword } from "@/lib/password";
 import { useSession } from "@/lib/session";
-
-function soloDigitos(texto: string): string {
-  return texto.replace(/\D/g, "");
-}
+import { PAIS_POR_DEFECTO, soloDigitos, telefonoCompleto, type Pais } from "@/lib/telefono";
 
 /**
  * Recuperar la contraseña de una cuenta de WhatsApp: el código llega al chat
@@ -24,12 +22,15 @@ export default function RecuperarContrasenaPage() {
   const router = useRouter();
   const { status } = useSession();
   const [paso, setPaso] = useState<"telefono" | "codigo">("telefono");
-  const [telefono, setTelefono] = useState("");
+  const [pais, setPais] = useState<Pais>(PAIS_POR_DEFECTO);
+  const [nacional, setNacional] = useState("");
   const [codigo, setCodigo] = useState("");
   const [nueva, setNueva] = useState("");
   const [confirmacion, setConfirmacion] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const telefono = telefonoCompleto(pais, nacional);
 
   useEffect(() => {
     if (status === "authenticated") router.replace("/entrar");
@@ -43,7 +44,7 @@ export default function RecuperarContrasenaPage() {
       const res = await apiFetch("/auth/whatsapp/codigo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telefono: soloDigitos(telefono) }),
+        body: JSON.stringify({ telefono }),
       });
       if (res.status === 429) setError("Esperá un minuto antes de pedir otro código.");
       else if (!res.ok) setError("Revisá el número: con código de país, sin espacios ni guiones.");
@@ -68,7 +69,7 @@ export default function RecuperarContrasenaPage() {
       const res = await apiFetch("/auth/whatsapp/codigo/verificar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telefono: soloDigitos(telefono), codigo, nuevaPassword: nueva }),
+        body: JSON.stringify({ telefono, codigo, nuevaPassword: nueva }),
       });
       if (!res.ok) {
         setError(
@@ -100,23 +101,13 @@ export default function RecuperarContrasenaPage() {
               Te mandamos un código a tu propio chat de WhatsApp (el que dice “Vos”), desde el número que
               vinculaste, y con él elegís una contraseña nueva.
             </p>
-            <input
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              value={telefono}
-              onChange={(e) => setTelefono(e.target.value)}
-              placeholder="+54 9 11 2233 4455"
-              aria-label="Número de WhatsApp"
-              required
-              className={INPUT}
-            />
+            <CampoTelefono pais={pais} onPais={setPais} nacional={nacional} onNacional={setNacional} />
             {error && (
               <p role="alert" className="text-[13px] text-danger-text">
                 {error}
               </p>
             )}
-            <Button type="submit" size="lg" fullWidth disabled={enviando || soloDigitos(telefono).length < 8}>
+            <Button type="submit" size="lg" fullWidth disabled={enviando || telefono.length < 8}>
               {enviando ? "Enviando…" : "Mandarme el código"}
             </Button>
           </form>
@@ -128,7 +119,7 @@ export default function RecuperarContrasenaPage() {
           >
             <h1 className="font-display text-2xl font-bold tracking-[-0.02em] text-ink">Revisá tu WhatsApp</h1>
             <p className="text-sm leading-[1.6] text-ink-secondary">
-              Si <strong className="font-semibold">+{soloDigitos(telefono)}</strong> tiene cuenta, le llegó un
+              Si <strong className="font-semibold">+{telefono}</strong> tiene cuenta, le llegó un
               código de 6 dígitos a su propio chat. Vence en 10 minutos.
             </p>
             <input

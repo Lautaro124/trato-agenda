@@ -32,8 +32,3 @@ export class Limitador {
     }
   }
 }
-
-/** Sólo dígitos: "+54 9 11 2233-4455" y "5491122334455" son el mismo número. */
-export function normalizarTelefono(crudo: string): string {
-  return crudo.replace(/\D/g, '');
-}

@@ -13,7 +13,7 @@ async function crear(opciones: { passwordHash?: string | null; hayUsuario?: bool
   const user = { id: 'user-1', phoneNumber: TELEFONO, googleId: null, passwordHash: hash } as User;
   const prisma = {
     user: {
-      findUnique: vi.fn().mockResolvedValue(opciones.hayUsuario === false ? null : user),
+      findMany: vi.fn().mockResolvedValue(opciones.hayUsuario === false ? [] : [user]),
       update: vi.fn().mockImplementation(({ data }: { data: Partial<User> }) => ({ ...user, ...data })),
     },
   } as unknown as PrismaService;

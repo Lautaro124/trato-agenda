@@ -12,6 +12,7 @@ import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Limitador } from './limitador.js';
 import { HASH_FALSO, hashearPassword, passwordCorrecta } from './password.js';
+import { buscarUsuarioPorTelefono, claveDeTelefono } from './telefono.js';
 
 const QUINCE_MINUTOS_MS = 15 * 60 * 1000;
 const UNA_HORA_MS = 60 * 60 * 1000;
@@ -40,11 +41,13 @@ export class LoginWhatsappService {
   async entrar(telefono: string, password: string, ip: string): Promise<User> {
     // Por IP sólo en producción: los E2E salen todos de localhost. Por número, siempre.
     const limitaIp = this.config.get('NODE_ENV', { infer: true }) === 'production';
-    if ((limitaIp && !this.porIp.permitir(ip)) || !this.porNumero.permitir(telefono)) {
+    // La clave y no el número tipeado: las formas de escribir el mismo número
+    // comparten los intentos, si no el límite se multiplica por cada una.
+    if ((limitaIp && !this.porIp.permitir(ip)) || !this.porNumero.permitir(claveDeTelefono(telefono))) {
       throw new HttpException('Demasiados intentos: probá en unos minutos.', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const user = await this.prisma.user.findUnique({ where: { phoneNumber: telefono } });
+    const user = await buscarUsuarioPorTelefono(this.prisma, telefono);
     const correcta = await passwordCorrecta(password, user?.passwordHash ?? HASH_FALSO);
     if (!user || !user.passwordHash || !correcta) throw new UnauthorizedException(RECHAZO);
     return user;

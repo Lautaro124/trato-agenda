@@ -1,5 +1,5 @@
 import { API_URL } from '../entorno';
-import { crearAgentePorApi, emailUnico, esperarRuta, expect, loginDev, ponerPassword, telefonoUnico, test } from './fixtures';
+import { crearAgentePorApi, emailUnico, esperarRuta, expect, loginDev, nacional, ponerPassword, telefonoUnico, test } from './fixtures';
 
 test.describe('entrar con número de WhatsApp y contraseña', () => {
   test('una cuenta nueva elige su contraseña, sale y vuelve a entrar con el número', async ({ page, context }) => {
@@ -19,13 +19,30 @@ test.describe('entrar con número de WhatsApp y contraseña', () => {
     await page.getByRole('button', { name: 'Salir' }).click();
     await esperarRuta(page, '/entrar');
 
-    await page.getByLabel('Número de WhatsApp').fill(`+${telefono.slice(0, 2)} ${telefono.slice(2)}`);
+    await page.getByLabel('Número de WhatsApp').fill(nacional(telefono));
     await page.getByLabel('Contraseña', { exact: true }).fill('mi-clave-segura');
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
 
     await esperarRuta(page, '/contanos');
     const me = await context.request.get(`${API_URL}/auth/me`);
     expect(await me.json()).toMatchObject({ phoneNumber: telefono, tienePassword: true, debePonerPassword: false });
+  });
+
+  test('el número sin el 9 argentino entra igual', async ({ page, browser }) => {
+    // WhatsApp guarda 549 11…, pero nadie dicta ese 9 al decir su número.
+    const telefono = telefonoUnico();
+    const aparte = await browser.newContext();
+    await loginDev(aparte.request, emailUnico(), telefono);
+    await ponerPassword(aparte.request, 'mi-clave-segura');
+    await crearAgentePorApi(aparte.request);
+    await aparte.close();
+
+    await page.goto('/entrar');
+    await page.getByLabel('Número de WhatsApp').fill(nacional(telefono, { con9: false }));
+    await page.getByLabel('Contraseña', { exact: true }).fill('mi-clave-segura');
+    await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+
+    await esperarRuta(page, '/inicio');
   });
 
   test('una contraseña equivocada muestra el error y no entra', async ({ page, browser }) => {
@@ -36,7 +53,7 @@ test.describe('entrar con número de WhatsApp y contraseña', () => {
     await aparte.close();
 
     await page.goto('/entrar');
-    await page.getByLabel('Número de WhatsApp').fill(telefono);
+    await page.getByLabel('Número de WhatsApp').fill(nacional(telefono));
     await page.getByLabel('Contraseña', { exact: true }).fill('otra-clave');
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
 
@@ -55,7 +72,7 @@ test.describe('entrar con número de WhatsApp y contraseña', () => {
     await aparte.close();
 
     await page.goto('/entrar');
-    await page.getByLabel('Número de WhatsApp').fill(telefono);
+    await page.getByLabel('Número de WhatsApp').fill(nacional(telefono));
     await page.getByLabel('Contraseña', { exact: true }).fill('mi-clave-segura');
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
     await esperarRuta(page, '/inicio');

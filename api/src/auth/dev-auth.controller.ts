@@ -20,7 +20,7 @@ import type { Env } from '../config/env.js';
 import { AuthService } from './auth.service.js';
 import type { DestinoTrasLogin } from './auth.types.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
-import { normalizarTelefono } from './limitador.js';
+import { normalizarTelefono } from './telefono.js';
 import { destinoTrasLogin, ponerCookieDeSesion } from './sesion.js';
 import { EMAIL_DEV_POR_DEFECTO } from './usuario-dev.js';
 

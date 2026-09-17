@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Limitador, normalizarTelefono } from './limitador.js';
+import { Limitador } from './limitador.js';
 
 describe('Limitador', () => {
   it('deja pasar hasta el máximo dentro de la ventana y corta el siguiente', () => {
@@ -31,11 +31,5 @@ describe('Limitador', () => {
     limitador.permitir('ip-1', 30_000);
 
     expect(limitador.permitir('ip-1', 60_000)).toBe(true);
-  });
-});
-
-describe('normalizarTelefono', () => {
-  it('se queda sólo con los dígitos', () => {
-    expect(normalizarTelefono('+54 9 11 2233-4455')).toBe('5491122334455');
   });
 });
