@@ -17,6 +17,14 @@ const CALENDAR_ID = 'primary';
 export type PeriodoOcupado = { inicio: Date; fin: Date };
 export type DatosEvento = { resumen: string; inicio: Date; fin: Date };
 export type EventoListado = { id: string; resumen: string; inicio: Date | null; fin: Date | null };
+/** Un turno agendado por el agente, con lo que hace falta para mostrarlo y para editarlo en el calendario. */
+export type TurnoAgendado = {
+  id: string;
+  googleEventId: string;
+  nombreCliente: string | null;
+  inicio: Date;
+  fin: Date;
+};
 
 /** Lo que hace falta del usuario para decidir a qué calendario ir y autenticarse en Google. */
 export type UsuarioCalendario = Pick<User, 'id' | 'calendario' | 'googleRefreshToken'>;
@@ -211,17 +219,27 @@ export class CalendarService {
     }
   }
 
-  /** Ids de evento de Google que corresponden a turnos agendados por el agente (no cancelados). */
-  async listarTurnosAgendados(userId: string, desde: Date, hasta: Date): Promise<Set<string>> {
-    const turnos = await this.prisma.turno.findMany({
+  /**
+   * Los turnos que el agente agendó para este dueño en un rango, de todas sus
+   * conversaciones. Con el nombre del cliente: es la única forma de saber a
+   * nombre de quién quedó cada uno, porque el calendario sólo guarda el título.
+   */
+  async listarTurnos(userId: string, desde: Date, hasta: Date): Promise<TurnoAgendado[]> {
+    return this.prisma.turno.findMany({
       where: {
         conversation: { userId },
         estado: 'confirmado',
         inicio: { lt: hasta },
         fin: { gt: desde },
       },
-      select: { googleEventId: true },
+      select: { id: true, googleEventId: true, nombreCliente: true, inicio: true, fin: true },
+      orderBy: { inicio: 'asc' },
     });
+  }
+
+  /** Ids de evento de Google que corresponden a turnos agendados por el agente (no cancelados). */
+  async listarTurnosAgendados(userId: string, desde: Date, hasta: Date): Promise<Set<string>> {
+    const turnos = await this.listarTurnos(userId, desde, hasta);
     return new Set(turnos.map((turno) => turno.googleEventId));
   }
 

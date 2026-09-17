@@ -60,10 +60,13 @@ const USUARIO_LOCAL: UsuarioDePrueba = {
 };
 
 /** Prisma con `turno.updateMany` espiado y `evento` en memoria. */
-function crearPrisma(): PrismaService {
+function crearPrisma(turnos: unknown[] = []): PrismaService {
   const { prisma } = prismaConEventosEnMemoria();
   return Object.assign(prisma, {
-    turno: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    turno: {
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      findMany: vi.fn().mockResolvedValue(turnos),
+    },
   }) as unknown as PrismaService;
 }
 
@@ -332,6 +335,33 @@ describe('CalendarService', () => {
       expect(resultado).toEqual({ migrados: 1, pendientes: 1 });
       const quedan = await service.listarProximos(USUARIO_LOCAL, h('00:00'), h('23:59'));
       expect(quedan.map((evento) => evento.id)).toEqual([b]);
+    });
+  });
+
+  describe('turnos agendados por el agente', () => {
+    const TURNOS = [
+      { id: 't1', googleEventId: 'evento-a', nombreCliente: 'Juana', inicio: new Date(), fin: new Date() },
+      { id: 't2', googleEventId: 'evento-b', nombreCliente: null, inicio: new Date(), fin: new Date() },
+    ];
+
+    it('listarTurnos devuelve las filas con el nombre del cliente, ordenadas por inicio', async () => {
+      const prisma = crearPrisma(TURNOS);
+      const service = new CalendarService(crearConfig(), prisma);
+
+      const turnos = await service.listarTurnos('user-1', new Date(), new Date());
+
+      expect(turnos).toEqual(TURNOS);
+      expect(prisma.turno.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { inicio: 'asc' } }),
+      );
+    });
+
+    it('listarTurnosAgendados sigue devolviendo sólo el set de ids de evento', async () => {
+      const service = new CalendarService(crearConfig(), crearPrisma(TURNOS));
+
+      const ids = await service.listarTurnosAgendados('user-1', new Date(), new Date());
+
+      expect(ids).toEqual(new Set(['evento-a', 'evento-b']));
     });
   });
 });

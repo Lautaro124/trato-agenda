@@ -88,6 +88,17 @@ export const ESQUEMAS_ACCIONES: Record<AccionId, EsquemaHerramienta> = {
  * calendario del dueño, no sólo a los turnos de esa conversación puntual.
  */
 export const ESQUEMAS_PROPIETARIO: Record<string, EsquemaHerramienta> = {
+  listar_turnos: {
+    name: 'listar_turnos',
+    description:
+      'Lista los turnos que vos le agendaste a sus clientes en un rango de fechas, con el nombre de cada ' +
+      'cliente, de todas las conversaciones de WhatsApp. Es lo que hay que usar cuando el dueño pregunta ' +
+      'qué turnos tiene. Para eventos del calendario que no son turnos, usá listar_eventos_calendario.',
+    schema: z.object({
+      desde: z.string().describe(`Inicio del rango, ${ISO}`),
+      hasta: z.string().describe(`Fin del rango, ${ISO}`),
+    }),
+  },
   listar_eventos_calendario: {
     name: 'listar_eventos_calendario',
     description:
