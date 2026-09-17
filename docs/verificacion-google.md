@@ -10,6 +10,13 @@ Limited Use con el detalle de proveedores de IA. Este documento junta los hechos
 verificados en el código, lo que se cambió para responder, y lo que queda por
 hacer a mano.
 
+> **Google es opcional desde el 2026-09-17.** Una cuenta puede crearse sólo con
+> WhatsApp y usar la agenda local en Postgres (`User.calendario = "local"`,
+> tabla `Evento`); esas cuentas nunca piden scopes de Google. Google Calendar
+> se suma después desde `/cuenta` con el mismo consentimiento y los mismos
+> scopes de siempre, y al conectarlo se copian ahí los turnos futuros. Nada de
+> esto cambia lo que se declara a Google sobre los datos que sí vienen de sus APIs.
+
 ## Hechos verificados en el código
 
 Nada de acá es una afirmación de marketing: cada punto tiene su archivo.
