@@ -14,6 +14,7 @@ function crearServicio(opciones: {
   creadoHaceDias: number;
   suscripcion?: { estado: string } | null;
   preapproval?: Partial<Preapproval>;
+  emailsTomados?: string[];
 }) {
   const filas = new Map<string, Record<string, unknown>>();
   if (opciones.suscripcion) {
@@ -22,12 +23,18 @@ function crearServicio(opciones: {
 
   const prisma = {
     user: {
-      findUnique: vi.fn().mockImplementation(() => ({
-        id: 'user-1',
-        email: 'dueño@ejemplo.com',
-        createdAt: new Date(Date.now() - opciones.creadoHaceDias * MS_POR_DIA),
-        suscripcion: filas.get('user-1') ?? null,
-      })),
+      update: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn().mockImplementation(({ where }: { where: { id?: string; email?: string } }) => {
+        if (where.email !== undefined) {
+          return opciones.emailsTomados?.includes(where.email) ? { id: 'otro' } : null;
+        }
+        return {
+          id: 'user-1',
+          email: 'dueño@ejemplo.com',
+          createdAt: new Date(Date.now() - opciones.creadoHaceDias * MS_POR_DIA),
+          suscripcion: filas.get('user-1') ?? null,
+        };
+      }),
     },
     subscription: {
       findUnique: vi.fn().mockImplementation(() => filas.get('user-1') ?? null),
@@ -85,6 +92,32 @@ describe('SubscriptionService', () => {
       montoPorMes: 20000,
     });
     expect(filas.get('user-1')).toMatchObject({ mpPreapprovalId: 'pre-1', estado: 'pendiente', montoCentavos: 2_000_000 });
+  });
+
+  it('una cuenta sin email (alta por WhatsApp) tiene que mandarlo y queda guardado', async () => {
+    const { service, prisma, mercadoPago } = crearServicio({ creadoHaceDias: 2 });
+    const sinEmail = { ...USUARIO, email: null };
+
+    await expect(service.crearCheckout(sinEmail)).rejects.toThrow('Falta el email');
+
+    await service.crearCheckout(sinEmail, 'nuevo@ejemplo.com');
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { email: 'nuevo@ejemplo.com' } });
+    expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({ payerEmail: 'nuevo@ejemplo.com' });
+  });
+
+  it('no deja usar para pagar el email de otra cuenta', async () => {
+    const { service, mercadoPago } = crearServicio({ creadoHaceDias: 2, emailsTomados: ['ajeno@ejemplo.com'] });
+
+    await expect(service.crearCheckout({ ...USUARIO, email: null }, 'ajeno@ejemplo.com')).rejects.toThrow('otra cuenta');
+    expect(mercadoPago.crearPreapproval).not.toHaveBeenCalled();
+  });
+
+  it('con email propio ignora el que venga en el body', async () => {
+    const { service, prisma, mercadoPago } = crearServicio({ creadoHaceDias: 2 });
+
+    await service.crearCheckout(USUARIO, 'otro@ejemplo.com');
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({ payerEmail: 'dueño@ejemplo.com' });
   });
 
   it('el webhook nunca lee el estado del payload: lo vuelve a pedir a Mercado Pago', async () => {

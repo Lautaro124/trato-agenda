@@ -26,6 +26,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload): Promise<User> {
+    // Los tokens de un paso intermedio van en otras cookies, pero se firman con
+    // el mismo secreto: si alguien copia uno a la de sesión, no vale.
+    if (payload.tipo) {
+      throw new UnauthorizedException('Ese token no es una sesión.');
+    }
     const user = await this.authService.findById(payload.sub);
     if (!user) {
       throw new UnauthorizedException('La sesión apunta a un usuario que ya no existe.');

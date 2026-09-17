@@ -28,7 +28,7 @@ import { guardarReporte, type Resultado } from '../reporte.js';
 
 const AHORA = new Date('2026-09-14T08:00:00-03:00');
 
-const USUARIO = { id: 'eval-resumen-owner', googleId: 'dev:eval-resumen@trato.local', googleRefreshToken: null, email: 'eval-resumen@trato.local' };
+const USUARIO = { id: 'eval-resumen-owner', calendario: 'local', googleRefreshToken: null, email: 'eval-resumen@trato.local' };
 
 const AGENTE = {
   id: 'eval-resumen-agent',

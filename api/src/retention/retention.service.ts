@@ -1,10 +1,13 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CheckpointerService } from '../conversation/checkpointer.provider.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import {
   DIAS_RETENCION_DATOS_CLIENTE,
   DIAS_RETENCION_MENSAJES,
   fechaLimite,
+  fechaLimiteHoras,
+  HORAS_ALTA_PENDIENTE,
 } from './retention.rules.js';
 
 /** Cada cuánto se pasa la purga. Diario alcanza: los plazos son de meses. */
@@ -30,6 +33,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly checkpointer: CheckpointerService,
+    private readonly whatsapp: WhatsappService,
   ) {}
 
   onModuleInit(): void {
@@ -47,9 +51,11 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
     try {
       const mensajes = await this.purgarMensajes();
       const anonimizadas = await this.anonimizarConversaciones();
-      if (mensajes > 0 || anonimizadas > 0) {
+      const altas = await this.descartarAltasPendientes();
+      if (mensajes > 0 || anonimizadas > 0 || altas > 0) {
         this.logger.log(
-          `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas.`,
+          `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
+            `${altas} altas sin terminar descartadas.`,
         );
       }
     } catch (error) {
@@ -104,6 +110,30 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
         OR: [{ resumen: { not: null } }, { nombreCliente: { not: null } }],
       },
       data: { resumen: null, nombreCliente: null },
+    });
+    return count;
+  }
+
+  /**
+   * Altas por WhatsApp que nunca terminaron. Normalmente las descarta
+   * AltaWhatsappService al vencer la cookie; esto cubre un reinicio de la API
+   * en el medio (el timer se pierde, la fila y quizá la sesión quedan).
+   */
+  private async descartarAltasPendientes(): Promise<number> {
+    const where = {
+      googleId: null,
+      phoneNumber: null,
+      createdAt: { lt: fechaLimiteHoras(HORAS_ALTA_PENDIENTE) },
+    };
+    const pendientes = await this.prisma.user.findMany({ where, select: { id: true } });
+    for (const { id } of pendientes) {
+      await this.whatsapp.descartar(id).catch((error: unknown) =>
+        this.logger.warn(`No se pudo cerrar el WhatsApp del alta ${id}: ${(error as Error).message}`),
+      );
+    }
+    if (pendientes.length === 0) return 0;
+    const { count } = await this.prisma.user.deleteMany({
+      where: { ...where, id: { in: pendientes.map(({ id }) => id) } },
     });
     return count;
   }

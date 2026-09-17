@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import type { Subscription } from '../generated/prisma/client.js';
 import type { EstadoSuscripcion } from './subscription.rules.js';
 
@@ -27,6 +27,14 @@ export function aSuscripcionPublica(
     monto: suscripcion ? suscripcion.montoCentavos / 100 : montoPorDefecto,
     moneda: suscripcion?.moneda ?? 'ARS',
   };
+}
+
+/** Body de POST /suscripcion/checkout: el email sólo hace falta si la cuenta no tiene uno. */
+export class CheckoutDto {
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(120)
+  email?: string;
 }
 
 class WebhookDataDto {

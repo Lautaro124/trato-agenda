@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentsService } from '../agents/agents.service.js';
 import type { Env } from '../config/env.js';
 import { AuthService } from './auth.service.js';
+import { CodigoAccesoService } from './codigo-acceso.service.js';
 import { contrasenaCorrecta, DevAuthController } from './dev-auth.controller.js';
 
 type Entorno = Partial<Record<keyof Env, string>>;
@@ -34,6 +35,7 @@ async function crearApp(entorno: Entorno, opciones: { tieneAgente?: boolean } = 
     providers: [
       { provide: AuthService, useValue: authService },
       { provide: AgentsService, useValue: agentsService },
+      { provide: CodigoAccesoService, useValue: { ultimoCodigoDev: vi.fn().mockReturnValue('123456') } },
       { provide: ConfigService, useValue: { get: (clave: string) => valores[clave] } },
     ],
   }).compile();
@@ -99,7 +101,7 @@ describe('DevAuthController', () => {
     expect(cookies.some((cookie) => cookie.startsWith('trato_session=jwt-de-prueba') && cookie.includes('HttpOnly'))).toBe(
       true,
     );
-    expect(authService.upsertUsuarioDev).toHaveBeenCalledWith('prueba@trato.local');
+    expect(authService.upsertUsuarioDev).toHaveBeenCalledWith('prueba@trato.local', undefined);
   });
 
   it('sin email usa el usuario dev por defecto y con agente manda a /inicio', async () => {
@@ -110,7 +112,7 @@ describe('DevAuthController', () => {
       .post('/auth/dev/login')
       .send({ password: 'e2e-password' })
       .expect(200, { destino: '/inicio' });
-    expect(authService.upsertUsuarioDev).toHaveBeenCalledWith('dev@trato.local');
+    expect(authService.upsertUsuarioDev).toHaveBeenCalledWith('dev@trato.local', undefined);
   });
 
   it('valida el body: sin contraseña o con email inválido da 400', async () => {
@@ -121,6 +123,35 @@ describe('DevAuthController', () => {
       .post('/auth/dev/login')
       .send({ password: 'e2e-password', email: 'no-es-email' })
       .expect(400);
+  });
+
+  it('con teléfono lo normaliza y lo pasa para crear una cuenta tipo WhatsApp', async () => {
+    let authService;
+    ({ app, authService } = await crearApp({}));
+
+    await request(app.getHttpServer())
+      .post('/auth/dev/login')
+      .send({ password: 'e2e-password', telefono: '+54 9 11 2233-4455' })
+      .expect(200, { destino: '/contanos' });
+    expect(authService.upsertUsuarioDev).toHaveBeenCalledWith('dev@trato.local', '5491122334455');
+  });
+
+  it('rechaza un teléfono que no son 8 a 15 dígitos', async () => {
+    ({ app } = await crearApp({}));
+
+    await request(app.getHttpServer())
+      .post('/auth/dev/login')
+      .send({ password: 'e2e-password', telefono: '123' })
+      .expect(400);
+  });
+
+  it('GET /auth/dev/ultimo-codigo devuelve el código dev y 404 en producción', async () => {
+    ({ app } = await crearApp({}));
+    await request(app.getHttpServer()).get('/auth/dev/ultimo-codigo?telefono=5491122334455').expect(200, { codigo: '123456' });
+    await app.close();
+
+    ({ app } = await crearApp({ NODE_ENV: 'production' }));
+    await request(app.getHttpServer()).get('/auth/dev/ultimo-codigo?telefono=5491122334455').expect(404);
   });
 
   it('propaga el 409 si el email ya es de un usuario de Google', async () => {

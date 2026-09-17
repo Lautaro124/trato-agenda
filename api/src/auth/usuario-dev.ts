@@ -1,8 +1,8 @@
 /**
- * Usuarios del login de desarrollo (`POST /auth/dev/login`). No pasan por
- * Google: se reconocen por el prefijo de `googleId`, que ningún id real de
- * Google puede tener (son numéricos). Con eso alcanza para que el calendario
- * los mande al `CalendarioDev` en memoria en vez de a la API de Google.
+ * Usuarios del login de desarrollo (`POST /auth/dev/login`) con email. No
+ * pasan por Google: se reconocen por el prefijo de `googleId`, que ningún id
+ * real de Google puede tener (son numéricos), y así el login dev nunca pisa a
+ * un usuario real. Su agenda es la local (`calendario = "local"`).
  */
 export const PREFIJO_GOOGLE_ID_DEV = 'dev:';
 
