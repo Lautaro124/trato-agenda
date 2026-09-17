@@ -28,14 +28,32 @@ export function emailUnico(prefijo = 'e2e'): string {
   return `${prefijo}-${sufijo()}@trato.local`;
 }
 
+/** Número de WhatsApp único (Argentina, 13 dígitos): cada test tiene su cuenta y sus límites. */
+export function telefonoUnico(): string {
+  return `549${String(Math.floor(Math.random() * 1e10)).padStart(10, '0')}`;
+}
+
 /**
  * Login dev por API. `context.request` comparte las cookies con el browser
- * context, así que la página queda logueada sin pasar por /entrar.
+ * context, así que la página queda logueada sin pasar por /entrar. Con
+ * `telefono`, el usuario imita una cuenta creada sólo con WhatsApp.
  */
-export async function loginDev(request: APIRequestContext, email: string): Promise<{ destino: string }> {
-  const res = await request.post(`${API_URL}/auth/dev/login`, { data: { password: DEV_PASSWORD, email } });
+export async function loginDev(
+  request: APIRequestContext,
+  email: string,
+  telefono?: string,
+): Promise<{ destino: string }> {
+  const res = await request.post(`${API_URL}/auth/dev/login`, {
+    data: { password: DEV_PASSWORD, email, ...(telefono ? { telefono } : {}) },
+  });
   expect(res.status(), await res.text()).toBe(200);
   return res.json() as Promise<{ destino: string }>;
+}
+
+/** Pone la contraseña de la cuenta logueada (la que se elige después del QR). */
+export async function ponerPassword(request: APIRequestContext, nueva: string): Promise<void> {
+  const res = await request.post(`${API_URL}/auth/password`, { data: { nueva } });
+  expect(res.status(), await res.text()).toBe(204);
 }
 
 export type TipoEvento = { nombre: string; duracionMin: number };
@@ -115,7 +133,7 @@ export function horaBA(iso: string): string {
 
 export type EventoAgenda = { id: string; resumen: string; inicio: string; fin: string; agendadoPorAgente: boolean };
 
-/** Eventos del calendario (el falso, para usuarios dev) en las próximas dos semanas. */
+/** Eventos de la agenda (la local, para usuarios dev) en las próximas dos semanas. */
 export async function eventosProximos(request: APIRequestContext): Promise<EventoAgenda[]> {
   const desde = fechaBA(new Date());
   const hasta = fechaBA(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000));
