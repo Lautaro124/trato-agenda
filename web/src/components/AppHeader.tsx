@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
-import { iniciales, useSession, type Usuario } from "@/lib/session";
+import { identificador, iniciales, useSession, type Usuario } from "@/lib/session";
 
 type Tab = "inicio" | "vinculacion" | "calendario" | "chat" | "plan" | "cuenta";
 
@@ -94,7 +94,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
           type="button"
           onClick={() => void signOut()}
           title="Salir"
-          className="cursor-pointer"
+          className="flex cursor-pointer items-center gap-2"
         >
           {user.avatarUrl ? (
             <Image
@@ -109,6 +109,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
               {iniciales(user)}
             </span>
           )}
+          <span className="hidden text-sm text-ink-secondary sm:inline-block">{identificador(user)}</span>
         </button>
       </div>
     </header>
