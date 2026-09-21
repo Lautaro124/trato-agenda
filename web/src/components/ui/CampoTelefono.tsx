@@ -31,7 +31,7 @@ export function CampoTelefono({
         value={pais.iso}
         onChange={(e) => onPais(paisPorIso(e.target.value))}
         aria-label="País"
-        className={cn(INPUT_FORM, "w-[7.5rem] shrink-0 cursor-pointer pr-1")}
+        className={cn(INPUT_FORM, "!w-20 shrink-0 cursor-pointer px-2 pr-0 text-[13px]")}
       >
         {PAISES.map((opcion) => (
           <option key={opcion.iso} value={opcion.iso}>
