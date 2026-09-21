@@ -9,19 +9,21 @@ const INPUT =
 
 function mensajeDeError(status: number): string {
   if (status === 401) return "Contraseña incorrecta.";
-  if (status === 409) return "Ese email ya es de una cuenta de Google: usá otro.";
+  if (status === 409) return "Ese email o número ya es de una cuenta real: usá otro.";
+  if (status === 400) return "Revisá el email o el número (8 a 15 dígitos).";
   if (status === 404) return "El login de desarrollo está apagado en la API.";
   return "No se pudo entrar.";
 }
 
 /**
- * Login con contraseña, sólo para desarrollo y E2E: saltea Google y usa un
- * calendario falso en la API. /entrar sólo lo monta fuera de producción, y
+ * Login con contraseña, sólo para desarrollo y E2E: saltea Google y usa la
+ * agenda local. Con teléfono, el usuario imita una cuenta creada con WhatsApp. /entrar sólo lo monta fuera de producción, y
  * además se esconde solo si la API no tiene DEV_LOGIN_PASSWORD.
  */
 export function LoginDev() {
   const [habilitado, setHabilitado] = useState(false);
   const [email, setEmail] = useState("");
+  const [telefono, setTelefono] = useState("");
   const [password, setPassword] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +46,11 @@ export function LoginDev() {
       const res = await apiFetch("/auth/dev/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, ...(email.trim() ? { email: email.trim() } : {}) }),
+        body: JSON.stringify({
+          password,
+          ...(email.trim() ? { email: email.trim() } : {}),
+          ...(telefono.trim() ? { telefono: telefono.trim() } : {}),
+        }),
       });
       if (!res.ok) {
         setError(mensajeDeError(res.status));
@@ -76,6 +82,15 @@ export function LoginDev() {
         onChange={(e) => setEmail(e.target.value)}
         placeholder="dev@trato.local"
         aria-label="Email de desarrollo"
+        autoComplete="off"
+        className={INPUT}
+      />
+      <input
+        type="tel"
+        value={telefono}
+        onChange={(e) => setTelefono(e.target.value)}
+        placeholder="Teléfono (cuenta tipo WhatsApp)"
+        aria-label="Teléfono de desarrollo"
         autoComplete="off"
         className={INPUT}
       />

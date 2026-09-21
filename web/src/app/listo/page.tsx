@@ -9,7 +9,7 @@ import { useRequireSession } from "@/lib/session";
 import { formatearFechaCorta, formatearMonto, useSuscripcion } from "@/lib/suscripcion";
 
 const INCLUYE = [
-  "Agenda ilimitada y sincronización con Google Calendar",
+  "Agenda ilimitada, en Trato o en tu Google Calendar",
   "Un número de WhatsApp con el asistente respondiendo",
   "Recordatorios automáticos a tus clientes",
 ];
@@ -28,6 +28,8 @@ function Item({ children }: { children: ReactNode }) {
 /**
  * Paso 3 de 3 del alta (artboard 7a del canvas): antes de vincular WhatsApp le
  * avisamos que el mes de prueba ya arrancó y que no le vamos a pedir tarjeta.
+ * Quien se registró con WhatsApp ya escaneó el QR: para esa cuenta el botón va
+ * directo a la agenda.
  */
 export default function ListoPage() {
   const router = useRouter();
@@ -42,6 +44,7 @@ export default function ListoPage() {
     );
   }
 
+  const yaVinculado = user.calendario === "local" && user.phoneNumber !== null;
   const hasta = suscripcion ? formatearFechaCorta(suscripcion.pruebaHasta) : null;
   const precio = formatearMonto(suscripcion?.monto ?? 20000, suscripcion?.moneda);
 
@@ -72,8 +75,13 @@ export default function ListoPage() {
             Te avisamos 7 días antes de que termine. Después son {precio} por mes y lo activás vos.
           </p>
           <div className="flex flex-col items-center gap-2.5 md:flex-row">
-            <Button size="lg" fullWidth onClick={() => router.push("/vincular")} className="md:w-auto">
-              Vincular WhatsApp y empezar
+            <Button
+              size="lg"
+              fullWidth
+              onClick={() => router.push(yaVinculado ? "/inicio" : "/vincular")}
+              className="md:w-auto"
+            >
+              {yaVinculado ? "Ir a mi agenda" : "Vincular WhatsApp y empezar"}
             </Button>
             <Link href="/plan" className="text-[13.5px] text-link">
               Ver el plan

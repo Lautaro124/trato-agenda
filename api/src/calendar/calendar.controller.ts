@@ -7,7 +7,9 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  BadRequestException,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -15,7 +17,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import type { User } from '../generated/prisma/client.js';
 import { CalendarService, type EventoListado } from './calendar.service.js';
-import { EditarEventoDto } from './calendar.types.js';
+import { CrearEventoDto, EditarEventoDto } from './calendar.types.js';
 import { CalendarUnavailableError } from './google-calendar.client.js';
 
 /** Buenos Aires es UTC-3 fijo (sin horario de verano), igual que asume calendar.service.ts. */
@@ -81,6 +83,27 @@ export class CalendarController {
           agendadoPorAgente: turnosAgendados.has(evento.id),
         })),
       };
+    } catch (error) {
+      if (error instanceof CalendarUnavailableError) {
+        throw new BadGatewayException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Crea un evento a mano desde la vista web. Para una cuenta con agenda local
+   * es la única forma de bloquear un horario que el asistente no debe ofrecer.
+   */
+  @Post('eventos')
+  async crearEvento(@CurrentUser() user: User, @Body() dto: CrearEventoDto): Promise<{ id: string }> {
+    const inicio = new Date(dto.inicio);
+    const fin = new Date(dto.fin);
+    if (fin <= inicio) {
+      throw new BadRequestException('El evento tiene que terminar después de empezar.');
+    }
+    try {
+      return { id: await this.calendarService.crearEvento(user, { resumen: dto.resumen.trim(), inicio, fin }) };
     } catch (error) {
       if (error instanceof CalendarUnavailableError) {
         throw new BadGatewayException(error.message);

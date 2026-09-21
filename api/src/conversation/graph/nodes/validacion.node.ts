@@ -311,7 +311,7 @@ function validarLlamada(
     }
 
     default:
-      // consultar_turno y listar_eventos_calendario: sólo lectura, no hay nada que validar.
+      // consultar_turno, listar_turnos y listar_eventos_calendario: sólo lectura, no hay nada que validar.
       return pendiente;
   }
 }

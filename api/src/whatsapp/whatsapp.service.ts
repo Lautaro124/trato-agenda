@@ -16,6 +16,20 @@ import { SubscriptionService } from '../subscription/subscription.service.js';
 import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
+/**
+ * Un usuario sin Google ni teléfono es un alta por WhatsApp que todavía no
+ * terminó: si el número escaneado ya es de otra cuenta, no es un error, es
+ * alguien volviendo a entrar, y `AltaWhatsappService.finalizar` lo resuelve.
+ */
+export function esAltaPendiente(user: { googleId: string | null; phoneNumber: string | null }): boolean {
+  return user.googleId === null && user.phoneNumber === null;
+}
+
+/** JID del chat consigo mismo ("Vos" en WhatsApp). */
+export function jidPropio(telefono: string): string {
+  return `${telefono}@s.whatsapp.net`;
+}
+
 /** Falla recuperable de red, no una desvinculación: reintentamos con backoff. */
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 2000;
@@ -118,6 +132,98 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.whatsappSession.deleteMany({ where: { userId } });
   }
 
+  /**
+   * Manda un mensaje al chat propio del titular (lo usa el login con código).
+   * Devuelve false si no hay un socket vinculado por donde mandarlo.
+   */
+  async enviarAlPropioChat(userId: string, texto: string): Promise<boolean> {
+    const sock = this.sockets.get(userId);
+    const telefono = sock && estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
+    if (!sock || !telefono) return false;
+    // `handleMessagesUpsert` ignora los `fromMe`: el asistente no se contesta esto.
+    await sock.sendMessage(jidPropio(telefono), { text: texto });
+    return true;
+  }
+
+  /**
+   * Alguien escaneó el QR de un alta con un número que ya es de otra cuenta:
+   * esa cuenta se queda con la vinculación nueva y el usuario pendiente se
+   * descarta (lo borra quien llama). El orden importa porque `saveCreds`
+   * escribe por `userId`:
+   *
+   * 1. se espera a que el pendiente termine de persistir y se cierra su socket
+   *    sin logout (sus credenciales son las buenas);
+   * 2. se cierra la sesión vieja de la cuenta con logout, sacándola antes del
+   *    mapa para que su `loggedOut` no borre la fila que estamos por escribir;
+   * 3. se copia el blob a la cuenta y se reconecta con su `userId`.
+   */
+  async transferirSesion(desde: string, hacia: string): Promise<void> {
+    await (this.pendingSaves.get(desde) ?? Promise.resolve());
+    await this.cerrarSocket(desde, 'end');
+    await this.cerrarSocket(hacia, 'logout');
+    await (this.pendingSaves.get(hacia) ?? Promise.resolve());
+
+    const origen = await this.prisma.whatsappSession.findUniqueOrThrow({ where: { userId: desde } });
+    const datos = {
+      authState: origen.authState,
+      registered: origen.registered,
+      phoneNumber: origen.phoneNumber,
+      linkedAt: origen.linkedAt,
+    };
+    await this.prisma.whatsappSession.upsert({
+      where: { userId: hacia },
+      create: { userId: hacia, ...datos },
+      update: datos,
+    });
+    await this.prisma.whatsappSession.deleteMany({ where: { userId: desde } });
+    this.pendingSaves.delete(desde);
+    this.events.get(desde)?.complete();
+    this.events.delete(desde);
+
+    this.reconnectAttempts.delete(hacia);
+    await this.connect(hacia);
+  }
+
+  /** Cierra el socket de un alta abandonada sin tocar el teléfono de nadie. */
+  async descartar(userId: string): Promise<void> {
+    await this.descartarSinCerrarEventos(userId);
+    this.events.get(userId)?.complete();
+    this.events.delete(userId);
+  }
+
+  /**
+   * Saca el socket del mapa antes de cerrarlo: desde ahí sus eventos son de un
+   * socket viejo y `handleConnectionUpdate` los ignora.
+   */
+  private async cerrarSocket(userId: string, modo: 'end' | 'logout'): Promise<void> {
+    const sock = this.sockets.get(userId);
+    if (!sock) return;
+    this.sockets.delete(userId);
+    this.reconnectAttempts.delete(userId);
+    this.qrMostrado.delete(userId);
+    if (modo === 'logout') await sock.logout().catch(() => undefined);
+    await sock.end(undefined).catch(() => undefined);
+  }
+
+  /**
+   * Deja el número recién vinculado en `User.phoneNumber`, que es con lo que
+   * se entra después por código. Devuelve false si el número es de otra
+   * cuenta y este usuario no es un alta pendiente (un titular de Google
+   * vinculando el WhatsApp de otro).
+   */
+  private async asignarTelefono(userId: string, telefono: string): Promise<boolean> {
+    const [user, dueno] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { googleId: true, phoneNumber: true } }),
+      this.prisma.user.findUnique({ where: { phoneNumber: telefono }, select: { id: true } }),
+    ]);
+    if (!user) return false;
+    if (dueno && dueno.id !== userId) return esAltaPendiente(user);
+    if (user.phoneNumber !== telefono) {
+      await this.prisma.user.update({ where: { id: userId }, data: { phoneNumber: telefono } });
+    }
+    return true;
+  }
+
   private async connect(userId: string): Promise<void> {
     const { state, saveCreds } = await usePrismaAuthState(
       this.prisma,
@@ -136,7 +242,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     sock.ev.on('creds.update', () => {
       this.pendingSaves.set(userId, saveCreds());
     });
-    sock.ev.on('connection.update', (update) => this.handleConnectionUpdate(userId, update));
+    sock.ev.on('connection.update', (update) => {
+      this.handleConnectionUpdate(userId, update, sock).catch((error: unknown) =>
+        this.logger.error(`Fallo procesando connection.update de ${userId}`, error as Error),
+      );
+    });
     sock.ev.on('messages.upsert', (upsert) => {
       this.handleMessagesUpsert(userId, sock, upsert).catch((error: unknown) =>
         this.logger.error(`Fallo procesando mensajes entrantes de ${userId}`, error as Error),
@@ -180,7 +290,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private async handleConnectionUpdate(
     userId: string,
     update: Partial<{ connection: 'open' | 'connecting' | 'close'; qr: string; lastDisconnect: { error: unknown } }>,
+    sock?: WASocket,
   ): Promise<void> {
+    // Un socket que ya no es el del usuario (transferido, descartado) no manda más.
+    if (sock && this.sockets.get(userId) !== sock) return;
+
     if (update.qr) {
       this.qrMostrado.add(userId);
       this.emit(userId, { state: 'active', qr: update.qr });
@@ -202,6 +316,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // al frontend: si no, /whatsapp/status puede leer `registered: false` justo
       // después de que el usuario ve "conectado".
       await (this.pendingSaves.get(userId) ?? Promise.resolve());
+      if (phoneNumber && !(await this.asignarTelefono(userId, phoneNumber))) {
+        this.logger.warn(`El número vinculado por ${userId} ya es de otra cuenta: se desvincula.`);
+        this.emit(userId, { state: 'error', motivo: 'numero_en_uso' });
+        await this.descartarSinCerrarEventos(userId);
+        return;
+      }
       this.emit(userId, { state: 'connected', phoneNumber: phoneNumber || undefined });
       return;
     }
@@ -253,6 +373,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         ),
       RECONNECT_BASE_DELAY_MS * intentos,
     );
+  }
+
+  /** Como `descartar`, pero el SSE sigue abierto para que llegue el error. */
+  private async descartarSinCerrarEventos(userId: string): Promise<void> {
+    await this.cerrarSocket(userId, 'logout');
+    await this.prisma.whatsappSession.deleteMany({ where: { userId } });
+    this.pendingSaves.delete(userId);
   }
 
   private getOrCreateSubject(userId: string): ReplaySubject<LinkEvent> {

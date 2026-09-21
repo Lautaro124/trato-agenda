@@ -97,12 +97,21 @@ function PlanContenido() {
       .catch(() => {});
   }
 
-  async function suscribirme() {
+  async function suscribirme(email: string | null) {
     setEnviando(true);
     setError(null);
 
     try {
-      const res = await apiFetch("/suscripcion/checkout", { method: "POST" });
+      const res = await apiFetch("/suscripcion/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(email ? { email } : {}),
+      });
+      if (res.status === 409) {
+        setError("Ese email ya es de otra cuenta de Trato Agenda. Usá otro.");
+        setEnviando(false);
+        return;
+      }
       if (!res.ok) throw new Error("checkout falló");
       const { initPoint } = (await res.json()) as { initPoint: string };
       // Mercado Pago es otro origen: router.push no puede salir del origen del front.
@@ -141,7 +150,8 @@ function PlanContenido() {
           <Checkout
             suscripcion={suscripcion}
             enviando={enviando}
-            onSuscribirme={() => void suscribirme()}
+            pideEmail={!user.email}
+            onSuscribirme={(email) => void suscribirme(email)}
           />
         )}
 
@@ -157,12 +167,17 @@ function PlanContenido() {
 function Checkout({
   suscripcion,
   enviando,
+  pideEmail,
   onSuscribirme,
 }: {
   suscripcion: Suscripcion | null;
   enviando: boolean;
-  onSuscribirme: () => void;
+  /** Las cuentas creadas con WhatsApp no tienen email, y Mercado Pago lo exige. */
+  pideEmail: boolean;
+  onSuscribirme: (email: string | null) => void;
 }) {
+  const [email, setEmail] = useState("");
+  const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const precio = formatearMonto(suscripcion?.monto ?? 20000, suscripcion?.moneda);
   const vencida = suscripcion?.estado === "vencida";
 
@@ -201,6 +216,26 @@ function Checkout({
           </span>
         </div>
 
+        {pideEmail && (
+          <div className="mb-5">
+            <label htmlFor="email-pago" className="mb-1.5 block text-[12.5px] font-semibold text-ink-secondary">
+              Tu email
+            </label>
+            <input
+              id="email-pago"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(evento) => setEmail(evento.target.value)}
+              placeholder="vos@ejemplo.com"
+              className="w-full rounded-md border border-line bg-card px-3.5 py-[10px] text-[14px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]"
+            />
+            <p className="mt-1.5 text-[12px] leading-[1.5] text-muted">
+              Mercado Pago lo pide para el débito. Lo guardamos en tu cuenta.
+            </p>
+          </div>
+        )}
+
         <p className="rounded-md border border-line bg-sunken p-3.5 text-[13px] leading-[1.55] text-ink-secondary">
           Te llevamos a Mercado Pago para autorizar el débito automático. Volvés acá cuando termines.
         </p>
@@ -221,7 +256,12 @@ function Checkout({
         </p>
 
         <div className="mt-auto flex flex-col gap-2.5 pt-4">
-          <Button size="lg" fullWidth disabled={enviando} onClick={onSuscribirme}>
+          <Button
+            size="lg"
+            fullWidth
+            disabled={enviando || (pideEmail && !emailValido)}
+            onClick={() => onSuscribirme(pideEmail ? email.trim() : null)}
+          >
             {enviando ? "Abriendo Mercado Pago…" : "Suscribirme"}
           </Button>
           <p className="text-center text-[11.5px] text-muted">Cancelás desde acá, sin llamar a nadie.</p>

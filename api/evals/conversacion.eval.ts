@@ -15,6 +15,7 @@ import type { ConfigService } from '@nestjs/config';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OpenRouterClient } from '../src/agents/openrouter.client.js';
 import { CalendarService, type EventoListado } from '../src/calendar/calendar.service.js';
+import { prismaConEventosEnMemoria } from '../src/calendar/eventos-en-memoria.fake.js';
 import { OPENROUTER_BASE_URL_POR_DEFECTO, type Env } from '../src/config/env.js';
 import { LIMITE_RECURSION, construirGrafo } from '../src/conversation/graph/graph.factory.js';
 import { llmProvider } from '../src/conversation/llm.provider.js';
@@ -27,7 +28,7 @@ import { guardarReporte, normalizar, type Resultado } from './reporte.js';
 const AHORA = new Date('2026-09-14T08:00:00-03:00');
 const MARTES = '2026-09-15';
 
-const USUARIO = { id: 'eval-owner', googleId: 'dev:eval@trato.local', googleRefreshToken: null, email: 'eval@trato.local' };
+const USUARIO = { id: 'eval-owner', calendario: 'local', googleRefreshToken: null, email: 'eval@trato.local' };
 
 const AGENTE = {
   id: 'eval-agent',
@@ -104,6 +105,8 @@ function prismaEnMemoria() {
       updateMany: async () => ({ count: 0 }),
     },
     message: { create: async () => ({}), count: async () => ++mensajes },
+    // La agenda del titular: la local, en memoria.
+    evento: (prismaConEventosEnMemoria().prisma as unknown as { evento: unknown }).evento,
   };
   return { prisma: prisma as unknown as PrismaService, turnos };
 }

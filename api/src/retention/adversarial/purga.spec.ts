@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CheckpointerService } from '../../conversation/checkpointer.provider.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
+import type { WhatsappService } from '../../whatsapp/whatsapp.service.js';
 import { RetentionService } from '../retention.service.js';
 
-function servicioConDatos() {
+function servicioConDatos(altasPendientes: { id: string }[] = []) {
   const conversacionesVencidas = [{ id: 'conv-1' }, { id: 'conv-2' }];
   let yaBorrados = false;
 
@@ -19,12 +20,18 @@ function servicioConDatos() {
         return Promise.resolve({ count });
       }),
     },
+    user: {
+      findMany: vi.fn().mockResolvedValue(altasPendientes),
+      deleteMany: vi.fn().mockResolvedValue({ count: altasPendientes.length }),
+    },
   } as unknown as PrismaService;
 
   const deleteThread = vi.fn().mockResolvedValue(undefined);
   const checkpointer = { saver: { deleteThread } } as unknown as CheckpointerService;
 
-  return { servicio: new RetentionService(prisma, checkpointer), prisma, deleteThread };
+  const whatsapp = { descartar: vi.fn().mockResolvedValue(undefined) } as unknown as WhatsappService;
+
+  return { servicio: new RetentionService(prisma, checkpointer, whatsapp), prisma, deleteThread, whatsapp };
 }
 
 describe('purga de retención — adversarial (matriz E)', () => {
@@ -43,6 +50,16 @@ describe('purga de retención — adversarial (matriz E)', () => {
     expect(deleteThread).toHaveBeenCalledTimes(2);
     expect(prisma.message.deleteMany).toHaveBeenCalledTimes(1);
     expect(prisma.conversation.findMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('descarta las altas por WhatsApp sin terminar: cierra su socket y borra sólo usuarios sin identidad', async () => {
+    const { servicio, prisma, whatsapp } = servicioConDatos([{ id: 'alta-1' }]);
+
+    await servicio.purgar();
+
+    expect(whatsapp.descartar).toHaveBeenCalledWith('alta-1');
+    const where = vi.mocked(prisma.user.deleteMany).mock.calls[0][0]!.where!;
+    expect(where).toMatchObject({ googleId: null, phoneNumber: null, id: { in: ['alta-1'] } });
   });
 
   it('un fallo al borrar un checkpoint no aborta la purga del resto', async () => {

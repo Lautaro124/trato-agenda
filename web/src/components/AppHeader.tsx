@@ -2,11 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
-import { iniciales, useSession, type Usuario } from "@/lib/session";
+import { identificador, iniciales, useSession, type Usuario } from "@/lib/session";
 
 type Tab = "inicio" | "vinculacion" | "calendario" | "chat" | "plan" | "cuenta";
 
@@ -22,6 +22,27 @@ const TAB_CLASSES = {
 export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
   const { signOut } = useSession();
   const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(null);
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuAbierto) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuAbierto(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuAbierto(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuAbierto]);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -48,7 +69,9 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
 
   return (
     <header className="flex h-[60px] flex-none items-center gap-4 border-b border-line bg-card px-5">
-      <Wordmark size={23} />
+      <Link href="/inicio">
+        <Wordmark size={23} />
+      </Link>
 
       <nav className="ml-4 hidden gap-0.5 md:flex">
         <Link
@@ -64,22 +87,10 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
           Calendario
         </Link>
         <Link
-          href="/vincular"
-          className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "vinculacion" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
-        >
-          Vinculación
-        </Link>
-        <Link
           href="/plan"
           className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "plan" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
         >
           Plan
-        </Link>
-        <Link
-          href="/cuenta"
-          className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "cuenta" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
-        >
-          Cuenta
         </Link>
       </nav>
 
@@ -90,26 +101,65 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
           </Badge>
         )}
 
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          title="Salir"
-          className="cursor-pointer"
-        >
-          {user.avatarUrl ? (
-            <Image
-              src={user.avatarUrl}
-              alt=""
-              width={32}
-              height={32}
-              className="size-8 rounded-full object-cover"
-            />
-          ) : (
-            <span className="grid size-8 place-items-center rounded-full bg-primary-subtle text-[13px] font-bold text-primary-hover">
-              {iniciales(user)}
-            </span>
+        <div ref={menuRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuAbierto((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={menuAbierto}
+            className="flex cursor-pointer items-center gap-2"
+          >
+            {user.avatarUrl ? (
+              <Image
+                src={user.avatarUrl}
+                alt=""
+                width={32}
+                height={32}
+                className="size-8 rounded-full object-cover"
+              />
+            ) : (
+              <span className="grid size-8 place-items-center rounded-full bg-primary-subtle text-[13px] font-bold text-primary-hover">
+                {iniciales(user)}
+              </span>
+            )}
+            <span className="hidden text-sm text-ink-secondary sm:inline-block">{identificador(user)}</span>
+          </button>
+
+          {menuAbierto && (
+            <div
+              role="menu"
+              className="absolute right-0 top-full z-20 mt-2 w-44 overflow-hidden rounded-md border border-line bg-card shadow-md"
+            >
+              <Link
+                href="/vincular"
+                role="menuitem"
+                onClick={() => setMenuAbierto(false)}
+                className={`block px-4 py-2 text-[13.5px] ${active === "vinculacion" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
+              >
+                Vinculación
+              </Link>
+              <Link
+                href="/cuenta"
+                role="menuitem"
+                onClick={() => setMenuAbierto(false)}
+                className={`block px-4 py-2 text-[13.5px] ${active === "cuenta" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
+              >
+                Cuenta
+              </Link>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuAbierto(false);
+                  void signOut();
+                }}
+                className="block w-full border-t border-line px-4 py-2 text-left text-[13.5px] text-danger hover:bg-sunken"
+              >
+                Cerrar sesión
+              </button>
+            </div>
           )}
-        </button>
+        </div>
       </div>
     </header>
   );

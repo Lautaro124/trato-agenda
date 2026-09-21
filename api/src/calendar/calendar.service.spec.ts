@@ -5,6 +5,7 @@ import { encryptToken } from '../auth/token-crypto.js';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import { prismaConEventosEnMemoria } from './eventos-en-memoria.fake.js';
 
 const { freebusyQuery, eventsInsert, eventsDelete, eventsPatch, eventsList, oauth2SetCredentials } =
   vi.hoisted(() => ({
@@ -45,19 +46,28 @@ function crearConfig(nodeEnv: Env['NODE_ENV'] = 'development'): ConfigService<En
   return { get: (clave: string) => valores[clave] } as unknown as ConfigService<Env, true>;
 }
 
-function usuarioConToken(): Pick<User, 'id' | 'googleId' | 'googleRefreshToken'> {
-  return { id: 'user-1', googleId: '1234567890', googleRefreshToken: encryptToken('1//refresh-de-prueba', CLAVE) };
+type UsuarioDePrueba = Pick<User, 'id' | 'calendario' | 'googleRefreshToken'>;
+
+function usuarioConToken(): UsuarioDePrueba {
+  return { id: 'user-1', calendario: 'google', googleRefreshToken: encryptToken('1//refresh-de-prueba', CLAVE) };
 }
 
-/** Usuario del login de desarrollo: sin token, con el prefijo "dev:". */
-const USUARIO_DEV: Pick<User, 'id' | 'googleId' | 'googleRefreshToken'> = {
-  id: 'user-dev',
-  googleId: 'dev:dev@trato.local',
+/** Cuenta sin Google (alta por WhatsApp o login de desarrollo): agenda en la base. */
+const USUARIO_LOCAL: UsuarioDePrueba = {
+  id: 'user-local',
+  calendario: 'local',
   googleRefreshToken: null,
 };
 
-function crearPrisma(): PrismaService {
-  return { turno: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) } } as unknown as PrismaService;
+/** Prisma con `turno.updateMany` espiado y `evento` en memoria. */
+function crearPrisma(turnos: unknown[] = []): PrismaService {
+  const { prisma } = prismaConEventosEnMemoria();
+  return Object.assign(prisma, {
+    turno: {
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      findMany: vi.fn().mockResolvedValue(turnos),
+    },
+  }) as unknown as PrismaService;
 }
 
 describe('CalendarService', () => {
@@ -73,31 +83,31 @@ describe('CalendarService', () => {
     const service = new CalendarService(crearConfig(), crearPrisma());
 
     await expect(
-      service.freeBusy({ id: 'user-1', googleId: '1234567890', googleRefreshToken: null }, new Date(), new Date()),
+      service.freeBusy({ id: 'user-1', calendario: 'google', googleRefreshToken: null }, new Date(), new Date()),
     ).rejects.toThrow(CalendarUnavailableError);
     expect(freebusyQuery).not.toHaveBeenCalled();
   });
 
-  describe('usuario del login de desarrollo', () => {
+  describe('usuario con agenda local', () => {
     const inicio = new Date('2026-09-14T10:00:00-03:00');
     const fin = new Date('2026-09-14T10:30:00-03:00');
     const dia: [Date, Date] = [new Date('2026-09-14T00:00:00-03:00'), new Date('2026-09-15T00:00:00-03:00')];
 
-    it('crea, lista, reprograma y cancela en el calendario falso sin tocar Google', async () => {
+    it('crea, lista, reprograma y cancela en la base sin tocar Google', async () => {
       const service = new CalendarService(crearConfig(), crearPrisma());
 
-      const id = await service.crearEvento(USUARIO_DEV, { resumen: 'Control - Caro', inicio, fin });
-      expect(await service.freeBusy(USUARIO_DEV, ...dia)).toEqual([{ inicio, fin }]);
+      const id = await service.crearEvento(USUARIO_LOCAL, { resumen: 'Control - Caro', inicio, fin });
+      expect(await service.freeBusy(USUARIO_LOCAL, ...dia)).toEqual([{ inicio, fin }]);
 
       const nuevoInicio = new Date('2026-09-14T11:00:00-03:00');
       const nuevoFin = new Date('2026-09-14T11:30:00-03:00');
-      await service.reprogramarEvento(USUARIO_DEV, id, { inicio: nuevoInicio, fin: nuevoFin });
-      expect(await service.listarProximos(USUARIO_DEV, ...dia)).toEqual([
+      await service.reprogramarEvento(USUARIO_LOCAL, id, { inicio: nuevoInicio, fin: nuevoFin });
+      expect(await service.listarProximos(USUARIO_LOCAL, ...dia)).toEqual([
         { id, resumen: 'Control - Caro', inicio: nuevoInicio, fin: nuevoFin },
       ]);
 
-      await service.cancelarEvento(USUARIO_DEV, id);
-      expect(await service.listarProximos(USUARIO_DEV, ...dia)).toEqual([]);
+      await service.cancelarEvento(USUARIO_LOCAL, id);
+      expect(await service.listarProximos(USUARIO_LOCAL, ...dia)).toEqual([]);
 
       expect(freebusyQuery).not.toHaveBeenCalled();
       expect(eventsInsert).not.toHaveBeenCalled();
@@ -106,26 +116,36 @@ describe('CalendarService', () => {
       expect(eventsList).not.toHaveBeenCalled();
     });
 
-    it('eliminarEventoDesdeAgenda también marca cancelado el Turno del usuario dev', async () => {
+    it('eliminarEventoDesdeAgenda también marca cancelado el Turno del usuario local', async () => {
       const prisma = crearPrisma();
       const service = new CalendarService(crearConfig(), prisma);
-      const id = await service.crearEvento(USUARIO_DEV, { resumen: 'Control', inicio, fin });
+      const id = await service.crearEvento(USUARIO_LOCAL, { resumen: 'Control', inicio, fin });
 
-      await service.eliminarEventoDesdeAgenda(USUARIO_DEV, USUARIO_DEV.id, id);
+      await service.eliminarEventoDesdeAgenda(USUARIO_LOCAL, USUARIO_LOCAL.id, id);
 
       expect(prisma.turno.updateMany).toHaveBeenCalledWith({
-        where: { googleEventId: id, conversation: { userId: 'user-dev' }, estado: 'confirmado' },
+        where: { googleEventId: id, conversation: { userId: 'user-local' }, estado: 'confirmado' },
         data: { estado: 'cancelado' },
       });
     });
 
-    it('en producción un googleId "dev:" no abre el calendario falso: va a Google y falla sin token', async () => {
+    it('una cuenta de Google sin token no cae en la agenda local: falla', async () => {
       const service = new CalendarService(crearConfig('production'), crearPrisma());
+      const sinToken: UsuarioDePrueba = { ...USUARIO_LOCAL, calendario: 'google' };
 
-      await expect(service.freeBusy(USUARIO_DEV, ...dia)).rejects.toThrow(CalendarUnavailableError);
-      await expect(service.crearEvento(USUARIO_DEV, { resumen: 'x', inicio, fin })).rejects.toThrow(
+      await expect(service.freeBusy(sinToken, ...dia)).rejects.toThrow(CalendarUnavailableError);
+      await expect(service.crearEvento(sinToken, { resumen: 'x', inicio, fin })).rejects.toThrow(
         CalendarUnavailableError,
       );
+    });
+
+    it('funciona igual en producción', async () => {
+      const service = new CalendarService(crearConfig('production'), crearPrisma());
+
+      const id = await service.crearEvento(USUARIO_LOCAL, { resumen: 'Control', inicio, fin });
+
+      expect(await service.listarProximos(USUARIO_LOCAL, ...dia)).toEqual([{ id, resumen: 'Control', inicio, fin }]);
+      expect(eventsInsert).not.toHaveBeenCalled();
     });
   });
 
@@ -274,5 +294,74 @@ describe('CalendarService', () => {
         fin: new Date('2026-09-01T10:30:00Z'),
       },
     ]);
+  });
+
+  describe('migrarLocalAGoogle', () => {
+    const ahora = new Date('2026-09-14T12:00:00-03:00');
+    const h = (hhmm: string) => new Date(`2026-09-14T${hhmm}:00-03:00`);
+
+    function conToken(): UsuarioDePrueba {
+      return { ...usuarioConToken(), id: USUARIO_LOCAL.id, calendario: 'local' };
+    }
+
+    it('copia los eventos futuros a Google, re-apunta los Turnos y vacía la agenda local', async () => {
+      const prisma = crearPrisma();
+      const service = new CalendarService(crearConfig(), prisma);
+      await service.crearEvento(USUARIO_LOCAL, { resumen: 'Pasado', inicio: h('09:00'), fin: h('10:00') });
+      const futuro = await service.crearEvento(USUARIO_LOCAL, { resumen: 'Control', inicio: h('15:00'), fin: h('15:30') });
+      eventsInsert.mockResolvedValue({ data: { id: 'google-1' } });
+
+      const resultado = await service.migrarLocalAGoogle(conToken(), ahora);
+
+      expect(resultado).toEqual({ migrados: 1, pendientes: 0 });
+      expect(eventsInsert).toHaveBeenCalledTimes(1);
+      expect(eventsInsert.mock.calls[0][0].requestBody.summary).toBe('Control');
+      expect(prisma.turno.updateMany).toHaveBeenCalledWith({
+        where: { googleEventId: futuro, conversation: { userId: 'user-local' } },
+        data: { googleEventId: 'google-1' },
+      });
+      expect(await service.listarProximos(USUARIO_LOCAL, h('00:00'), h('23:59'))).toEqual([]);
+    });
+
+    it('si Google falla a mitad, lo copiado queda copiado y el resto sigue local', async () => {
+      const prisma = crearPrisma();
+      const service = new CalendarService(crearConfig(), prisma);
+      await service.crearEvento(USUARIO_LOCAL, { resumen: 'A', inicio: h('14:00'), fin: h('14:30') });
+      const b = await service.crearEvento(USUARIO_LOCAL, { resumen: 'B', inicio: h('16:00'), fin: h('16:30') });
+      eventsInsert.mockResolvedValueOnce({ data: { id: 'google-a' } }).mockRejectedValueOnce(new Error('503'));
+
+      const resultado = await service.migrarLocalAGoogle(conToken(), ahora);
+
+      expect(resultado).toEqual({ migrados: 1, pendientes: 1 });
+      const quedan = await service.listarProximos(USUARIO_LOCAL, h('00:00'), h('23:59'));
+      expect(quedan.map((evento) => evento.id)).toEqual([b]);
+    });
+  });
+
+  describe('turnos agendados por el agente', () => {
+    const TURNOS = [
+      { id: 't1', googleEventId: 'evento-a', nombreCliente: 'Juana', inicio: new Date(), fin: new Date() },
+      { id: 't2', googleEventId: 'evento-b', nombreCliente: null, inicio: new Date(), fin: new Date() },
+    ];
+
+    it('listarTurnos devuelve las filas con el nombre del cliente, ordenadas por inicio', async () => {
+      const prisma = crearPrisma(TURNOS);
+      const service = new CalendarService(crearConfig(), prisma);
+
+      const turnos = await service.listarTurnos('user-1', new Date(), new Date());
+
+      expect(turnos).toEqual(TURNOS);
+      expect(prisma.turno.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { inicio: 'asc' } }),
+      );
+    });
+
+    it('listarTurnosAgendados sigue devolviendo sólo el set de ids de evento', async () => {
+      const service = new CalendarService(crearConfig(), crearPrisma(TURNOS));
+
+      const ids = await service.listarTurnosAgendados('user-1', new Date(), new Date());
+
+      expect(ids).toEqual(new Set(['evento-a', 'evento-b']));
+    });
   });
 });

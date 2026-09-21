@@ -47,7 +47,13 @@ export const TURNO = {
 };
 
 export function crearPrisma(
-  opciones: { turnoActivo?: typeof TURNO | null; agent?: Partial<typeof AGENT>; conversation?: Partial<typeof CONVERSATION> } = {},
+  opciones: {
+    turnoActivo?: typeof TURNO | null;
+    agent?: Partial<typeof AGENT>;
+    conversation?: Partial<typeof CONVERSATION>;
+    /** Turnos del dueño en la ventana: lo que cargar_contexto lee de la base. */
+    turnos?: { inicio: Date; fin: Date; nombreCliente: string | null }[];
+  } = {},
 ) {
   const agent = { ...AGENT, ...opciones.agent };
   const conversation = { ...CONVERSATION, ...opciones.conversation };
@@ -59,7 +65,7 @@ export function crearPrisma(
     },
     turno: {
       findFirst: vi.fn().mockResolvedValue(opciones.turnoActivo ?? null),
-      findMany: vi.fn().mockResolvedValue([]),
+      findMany: vi.fn().mockResolvedValue(opciones.turnos ?? []),
       create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'turno-nuevo', ...data })),
       update: vi.fn().mockImplementation(({ data }) => Promise.resolve({ ...TURNO, ...data })),
     },
@@ -74,6 +80,7 @@ export function crearCalendar(ocupados: PeriodoOcupado[] = []) {
     cancelarEvento: vi.fn().mockResolvedValue(undefined),
     reprogramarEvento: vi.fn().mockResolvedValue(undefined),
     listarProximos: vi.fn().mockResolvedValue([]),
+    listarTurnos: vi.fn().mockResolvedValue([]),
   } as unknown as CalendarService;
 }
 

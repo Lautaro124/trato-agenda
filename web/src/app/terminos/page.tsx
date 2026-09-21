@@ -28,19 +28,20 @@ export default function TerminosPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Términos de servicio
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 12 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 17 de septiembre de 2026</p>
 
         <Seccion titulo="El servicio">
           <p>
-            Trato Agenda te da un asistente de WhatsApp que coordina turnos con tus clientes usando tu
-            Google Calendar: consulta tu disponibilidad y crea, mueve o cancela eventos según lo que
-            acuerde con la persona que te escribe.
+            Trato Agenda te da un asistente de WhatsApp que coordina turnos con tus clientes: consulta
+            tu disponibilidad y crea, mueve o cancela eventos según lo que acuerde con la persona que te
+            escribe. Tu agenda puede vivir en Trato Agenda (si creaste la cuenta sólo con WhatsApp) o en
+            tu Google Calendar, si lo conectás.
           </p>
         </Seccion>
 
         <Seccion titulo="Prueba gratuita y suscripción">
           <p>
-            Al iniciar sesión con Google arranca automáticamente un período de prueba de 30 días con
+            Al crear tu cuenta, con WhatsApp o con Google, arranca automáticamente un período de prueba de 30 días con
             acceso completo, sin pedirte tarjeta. Pasado ese plazo, para que el asistente siga respondiendo
             en WhatsApp necesitás activar la suscripción paga; el resto de la aplicación (tu agenda, el
             calendario, el historial) sigue disponible igual.
@@ -68,9 +69,17 @@ export default function TerminosPage() {
           </p>
         </Seccion>
 
+        <Seccion titulo="Tu cuenta de WhatsApp">
+          <p>
+            Si creás la cuenta con WhatsApp, el número que vinculás es tu cuenta: quien tenga ese
+            WhatsApp puede entrar a tu panel, con el QR o con el código que mandamos a su propio chat.
+            Cuidá el acceso a tu teléfono como cuidás el de tu WhatsApp.
+          </p>
+        </Seccion>
+
         <Seccion titulo="Tu cuenta de Google">
           <p>
-            Al conectar tu cuenta nos das dos permisos sobre tu calendario, y sólo esos:{" "}
+            Conectar Google es opcional. Si lo hacés, nos das dos permisos sobre tu calendario, y sólo esos:{" "}
             <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
               calendar.events
             </code>{" "}
@@ -107,7 +116,8 @@ export default function TerminosPage() {
           </p>
           <p>
             Podés borrar tu cuenta y todos tus datos vos mismo, desde <strong className="font-semibold text-ink">Cuenta → Eliminar mi cuenta</strong>{" "}
-            en la aplicación: eso revoca el acceso a tu Google Calendar y borra todo, sin pasar por
+            en la aplicación: eso desvincula tu WhatsApp, revoca el acceso a tu Google Calendar si lo
+            habías conectado y borra todo, sin pasar por
             nosotros. Si preferís que lo hagamos, escribinos a{" "}
             <a href={`mailto:${EMAIL_SOPORTE}`} className="text-link">
               {EMAIL_SOPORTE}

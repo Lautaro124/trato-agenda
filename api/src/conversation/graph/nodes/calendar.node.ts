@@ -239,6 +239,25 @@ export function crearNodoCalendar(deps: DepsCalendar) {
         };
       }
 
+      case 'listar_turnos': {
+        const desde = parsearFecha(args.desde, 'desde');
+        const hasta = parsearFecha(args.hasta, 'hasta');
+        const turnos = await deps.calendarService.listarTurnos(agent.userId, desde, hasta);
+        if (turnos.length === 0) {
+          return {
+            texto: `No hay turnos agendados entre ${formatearFecha(desde)} y ${formatearFecha(hasta)}.`,
+          };
+        }
+        return {
+          texto: turnos
+            .map(
+              (turno) =>
+                `id=${turno.googleEventId} · ${formatearFecha(turno.inicio)}${turno.nombreCliente ? ` · ${turno.nombreCliente}` : ''}`,
+            )
+            .join('\n'),
+        };
+      }
+
       case 'listar_eventos_calendario': {
         const desde = parsearFecha(args.desde, 'desde');
         const hasta = parsearFecha(args.hasta, 'hasta');

@@ -1,9 +1,19 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Profile, Strategy, VerifyCallback } from 'passport-google-oauth20';
+import type { Request } from 'express';
 import type { Env } from '../config/env.js';
 import { AuthService } from './auth.service.js';
+import { nombreCookie } from './cookie.js';
+import { COOKIE_CONECTAR } from './cookies-de-paso.js';
+
+/**
+ * Qué pasó en el callback cuando se estaba conectando Google a una cuenta
+ * existente (`undefined` si fue un login común). Viaja como `info` de Passport
+ * y GoogleAuthGuard lo deja en la request.
+ */
+export type ResultadoConexionGoogle = 'conectado' | 'google_en_uso';
 
 /**
  * Los scopes son el mínimo que la app usa de verdad, y eso es deliberado: la
@@ -31,7 +41,7 @@ export const GOOGLE_SCOPES = [
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor(
-    config: ConfigService<Env, true>,
+    private readonly config: ConfigService<Env, true>,
     private readonly authService: AuthService,
   ) {
     super({
@@ -39,10 +49,12 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       clientSecret: config.get('GOOGLE_CLIENT_SECRET', { infer: true }),
       callbackURL: config.get('GOOGLE_CALLBACK_URL', { infer: true }),
       scope: GOOGLE_SCOPES,
+      passReqToCallback: true,
     });
   }
 
   async validate(
+    req: Request,
     _accessToken: string,
     refreshToken: string | undefined,
     profile: Profile,
@@ -54,15 +66,37 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       return;
     }
 
+    const perfil = {
+      googleId: profile.id,
+      email,
+      name: profile.displayName ?? null,
+      avatarUrl: profile.photos?.[0]?.value ?? null,
+      refreshToken,
+    };
+
     try {
-      const user = await this.authService.validateGoogleUser({
-        googleId: profile.id,
-        email,
-        name: profile.displayName ?? null,
-        avatarUrl: profile.photos?.[0]?.value ?? null,
-        refreshToken,
-      });
-      done(null, user);
+      // Con la cookie de "conectar" no es un login: es una cuenta existente
+      // (típicamente de WhatsApp) sumando su Google Calendar. Tiene que
+      // coincidir con la sesión viva: si en el medio se entró con otra cuenta
+      // en este navegador, el Google no se pega a la anterior.
+      const cookies = req.cookies as Record<string, string> | undefined;
+      const [userId, sesion] = await Promise.all([
+        this.authService.verificarTokenDePaso(cookies?.[COOKIE_CONECTAR], 'conectar'),
+        this.authService.verificarTokenDePaso(cookies?.[nombreCookie(this.config)], undefined),
+      ]);
+      if (userId && userId === sesion) {
+        try {
+          const user = await this.authService.conectarGoogle(userId, perfil);
+          done(null, user, { conexion: 'conectado' satisfies ResultadoConexionGoogle });
+        } catch (error) {
+          if (!(error instanceof ConflictException)) throw error;
+          const user = await this.authService.findById(userId);
+          done(null, user ?? false, { conexion: 'google_en_uso' satisfies ResultadoConexionGoogle });
+        }
+        return;
+      }
+
+      done(null, await this.authService.validateGoogleUser(perfil));
     } catch (error) {
       done(error as Error, false);
     }

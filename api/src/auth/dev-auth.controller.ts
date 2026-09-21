@@ -6,17 +6,22 @@ import {
   HttpStatus,
   NotFoundException,
   Post,
+  Query,
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import type { Response } from 'express';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { AgentsService } from '../agents/agents.service.js';
 import type { Env } from '../config/env.js';
 import { AuthService } from './auth.service.js';
-import { nombreCookie, opcionesDeCookie, SIETE_DIAS_MS } from './cookie.js';
+import type { DestinoTrasLogin } from './auth.types.js';
+import { CodigoAccesoService } from './codigo-acceso.service.js';
+import { normalizarTelefono } from './telefono.js';
+import { destinoTrasLogin, ponerCookieDeSesion } from './sesion.js';
 import { EMAIL_DEV_POR_DEFECTO } from './usuario-dev.js';
 
 export class DevLoginDto {
@@ -30,6 +35,12 @@ export class DevLoginDto {
   @IsEmail()
   @MaxLength(120)
   email?: string;
+
+  /** Con teléfono, el usuario imita una cuenta creada sólo con WhatsApp. */
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? normalizarTelefono(value) : value))
+  @Matches(/^\d{8,15}$/)
+  telefono?: string;
 }
 
 /**
@@ -57,6 +68,7 @@ export class DevAuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly agentsService: AgentsService,
+    private readonly codigos: CodigoAccesoService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -75,7 +87,7 @@ export class DevAuthController {
   async login(
     @Body() dto: DevLoginDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ destino: '/inicio' | '/contanos' }> {
+  ): Promise<{ destino: DestinoTrasLogin }> {
     if (!loginDevHabilitado(this.config)) {
       throw new NotFoundException();
     }
@@ -83,11 +95,23 @@ export class DevAuthController {
       throw new UnauthorizedException('Contraseña incorrecta.');
     }
 
-    const user = await this.authService.upsertUsuarioDev(dto.email?.trim().toLowerCase() || EMAIL_DEV_POR_DEFECTO);
-    const token = await this.authService.issueSessionToken(user);
-    res.cookie(nombreCookie(this.config), token, { ...opcionesDeCookie(this.config), maxAge: SIETE_DIAS_MS });
+    const user = await this.authService.upsertUsuarioDev(
+      dto.email?.trim().toLowerCase() || EMAIL_DEV_POR_DEFECTO,
+      dto.telefono,
+    );
+    ponerCookieDeSesion(res, this.config, await this.authService.issueSessionToken(user));
+    return { destino: await destinoTrasLogin(this.agentsService, user) };
+  }
 
-    const tieneAgente = (await this.agentsService.findByUserId(user.id)) !== null;
-    return { destino: tieneAgente ? '/inicio' : '/contanos' };
+  /**
+   * Un usuario dev no tiene WhatsApp por donde recibir el código de acceso:
+   * los E2E lo leen de acá. Mismos candados que el login.
+   */
+  @Get('ultimo-codigo')
+  ultimoCodigo(@Query('telefono') telefono = ''): { codigo: string | null } {
+    if (!loginDevHabilitado(this.config)) {
+      throw new NotFoundException();
+    }
+    return { codigo: this.codigos.ultimoCodigoDev(normalizarTelefono(telefono)) };
   }
 }

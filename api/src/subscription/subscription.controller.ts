@@ -18,7 +18,7 @@ import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import { MercadoPagoError } from './mercadopago.client.js';
 import { SubscriptionService } from './subscription.service.js';
-import { MercadoPagoWebhookDto, type SuscripcionPublica } from './subscription.types.js';
+import { CheckoutDto, MercadoPagoWebhookDto, type SuscripcionPublica } from './subscription.types.js';
 import { firmaDeWebhookValida } from './webhook-signature.js';
 
 /** Tipos de notificación de Mercado Pago que nos mueven el estado. */
@@ -41,9 +41,9 @@ export class SubscriptionController {
 
   @Post('checkout')
   @UseGuards(JwtAuthGuard)
-  async checkout(@CurrentUser() user: User): Promise<{ initPoint: string }> {
+  async checkout(@CurrentUser() user: User, @Body() dto: CheckoutDto): Promise<{ initPoint: string }> {
     try {
-      return await this.subscriptionService.crearCheckout(user);
+      return await this.subscriptionService.crearCheckout(user, dto.email?.trim().toLowerCase());
     } catch (error) {
       if (error instanceof MercadoPagoError) {
         throw new BadGatewayException(error.message);

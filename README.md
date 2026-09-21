@@ -1,13 +1,14 @@
 # Trato Agenda
 
-Bot de WhatsApp que gestiona reuniones de Google Calendar por chat.
+Bot de WhatsApp que gestiona turnos por chat, sobre una agenda propia o sobre
+Google Calendar. La cuenta se crea con Google o sólo escaneando el QR de WhatsApp.
 
 Monorepo:
 
 | Carpeta | Qué es |
 | ------- | ------ |
-| `api/` | Backend NestJS 12 + Prisma 7 + Postgres 16. Login real con Google OAuth2, sesión en cookie `httpOnly`. Ver [`api/README.md`](api/README.md). |
-| `web/` | Frontend Next.js 16 (App Router) + React 19 + Tailwind v4. Onboarding: login con Google y vinculación de WhatsApp por QR. |
+| `api/` | Backend NestJS 12 + Prisma 7 + Postgres 16. Login real con Google OAuth2 o sólo con WhatsApp (QR + contraseña para el alta, número + contraseña para volver, código al chat propio para recuperarla), sesión en cookie `httpOnly`. Ver [`api/README.md`](api/README.md). |
+| `web/` | Frontend Next.js 16 (App Router) + React 19 + Tailwind v4. Onboarding: alta con WhatsApp o con Google, y vinculación de WhatsApp por QR. |
 | `e2e/` | Tests end to end con Playwright contra el stack de docker compose, con un OpenRouter falso. Ver [Tests E2E](#tests-e2e-playwright). |
 | `docker-compose.yml` | Levanta `db` (:5432), `api` (:4000) y `web` (:3000). |
 | `docker-compose.e2e.yml` | Override para los E2E: suma el OpenRouter falso (:4010) y prende el login de desarrollo. |
@@ -25,10 +26,13 @@ docker compose exec api npx prisma migrate dev --name init
 Con `DEV_LOGIN_PASSWORD` en `api/.env`, `/entrar` muestra además un formulario
 "Entrar con contraseña". Cada email es un usuario distinto (por defecto
 `dev@trato.local`), así que sirve para probar el alta desde cero todas las veces
-que haga falta. Esos usuarios no tienen Google Calendar: la API les da un
-**calendario falso en memoria**, así que el chat de prueba del Home y
-`/calendario` agendan, mueven y cancelan de verdad sin tocar Google (se vacía al
-reiniciar la API).
+que haga falta. Con un teléfono en vez de email, el usuario imita una cuenta
+creada sólo con WhatsApp (sin socket de verdad: entra primero a elegir su
+contraseña, y el código para recuperarla se lee de
+`GET /auth/dev/ultimo-codigo?telefono=`). Esos usuarios no tienen Google
+Calendar: usan la **agenda local** en Postgres, la misma de las cuentas de
+WhatsApp, así que el chat de prueba del Home y `/calendario` agendan, mueven y
+cancelan de verdad sin tocar Google.
 
 Hay tres candados para que esto nunca llegue a producción: la API no registra la
 ruta con `NODE_ENV=production`, el handler contesta 404 si falta la contraseña, y
@@ -259,7 +263,11 @@ con reiniciar.
 - **La API no escala a más de una réplica.** `WhatsappService.onModuleInit` resume
   todas las sesiones vinculadas al arrancar; con dos réplicas habría dos sockets
   de Baileys peleándose la misma sesión. Por lo mismo, `sleepApplication` está en
-  `false`: el socket tiene que seguir vivo entre mensajes.
+  `false`: el socket tiene que seguir vivo entre mensajes. Los límites de abuso
+  del alta y del login con WhatsApp (`api/src/auth/limitador.ts`) también viven
+  en memoria por esta misma razón, y leen la IP real porque `main.ts` pone
+  `trust proxy` en 1 (el proxy de Railway): si se agrega otro proxy adelante,
+  hay que subir ese número.
 - **La cookie de sesión depende de que front y API compartan sitio.**
   `opcionesDeCookie` (`api/src/auth/cookie.ts`) compara `FRONTEND_URL` con
   `GOOGLE_CALLBACK_URL` y usa `sameSite: 'lax'` sólo si una es el mismo host o un

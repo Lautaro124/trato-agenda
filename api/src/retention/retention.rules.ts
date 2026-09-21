@@ -19,6 +19,17 @@ export const DIAS_RETENCION_MENSAJES = 90;
 /** Más adelante se le borran también el nombre del cliente y el resumen. */
 export const DIAS_RETENCION_DATOS_CLIENTE = 365;
 
+/**
+ * Alta por WhatsApp que nunca escaneó el QR: un usuario sin Google ni
+ * teléfono. No tiene datos de nadie, pero sí un socket y una fila; a la hora
+ * se descarta (la cookie del alta vence a los 15 minutos).
+ */
+export const HORAS_ALTA_PENDIENTE = 1;
+
+export function fechaLimiteHoras(horas: number, ahora: Date = new Date()): Date {
+  return new Date(ahora.getTime() - horas * 60 * 60 * 1000);
+}
+
 export function fechaLimite(dias: number, ahora: Date = new Date()): Date {
   return new Date(ahora.getTime() - dias * 24 * 60 * 60 * 1000);
 }

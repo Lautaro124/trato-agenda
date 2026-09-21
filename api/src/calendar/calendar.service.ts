@@ -1,10 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { esGoogleIdDev } from '../auth/usuario-dev.js';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CalendarioDev } from './calendario-dev.js';
+import { CalendarioLocal } from './calendario-local.js';
 import {
   CalendarUnavailableError,
   GoogleReconsentimientoError,
@@ -18,9 +17,23 @@ const CALENDAR_ID = 'primary';
 export type PeriodoOcupado = { inicio: Date; fin: Date };
 export type DatosEvento = { resumen: string; inicio: Date; fin: Date };
 export type EventoListado = { id: string; resumen: string; inicio: Date | null; fin: Date | null };
+/** Un turno agendado por el agente, con lo que hace falta para mostrarlo y para editarlo en el calendario. */
+export type TurnoAgendado = {
+  id: string;
+  googleEventId: string;
+  nombreCliente: string | null;
+  inicio: Date;
+  fin: Date;
+};
 
 /** Lo que hace falta del usuario para decidir a qué calendario ir y autenticarse en Google. */
-export type UsuarioCalendario = Pick<User, 'id' | 'googleId' | 'googleRefreshToken'>;
+export type UsuarioCalendario = Pick<User, 'id' | 'calendario' | 'googleRefreshToken'>;
+
+/** Valores de `User.calendario`. */
+export const CALENDARIO_GOOGLE = 'google';
+export const CALENDARIO_LOCAL = 'local';
+
+export type ResultadoMigracion = { migrados: number; pendientes: number };
 
 /**
  * Distingue "Google está caído" de "este usuario tiene que volver a consentir".
@@ -46,31 +59,34 @@ function traducirError(error: unknown): CalendarUnavailableError {
 }
 
 /**
- * Operaciones reales sobre el Google Calendar ('primary') de un usuario,
- * usando su refresh token guardado. Cualquier error de la API de Google
- * (token revocado, red, etc.) se traduce a CalendarUnavailableError para que
- * quien llame (conversation.service.ts) no tenga que conocer la forma de
- * los errores de `googleapis`.
+ * La agenda de un usuario: su Google Calendar ('primary') con el refresh token
+ * guardado, o la agenda local en la base (`CalendarioLocal`) para las cuentas
+ * con `calendario = "local"` — las creadas sólo con WhatsApp y las del login
+ * de desarrollo. Los dos lados tienen el mismo contrato, así que el grafo y
+ * los controllers no saben cuál están usando.
  *
- * Los usuarios del login de desarrollo no tienen Google: fuera de producción
- * van a un `CalendarioDev` en memoria con el mismo contrato.
+ * Cualquier error de la API de Google (token revocado, red, etc.) se traduce a
+ * CalendarUnavailableError para que quien llame (conversation.service.ts) no
+ * tenga que conocer la forma de los errores de `googleapis`.
  */
 @Injectable()
 export class CalendarService {
-  private readonly calendarioDev = new CalendarioDev();
+  private readonly logger = new Logger(CalendarService.name);
+  private readonly local: CalendarioLocal;
 
   constructor(
     private readonly config: ConfigService<Env, true>,
     private readonly prisma: PrismaService,
-  ) {}
+  ) {
+    this.local = new CalendarioLocal(prisma);
+  }
 
-  /** En producción nunca: un googleId "dev:" ahí sólo podría venir de datos manipulados. */
-  private usaCalendarioDev(user: UsuarioCalendario): boolean {
-    return this.config.get('NODE_ENV', { infer: true }) !== 'production' && esGoogleIdDev(user.googleId);
+  private usaCalendarioLocal(user: UsuarioCalendario): boolean {
+    return user.calendario === CALENDARIO_LOCAL;
   }
 
   async freeBusy(user: UsuarioCalendario, desde: Date, hasta: Date): Promise<PeriodoOcupado[]> {
-    if (this.usaCalendarioDev(user)) return this.calendarioDev.freeBusy(user.id, desde, hasta);
+    if (this.usaCalendarioLocal(user)) return this.local.freeBusy(user.id, desde, hasta);
 
     const calendar = getCalendarClient(user, this.config);
     try {
@@ -91,7 +107,7 @@ export class CalendarService {
   }
 
   async crearEvento(user: UsuarioCalendario, datos: DatosEvento): Promise<string> {
-    if (this.usaCalendarioDev(user)) return this.calendarioDev.crear(user.id, datos);
+    if (this.usaCalendarioLocal(user)) return this.local.crear(user.id, datos);
 
     const calendar = getCalendarClient(user, this.config);
     try {
@@ -113,10 +129,7 @@ export class CalendarService {
   }
 
   async cancelarEvento(user: UsuarioCalendario, googleEventId: string): Promise<void> {
-    if (this.usaCalendarioDev(user)) {
-      this.calendarioDev.cancelar(user.id, googleEventId);
-      return;
-    }
+    if (this.usaCalendarioLocal(user)) return this.local.cancelar(user.id, googleEventId);
 
     const calendar = getCalendarClient(user, this.config);
     try {
@@ -131,10 +144,7 @@ export class CalendarService {
     googleEventId: string,
     datos: Partial<Pick<DatosEvento, 'resumen' | 'inicio' | 'fin'>>,
   ): Promise<void> {
-    if (this.usaCalendarioDev(user)) {
-      this.calendarioDev.reprogramar(user.id, googleEventId, datos);
-      return;
-    }
+    if (this.usaCalendarioLocal(user)) return this.local.reprogramar(user.id, googleEventId, datos);
 
     const calendar = getCalendarClient(user, this.config);
     try {
@@ -187,7 +197,7 @@ export class CalendarService {
   }
 
   async listarProximos(user: UsuarioCalendario, desde: Date, hasta: Date): Promise<EventoListado[]> {
-    if (this.usaCalendarioDev(user)) return this.calendarioDev.listar(user.id, desde, hasta);
+    if (this.usaCalendarioLocal(user)) return this.local.listar(user.id, desde, hasta);
 
     const calendar = getCalendarClient(user, this.config);
     try {
@@ -209,17 +219,67 @@ export class CalendarService {
     }
   }
 
-  /** Ids de evento de Google que corresponden a turnos agendados por el agente (no cancelados). */
-  async listarTurnosAgendados(userId: string, desde: Date, hasta: Date): Promise<Set<string>> {
-    const turnos = await this.prisma.turno.findMany({
+  /**
+   * Los turnos que el agente agendó para este dueño en un rango, de todas sus
+   * conversaciones. Con el nombre del cliente: es la única forma de saber a
+   * nombre de quién quedó cada uno, porque el calendario sólo guarda el título.
+   */
+  async listarTurnos(userId: string, desde: Date, hasta: Date): Promise<TurnoAgendado[]> {
+    return this.prisma.turno.findMany({
       where: {
         conversation: { userId },
         estado: 'confirmado',
         inicio: { lt: hasta },
         fin: { gt: desde },
       },
-      select: { googleEventId: true },
+      select: { id: true, googleEventId: true, nombreCliente: true, inicio: true, fin: true },
+      orderBy: { inicio: 'asc' },
     });
+  }
+
+  /** Ids de evento de Google que corresponden a turnos agendados por el agente (no cancelados). */
+  async listarTurnosAgendados(userId: string, desde: Date, hasta: Date): Promise<Set<string>> {
+    const turnos = await this.listarTurnos(userId, desde, hasta);
     return new Set(turnos.map((turno) => turno.googleEventId));
+  }
+
+  /**
+   * Copia a Google los eventos de la agenda local que todavía no terminaron,
+   * justo después de que el titular conecta Google Calendar. Evento por
+   * evento: crea en Google, apunta el Turno al id nuevo y recién ahí borra la
+   * fila local, así un corte a mitad de camino no duplica ni pierde nada — lo
+   * migrado queda migrado y el resto sigue local para el próximo intento.
+   * `user` tiene que tener ya el refresh token; `calendario` se ignora.
+   */
+  async migrarLocalAGoogle(user: UsuarioCalendario, ahora = new Date()): Promise<ResultadoMigracion> {
+    const google: UsuarioCalendario = { ...user, calendario: CALENDARIO_GOOGLE };
+    const eventos = await this.local.futuros(user.id, ahora);
+    let migrados = 0;
+
+    for (const evento of eventos) {
+      if (!evento.inicio || !evento.fin) continue;
+      try {
+        const nuevoId = await this.crearEvento(google, {
+          resumen: evento.resumen,
+          inicio: evento.inicio,
+          fin: evento.fin,
+        });
+        await this.prisma.turno.updateMany({
+          where: { googleEventId: evento.id, conversation: { userId: user.id } },
+          data: { googleEventId: nuevoId },
+        });
+        await this.local.cancelar(user.id, evento.id);
+        migrados++;
+      } catch (error) {
+        this.logger.error(
+          `No se pudo copiar a Google el evento ${evento.id} de ${user.id}: ${(error as Error).message}`,
+        );
+        return { migrados, pendientes: eventos.length - migrados };
+      }
+    }
+
+    // Lo que ya terminó no aporta a la agenda: no se copia, se descarta.
+    await this.prisma.evento.deleteMany({ where: { userId: user.id, fin: { lte: ahora } } });
+    return { migrados, pendientes: 0 };
   }
 }

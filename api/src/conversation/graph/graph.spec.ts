@@ -67,6 +67,7 @@ function crearCalendar(ocupados: PeriodoOcupado[] = []) {
     cancelarEvento: vi.fn().mockResolvedValue(undefined),
     reprogramarEvento: vi.fn().mockResolvedValue(undefined),
     listarProximos: vi.fn().mockResolvedValue([]),
+    listarTurnos: vi.fn().mockResolvedValue([]),
   } as unknown as CalendarService;
 }
 

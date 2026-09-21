@@ -23,24 +23,35 @@ function aIso(fecha: string, hora: string): string {
   return `${fecha}T${hora}:00${OFFSET_BUENOS_AIRES}`;
 }
 
+/**
+ * Ver, editar o eliminar un evento; con `evento = null`, crear uno nuevo (para
+ * bloquear un horario a mano, que en una agenda sin Google no hay otra forma).
+ */
 export function EventDetailModal({
   evento,
+  fechaInicial,
   onClose,
   onChanged,
 }: {
-  evento: EventoSemana;
+  evento: EventoSemana | null;
+  /** Día propuesto al crear. */
+  fechaInicial?: Date;
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [modo, setModo] = useState<"ver" | "editar">("ver");
-  const [titulo, setTitulo] = useState(evento.resumen);
-  const [fecha, setFecha] = useState(evento.inicio ? isoDate(new Date(evento.inicio)) : "");
-  const [horaInicio, setHoraInicio] = useState(horaInputDe(evento.inicio));
-  const [horaFin, setHoraFin] = useState(horaInputDe(evento.fin));
+  const creando = evento === null;
+  const [modo, setModo] = useState<"ver" | "editar">(creando ? "editar" : "ver");
+  const [titulo, setTitulo] = useState(evento?.resumen ?? "");
+  const [fecha, setFecha] = useState(
+    evento?.inicio ? isoDate(new Date(evento.inicio)) : isoDate(fechaInicial ?? new Date()),
+  );
+  const [horaInicio, setHoraInicio] = useState(evento ? horaInputDe(evento.inicio) : "09:00");
+  const [horaFin, setHoraFin] = useState(evento ? horaInputDe(evento.fin) : "10:00");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function eliminar() {
+    if (!evento) return;
     if (!window.confirm(`¿Eliminar "${evento.resumen || "este evento"}" del calendario?`)) return;
     setGuardando(true);
     setError(null);
@@ -58,9 +69,14 @@ export function EventDetailModal({
   async function guardar() {
     setGuardando(true);
     setError(null);
+    if (horaFin <= horaInicio) {
+      setError("La hora de fin tiene que ser después de la de inicio.");
+      setGuardando(false);
+      return;
+    }
     try {
-      const res = await apiFetch(`/calendar/eventos/${evento.id}`, {
-        method: "PATCH",
+      const res = await apiFetch(evento ? `/calendar/eventos/${evento.id}` : "/calendar/eventos", {
+        method: evento ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           inicio: aIso(fecha, horaInicio),
@@ -83,7 +99,7 @@ export function EventDetailModal({
         className="w-full max-w-sm rounded-lg bg-card p-5 shadow-md"
         onClick={(e) => e.stopPropagation()}
       >
-        {modo === "ver" ? (
+        {modo === "ver" && evento ? (
           <>
             <h2 className="font-display text-lg font-bold text-ink">{evento.resumen || "(Sin título)"}</h2>
             <p className="mt-1 text-[13px] text-ink-secondary">
@@ -111,13 +127,14 @@ export function EventDetailModal({
           </>
         ) : (
           <>
-            <h2 className="font-display text-lg font-bold text-ink">Editar evento</h2>
+            <h2 className="font-display text-lg font-bold text-ink">{creando ? "Nuevo evento" : "Editar evento"}</h2>
             <div className="mt-4 flex flex-col gap-3">
               <label className="flex flex-col gap-1 text-[12.5px] font-semibold text-ink-secondary">
                 Título
                 <input
                   className="rounded-md border border-line bg-page px-3 py-2 text-[14px] text-ink"
                   value={titulo}
+                  placeholder={creando ? "Ej.: Almuerzo, trámite, no atiendo" : undefined}
                   onChange={(e) => setTitulo(e.target.value)}
                 />
               </label>
@@ -153,10 +170,18 @@ export function EventDetailModal({
             </div>
             {error && <p className="mt-2 text-[12.5px] text-danger-text">{error}</p>}
             <div className="mt-5 flex gap-2">
-              <Button onClick={guardar} disabled={guardando || !fecha || !horaInicio || !horaFin}>
+              <Button
+                onClick={guardar}
+                disabled={guardando || !fecha || !horaInicio || !horaFin || (creando && !titulo.trim())}
+              >
                 Guardar
               </Button>
-              <Button variant="ghost" onClick={() => setModo("ver")} disabled={guardando} className="ml-auto">
+              <Button
+                variant="ghost"
+                onClick={() => (creando ? onClose() : setModo("ver"))}
+                disabled={guardando}
+                className="ml-auto"
+              >
                 Cancelar
               </Button>
             </div>

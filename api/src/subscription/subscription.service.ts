@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
 import type { Subscription, User } from '../generated/prisma/client.js';
@@ -38,6 +38,18 @@ export class SubscriptionService {
    * Único booleano que mira el runtime conversacional: false apaga al asistente
    * sin tocar la sesión de WhatsApp ni los datos del dueño.
    */
+  private async emailDelPagador(user: User, email?: string): Promise<string> {
+    if (user.email) return user.email;
+    if (!email) throw new BadRequestException('Falta el email para Mercado Pago.');
+
+    const otro = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (otro && otro.id !== user.id) {
+      throw new ConflictException('Ese email ya es de otra cuenta de Trato Agenda.');
+    }
+    await this.prisma.user.update({ where: { id: user.id }, data: { email } });
+    return email;
+  }
+
   async asistenteActivo(userId: string): Promise<boolean> {
     const { estado } = await this.resolver(userId);
     return estado.asistenteActivo;
@@ -47,15 +59,19 @@ export class SubscriptionService {
    * Arranca la suscripción en Mercado Pago y devuelve la URL a la que hay que
    * mandar el browser. El cobro es inmediato: quien se suscribe antes de que
    * termine la prueba resigna los días que le quedaban.
+   *
+   * Mercado Pago exige el email de quien paga: una cuenta creada sólo con
+   * WhatsApp no lo tiene, así que /plan lo pide y acá queda guardado.
    */
-  async crearCheckout(user: User): Promise<{ initPoint: string }> {
+  async crearCheckout(user: User, email?: string): Promise<{ initPoint: string }> {
     const frontendUrl = this.config.get('FRONTEND_URL', { infer: true });
     const monto = this.precio();
+    const payerEmail = await this.emailDelPagador(user, email);
 
     const preapproval = await this.mercadoPago.crearPreapproval({
       reason: RAZON,
       externalReference: user.id,
-      payerEmail: user.email,
+      payerEmail,
       backUrl: `${frontendUrl}/plan?volviendo=1`,
       montoPorMes: monto,
       moneda: 'ARS',

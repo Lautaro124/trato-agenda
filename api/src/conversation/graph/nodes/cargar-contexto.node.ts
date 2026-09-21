@@ -23,6 +23,13 @@ export const DIAS_VENTANA = 14;
  */
 const DIAS_RESUMEN = 5;
 
+/**
+ * Cuántos turnos del dueño entran en su prompt. Con la agenda llena, la ventana
+ * de 14 días son cientos de líneas en cada mensaje: el resto lo contesta
+ * `listar_turnos`, que existe justamente para las fechas que no entran acá.
+ */
+const MAX_TURNOS_EN_PROMPT = 12;
+
 /** Duración por defecto de un hueco útil cuando el agente no tiene tipos de turno cargados. */
 const DURACION_POR_DEFECTO_MIN = 30;
 
@@ -35,6 +42,9 @@ export function duracionMinima(agent: Agent): number {
   const duraciones = leerTiposEvento(agent).map((tipo) => tipo.duracionMin);
   return duraciones.length > 0 ? Math.min(...duraciones) : DURACION_POR_DEFECTO_MIN;
 }
+
+/** Lo que hace falta de un turno del dueño para nombrarlo en su prompt. */
+export type TurnoDelDueno = { inicio: Date; fin: Date; nombreCliente: string | null };
 
 export type DepsContexto = {
   prisma: PrismaService;
@@ -133,6 +143,35 @@ function bloqueDisponibilidad(agent: Agent, agenda: SnapshotAgenda): string {
   );
 }
 
+/**
+ * Los turnos que el dueño ya tiene agendados, con el nombre de cada cliente.
+ * Sólo va en el prompt del dueño: en el de un cliente serían los datos de
+ * terceros. Con esto el banco de pruebas contesta "mañana a las 9 tenés a
+ * Juan" sin gastar una vuelta del modelo en una herramienta.
+ */
+export function bloqueTurnosDelDueno(turnos: TurnoDelDueno[]): string {
+  if (turnos.length === 0) {
+    return `Turnos agendados: no tiene ninguno en los próximos ${DIAS_VENTANA} días.`;
+  }
+  const formato = new Intl.DateTimeFormat('es-AR', {
+    timeZone: TIMEZONE,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const lineas = turnos
+    .slice(0, MAX_TURNOS_EN_PROMPT)
+    .map((turno) => `- ${formato.format(turno.inicio)}${turno.nombreCliente ? ` · ${turno.nombreCliente}` : ''}`);
+  const hayMas = turnos.length > MAX_TURNOS_EN_PROMPT;
+  return (
+    `Turnos ya agendados en los próximos ${DIAS_VENTANA} días (usalos para contestarle al dueño qué tiene ` +
+    `por delante; para cualquier otra fecha, listar_turnos):\n${lineas.join('\n')}` +
+    (hayMas ? `\n(y ${turnos.length - MAX_TURNOS_EN_PROMPT} más: pedilos con listar_turnos)` : '')
+  );
+}
+
 function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: string | null; nombreCliente: string | null }, esPropietario: boolean): string {
   const ahora = new Intl.DateTimeFormat('es-AR', {
     timeZone: TIMEZONE,
@@ -144,6 +183,8 @@ function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: 
   if (esPropietario) {
     return (
       `Contexto: estás hablando con el dueño del negocio, de prueba por la web (no un cliente de WhatsApp). ` +
+      `Cuando te pregunte qué turnos tiene, contestale con los que figuran más abajo; para fechas que no ` +
+      `estén en esa lista, usá listar_turnos. ` +
       `Además de lo que ya podés hacer, tenés las herramientas listar_eventos_calendario, ` +
       `cancelar_evento_calendario y editar_evento_calendario para listar, cancelar o editar CUALQUIER evento ` +
       `de su Google Calendar, no sólo los turnos agendados en esta conversación — es él mismo, así que no hay ` +
@@ -221,13 +262,17 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
         inicio: { lt: hasta },
         fin: { gt: desde },
       },
-      select: { inicio: true, fin: true },
+      select: { inicio: true, fin: true, nombreCliente: true },
+      orderBy: { inicio: 'asc' },
     });
+    // Sólo los horarios entran al snapshot: el nombre del cliente no tiene nada
+    // que hacer en la foto de ocupados, que es lo que ve cualquier conversación.
+    const ocupadosPropios = turnos.map(({ inicio, fin }) => ({ inicio, fin }));
 
-    let agenda: SnapshotAgenda = { desde, hasta, ocupados: turnos, falla: false };
+    let agenda: SnapshotAgenda = { desde, hasta, ocupados: ocupadosPropios, falla: false };
     try {
       const deGoogle = await deps.calendarService.freeBusy(agent.user, desde, hasta);
-      agenda = { desde, hasta, ocupados: unirOcupados(deGoogle, turnos), falla: false };
+      agenda = { desde, hasta, ocupados: unirOcupados(deGoogle, ocupadosPropios), falla: false };
     } catch (error) {
       if (!(error instanceof CalendarUnavailableError)) throw error;
       logger.error(`No se pudo leer la agenda del usuario ${state.ownerUserId}`, error);
@@ -240,7 +285,9 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
       turnoActivo,
       bloqueSistema:
         `${agent.systemPrompt}\n\n${contextoFijo(agent, conversation, state.esPropietario)}\n\n` +
-        bloqueDisponibilidad(agent, agenda),
+        bloqueDisponibilidad(agent, agenda) +
+        // Los nombres de los clientes son sólo para el dueño.
+        (state.esPropietario ? `\n\n${bloqueTurnosDelDueno(turnos)}` : ''),
     };
 
     return {

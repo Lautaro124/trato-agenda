@@ -1,4 +1,4 @@
-// Esquema de Trato Agenda: por ahora sólo el usuario que entra con Google.
+// Esquema de Trato Agenda.
 
 generator client {
   provider = "prisma-client"
@@ -10,12 +10,29 @@ datasource db {
   // La URL de conexión vive en prisma.config.ts (Prisma 7).
 }
 
+/// Titular de una cuenta. Se entra con Google o sólo con WhatsApp: por eso
+/// `googleId`, `email` y `phoneNumber` son opcionales. Un usuario sin ninguno
+/// de los tres es un alta por WhatsApp que todavía no escaneó el QR, y la
+/// purga diaria lo borra (ver retention.rules.ts).
 model User {
   id        String  @id @default(cuid())
-  googleId  String  @unique
-  email     String  @unique
+  googleId  String? @unique
+  email     String? @unique
   name      String?
   avatarUrl String?
+
+  /// Número de WhatsApp vinculado (sin '+'). Identifica a las cuentas creadas
+  /// sólo con WhatsApp y permite entrar con un código mandado al chat propio.
+  phoneNumber String? @unique
+
+  /// "google" | "local" — dónde vive la agenda. "local" es la tabla Evento.
+  /// Explícito a propósito: un usuario de Google que perdió el refresh token
+  /// no tiene que pasar en silencio a la agenda local.
+  calendario String @default("google")
+
+  /// Contraseña para entrar con número de WhatsApp (scrypt, ver
+  /// auth/password.ts). Nunca en claro. Las cuentas de Google no la usan.
+  passwordHash String?
 
   /// Refresh token de Google cifrado con AES-256-GCM. Nunca se expone por la API.
   googleRefreshToken String?
@@ -24,6 +41,8 @@ model User {
   agent           Agent?
   conversaciones  Conversation[]
   suscripcion     Subscription?
+  eventos         Evento[]
+  codigosAcceso   CodigoAcceso[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -147,7 +166,7 @@ model Message {
   createdAt DateTime @default(now())
 }
 
-/// Turno agendado (o cancelado) en Google Calendar a partir de una
+/// Turno agendado (o cancelado) en el calendario del dueño a partir de una
 /// Conversation. Permite que cancelar_turno/reprogramar_turno operen sobre
 /// "el turno activo más reciente de esta conversación" sin que el modelo
 /// tenga que manejar ids de Google Calendar.
@@ -156,6 +175,9 @@ model Turno {
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  /// Id del evento en el calendario del dueño: de Google Calendar, o de la
+  /// tabla Evento si `User.calendario` es "local". Conserva el nombre para no
+  /// migrar datos.
   googleEventId String
   /// A nombre de quién quedó agendado el turno.
   nombreCliente String?
@@ -196,4 +218,39 @@ model Subscription {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Evento de la agenda local, para los usuarios con `calendario = "local"`
+/// (cuentas creadas sólo con WhatsApp). Mismo contrato que un evento de
+/// Google Calendar para CalendarService: resumen, inicio y fin.
+model Evento {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  resumen String
+  inicio  DateTime
+  fin     DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, inicio])
+}
+
+/// Código de un solo uso para entrar al panel con WhatsApp: se manda al chat
+/// propio del titular. Se guarda sólo el hash.
+model CodigoAcceso {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 hex del código.
+  hash     String
+  expiraAt DateTime
+  intentos Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }

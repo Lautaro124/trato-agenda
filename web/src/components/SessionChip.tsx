@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
-import { iniciales, useSession, type Usuario } from "@/lib/session";
+import { identificador, iniciales, useSession, type Usuario } from "@/lib/session";
 
 /** Quién está logueado y cómo salir. */
 export function SessionChip({ user }: { user: Usuario }) {
@@ -23,7 +23,7 @@ export function SessionChip({ user }: { user: Usuario }) {
           {iniciales(user)}
         </span>
       )}
-      <span className="max-w-[180px] truncate text-[12.5px] text-ink">{user.email}</span>
+      <span className="max-w-[180px] truncate text-[12.5px] text-ink">{identificador(user)}</span>
       <Button variant="ghost" size="sm" onClick={() => void signOut()}>
         Salir
       </Button>
