@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
-import { GenerateAgentDto } from './agents.types.js';
+import { GenerateAgentDto, leerTiposEvento } from './agents.types.js';
 
 const base = {
   tipoTitular: 'negocio',
@@ -69,6 +69,35 @@ describe('GenerateAgentDto', () => {
         'tiposEvento.duracionMin',
       );
     }
+  });
+
+  it('el precio es opcional: acepta enteros de 0 al tope y su ausencia', async () => {
+    for (const precio of [undefined, 0, 15000, 10_000_000]) {
+      expect(await errores({ ...base, tiposEvento: [{ nombre: 'Consulta', duracionMin: 30, precio }] })).toEqual([]);
+    }
+  });
+
+  it('rechaza precios negativos, decimales, sobre el tope o que no son número', async () => {
+    for (const precio of [-1, 1500.5, 10_000_001, '15000']) {
+      expect(await errores({ ...base, tiposEvento: [{ nombre: 'Consulta', duracionMin: 30, precio }] })).toContain(
+        'tiposEvento.precio',
+      );
+    }
+  });
+
+  it('leerTiposEvento conserva el precio válido y descarta el inválido sin perder el tipo', () => {
+    const agent = {
+      tiposEvento: [
+        { nombre: 'A', duracionMin: 30, precio: 5000 },
+        { nombre: 'B', duracionMin: 30, precio: -3 },
+        { nombre: 'C', duracionMin: 30 },
+      ],
+    };
+    expect(leerTiposEvento(agent as never)).toEqual([
+      { nombre: 'A', duracionMin: 30, precio: 5000 },
+      { nombre: 'B', duracionMin: 30 },
+      { nombre: 'C', duracionMin: 30 },
+    ]);
   });
 
   it('rechaza horas que no son HH:MM de 24hs', async () => {

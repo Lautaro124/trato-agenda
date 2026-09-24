@@ -18,6 +18,7 @@ import {
   ChipsTitular,
   GrillaTiposUso,
   ListaEventos,
+  PrecioParaTodos,
   PresetsFranja,
   PreviewSaludo,
   SelectoresFranja,
@@ -134,9 +135,10 @@ export function WizardEscritorio({
               ¿Qué tipos de evento tomás?
             </h1>
             <p className="mb-4 text-sm leading-[1.6] text-ink-secondary text-pretty">
-              Sugerencias para <strong className="font-semibold">{usoElegido}</strong>. Tocá para
-              activar; tocá la duración para cambiarla.
+              Sugerencias para <strong className="font-semibold">{usoElegido}</strong>. Activá los que
+              tomás y elegí la duración y, si querés, el precio.
             </p>
+            <PrecioParaTodos ob={ob} />
             <ListaEventos ob={ob} className="grid grid-cols-2 gap-2" />
             <div className="mt-4">
               <AgregarEvento ob={ob} />

@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
+import { formatearPrecio, leerPrecio, precioParaInput } from "@/lib/precio";
 import {
+  DURACIONES,
   HORAS,
   LARGO_MAX_BOT,
   LARGO_MAX_NOMBRE_EVENTO,
@@ -88,51 +91,126 @@ export function GrillaTiposUso({ ob, conHint = true }: { ob: Onboarding; conHint
   );
 }
 
+/** Campo de precio en pesos: sólo dígitos, se muestra con separador de miles. Vacío = sin precio. */
+function CampoPrecio({
+  valor,
+  onChange,
+  etiqueta,
+  placeholder = "Opcional",
+}: {
+  valor: number | undefined;
+  onChange: (precio: number | undefined) => void;
+  etiqueta: string;
+  placeholder?: string;
+}) {
+  return (
+    <div className="flex items-center rounded-sm border border-line bg-card focus-within:border-[var(--color-semantic-border-focus)]">
+      <span aria-hidden className="pl-3 text-[14px] text-muted">
+        $
+      </span>
+      <input
+        value={precioParaInput(valor)}
+        onChange={(e) => onChange(leerPrecio(e.target.value))}
+        inputMode="numeric"
+        autoComplete="off"
+        aria-label={etiqueta}
+        placeholder={placeholder}
+        className="w-full min-w-0 bg-transparent px-2 py-[9px] font-mono text-[14px] text-ink outline-none"
+      />
+    </div>
+  );
+}
+
 export function ListaEventos({ ob, className }: { ob: Onboarding; className?: string }) {
   return (
     <div className={className ?? "grid grid-cols-1 gap-2 sm:grid-cols-2"}>
       {ob.eventos.map((evento) => {
-        const activo = Boolean(ob.elegidos[evento.nombre]);
-        const duracion = ob.elegidos[evento.nombre] ?? evento.duracionMin;
+        const datos = ob.elegidos[evento.nombre];
+        const activo = Boolean(datos);
+        const duracion = datos?.duracionMin ?? evento.duracionMin;
+        // Si el tipo trae una duración fuera de los chips, se muestra igual para poder verla elegida.
+        const opciones = DURACIONES.includes(duracion) ? DURACIONES : [...DURACIONES, duracion].sort((a, b) => a - b);
         return (
           <div
             key={evento.nombre}
-            role="button"
-            tabIndex={0}
-            aria-pressed={activo}
-            onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                ob.alternarEvento(evento.nombre, evento.duracionMin);
-              }
-            }}
             className={cn(
-              "flex cursor-pointer items-center justify-between gap-2.5 rounded-sm border px-[13px] py-[11px] select-none",
-              activo ? "border-primary bg-primary-subtle" : "border-line bg-card hover:border-line-strong",
+              "rounded-sm border",
+              activo ? "col-span-full border-primary bg-primary-subtle" : "border-line bg-card hover:border-line-strong",
             )}
           >
-            <span className="text-[14px] text-ink">{evento.nombre}</span>
-            <span
+            <div
               role="button"
-              tabIndex={-1}
-              aria-label={`Duración de ${evento.nombre}: ${duracion} min`}
-              title="Tocá para cambiar la duración"
-              onClick={(e) => {
-                // El pill cicla la duración sin apagar el tipo de evento.
-                e.stopPropagation();
-                ob.ciclarDuracion(evento.nombre);
+              tabIndex={0}
+              aria-pressed={activo}
+              onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  ob.alternarEvento(evento.nombre, evento.duracionMin);
+                }
               }}
-              className={cn(
-                "rounded-full px-[9px] py-[3px] font-mono text-[11.5px] font-semibold",
-                activo ? "bg-primary text-primary-on" : "bg-sunken text-muted",
-              )}
+              className="flex cursor-pointer items-center justify-between gap-2.5 px-[13px] py-[11px] select-none"
             >
-              {duracion} min
-            </span>
+              <span className="text-[14px] text-ink">{evento.nombre}</span>
+              <span
+                className={cn(
+                  "rounded-full px-[9px] py-[3px] font-mono text-[11.5px] font-semibold",
+                  activo ? "bg-primary text-primary-on" : "bg-sunken text-muted",
+                )}
+              >
+                {activo && datos.precio !== undefined
+                  ? `${duracion} min · ${formatearPrecio(datos.precio)}`
+                  : `${duracion} min`}
+              </span>
+            </div>
+            {activo && (
+              <div className="flex flex-col gap-3 border-t border-primary/20 px-[13px] pt-3 pb-[13px]">
+                <div>
+                  <div className="mb-1.5 text-[12px] font-semibold text-ink-secondary">Duración</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {opciones.map((min) => (
+                      <button
+                        key={min}
+                        type="button"
+                        aria-pressed={min === duracion}
+                        aria-label={`Duración de ${evento.nombre}: ${min} min`}
+                        onClick={() => ob.fijarDuracion(evento.nombre, min)}
+                        className={chip(min === duracion)}
+                      >
+                        {min} min
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1.5 text-[12px] font-semibold text-ink-secondary">Precio (opcional)</div>
+                  <CampoPrecio
+                    valor={datos.precio}
+                    onChange={(precio) => ob.fijarPrecio(evento.nombre, precio)}
+                    etiqueta={`Precio de ${evento.nombre}`}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** Atajo para cuando todos los tipos elegidos cuestan lo mismo. */
+export function PrecioParaTodos({ ob }: { ob: Onboarding }) {
+  const [precio, setPrecio] = useState<number | undefined>(undefined);
+  if (ob.seleccionados.length < 2) return null;
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <CampoPrecio valor={precio} onChange={setPrecio} etiqueta="Mismo precio para todos" placeholder="Mismo precio para todos" />
+      </div>
+      <Button variant="secondary" size="md" onClick={() => ob.fijarPrecioATodos(precio)} disabled={precio === undefined}>
+        Aplicar
+      </Button>
     </div>
   );
 }

@@ -39,7 +39,7 @@ test.describe('generación de agente: wizard de escritorio', () => {
       nombreTitular: `Lucía Fernández ${sufijo()}`,
       tipoUso: 'consultorio',
       sugeridos: [
-        { nombre: 'Primera consulta', duracionMin: 45 },
+        { nombre: 'Primera consulta', duracionMin: 45, precio: 25000 },
         { nombre: 'Consulta de control', duracionMin: 30 },
       ],
       preset: { label: 'Tarde', desde: '14:00', hasta: '19:00' },

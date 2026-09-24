@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { formatearPrecio } from "@/lib/precio";
 
 export type TipoUsoId =
-  | "comercio"
   | "consultorio"
   | "reuniones"
   | "visitas"
@@ -12,10 +12,12 @@ export type TipoUsoId =
 
 export type TipoTitular = "persona" | "negocio";
 
-export type TipoEvento = { nombre: string; duracionMin: number };
+export type TipoEvento = { nombre: string; duracionMin: number; precio?: number };
+
+/** Lo que el usuario fue cargando de un tipo de evento activado. */
+export type DatosEvento = { duracionMin: number; precio?: number };
 
 export const TIPOS_USO: Array<{ id: TipoUsoId; label: string; hint: string }> = [
-  { id: "comercio", label: "Comercio", hint: "Retiros, entregas, atención" },
   { id: "consultorio", label: "Consultorio", hint: "Consultas, controles, estudios" },
   { id: "reuniones", label: "Reuniones", hint: "Demos, 1 a 1, entrevistas" },
   { id: "visitas", label: "Visitas", hint: "Visitas técnicas y relevamientos" },
@@ -25,12 +27,6 @@ export const TIPOS_USO: Array<{ id: TipoUsoId; label: string; hint: string }> = 
 
 /** Tipos de turno sugeridos por tipo de uso, con su duración por defecto. */
 export const CATALOGO_EVENTOS: Record<TipoUsoId, TipoEvento[]> = {
-  comercio: [
-    { nombre: "Retiro de pedido", duracionMin: 15 },
-    { nombre: "Entrega a domicilio", duracionMin: 30 },
-    { nombre: "Atención en el local", duracionMin: 30 },
-    { nombre: "Presupuesto", duracionMin: 20 },
-  ],
   consultorio: [
     { nombre: "Primera consulta", duracionMin: 45 },
     { nombre: "Consulta de control", duracionMin: 30 },
@@ -58,7 +54,7 @@ export const CATALOGO_EVENTOS: Record<TipoUsoId, TipoEvento[]> = {
   otro: [],
 };
 
-/** Duraciones por las que cicla el pill de cada tipo de evento. */
+/** Duraciones que se ofrecen como chips en cada tipo de evento activado. */
 export const DURACIONES = [15, 20, 30, 45, 60, 90];
 
 /** Límites de GenerateAgentDto (api/src/agents/agents.types.ts): superarlos es un 400. */
@@ -92,7 +88,7 @@ export const PASOS = [
 export const AYUDA_POR_PASO = [
   "Con este nombre se presenta el asistente y firma los avisos.",
   "Define los tipos de evento que te sugerimos después.",
-  "Tocá la duración para cambiarla.",
+  "Elegí la duración y, si querés, el precio.",
   "Fuera de esta franja el asistente no ofrece horarios.",
   "Así arranca cada conversación en WhatsApp.",
 ];
@@ -110,8 +106,8 @@ export function useOnboarding() {
   const [tipoTitular, setTipoTitular] = useState<TipoTitular>("negocio");
   const [nombreTitular, setNombreTitular] = useState("");
   const [tipoUso, setTipoUso] = useState<TipoUsoId>("consultorio");
-  /** nombre del tipo de evento → duración elegida. Sólo los seleccionados. */
-  const [elegidos, setElegidos] = useState<Record<string, number>>({});
+  /** nombre del tipo de evento → duración y precio elegidos. Sólo los seleccionados. */
+  const [elegidos, setElegidos] = useState<Record<string, DatosEvento>>({});
   const [personalizado, setPersonalizado] = useState("");
   const [horaDesde, setHoraDesde] = useState("09:00");
   const [horaHasta, setHoraHasta] = useState("18:00");
@@ -127,7 +123,7 @@ export function useOnboarding() {
     setElegidos((previos) => {
       if (!previos[nombre]) {
         if (Object.keys(previos).length >= MAX_TIPOS_EVENTO) return previos;
-        return { ...previos, [nombre]: duracionMin };
+        return { ...previos, [nombre]: { duracionMin } };
       }
       const resto = { ...previos };
       delete resto[nombre];
@@ -135,13 +131,25 @@ export function useOnboarding() {
     });
   }, []);
 
-  const ciclarDuracion = useCallback((nombre: string) => {
-    setElegidos((previos) => {
-      const actual = previos[nombre];
-      if (!actual) return previos;
-      const siguiente = DURACIONES[(DURACIONES.indexOf(actual) + 1) % DURACIONES.length];
-      return { ...previos, [nombre]: siguiente };
-    });
+  const fijarDuracion = useCallback((nombre: string, duracionMin: number) => {
+    setElegidos((previos) =>
+      previos[nombre] ? { ...previos, [nombre]: { ...previos[nombre], duracionMin } } : previos,
+    );
+  }, []);
+
+  /** `undefined` borra el precio: el tipo de evento queda "a consultar". */
+  const fijarPrecio = useCallback((nombre: string, precio: number | undefined) => {
+    setElegidos((previos) =>
+      previos[nombre] ? { ...previos, [nombre]: { ...previos[nombre], precio } } : previos,
+    );
+  }, []);
+
+  const fijarPrecioATodos = useCallback((precio: number | undefined) => {
+    setElegidos((previos) =>
+      Object.fromEntries(
+        Object.entries(previos).map(([nombre, datos]) => [nombre, { ...datos, precio }]),
+      ),
+    );
   }, []);
 
   const agregarPersonalizado = useCallback(() => {
@@ -150,7 +158,7 @@ export function useOnboarding() {
     setElegidos((previos) => {
       // Mismos límites que GenerateAgentDto: mejor frenarlo acá que recibir un 400.
       if (previos[nombre] || Object.keys(previos).length >= MAX_TIPOS_EVENTO) return previos;
-      return { ...previos, [nombre]: 30 };
+      return { ...previos, [nombre]: { duracionMin: 30 } };
     });
     setPersonalizado("");
   }, [personalizado]);
@@ -165,12 +173,16 @@ export function useOnboarding() {
     const sugeridos = CATALOGO_EVENTOS[tipoUso];
     const propios = Object.keys(elegidos)
       .filter((nombre) => !sugeridos.some((evento) => evento.nombre === nombre))
-      .map((nombre) => ({ nombre, duracionMin: elegidos[nombre] }));
+      .map((nombre) => ({ nombre, duracionMin: elegidos[nombre].duracionMin }));
     return [...sugeridos, ...propios];
   }, [tipoUso, elegidos]);
 
   const seleccionados: TipoEvento[] = useMemo(
-    () => Object.entries(elegidos).map(([nombre, duracionMin]) => ({ nombre, duracionMin })),
+    () =>
+      Object.entries(elegidos).map(([nombre, { duracionMin, precio }]) =>
+        // Sin precio la clave no viaja: el DTO lo trata como ausente.
+        precio === undefined ? { nombre, duracionMin } : { nombre, duracionMin, precio },
+      ),
     [elegidos],
   );
 
@@ -194,7 +206,10 @@ export function useOnboarding() {
     seleccionados.length > 0
       ? `Puedo agendarte ${seleccionados
           .slice(0, 3)
-          .map((evento) => `${evento.nombre.toLowerCase()} (${evento.duracionMin} min)`)
+          .map((evento) => {
+            const precio = evento.precio === undefined ? "" : `, ${formatearPrecio(evento.precio)}`;
+            return `${evento.nombre.toLowerCase()} (${evento.duracionMin} min${precio})`;
+          })
           .join(", ")}${seleccionados.length > 3 ? " y más." : "."}`
       : "Todavía no cargaste tipos de evento: elegí al menos uno.";
 
@@ -213,7 +228,9 @@ export function useOnboarding() {
     elegidos,
     seleccionados,
     alternarEvento,
-    ciclarDuracion,
+    fijarDuracion,
+    fijarPrecio,
+    fijarPrecioATodos,
     personalizado,
     setPersonalizado,
     agregarPersonalizado,

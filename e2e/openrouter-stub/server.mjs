@@ -50,7 +50,7 @@ function textoDe(mensaje) {
 //
 // El system prompt que arma el runtime siempre incluye, en código (no en el
 // texto generado por IA o por la plantilla), el bloque "Reglas de la agenda
-// de <titular> ... Tipos de turno y su duración: ..." — ver
+// de <titular> ... Tipos de turno con su duración y, si lo tienen, su precio: ..." — ver
 // `reglasDeAgenda` en api/src/conversation/graph/nodes/cargar-contexto.node.ts.
 // Este stub lee el titular y el primer tipo de turno de ahí en vez de una
 // convención propia, así no depende de cómo se generó el agente.
@@ -108,7 +108,7 @@ function conversar(body, res) {
   }
 
   // El primer tipo de turno del bloque de reglas que agrega el código.
-  const tipo = sistema.match(/Tipos de turno y su duración: ([^,(]+?) \((\d+) min\)/);
+  const tipo = sistema.match(/Tipos de turno con su duración[^:]*: ([^,(]+?) \((\d+) min[,)]/);
   const resumen = tipo?.[1]?.trim() ?? 'Turno';
   const duracion = Number(tipo?.[2] ?? 30);
   const dia = proximoDiaHabil();

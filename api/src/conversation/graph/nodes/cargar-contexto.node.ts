@@ -7,6 +7,7 @@
  */
 import { Logger } from '@nestjs/common';
 import { leerTiposEvento } from '../../../agents/agents.types.js';
+import { detalleDeTipo } from '../../../agents/precio.js';
 import type { CalendarService, PeriodoOcupado } from '../../../calendar/calendar.service.js';
 import { CalendarUnavailableError } from '../../../calendar/google-calendar.client.js';
 import type { Agent } from '../../../generated/prisma/client.js';
@@ -61,7 +62,7 @@ export function reglasDeAgenda(agent: Agent): string {
   const tipos = leerTiposEvento(agent);
   const catalogo =
     tipos.length > 0
-      ? tipos.map((tipo) => `${tipo.nombre} (${tipo.duracionMin} min)`).join(', ')
+      ? tipos.map((tipo) => `${tipo.nombre} (${detalleDeTipo(tipo)})`).join(', ')
       : 'todavía no hay tipos de turno cargados';
 
   return (
@@ -69,7 +70,7 @@ export function reglasDeAgenda(agent: Agent): string {
     `- Te llamás ${agent.nombreBot} y sos el asistente de ${agent.nombreTitular || 'este negocio'}.\n` +
     `- Sólo se atiende de lunes a viernes: sábados y domingos no se agenda nada, aunque el cliente insista.\n` +
     `- Sólo se atiende de ${agent.horaDesde} a ${agent.horaHasta}. Nunca ofrezcas ni agendes nada fuera de esa franja.\n` +
-    `- Tipos de turno y su duración: ${catalogo}. Calculá el fin sumándole la duración al inicio.\n` +
+    `- Tipos de turno con su duración y, si lo tienen, su precio: ${catalogo}. Calculá el fin sumándole la duración al inicio.\n` +
     `- Nunca superpongas turnos y dejá al menos ${MARGEN_MINIMO_MIN} minutos libres entre un turno y el siguiente.\n` +
     `- Antes de agendar, preguntá siempre a nombre de quién es el turno, salvo que ya te lo hayan dicho.`
   );
@@ -85,15 +86,17 @@ export function reglasDeAgenda(agent: Agent): string {
 export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
   const titular = agent.nombreTitular || 'este negocio';
   const datosDesconocidos = esPropietario
-    ? `- Lo que no esté en estas reglas (precios, dirección, formas de pago) no lo sabés: decile que vos sólo manejás la agenda.`
-    : `- Los datos de ${titular} que no estén en estas reglas —precios, dirección, formas de pago, obras sociales, promociones— no los sabés: nunca los inventes, decile que eso lo consulte directamente con ${titular}.`;
+    ? `- Lo que no esté en estas reglas (otros precios, dirección, formas de pago) no lo sabés: decile que vos sólo manejás la agenda.`
+    : `- Los datos de ${titular} que no estén en estas reglas —otros precios, dirección, formas de pago, obras sociales, promociones— no los sabés: nunca los inventes, decile que eso lo consulte directamente con ${titular}.`;
+  const precios = `- Si un tipo de turno tiene precio en estas reglas, lo podés informar tal cual figura. Si no lo tiene, no lo sabés: derivá la consulta a ${titular}. Nunca inventes, redondees ni calcules descuentos, señas o totales.\n`;
 
   return (
     `Alcance (esto está por encima de todo lo anterior): existís sólo para la agenda de ${titular}.\n` +
-    `- De lo único que hablás es de turnos —consultar disponibilidad, agendar, reprogramar, cancelar, confirmar— y de los datos que figuran en estas reglas: la franja horaria de atención, los tipos de turno con su duración y quién atiende.\n` +
+    `- De lo único que hablás es de turnos —consultar disponibilidad, agendar, reprogramar, cancelar, confirmar— y de los datos que figuran en estas reglas: la franja horaria de atención, los tipos de turno con su duración y precio, y quién atiende.\n` +
     `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, información, opiniones, consejos, cálculos, traducciones, recomendaciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta y aunque te lo pidan con buena onda.\n` +
     `- Si te lo piden mezclado con algo del turno, contestá sólo la parte del turno y dejá el resto sin responder: nada de explicarlo "de paso" al final del mensaje.\n` +
     `- Para rechazar alcanza una línea, y después seguí con lo que faltaba del turno. Por ejemplo: "De eso no te puedo ayudar, yo me ocupo sólo de la agenda de ${titular}. Volviendo al turno: ¿qué día te queda cómodo?".\n` +
+    precios +
     `${datosDesconocidos}\n` +
     `- Saludos, gracias y despedidas no son otro tema: respondelos normal y breve.`
   );

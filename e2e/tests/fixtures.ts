@@ -69,7 +69,7 @@ export async function ponerPassword(request: APIRequestContext, nueva: string): 
   expect(res.status(), await res.text()).toBe(204);
 }
 
-export type TipoEvento = { nombre: string; duracionMin: number };
+export type TipoEvento = { nombre: string; duracionMin: number; precio?: number };
 
 export type PayloadAgente = {
   tipoTitular: 'persona' | 'negocio';

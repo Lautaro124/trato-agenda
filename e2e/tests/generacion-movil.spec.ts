@@ -27,7 +27,7 @@ test.describe('generación de agente: formulario móvil', { tag: '@movil' }, () 
       nombreTitular: `Profe Martín ${sufijo()}`,
       tipoUso: 'personal',
       sugeridos: [
-        { nombre: 'Clase', duracionMin: 60 },
+        { nombre: 'Clase', duracionMin: 60, precio: 12000 },
         { nombre: 'Entrenamiento', duracionMin: 45 },
       ],
       preset: { label: 'Extendida', desde: '08:00', hasta: '21:00' },

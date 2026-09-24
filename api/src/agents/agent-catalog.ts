@@ -23,6 +23,12 @@ export function esAccionValida(id: string): id is AccionId {
 
 export const TIPOS_USO = ['comercio', 'consultorio', 'reuniones', 'visitas', 'personal', 'otro'] as const;
 
+/**
+ * Ids que el wizard web ya no ofrece pero la API sigue aceptando: hay `Agent`
+ * guardados con ese `tipoUso` y regenerarlos (o leerlos) no debe romper.
+ */
+export const TIPOS_USO_RETIRADOS = ['comercio'] as const satisfies readonly TipoUso[];
+
 export type TipoUso = (typeof TIPOS_USO)[number];
 
 /** Quién atiende: cambia cómo se presenta el asistente ("soy el asistente de …"). */
