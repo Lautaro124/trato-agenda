@@ -4,7 +4,7 @@ import Link from "next/link";
 
 // "plan" y "cuenta" no tienen ítem propio: se incluyen para que esas pantallas
 // puedan montar la barra sin marcar ninguna pestaña como activa.
-type Tab = "inicio" | "calendario" | "chat" | "plan" | "cuenta";
+type Tab = "inicio" | "calendario" | "reuniones" | "chat" | "plan" | "cuenta";
 
 const ITEMS: Array<{ tab: Tab; href: string; label: string; icon: React.ReactNode }> = [
   {
@@ -32,6 +32,17 @@ const ITEMS: Array<{ tab: Tab; href: string; label: string; icon: React.ReactNod
     ),
   },
   {
+    tab: "reuniones",
+    href: "/reuniones",
+    label: "Reuniones",
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </svg>
+    ),
+  },
+  {
     tab: "chat",
     href: "/chat",
     label: "Chat",
@@ -47,7 +58,7 @@ const ITEMS: Array<{ tab: Tab; href: string; label: string; icon: React.ReactNod
 export function MobileTabBar({ active }: { active: Tab }) {
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-3 border-t border-line bg-card md:hidden"
+      className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-4 border-t border-line bg-card md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       {ITEMS.map((item) => {
