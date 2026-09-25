@@ -10,9 +10,12 @@ function crearServicio() {
     Promise.resolve({ id: 'agent-1', createdAt: new Date(), updatedAt: new Date(), ...create }),
   );
   const findUnique = vi.fn();
-  const prisma = { agent: { upsert, findUnique } } as unknown as PrismaService;
+  const update = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+    Promise.resolve({ id: 'agent-1', createdAt: new Date(), updatedAt: new Date(), ...data }),
+  );
+  const prisma = { agent: { upsert, findUnique, update } } as unknown as PrismaService;
 
-  return { service: new AgentsService(prisma), prisma, upsert, findUnique };
+  return { service: new AgentsService(prisma), prisma, upsert, findUnique, update };
 }
 
 const dto: GenerateAgentDto = {
@@ -168,6 +171,65 @@ describe('AgentsService.generate', () => {
     const agente = await service.findByUserId('user-1');
 
     expect(agente).toMatchObject({ model: 'openai/gpt-4o-mini', templateVersion: null });
+  });
+});
+
+const agenteGuardado = {
+  id: 'agent-1',
+  userId: 'user-1',
+  tipoUso: 'consultorio',
+  tipoTitular: 'persona',
+  nombreTitular: 'Dra. Pérez',
+  nombreBot: 'Nina',
+  horaDesde: '10:00',
+  horaHasta: '17:00',
+  tiposEvento: [{ nombre: 'Consulta', duracionMin: 30 }],
+  allowedActions: ['crear_turno'],
+  model: 'openai/gpt-4o-mini',
+  templateVersion: null,
+  systemPrompt: 'viejo',
+};
+
+describe('AgentsService.actualizarTiposEvento', () => {
+  it('reemplaza los tipos y regenera el prompt con duración y precio nuevos, sin tocar el resto', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(agenteGuardado);
+    const tipos = [{ nombre: ' Consulta ', duracionMin: 45, precio: 15000 }];
+
+    await service.actualizarTiposEvento('user-1', tipos);
+
+    const [{ where, data }] = update.mock.calls[0] as [{ where: unknown; data: Record<string, unknown> }];
+    expect(where).toEqual({ userId: 'user-1' });
+    expect(data.tiposEvento).toEqual([{ nombre: 'Consulta', duracionMin: 45, precio: 15000 }]);
+    expect(data.systemPrompt).toContain('"Consulta" (45 min, $ 15.000)');
+    expect(data.systemPrompt).toContain('de 10:00 a 17:00');
+    expect(data.systemPrompt).toContain('Dra. Pérez');
+    expect(data).toMatchObject({ model: null, templateVersion: PLANTILLA_VERSION });
+    expect(data).not.toHaveProperty('allowedActions');
+    expect(data).not.toHaveProperty('horaDesde');
+  });
+
+  it('da 404 si todavía no hay agente', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.actualizarTiposEvento('user-1', [{ nombre: 'Consulta', duracionMin: 30 }]),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('da 400 con nombres repetidos, sin importar mayúsculas ni espacios', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(agenteGuardado);
+
+    await expect(
+      service.actualizarTiposEvento('user-1', [
+        { nombre: 'Consulta', duracionMin: 30 },
+        { nombre: ' consulta ', duracionMin: 45 },
+      ]),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(update).not.toHaveBeenCalled();
   });
 });
 

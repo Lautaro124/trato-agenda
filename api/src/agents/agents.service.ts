@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Agent } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PLANTILLA_VERSION, construirConfiguracion } from './agent-template.js';
-import type { GenerateAgentDto } from './agents.types.js';
+import type { TipoTitular, TipoUso } from './agent-catalog.js';
+import type { GenerateAgentDto, TipoEventoDto } from './agents.types.js';
 
 function listarTiposEvento(dto: GenerateAgentDto): string {
   return dto.tiposEvento
@@ -70,6 +71,45 @@ export class AgentsService {
       where: { userId },
       create: { userId, ...datos },
       update: datos,
+    });
+  }
+
+  /**
+   * Reemplaza sólo los tipos de turno y regenera lo que los repite (el system
+   * prompt y la descripción) desde el resto de la fila, que no cambia. Los
+   * turnos ya agendados guardan su propio inicio/fin: no se tocan.
+   */
+  async actualizarTiposEvento(userId: string, tipos: TipoEventoDto[]): Promise<Agent> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId } });
+    if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
+
+    const tiposEvento = tipos.map((tipo) => ({ ...tipo, nombre: tipo.nombre.trim() }));
+    const nombres = new Set(tiposEvento.map((tipo) => tipo.nombre.toLowerCase()));
+    if (nombres.size !== tiposEvento.length) {
+      throw new BadRequestException('Hay dos reuniones con el mismo nombre.');
+    }
+
+    const dto: GenerateAgentDto = {
+      // La fila guarda strings; sus valores salieron de este mismo catálogo.
+      tipoTitular: agent.tipoTitular as TipoTitular,
+      nombreTitular: agent.nombreTitular,
+      tipoUso: agent.tipoUso as TipoUso,
+      tiposEvento,
+      horaDesde: agent.horaDesde,
+      horaHasta: agent.horaHasta,
+      nombreBot: agent.nombreBot,
+    };
+    const config = construirConfiguracion(dto);
+
+    return this.prisma.agent.update({
+      where: { userId },
+      data: {
+        tiposEvento: tiposEvento as unknown as Prisma.InputJsonValue,
+        descripcion: construirDescripcion(dto),
+        systemPrompt: config.systemPrompt,
+        model: null,
+        templateVersion: PLANTILLA_VERSION,
+      },
     });
   }
 }

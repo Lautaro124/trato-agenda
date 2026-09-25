@@ -15,6 +15,7 @@ import {
   SUGERENCIAS_BOT,
   TIPOS_USO,
   type Onboarding,
+  type TiposEventoState,
 } from "@/app/contanos/useOnboarding";
 
 /** Controles compartidos por el wizard de escritorio y el formulario móvil. */
@@ -121,7 +122,7 @@ function CampoPrecio({
   );
 }
 
-export function ListaEventos({ ob, className }: { ob: Onboarding; className?: string }) {
+export function ListaEventos({ ob, className }: { ob: TiposEventoState; className?: string }) {
   return (
     <div className={className ?? "grid grid-cols-1 gap-2 sm:grid-cols-2"}>
       {ob.eventos.map((evento) => {
@@ -200,7 +201,7 @@ export function ListaEventos({ ob, className }: { ob: Onboarding; className?: st
 }
 
 /** Atajo para cuando todos los tipos elegidos cuestan lo mismo. */
-export function PrecioParaTodos({ ob }: { ob: Onboarding }) {
+export function PrecioParaTodos({ ob }: { ob: TiposEventoState }) {
   const [precio, setPrecio] = useState<number | undefined>(undefined);
   if (ob.seleccionados.length < 2) return null;
   return (
@@ -215,7 +216,7 @@ export function PrecioParaTodos({ ob }: { ob: Onboarding }) {
   );
 }
 
-export function AgregarEvento({ ob }: { ob: Onboarding }) {
+export function AgregarEvento({ ob }: { ob: TiposEventoState }) {
   return (
     <div>
       <div className="flex items-center gap-2">

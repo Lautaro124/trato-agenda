@@ -98,26 +98,20 @@ export const ULTIMO_PASO = PASOS.length - 1;
 export type Onboarding = ReturnType<typeof useOnboarding>;
 
 /**
- * Estado del wizard de /contanos. Lo comparten el layout de escritorio y el
- * de móvil, que muestran los mismos cinco datos con distinto envoltorio.
+ * Tipos de evento con su duración y precio. Lo usan el wizard de /contanos y
+ * la pantalla /reuniones, que muestran los mismos controles sobre el mismo estado.
  */
-export function useOnboarding() {
-  const [paso, setPaso] = useState(0);
-  const [tipoTitular, setTipoTitular] = useState<TipoTitular>("negocio");
-  const [nombreTitular, setNombreTitular] = useState("");
-  const [tipoUso, setTipoUso] = useState<TipoUsoId>("consultorio");
+export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
   /** nombre del tipo de evento → duración y precio elegidos. Sólo los seleccionados. */
-  const [elegidos, setElegidos] = useState<Record<string, DatosEvento>>({});
+  const [elegidos, setElegidos] = useState<Record<string, DatosEvento>>(() =>
+    Object.fromEntries(
+      inicial.map(({ nombre, duracionMin, precio }) => [
+        nombre,
+        precio === undefined ? { duracionMin } : { duracionMin, precio },
+      ]),
+    ),
+  );
   const [personalizado, setPersonalizado] = useState("");
-  const [horaDesde, setHoraDesde] = useState("09:00");
-  const [horaHasta, setHoraHasta] = useState("18:00");
-  const [nombreBot, setNombreBot] = useState("");
-
-  const elegirTipoUso = useCallback((id: TipoUsoId) => {
-    setTipoUso(id);
-    // Los tipos de evento son sugerencias del tipo de uso: cambiarlo los reinicia.
-    setElegidos({});
-  }, []);
 
   const alternarEvento = useCallback((nombre: string, duracionMin: number) => {
     setElegidos((previos) => {
@@ -163,11 +157,6 @@ export function useOnboarding() {
     setPersonalizado("");
   }, [personalizado]);
 
-  const elegirPreset = useCallback((desde: string, hasta: string) => {
-    setHoraDesde(desde);
-    setHoraHasta(hasta);
-  }, []);
-
   /** Sugerencias del tipo de uso más los tipos propios que agregó el usuario. */
   const eventos = useMemo(() => {
     const sugeridos = CATALOGO_EVENTOS[tipoUso];
@@ -185,6 +174,54 @@ export function useOnboarding() {
       ),
     [elegidos],
   );
+
+  return {
+    elegidos,
+    setElegidos,
+    eventos,
+    seleccionados,
+    alternarEvento,
+    fijarDuracion,
+    fijarPrecio,
+    fijarPrecioATodos,
+    personalizado,
+    setPersonalizado,
+    agregarPersonalizado,
+    tiposLlenos: seleccionados.length >= MAX_TIPOS_EVENTO,
+  };
+}
+
+/** Lo que consumen los controles de tipos de evento, sea del wizard o de /reuniones. */
+export type TiposEventoState = ReturnType<typeof useTiposEvento>;
+
+/**
+ * Estado del wizard de /contanos. Lo comparten el layout de escritorio y el
+ * de móvil, que muestran los mismos cinco datos con distinto envoltorio.
+ */
+export function useOnboarding() {
+  const [paso, setPaso] = useState(0);
+  const [tipoTitular, setTipoTitular] = useState<TipoTitular>("negocio");
+  const [nombreTitular, setNombreTitular] = useState("");
+  const [tipoUso, setTipoUso] = useState<TipoUsoId>("consultorio");
+  const [horaDesde, setHoraDesde] = useState("09:00");
+  const [horaHasta, setHoraHasta] = useState("18:00");
+  const [nombreBot, setNombreBot] = useState("");
+  const tipos = useTiposEvento(tipoUso);
+  const { seleccionados, setElegidos } = tipos;
+
+  const elegirTipoUso = useCallback(
+    (id: TipoUsoId) => {
+      setTipoUso(id);
+      // Los tipos de evento son sugerencias del tipo de uso: cambiarlo los reinicia.
+      setElegidos({});
+    },
+    [setElegidos],
+  );
+
+  const elegirPreset = useCallback((desde: string, hasta: string) => {
+    setHoraDesde(desde);
+    setHoraHasta(hasta);
+  }, []);
 
   const rangoValido = horaDesde < horaHasta;
 
@@ -224,17 +261,7 @@ export function useOnboarding() {
     setNombreTitular,
     tipoUso,
     elegirTipoUso,
-    eventos,
-    elegidos,
-    seleccionados,
-    alternarEvento,
-    fijarDuracion,
-    fijarPrecio,
-    fijarPrecioATodos,
-    personalizado,
-    setPersonalizado,
-    agregarPersonalizado,
-    tiposLlenos: seleccionados.length >= MAX_TIPOS_EVENTO,
+    ...tipos,
     horaDesde,
     setHoraDesde,
     horaHasta,

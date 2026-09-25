@@ -1,9 +1,14 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import type { User } from '../generated/prisma/client.js';
 import { AgentsService } from './agents.service.js';
-import { aAgentPublico, GenerateAgentDto, type AgentPublico } from './agents.types.js';
+import {
+  aAgentPublico,
+  ActualizarTiposEventoDto,
+  GenerateAgentDto,
+  type AgentPublico,
+} from './agents.types.js';
 
 @Controller('agents')
 @UseGuards(JwtAuthGuard)
@@ -20,6 +25,16 @@ export class AgentsController {
   @Post('generate')
   async generate(@CurrentUser() user: User, @Body() dto: GenerateAgentDto): Promise<AgentPublico> {
     const agent = await this.agentsService.generate(user.id, dto);
+    return aAgentPublico(agent);
+  }
+
+  /** Edita reuniones (nombre, duración, precio) sin repetir el onboarding. */
+  @Put('me/tipos-evento')
+  async actualizarTiposEvento(
+    @CurrentUser() user: User,
+    @Body() dto: ActualizarTiposEventoDto,
+  ): Promise<AgentPublico> {
+    const agent = await this.agentsService.actualizarTiposEvento(user.id, dto.tiposEvento);
     return aAgentPublico(agent);
   }
 }
