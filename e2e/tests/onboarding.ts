@@ -2,8 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { visible, type PayloadAgente, type TipoEvento } from './fixtures';
 
 /** Etiquetas de la grilla de tipo de uso (web/src/app/contanos/useOnboarding.ts). */
-const ETIQUETA_USO: Record<PayloadAgente['tipoUso'], string> = {
-  comercio: 'Comercio',
+const ETIQUETA_USO: Record<Exclude<PayloadAgente['tipoUso'], 'comercio'>, string> = {
   consultorio: 'Consultorio',
   reuniones: 'Reuniones',
   visitas: 'Visitas',
@@ -11,13 +10,10 @@ const ETIQUETA_USO: Record<PayloadAgente['tipoUso'], string> = {
   otro: 'Otro',
 };
 
-/** Orden en que cicla el pill de duración. */
-const DURACIONES = [15, 20, 30, 45, 60, 90];
-
 export type PerfilWizard = {
   tipoTitular: 'persona' | 'negocio';
   nombreTitular: string;
-  tipoUso: PayloadAgente['tipoUso'];
+  tipoUso: Exclude<PayloadAgente['tipoUso'], 'comercio'>;
   /** Tipos sugeridos del catálogo a activar, con la duración por defecto. */
   sugeridos?: TipoEvento[];
   /** Tipos propios a agregar (arrancan en 30 min) con la duración final deseada. */
@@ -75,12 +71,18 @@ export function tarjetaEvento(page: Page, nombre: string): Locator {
   return visible(page.locator('div[role="button"]').filter({ has: page.getByText(nombre, { exact: true }) }));
 }
 
-/** Clickea el pill de duración hasta llegar a la deseada. */
-async function ajustarDuracion(page: Page, nombre: string, desde: number, hasta: number): Promise<void> {
-  const clics = (DURACIONES.indexOf(hasta) - DURACIONES.indexOf(desde) + DURACIONES.length) % DURACIONES.length;
-  const pill = tarjetaEvento(page, nombre).locator('span[role="button"]');
-  for (let i = 0; i < clics; i++) await pill.click();
-  await expect(pill).toHaveAttribute('aria-label', `Duración de ${nombre}: ${hasta} min`);
+/** Elige la duración con su chip (visible mientras el tipo está activado). */
+async function elegirDuracion(page: Page, nombre: string, minutos: number): Promise<void> {
+  const chip = visible(page.getByRole('button', { name: `Duración de ${nombre}: ${minutos} min`, exact: true }));
+  await chip.click();
+  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+}
+
+/** Escribe el precio en pesos en el campo del tipo de evento. */
+async function ponerPrecio(page: Page, nombre: string, precio: number): Promise<void> {
+  const campo = visible(page.getByLabel(`Precio de ${nombre}`, { exact: true }));
+  await campo.fill(String(precio));
+  await expect(campo).toHaveValue(new Intl.NumberFormat('es-AR').format(precio));
 }
 
 /** Paso "Tipos de evento": activa sugeridos y agrega propios. Lo comparten escritorio y móvil. */
@@ -88,12 +90,15 @@ export async function cargarTiposDeEvento(page: Page, perfil: PerfilWizard): Pro
   for (const tipo of perfil.sugeridos ?? []) {
     await tarjetaEvento(page, tipo.nombre).click();
     await expect(tarjetaEvento(page, tipo.nombre)).toHaveAttribute('aria-pressed', 'true');
+    await elegirDuracion(page, tipo.nombre, tipo.duracionMin);
+    if (tipo.precio !== undefined) await ponerPrecio(page, tipo.nombre, tipo.precio);
   }
   for (const tipo of perfil.propios ?? []) {
     await campoNuevoTipo(page).fill(tipo.nombre);
     await visible(page.getByRole('button', { name: 'Agregar', exact: true })).click();
     await expect(tarjetaEvento(page, tipo.nombre)).toHaveAttribute('aria-pressed', 'true');
-    await ajustarDuracion(page, tipo.nombre, 30, tipo.duracionMin);
+    await elegirDuracion(page, tipo.nombre, tipo.duracionMin);
+    if (tipo.precio !== undefined) await ponerPrecio(page, tipo.nombre, tipo.precio);
   }
 }
 

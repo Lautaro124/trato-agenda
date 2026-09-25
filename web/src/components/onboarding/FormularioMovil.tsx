@@ -10,6 +10,7 @@ import {
   ChipsTitular,
   GrillaTiposUso,
   ListaEventos,
+  PrecioParaTodos,
   PresetsFranja,
   PreviewSaludo,
   SelectoresFranja,
@@ -57,6 +58,7 @@ export function FormularioMovil({
         </Seccion>
 
         <Seccion numero={3} titulo="Tipos de evento">
+          <PrecioParaTodos ob={ob} />
           <ListaEventos ob={ob} className="flex flex-col gap-2" />
           <div className="mt-2.5">
             <AgregarEvento ob={ob} />

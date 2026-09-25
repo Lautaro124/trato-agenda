@@ -20,6 +20,20 @@ describe('reglasDeAgenda', () => {
     expect(reglas).toContain('Probador (20 min)');
   });
 
+  it('incluye el precio de los tipos que lo tienen', () => {
+    const conPrecio = {
+      ...AGENT,
+      tiposEvento: [
+        { nombre: 'Probador', duracionMin: 20, precio: 15000 },
+        { nombre: 'Presupuesto', duracionMin: 30 },
+      ],
+    } as unknown as Agent;
+    const reglas = reglasDeAgenda(conPrecio);
+
+    expect(reglas).toContain('Probador (20 min, $ 15.000)');
+    expect(reglas).toContain('Presupuesto (30 min)');
+  });
+
   it('deja afuera sábados y domingos', () => {
     expect(reglasDeAgenda(AGENT)).toContain('de lunes a viernes');
   });
@@ -58,6 +72,13 @@ describe('reglasDeAlcance', () => {
 
     expect(alcance).toContain('nunca los inventes');
     expect(alcance).toContain('consulte directamente con Tienda Centro');
+  });
+
+  it('permite informar el precio cargado y prohíbe inventar o calcular otros', () => {
+    const alcance = reglasDeAlcance(AGENT, false);
+
+    expect(alcance).toContain('lo podés informar tal cual figura');
+    expect(alcance).toContain('Nunca inventes, redondees ni calcules');
   });
 
   it('con el dueño no lo deriva a sí mismo', () => {

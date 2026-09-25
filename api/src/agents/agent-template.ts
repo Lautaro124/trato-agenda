@@ -1,18 +1,19 @@
 import { ACCIONES_IDS, type AccionId } from './agent-catalog.js';
 import type { GenerateAgentDto } from './agents.types.js';
+import { detalleDeTipo } from './precio.js';
 
 /**
  * Versión de la plantilla determinista: subir cuando cambie el texto que
  * genera `construirSystemPrompt`, para poder distinguir con qué versión se
  * generó cada `Agent.templateVersion` ya persistido.
  */
-export const PLANTILLA_VERSION = 1;
+export const PLANTILLA_VERSION = 2;
 
 export type ConfiguracionAgente = { systemPrompt: string; allowedActions: AccionId[] };
 
 function listarTiposEvento(dto: GenerateAgentDto): string {
   return dto.tiposEvento
-    .map((tipo) => `${JSON.stringify(tipo.nombre.trim())} (${tipo.duracionMin} min)`)
+    .map((tipo) => `${JSON.stringify(tipo.nombre.trim())} (${detalleDeTipo(tipo)})`)
     .join(', ');
 }
 
@@ -39,12 +40,12 @@ function construirSystemPrompt(dto: GenerateAgentDto): string {
     `Sos ${bot}, el asistente de WhatsApp de ${titular} (${quien}, tipo de uso: ${dto.tipoUso}). ` +
     `Te presentás como el asistente de ${titular} apenas arranca la charla.\n\n` +
     `Atendé de lunes a viernes de ${dto.horaDesde} a ${dto.horaHasta}. ` +
-    `Tipos de turno que se pueden agendar, con su duración: ${listarTiposEvento(dto)}.\n\n` +
+    `Tipos de turno que se pueden agendar, con su duración y precio cuando lo tienen: ${listarTiposEvento(dto)}.\n\n` +
     `Antes de agendar, preguntá los datos que falten (día, horario, tipo de turno y nombre de la ` +
     `persona) si no te los dijeron. Consultá disponibilidad antes de ofrecer un horario, y pedí ` +
     `confirmación explícita antes de crear, cancelar o reprogramar un turno.\n\n` +
     `Hablá únicamente de la agenda de ${titular}: no inventes precios, dirección ni otros datos del ` +
-    `negocio que no te hayan dado acá, y derivá esas consultas a ${titular}.\n\n` +
+    `negocio que no figuren acá, y derivá esas consultas a ${titular}.\n\n` +
     `Hablá en español rioplatense (voseo), en tono profesional y amable, con mensajes cortos como de ` +
     `WhatsApp.`
   );

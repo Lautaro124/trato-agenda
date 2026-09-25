@@ -150,6 +150,21 @@ describe('construirConfiguracion', () => {
   });
 });
 
+describe('precio en el prompt', () => {
+  it('lista el precio de los tipos que lo tienen y no toca a los que no', () => {
+    const { systemPrompt } = construirConfiguracion(
+      dto({
+        tiposEvento: [
+          { nombre: 'Probador', duracionMin: 20, precio: 15000 },
+          { nombre: 'Presupuesto', duracionMin: 30 },
+        ],
+      }),
+    );
+    expect(systemPrompt).toContain('"Probador" (20 min, $ 15.000)');
+    expect(systemPrompt).toContain('"Presupuesto" (30 min)');
+  });
+});
+
 describe('PLANTILLA_VERSION', () => {
   it('es un número estable exportado para versionar la plantilla', () => {
     expect(typeof PLANTILLA_VERSION).toBe('number');

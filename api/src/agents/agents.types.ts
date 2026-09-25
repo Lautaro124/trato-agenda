@@ -5,6 +5,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsOptional,
   IsString,
   Matches,
   Max,
@@ -15,6 +16,7 @@ import {
 } from 'class-validator';
 import type { Agent } from '../generated/prisma/client.js';
 import { TIPOS_TITULAR, TIPOS_USO, type TipoTitular, type TipoUso } from './agent-catalog.js';
+import { PRECIO_MAX } from './precio.js';
 
 /** "HH:MM" en formato 24hs. */
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -30,6 +32,13 @@ export class TipoEventoDto {
   @Min(5)
   @Max(480)
   duracionMin!: number;
+
+  /** Pesos enteros. Sin precio el asistente deriva la consulta al titular. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(PRECIO_MAX)
+  precio?: number;
 }
 
 export class GenerateAgentDto {
@@ -96,7 +105,7 @@ export function aAgentPublico(agent: Agent): AgentPublico {
   };
 }
 
-export type TipoEvento = { nombre: string; duracionMin: number };
+export type TipoEvento = { nombre: string; duracionMin: number; precio?: number };
 
 /**
  * `Agent.tiposEvento` es una columna Json, así que Prisma la tipa como
@@ -106,8 +115,10 @@ export function leerTiposEvento(agent: Pick<Agent, 'tiposEvento'>): TipoEvento[]
   if (!Array.isArray(agent.tiposEvento)) return [];
   return agent.tiposEvento.flatMap((item) => {
     if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
-    const { nombre, duracionMin } = item as Record<string, unknown>;
+    const { nombre, duracionMin, precio } = item as Record<string, unknown>;
     if (typeof nombre !== 'string' || typeof duracionMin !== 'number') return [];
-    return [{ nombre, duracionMin }];
+    // `precio` es opcional y llega de un Json: uno inválido se descarta, no rompe el tipo de turno.
+    const precioValido = typeof precio === 'number' && Number.isFinite(precio) && precio >= 0;
+    return [precioValido ? { nombre, duracionMin, precio } : { nombre, duracionMin }];
   });
 }

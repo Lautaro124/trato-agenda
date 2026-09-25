@@ -43,7 +43,8 @@ test.describe('borrado de cuenta', () => {
     await crearAgentePorApi(context.request);
 
     await page.goto('/cuenta');
-    await expect(page.getByText(usuarioDev.email)).toBeVisible();
+    // El email también sale en el header: se acota al párrafo de la cuenta.
+    await expect(page.getByText(`Cuenta de ${usuarioDev.email}`)).toBeVisible();
 
     const boton = page.getByRole('button', { name: 'Eliminar mi cuenta y mis datos' });
     await expect(boton).toBeDisabled();

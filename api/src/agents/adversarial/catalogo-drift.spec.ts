@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACCIONES_IDS, TIPOS_TITULAR, TIPOS_USO } from '../agent-catalog.js';
+import { ACCIONES_IDS, TIPOS_TITULAR, TIPOS_USO, TIPOS_USO_RETIRADOS } from '../agent-catalog.js';
 
 /**
  * `agent-catalog.ts` documenta ser la fuente del catálogo, pero el wizard web
@@ -28,7 +28,9 @@ describe('catálogo de tipos de uso: api/ vs web/ (defecto A-021)', () => {
 
     const idsWeb = new Set(extraerIds(bloque!));
     // Compara como conjuntos: el orden no importa, la existencia de cada id sí.
-    expect(idsWeb).toEqual(new Set(TIPOS_USO));
+    // Los retirados del wizard siguen en la API a propósito (agentes ya guardados).
+    expect(new Set([...idsWeb, ...TIPOS_USO_RETIRADOS])).toEqual(new Set(TIPOS_USO));
+    for (const id of TIPOS_USO_RETIRADOS) expect(idsWeb.has(id)).toBe(false);
   });
 
   it('TIPOS_TITULAR y ACCIONES_IDS no están duplicados en ningún otro archivo del backend (sanity del propio catálogo)', () => {
