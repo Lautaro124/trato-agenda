@@ -72,6 +72,16 @@ export class GenerateAgentDto {
   nombreBot!: string;
 }
 
+/** Body de `PUT /agents/me/tipos-evento`: reemplaza la lista entera de tipos de turno. */
+export class ActualizarTiposEventoDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => TipoEventoDto)
+  tiposEvento!: TipoEventoDto[];
+}
+
 /** Vista pública del agente: nunca incluye el systemPrompt (config interna del bot). */
 export type AgentPublico = Pick<
   Agent,

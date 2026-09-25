@@ -30,12 +30,17 @@ const CINCO_PROPIOS = {
 describe('POST /agents/generate', () => {
   let app: INestApplication;
   let upsert: ReturnType<typeof vi.fn>;
+  let update: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     upsert = vi.fn().mockImplementation(({ create }: { create: Record<string, unknown> }) =>
       Promise.resolve({ id: 'agent-1', createdAt: new Date(), updatedAt: new Date(), ...create }),
     );
-    const prisma = { agent: { upsert } } as unknown as PrismaService;
+    update = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({ id: 'agent-1', createdAt: new Date(), updatedAt: new Date(), ...CINCO_PROPIOS, ...data }),
+    );
+    const findUnique = vi.fn().mockResolvedValue({ id: 'agent-1', ...CINCO_PROPIOS });
+    const prisma = { agent: { upsert, update, findUnique } } as unknown as PrismaService;
 
     const modulo = await Test.createTestingModule({
       controllers: [AgentsController],
@@ -100,5 +105,24 @@ describe('POST /agents/generate', () => {
     await request(app.getHttpServer()).post('/agents/generate').send(CINCO_PROPIOS).expect(201);
 
     expect(upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('PUT /agents/me/tipos-evento actualiza los tipos y no expone el systemPrompt', async () => {
+    const tiposEvento = [{ nombre: 'Consulta', duracionMin: 45, precio: 20000 }];
+
+    const res = await request(app.getHttpServer()).put('/agents/me/tipos-evento').send({ tiposEvento }).expect(200);
+
+    expect(res.body.tiposEvento).toEqual(tiposEvento);
+    expect(res.body).not.toHaveProperty('systemPrompt');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'user-1' } }));
+  });
+
+  it.each([
+    ['lista vacía', []],
+    ['duración menor a 5', [{ nombre: 'Consulta', duracionMin: 4 }]],
+    ['precio negativo', [{ nombre: 'Consulta', duracionMin: 30, precio: -1 }]],
+  ])('PUT /agents/me/tipos-evento con %s da 400', async (_caso, tiposEvento) => {
+    await request(app.getHttpServer()).put('/agents/me/tipos-evento').send({ tiposEvento }).expect(400);
+    expect(update).not.toHaveBeenCalled();
   });
 });
