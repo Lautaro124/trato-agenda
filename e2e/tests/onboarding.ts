@@ -66,16 +66,28 @@ export function campoNuevoTipo(page: Page): Locator {
   return visible(page.getByLabel('Nuevo tipo de evento'));
 }
 
-/** Una tarjeta de tipo de evento (div role=button) por su nombre visible. */
+/** El botón que tilda un tipo de evento (lleva aria-pressed), por su nombre. */
 export function tarjetaEvento(page: Page, nombre: string): Locator {
-  return visible(page.locator('div[role="button"]').filter({ has: page.getByText(nombre, { exact: true }) }));
+  return visible(page.getByRole('button', { name: nombre, exact: true }));
 }
 
-/** Elige la duración con su chip (visible mientras el tipo está activado). */
-async function elegirDuracion(page: Page, nombre: string, minutos: number): Promise<void> {
-  const chip = visible(page.getByRole('button', { name: `Duración de ${nombre}: ${minutos} min`, exact: true }));
-  await chip.click();
-  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+/** El selector − / + de duración de un tipo activado. */
+export function selectorDuracion(page: Page, nombre: string): Locator {
+  return visible(page.getByRole('group', { name: `Duración de ${nombre}`, exact: true }));
+}
+
+/** Aprieta − o + hasta que el tipo de evento dure `minutos`. */
+export async function elegirDuracion(page: Page, nombre: string, minutos: number): Promise<void> {
+  const selector = selectorDuracion(page, nombre);
+  const valor = selector.locator('output');
+  // DURACIONES tiene 6 valores: de punta a punta son 5 pasos.
+  for (let i = 0; i < 6; i++) {
+    const actual = Number.parseInt((await valor.textContent()) ?? '', 10);
+    if (actual === minutos) break;
+    await selector.getByRole('button', { name: actual < minutos ? 'Más tiempo' : 'Menos tiempo' }).click();
+    await expect(valor).not.toHaveText(`${actual} min`);
+  }
+  await expect(valor).toHaveText(`${minutos} min`);
 }
 
 /** Escribe el precio en pesos en el campo del tipo de evento. */

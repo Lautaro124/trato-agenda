@@ -135,11 +135,11 @@ export function WizardEscritorio({
               ¿Qué tipos de evento tomás?
             </h1>
             <p className="mb-4 text-sm leading-[1.6] text-ink-secondary text-pretty">
-              Sugerencias para <strong className="font-semibold">{usoElegido}</strong>. Activá los que
-              tomás y elegí la duración y, si querés, el precio.
+              Sugerencias para <strong className="font-semibold">{usoElegido}</strong>. Tildá los que
+              tomás; la duración y el precio se ajustan en la misma fila.
             </p>
             <PrecioParaTodos ob={ob} />
-            <ListaEventos ob={ob} className="grid grid-cols-2 gap-2" />
+            <ListaEventos ob={ob} />
             <div className="mt-4">
               <AgregarEvento ob={ob} />
             </div>

@@ -54,8 +54,19 @@ export const CATALOGO_EVENTOS: Record<TipoUsoId, TipoEvento[]> = {
   otro: [],
 };
 
-/** Duraciones que se ofrecen como chips en cada tipo de evento activado. */
+/** Duraciones que recorre el selector − / + de cada tipo de evento activado. */
 export const DURACIONES = [15, 20, 30, 45, 60, 90];
+
+/**
+ * La duración de `DURACIONES` que sigue (`1`) o precede (`-1`) a `actual`;
+ * `undefined` en los extremos. Una duración fuera de la lista (un agente viejo
+ * con 50 min) salta al vecino más cercano en ese sentido.
+ */
+export function duracionVecina(actual: number, sentido: 1 | -1): number | undefined {
+  return sentido === 1
+    ? DURACIONES.find((min) => min > actual)
+    : DURACIONES.findLast((min) => min < actual);
+}
 
 /** Límites de GenerateAgentDto (api/src/agents/agents.types.ts): superarlos es un 400. */
 export const MAX_TIPOS_EVENTO = 20;
