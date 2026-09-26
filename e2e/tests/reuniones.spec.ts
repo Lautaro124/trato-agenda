@@ -1,5 +1,5 @@
 import { agenteActual, crearAgentePorApi, eventosProximos, expect, horaBA, test } from './fixtures';
-import { tarjetaEvento } from './onboarding';
+import { elegirDuracion, selectorDuracion, tarjetaEvento } from './onboarding';
 
 test.describe('editar reuniones después del onboarding', () => {
   test('cambia duración y precio, persiste y el asistente lo usa en el próximo turno', async ({ page, context, usuarioDev }) => {
@@ -14,7 +14,7 @@ test.describe('editar reuniones después del onboarding', () => {
     const guardar = page.getByRole('button', { name: 'Guardar cambios' });
     await expect(guardar).toBeDisabled();
 
-    await page.getByRole('button', { name: 'Duración de Control: 45 min', exact: true }).click();
+    await elegirDuracion(page, 'Control', 45);
     await page.getByLabel('Precio de Control', { exact: true }).fill('15000');
     await expect(guardar).toBeEnabled();
     await guardar.click();
@@ -27,10 +27,7 @@ test.describe('editar reuniones después del onboarding', () => {
 
     // Recargar muestra lo guardado.
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Duración de Control: 45 min', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    await expect(selectorDuracion(page, 'Control').locator('output')).toHaveText('45 min');
     await expect(page.getByLabel('Precio de Control', { exact: true })).toHaveValue('15.000');
 
     // El asistente agenda con la duración nueva.

@@ -3,9 +3,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { formatearPrecio, leerPrecio, precioParaInput } from "@/lib/precio";
+import { leerPrecio, precioParaInput } from "@/lib/precio";
 import {
-  DURACIONES,
   HORAS,
   LARGO_MAX_BOT,
   LARGO_MAX_NOMBRE_EVENTO,
@@ -14,6 +13,7 @@ import {
   PRESETS_FRANJA,
   SUGERENCIAS_BOT,
   TIPOS_USO,
+  duracionVecina,
   type Onboarding,
   type TiposEventoState,
 } from "@/app/contanos/useOnboarding";
@@ -122,69 +122,106 @@ function CampoPrecio({
   );
 }
 
-export function ListaEventos({ ob, className }: { ob: TiposEventoState; className?: string }) {
+/** − duración + de un tipo activado: recorre `DURACIONES` y se traba en los extremos. */
+function SelectorDuracion({
+  nombre,
+  duracion,
+  onChange,
+}: {
+  nombre: string;
+  duracion: number;
+  onChange: (min: number) => void;
+}) {
+  const menos = duracionVecina(duracion, -1);
+  const mas = duracionVecina(duracion, 1);
+  const boton =
+    "grid size-10 cursor-pointer place-items-center text-[18px] leading-none text-ink-secondary disabled:cursor-not-allowed disabled:text-line-strong sm:size-8 sm:text-[16px]";
   return (
-    <div className={className ?? "grid grid-cols-1 gap-2 sm:grid-cols-2"}>
+    <div
+      role="group"
+      aria-label={`Duración de ${nombre}`}
+      className="flex flex-none items-center self-start rounded-sm border border-line bg-card sm:self-auto"
+    >
+      <button
+        type="button"
+        aria-label="Menos tiempo"
+        disabled={menos === undefined}
+        onClick={() => menos !== undefined && onChange(menos)}
+        className={boton}
+      >
+        −
+      </button>
+      <output aria-live="polite" className="min-w-[60px] text-center font-mono text-[13px] font-semibold text-ink">
+        {duracion} min
+      </output>
+      <button
+        type="button"
+        aria-label="Más tiempo"
+        disabled={mas === undefined}
+        onClick={() => mas !== undefined && onChange(mas)}
+        className={boton}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Un tipo de evento por fila. Tildarlo muestra la duración y el precio en la
+ * misma fila (debajo en móvil), así la lista no salta al activar uno.
+ */
+export function ListaEventos({ ob }: { ob: TiposEventoState }) {
+  return (
+    <div className="flex flex-col gap-1.5">
       {ob.eventos.map((evento) => {
         const datos = ob.elegidos[evento.nombre];
         const activo = Boolean(datos);
         const duracion = datos?.duracionMin ?? evento.duracionMin;
-        // Si el tipo trae una duración fuera de los chips, se muestra igual para poder verla elegida.
-        const opciones = DURACIONES.includes(duracion) ? DURACIONES : [...DURACIONES, duracion].sort((a, b) => a - b);
         return (
           <div
             key={evento.nombre}
             className={cn(
-              "rounded-sm border",
-              activo ? "col-span-full border-primary bg-primary-subtle" : "border-line bg-card hover:border-line-strong",
+              "flex flex-col gap-2.5 rounded-sm border px-[13px] py-[9px] sm:flex-row sm:items-center",
+              activo ? "border-primary bg-primary-subtle" : "border-line bg-card hover:border-line-strong",
             )}
           >
-            <div
-              role="button"
-              tabIndex={0}
+            <button
+              type="button"
               aria-pressed={activo}
               onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  ob.alternarEvento(evento.nombre, evento.duracionMin);
-                }
-              }}
-              className="flex cursor-pointer items-center justify-between gap-2.5 px-[13px] py-[11px] select-none"
+              className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left select-none"
             >
-              <span className="text-[14px] text-ink">{evento.nombre}</span>
               <span
+                aria-hidden
                 className={cn(
-                  "rounded-full px-[9px] py-[3px] font-mono text-[11.5px] font-semibold",
-                  activo ? "bg-primary text-primary-on" : "bg-sunken text-muted",
+                  "grid size-[18px] flex-none place-items-center rounded-[6px] border",
+                  activo ? "border-primary bg-primary text-primary-on" : "border-line-strong bg-card",
                 )}
               >
-                {activo && datos.precio !== undefined
-                  ? `${duracion} min · ${formatearPrecio(datos.precio)}`
-                  : `${duracion} min`}
+                {activo && (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                )}
               </span>
-            </div>
+              <span className={cn("min-w-0 flex-1 text-[14px] break-words text-ink", activo && "font-semibold")}>
+                {evento.nombre}
+              </span>
+              {!activo && (
+                <span aria-hidden className="flex-none rounded-full bg-sunken px-[9px] py-[3px] font-mono text-[11.5px] font-semibold text-muted">
+                  {duracion} min
+                </span>
+              )}
+            </button>
             {activo && (
-              <div className="flex flex-col gap-3 border-t border-primary/20 px-[13px] pt-3 pb-[13px]">
-                <div>
-                  <div className="mb-1.5 text-[12px] font-semibold text-ink-secondary">Duración</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {opciones.map((min) => (
-                      <button
-                        key={min}
-                        type="button"
-                        aria-pressed={min === duracion}
-                        aria-label={`Duración de ${evento.nombre}: ${min} min`}
-                        onClick={() => ob.fijarDuracion(evento.nombre, min)}
-                        className={chip(min === duracion)}
-                      >
-                        {min} min
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div className="mb-1.5 text-[12px] font-semibold text-ink-secondary">Precio (opcional)</div>
+              <div className="flex items-center gap-2">
+                <SelectorDuracion
+                  nombre={evento.nombre}
+                  duracion={duracion}
+                  onChange={(min) => ob.fijarDuracion(evento.nombre, min)}
+                />
+                <div className="min-w-0 flex-1 sm:w-[130px] sm:flex-none">
                   <CampoPrecio
                     valor={datos.precio}
                     onChange={(precio) => ob.fijarPrecio(evento.nombre, precio)}
