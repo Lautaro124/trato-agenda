@@ -73,5 +73,11 @@
     "typescript": "^6.0.2",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^4.1.2"
+  },
+  "overrides": {
+    "undici": "^6.29.0",
+    "mysql2": "^3.24.4",
+    "deepmerge-ts": "^8.0.2",
+    "tmp": "^0.2.6"
   }
 }

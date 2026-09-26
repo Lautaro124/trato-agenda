@@ -1,0 +1,195 @@
+# Seguridad: dependencias vulnerables, análisis estático (CodeQL), secretos
+# filtrados, vulnerabilidades de las imágenes y lint de los propios workflows.
+# Corre en cada PR, en cada push a main y una vez por semana, porque aparecen
+# CVEs nuevos sobre dependencias que no cambiaron.
+name: Seguridad
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Lunes 06:17 UTC (03:17 en Argentina). Minuto no redondo a propósito.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  npm-audit:
+    name: npm audit (${{ matrix.paquete }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        paquete: [api, web, e2e]
+    defaults:
+      run:
+        working-directory: ${{ matrix.paquete }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Dependencias de producción (falla desde moderate)
+        # Lo que viaja en la imagen: acá no se tolera nada relevante.
+        run: npm audit --package-lock-only --omit=dev --audit-level=moderate
+
+      - name: Todas las dependencias (falla desde high)
+        # Las de desarrollo corren en la máquina de quien desarrolla y en CI.
+        run: npm audit --package-lock-only --audit-level=high
+
+      - name: Firmas de los paquetes del registry
+        # Verifica las firmas y atestaciones de procedencia de lo que npm baja.
+        run: |
+          npm ci --ignore-scripts
+          npm audit signatures
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: javascript-typescript, actions
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - api/src/generated
+              - '**/node_modules'
+
+      - name: Analizar
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          category: /language:javascript-typescript
+
+  secretos:
+    name: Secretos filtrados (TruffleHog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (historial completo)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: TruffleHog
+        # En PRs y pushes escanea sólo los commits nuevos; en el cron, todo el
+        # historial. Falla con credenciales verificadas o no verificables.
+        uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
+        with:
+          extra_args: --results=verified,unknown
+
+  dependency-review:
+    name: Dependencias nuevas del PR
+    # Necesita el Dependency graph del repo (Settings → Code security), que no
+    # viene prendido: sin él la action falla con "not supported". Se prende
+    # junto con la variable de repo DEPENDENCY_REVIEW=on (Settings → Secrets
+    # and variables → Actions → Variables); hasta entonces el job se saltea.
+    if: github.event_name == 'pull_request' && vars.DEPENDENCY_REVIEW == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Revisar dependencias que agrega el PR
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          # Licencias que obligarían a liberar el código del producto.
+          deny-licenses: AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later
+          comment-summary-in-pr: on-failure
+
+  imagenes:
+    name: Vulnerabilidades de la imagen (${{ matrix.servicio }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        servicio: [api, web]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build de la etapa prod
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.servicio }}
+          target: prod
+          push: false
+          load: true
+          tags: trato-${{ matrix.servicio }}:scan
+          cache-from: type=gha,scope=${{ matrix.servicio }}
+
+      - name: Escanear con Grype
+        id: grype
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: trato-${{ matrix.servicio }}:scan
+          # Sólo lo que tiene arreglo publicado: lo demás no es accionable.
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: true
+          output-format: sarif
+
+      - name: Subir resultados a Code scanning
+        if: always() && steps.grype.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: imagen-${{ matrix.servicio }}
+
+  workflows:
+    name: Lint de workflows (actionlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        # Script de descarga fijado al mismo commit que la versión que baja.
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -color

@@ -1,0 +1,236 @@
+# CI: lint, tipos, tests y build de cada paquete, las imágenes de producción
+# y los E2E de Playwright contra el stack de docker compose.
+#
+# Convenciones (valen para todos los workflows del repo):
+# - Actions de terceros fijadas por SHA de commit, con la versión en comentario:
+#   un tag se puede mover, un SHA no. Dependabot las actualiza (ver dependabot.yml).
+# - `permissions` mínimos arriba; un job que necesita más lo pide él.
+# - `persist-credentials: false`: el token del checkout no queda en .git/config.
+# - Todo job tiene `timeout-minutes`, para que un cuelgue no queme 6 horas.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: 24
+  # Sin telemetría ni avisos de actualización en los logs.
+  NEXT_TELEMETRY_DISABLED: 1
+  NPM_CONFIG_UPDATE_NOTIFIER: false
+
+jobs:
+  api:
+    name: API (lint, tipos, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Generar el cliente de Prisma
+        run: npx prisma generate
+
+      - name: Validar el schema de Prisma
+        run: npx prisma validate
+
+      - name: Lint (oxlint)
+        run: npm run lint
+
+      - name: Tipos
+        # tsconfig.build.json: el código que va a producción. Los specs se
+        # chequean al correr con vitest.
+        run: npx tsc --noEmit -p tsconfig.build.json
+
+      - name: Tests (vitest)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  web:
+    name: Web (lint, tipos, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Tipos
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+  e2e-tipos:
+    name: E2E (tipos)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Tipos
+        run: npm run typecheck
+
+  docker:
+    name: Imagen de producción (${{ matrix.servicio }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        servicio: [api, web]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build de la etapa prod
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.servicio }}
+          target: prod
+          push: false
+          load: true
+          tags: trato-${{ matrix.servicio }}:ci
+          cache-from: type=gha,scope=${{ matrix.servicio }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.servicio }}
+
+      - name: La imagen no corre como root
+        env:
+          IMAGEN: trato-${{ matrix.servicio }}:ci
+        run: |
+          usuario="$(docker run --rm --entrypoint id "$IMAGEN" -un)"
+          echo "Usuario de la imagen: $usuario"
+          test "$usuario" != "root"
+
+  e2e:
+    name: E2E (Playwright)
+    needs: [api, web, e2e-tipos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      COMPOSE: docker compose -p trato-e2e -f docker-compose.yml -f docker-compose.e2e.yml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: api/.env descartable
+        # El compose exige api/.env. En CI se arma con valores de mentira
+        # generados en el momento: el override de e2e pisa OpenRouter y prende
+        # el login dev, y ningún test habla con Google ni con Mercado Pago.
+        run: |
+          umask 077
+          {
+            echo "GOOGLE_CLIENT_ID=ci-no-usa-google"
+            echo "GOOGLE_CLIENT_SECRET=ci-no-usa-google"
+            echo "GOOGLE_CALLBACK_URL=http://localhost:4000/auth/google/callback"
+            echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "TOKEN_ENCRYPTION_KEY=$(openssl rand -hex 32)"
+            echo "FRONTEND_URL=http://localhost:3000"
+          } > api/.env
+
+      - name: Levantar el stack
+        run: $COMPOSE up --build -d
+
+      - name: Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Instalar dependencias y Chromium
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Correr los E2E
+        working-directory: e2e
+        env:
+          CI: 'true'
+        # global-setup.ts espera a que la API, el front y el stub respondan.
+        run: npm run e2e
+
+      - name: Logs del stack
+        if: failure()
+        run: $COMPOSE logs --no-color --tail=300
+
+      - name: Reporte de Playwright
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 7
+
+      - name: Bajar el stack
+        if: always()
+        run: $COMPOSE down -v
