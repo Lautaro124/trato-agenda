@@ -20,6 +20,14 @@ RUN npx prisma generate && npm run build && npm prune --omit=dev
 FROM node:24-alpine AS prod
 WORKDIR /app
 ENV NODE_ENV=production
+# El runtime sólo necesita `node`. npm, npx, corepack y yarn vienen en la imagen
+# base y traen sus propias dependencias (tar, brace-expansion, ip-address...)
+# con CVEs que el scan de imágenes marca: afuera, y de paso los paquetes del
+# sistema al día.
+RUN apk upgrade --no-cache \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 # Los archivos quedan de root (sólo lectura para el proceso) y el proceso corre
 # como el usuario sin privilegios que ya trae la imagen: si alguien toma el
 # proceso, no puede reescribir el código ni instalar nada en el contenedor.
@@ -34,5 +42,6 @@ EXPOSE 4000
 # (Railway y compañía) la base arranca vacía y nadie entra a correr
 # `prisma migrate deploy`. Es idempotente, así que repetirlo no molesta.
 # Por eso el CLI de prisma vive en `dependencies` y no en `devDependencies`:
-# `npm prune --omit=dev` se lo llevaría.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+# `npm prune --omit=dev` se lo llevaría. Se llama directo y no con `npx`, que
+# ya no está en la imagen.
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/main"]

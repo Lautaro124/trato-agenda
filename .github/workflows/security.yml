@@ -106,7 +106,11 @@ jobs:
 
   dependency-review:
     name: Dependencias nuevas del PR
-    if: github.event_name == 'pull_request'
+    # Necesita el Dependency graph del repo (Settings → Code security), que no
+    # viene prendido: sin él la action falla con "not supported". Se prende
+    # junto con la variable de repo DEPENDENCY_REVIEW=on (Settings → Secrets
+    # and variables → Actions → Variables); hasta entonces el job se saltea.
+    if: github.event_name == 'pull_request' && vars.DEPENDENCY_REVIEW == 'on'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

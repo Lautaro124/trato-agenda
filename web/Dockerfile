@@ -28,6 +28,14 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
+# El runtime sólo necesita `node`. npm, npx, corepack y yarn vienen en la imagen
+# base y traen sus propias dependencias (tar, brace-expansion, ip-address...)
+# con CVEs que el scan de imágenes marca: afuera, y de paso los paquetes del
+# sistema al día.
+RUN apk upgrade --no-cache \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 # Sin root: el código queda de root (sólo lectura) y sólo .next es de `node`,
 # porque ahí escribe el cache de next/image (las fotos de perfil de Google).
 COPY --from=build /app/.next/standalone ./
