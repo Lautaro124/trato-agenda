@@ -29,7 +29,9 @@ const preferencias = new Map(); // id → preferencia
 const pagos = new Map(); // id → pago
 let llamadas = [];
 let siguienteUsuario = 777000;
-let siguientePago = 9000000;
+// Como en Mercado Pago, un id de pago no se repite nunca, tampoco entre
+// reinicios del stub: la API lo guarda en una columna única (Venta.mpPaymentId).
+let siguientePago = Date.now();
 
 function responder(res, status, cuerpo, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
@@ -86,7 +88,10 @@ async function notificar(pago, preferencia) {
     });
     llamadas.push({ tipo: 'webhook', url: url.toString(), status: res.status });
   } catch (error) {
-    llamadas.push({ tipo: 'webhook', url: url.toString(), error: String(error) });
+    // El detalle va a la consola del stub; /__llamadas sólo expone que falló
+    // (nada de mensajes ni stack traces en una respuesta HTTP).
+    console.error('No se pudo entregar el webhook:', error);
+    llamadas.push({ tipo: 'webhook', url: url.toString(), error: 'no se pudo entregar' });
   }
 }
 
