@@ -202,7 +202,8 @@ export class VentasService {
       if (!hayStock(variante, item.cantidad, reservadas.get(variante.id) ?? 0)) {
         const nombre = `${variante.nombreProducto}${variante.nombre ? ` (${variante.nombre})` : ''}`;
         throw new PedidoRechazadoError(
-          `No hay stock suficiente de ${JSON.stringify(nombre)} para ${item.cantidad} unidades: ` +
+          `No hay stock suficiente de ${JSON.stringify(nombre)} para ` +
+            `${item.cantidad === 1 ? '1 unidad' : `${item.cantidad} unidades`}: ` +
             `${describirStock(variante, reservadas.get(variante.id) ?? 0)}.`,
         );
       }

@@ -3,6 +3,7 @@ import { CheckpointerService } from '../conversation/checkpointer.provider.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import {
+  DIAS_RETENCION_AVISOS_LEIDOS,
   DIAS_RETENCION_DATOS_CLIENTE,
   DIAS_RETENCION_MENSAJES,
   fechaLimite,
@@ -51,11 +52,13 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
     try {
       const mensajes = await this.purgarMensajes();
       const anonimizadas = await this.anonimizarConversaciones();
+      const ventas = await this.anonimizarVentas();
+      const avisos = await this.purgarAvisos();
       const altas = await this.descartarAltasPendientes();
-      if (mensajes > 0 || anonimizadas > 0 || altas > 0) {
+      if (mensajes > 0 || anonimizadas > 0 || ventas > 0 || avisos > 0 || altas > 0) {
         this.logger.log(
           `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
-            `${altas} altas sin terminar descartadas.`,
+            `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas.`,
         );
       }
     } catch (error) {
@@ -110,6 +113,39 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
         OR: [{ resumen: { not: null } }, { nombreCliente: { not: null } }],
       },
       data: { resumen: null, nombreCliente: null },
+    });
+    return count;
+  }
+
+  /**
+   * Las ventas quedan mientras exista la cuenta (montos, productos y fechas son
+   * el histórico del comercio), pero pasado `DIAS_RETENCION_DATOS_CLIENTE`
+   * desde el pedido pierden el nombre y el teléfono de quien compró.
+   */
+  private async anonimizarVentas(ahora: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.venta.updateMany({
+      where: {
+        createdAt: { lt: fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora) },
+        OR: [{ nombreCliente: { not: null } }, { telefonoCliente: { not: null } }],
+      },
+      data: { nombreCliente: null, telefonoCliente: null },
+    });
+    return count;
+  }
+
+  /**
+   * Los avisos del panel llevan nombres de clientes y el texto de sus
+   * consultas: los leídos se borran a los `DIAS_RETENCION_AVISOS_LEIDOS`, los
+   * que nadie leyó al mismo plazo que el resto de los datos del cliente.
+   */
+  private async purgarAvisos(ahora: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.notificacion.deleteMany({
+      where: {
+        OR: [
+          { leidaAt: { not: null }, createdAt: { lt: fechaLimite(DIAS_RETENCION_AVISOS_LEIDOS, ahora) } },
+          { createdAt: { lt: fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora) } },
+        ],
+      },
     });
     return count;
   }

@@ -37,8 +37,75 @@ Lo que se revisó y está bien: el CSRF por `Origin` más cookies `httpOnly`/`se
 la validación de entorno que rechaza `DEV_LOGIN_PASSWORD` en producción; el
 refresh token cifrado con GCM e IV aleatorio; scrypt con `timingSafeEqual` y
 hash falso para no delatar números; `ValidationPipe` con `whitelist`; los
-eventos locales se buscan siempre por `userId` antes de editar o borrar; no hay
-SQL crudo ni `dangerouslySetInnerHTML`.
+eventos locales se buscan siempre por `userId` antes de editar o borrar; el
+SQL crudo (búsqueda del catálogo, reservas, histórico) va siempre por
+`$queryRaw`/`$executeRaw` con template tags, que parametrizan, y nunca por las
+variantes `Unsafe`; no hay `dangerouslySetInnerHTML`.
+
+## Módulo de ventas (2026-09-26)
+
+Lo que agrega superficie nueva y cómo está cubierto:
+
+- **Webhook de pagos de ventas** (`POST /ventas/webhook`, sin guard como
+  `/suscripcion/webhook`): verifica `x-signature` con `firmaDeWebhookValida`,
+  ignora el cuerpo y vuelve a pedir el pago a Mercado Pago con el token del
+  vendedor dueño de la `Venta`. Sólo la marca pagada si `pagoSaldaVenta`: pago
+  aprobado, `external_reference` igual al id de la venta y **mismo monto y
+  moneda**. Idempotente por `Venta.mpPaymentId` (único) y siempre responde
+  200. Un replay no cambia nada, igual que en el hallazgo 9.
+- **Conciliación** cada 5 minutos (`conciliacion.service.ts`): busca los pagos
+  por `external_reference` de las ventas con link vigente o vencido hace menos
+  de 24 horas y aplica la misma regla. Cubre un webhook perdido o que no pase
+  la firma (ver pendiente abajo).
+- **OAuth de Mercado Pago** (`GET /mercadopago/conectar` → `/callback`): PKCE
+  S256 y `state` aleatorio guardados del lado del servidor por 10 minutos y
+  atados a la sesión que empezó la conexión; un callback con otro usuario o un
+  `state` desconocido se rechaza. Los tokens se guardan cifrados con
+  AES-256-GCM (`encryptToken`), nunca salen del backend ni llegan al modelo, y
+  se renuevan solos cuando les quedan menos de 7 días. Un 401 de Mercado Pago
+  desconecta la cuenta y avisa al dueño. El cuerpo de error de `/oauth/token`
+  no se loguea.
+- **El precio nunca sale del modelo**: `crear_pedido` recibe sólo
+  `varianteId` + `cantidad`; la validación exige que la variante sea del dueño
+  y esté activa, y el total lo calcula el código desde la base.
+- **Reservas**: se toman en una transacción con `SELECT … FOR UPDATE` sobre las
+  variantes, así dos pedidos por la última unidad se serializan
+  (`ventas.db.spec.ts` lo prueba). Topes para que un cliente no bloquee el
+  stock: 2 pedidos pendientes por conversación, 10 renglones, 50 unidades por
+  renglón, 30 minutos con link y 24 horas a coordinar.
+- **Avisos**: `derivar_consulta` tiene un tope de 1 cada 6 horas por
+  conversación y el texto se corta a 300 caracteres; los avisos de stock no se
+  repiten mientras haya uno sin leer.
+- **Export CSV** (`GET /ventas/export.csv`): las celdas que empiezan con `=`,
+  `+`, `-`, `@`, tab o retorno llevan un apóstrofo adelante (CSV injection: el
+  nombre del cliente lo escribe cualquiera por WhatsApp), y la respuesta va con
+  `Cache-Control: no-store`.
+- **Importación**: el límite de cuerpo de 6 MB vale sólo para
+  `POST /productos/importar` (el resto sigue con el de Express), con un tope de
+  5.000 filas. Los Excel se leen en el navegador con `read-excel-file`, no con
+  el paquete `xlsx` de npm (avisos abiertos y sin parches en el registro).
+- **Embeddings**: el texto de cada búsqueda es conversación del cliente, así
+  que `embeddings.client.ts` manda `POLITICA_DE_PROVEEDOR` (ZDR) igual que el
+  resto de las llamadas a OpenRouter.
+- **Autorización**: todo lo de `/productos`, `/ventas` y `/notificaciones`
+  filtra por el `userId` de la sesión (un id ajeno da 404, no el dato).
+- **Retención y baja**: las ventas pierden nombre y teléfono del cliente a los
+  12 meses y los avisos se purgan (leídos a los 90 días, el resto a los 12
+  meses); la baja de cuenta se lleva catálogo, ventas, avisos y tokens de
+  Mercado Pago por cascada (`cuenta.db.spec.ts`).
+
+Pendiente:
+
+- **Firma de las notificaciones de pagos creados con OAuth**: la documentación
+  de Mercado Pago no deja claro si se firman con el secreto de nuestra
+  aplicación. Si no, el webhook las descarta por firma inválida y la venta se
+  registra igual en la próxima conciliación (hasta 5 minutos de demora).
+  Verificarlo con un pago real en sandbox antes de relajar nada.
+- El `state` del OAuth vive en memoria: un reinicio de la API en medio de la
+  conexión obliga a empezarla de nuevo. Aceptable por la réplica única.
+- La baja de cuenta borra los tokens de Mercado Pago pero no revoca la
+  autorización del lado de Mercado Pago; `/privacidad` le dice al vendedor que
+  la quite desde su cuenta.
 
 ## Controles automáticos
 

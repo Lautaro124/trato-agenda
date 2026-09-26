@@ -3,15 +3,21 @@
 Bot de WhatsApp que gestiona turnos por chat, sobre una agenda propia o sobre
 Google Calendar. La cuenta se crea con Google o sólo escaneando el QR de WhatsApp.
 
+Un comercio puede elegir, en cambio, un **asistente de ventas**: busca en su
+catálogo (búsqueda híbrida de texto + embeddings en pgvector), informa precio y
+stock, arma el pedido reservando el stock, manda un link de pago de Mercado Pago
+a nombre del comercio (con OAuth) o deja el cobro a coordinar, avisa al dueño en
+el panel y por WhatsApp, y guarda el histórico de ventas con gráficos y CSV.
+
 Monorepo:
 
 | Carpeta | Qué es |
 | ------- | ------ |
-| `api/` | Backend NestJS 12 + Prisma 7 + Postgres 16. Login real con Google OAuth2 o sólo con WhatsApp (QR + contraseña para el alta, número + contraseña para volver, código al chat propio para recuperarla), sesión en cookie `httpOnly`. Ver [`api/README.md`](api/README.md). |
+| `api/` | Backend NestJS 12 + Prisma 7 + Postgres 16 con pgvector. Login real con Google OAuth2 o sólo con WhatsApp (QR + contraseña para el alta, número + contraseña para volver, código al chat propio para recuperarla), sesión en cookie `httpOnly`. Ver [`api/README.md`](api/README.md). |
 | `web/` | Frontend Next.js 16 (App Router) + React 19 + Tailwind v4. Onboarding: alta con WhatsApp o con Google, y vinculación de WhatsApp por QR. |
-| `e2e/` | Tests end to end con Playwright contra el stack de docker compose, con un OpenRouter falso. Ver [Tests E2E](#tests-e2e-playwright). |
+| `e2e/` | Tests end to end con Playwright contra el stack de docker compose, con un OpenRouter y un Mercado Pago falsos. Ver [Tests E2E](#tests-e2e-playwright). |
 | `docker-compose.yml` | Levanta `db` (:5432), `api` (:4000) y `web` (:3000). |
-| `docker-compose.e2e.yml` | Override para los E2E: suma el OpenRouter falso (:4010) y prende el login de desarrollo. |
+| `docker-compose.e2e.yml` | Override para los E2E: suma el OpenRouter falso (:4010) y el Mercado Pago falso (:4020), y prende el login de desarrollo. |
 
 ## Arrancar
 
@@ -115,19 +121,39 @@ El frontend solo necesita `NEXT_PUBLIC_API_URL`, que sale del `.env` de la raíz
 docker compose exec api npm test    # vitest, todo mockeado
 ```
 
+Los specs `*.db.spec.ts` (búsqueda del catálogo, reservas con `FOR UPDATE`,
+histórico, retención, baja de cuenta) prueban SQL de verdad y corren sólo con
+`TEST_DATABASE_URL` apuntando a una base ya migrada con pgvector; sin ella se
+saltean. En CI la levanta el job de la API. En local, la URL de prueba sale
+del `DATABASE_URL` que el contenedor ya tiene, cambiando sólo el nombre de la
+base:
+
+```bash
+docker compose exec db createdb -U postgres trato_test
+docker compose exec api sh -c 'DATABASE_URL="${DATABASE_URL%/*}/trato_test" npx prisma migrate deploy'
+docker compose exec api sh -c 'TEST_DATABASE_URL="${DATABASE_URL%/*}/trato_test" npm test'
+```
+
 ### Tests E2E (Playwright)
 
 `e2e/` prueba el producto de punta a punta en un browser real: login dev, el
 wizard de `/contanos` en escritorio y en móvil (incluido el perfil con cinco
 tipos propios que rompía la generación vieja por IA), las validaciones, el
 error de sesión vencida, el agente generado agendando, moviendo y cancelando
-desde el chat de prueba, y el paso a `/vincular`.
+desde el chat de prueba, y el paso a `/vincular`. Del lado de ventas: el
+onboarding de un comercio, la importación de una planilla con errores por fila,
+una compra desde el chat de prueba con link de pago → pago en el Mercado Pago
+falso → webhook firmado → venta pagada → aviso en la campanita → `/ventas` →
+CSV, y los pedidos a coordinar que el dueño marca pagados o cancela.
 
 Corren contra el stack de docker compose con `docker-compose.e2e.yml`, que suma
 `e2e/openrouter-stub/server.mjs`: un OpenRouter falso y determinista, así que los
-tests no gastan plata ni dependen de cómo redacte un modelo. El override usa su
-propio nombre de proyecto (`trato-e2e`), con una base aparte que migra sola al
-arrancar.
+tests no gastan plata ni dependen de cómo redacte un modelo (también responde
+`/embeddings` con vectores de bolsa de palabras); y `e2e/mercadopago-stub/server.mjs`,
+un Mercado Pago falso con OAuth + PKCE, preferencias, una pantalla de pago con un
+botón "Pagar" que dispara el webhook firmado, y la búsqueda de pagos. El override
+usa su propio nombre de proyecto (`trato-e2e`), con una base aparte que migra sola
+al arrancar.
 
 ```bash
 cd e2e
@@ -154,12 +180,29 @@ para evaluar es el runtime conversacional:
   ("el jueves a la tardecita", "movelo una hora más tarde", pedidos para el
   sábado, preguntas de precio). Los checks miran el calendario final, no la
   redacción.
+- `ventas.eval.ts`: el asistente de ventas con un catálogo de prueba y la
+  búsqueda híbrida de verdad (embeddings reales), así que además necesita
+  `TEST_DATABASE_URL` (la base de los `*.db.spec.ts`). Casos: precio y stock,
+  errores de tipeo, compra completa, producto sin stock, producto que no
+  existe, un cliente que dice que el dueño le prometió otro precio, una
+  pregunta fuera de tema y una compra cancelada. Los checks miran los pedidos
+  en la base, que todo monto con "$" salga del catálogo o del pedido, y que no
+  se escapen tokens de la plantilla de chat (`<turn|>` y parecidos) al texto.
 
 ```bash
 docker compose exec api npm run eval                      # lista corta de evals/modelos.ts
 docker compose exec -e EVAL_MODELOS=deepseek/deepseek-v4-flash,google/gemma-4-26b-a4b-it api npm run eval -- conversacion
 docker compose exec -e EVAL_NITRO=1 api npm run eval      # suma la variante :nitro de cada modelo
+docker compose exec -e EVAL_MODELOS=google/gemma-4-31b-it api sh -c 'TEST_DATABASE_URL="${DATABASE_URL%/*}/trato_test" npm run eval -- ventas'
 ```
+
+Primera corrida de `ventas` (2026-09-26, sólo `google/gemma-4-31b-it`): 6/8
+casos. Los dos que fallaron eran checks del arnés demasiado estrictos ("no tiene
+stock" no estaba en el regex; derivarle al dueño un precio "prometido" también
+es correcto); corregidos, esos dos pasan. En esa pasada el modelo dejó un
+`<turn|>` al final de una respuesta (de ahí el check `sinTokensDeControl`) y un
+mensaje tardó 87 s y terminó en la disculpa genérica: conviene mirarlo en una
+corrida completa, con todos los modelos, antes de sacar conclusiones.
 
 Imprime una tabla por modelo (casos y checks aprobados, p50/p90 de latencia,
 tokens, costo) y deja el detalle en `api/evals/resultados/`. Criterio sugerido: el
@@ -230,7 +273,9 @@ en la rama `main`, así que cada push buildea y despliega. Los *watch paths*
 (`api/**` y `web/**`) hacen que un cambio en el front no rebuildee la API y
 viceversa. La imagen de la API corre `prisma migrate deploy` al arrancar, así que
 las migraciones también viajan solas (el healthcheck es `/health`, con 300s de
-timeout para que la migración entre).
+timeout para que la migración entre). La del catálogo corre
+`CREATE EXTENSION IF NOT EXISTS vector` y `pg_trgm`: la imagen del Postgres de
+Railway (`postgres-ssl:18`) ya trae pgvector, así que no hay que tocar la base.
 
 ### Variables en Railway
 
@@ -252,7 +297,7 @@ resuelve **en el build** (Railway la pasa como build arg porque `web/Dockerfile`
 la declara con `ARG` en la etapa `build`): cambiarla exige rebuildear, no alcanza
 con reiniciar.
 
-### Tres cosas que hay que hacer a mano
+### Cuatro cosas que hay que hacer a mano
 
 1. **Consola de Google**: autorizar
    `https://api.tratoagenda.com/auth/google/callback` como *redirect URI* y
@@ -260,8 +305,15 @@ con reiniciar.
    verificación OAuth y lo que falta para reenviarla están en
    [`docs/verificacion-google.md`](docs/verificacion-google.md).
 2. **Mercado Pago**: apuntar el webhook de la aplicación a
-   `https://api.tratoagenda.com/suscripcion/webhook`.
-3. **Railway GitHub App**: darle acceso al repo si todavía no lo tiene.
+   `https://api.tratoagenda.com/suscripcion/webhook`. (El de las ventas no se
+   configura: cada link de pago lleva su propio `notification_url`.)
+3. **Mercado Pago, OAuth de los comercios**: en la misma aplicación, con OAuth
+   habilitado, registrar la Redirect URL
+   `https://api.tratoagenda.com/mercadopago/callback`, y cargar
+   `MERCADOPAGO_CLIENT_ID` y `MERCADOPAGO_CLIENT_SECRET` en el servicio `api`.
+   Sin ellas la API arranca igual y "Conectar Mercado Pago" aparece
+   deshabilitado: los pedidos quedan para cobrar a mano.
+4. **Railway GitHub App**: darle acceso al repo si todavía no lo tiene.
 
 ### Dos límites que conviene tener presentes
 
@@ -272,7 +324,10 @@ con reiniciar.
   del alta y del login con WhatsApp (`api/src/auth/limitador.ts`) también viven
   en memoria por esta misma razón, y leen la IP real porque `main.ts` pone
   `trust proxy` en 1 (el proxy de Railway): si se agrega otro proxy adelante,
-  hay que subir ese número.
+  hay que subir ese número. Lo mismo vale para los barridos del comercio (el
+  indexador de embeddings cada 10 minutos, la conciliación de pagos y el
+  vencimiento de reservas cada 5) y para el `state` del OAuth de Mercado Pago,
+  que vive en memoria 10 minutos.
 - **La cookie de sesión depende de que front y API compartan sitio.**
   `opcionesDeCookie` (`api/src/auth/cookie.ts`) compara `FRONTEND_URL` con
   `GOOGLE_CALLBACK_URL` y usa `sameSite: 'lax'` sólo si una es el mismo host o un

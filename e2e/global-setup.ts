@@ -1,4 +1,4 @@
-import { API_URL, MODO_REAL, STUB_URL, WEB_URL } from './entorno';
+import { API_URL, MODO_REAL, MP_STUB_URL, STUB_URL, WEB_URL } from './entorno';
 
 async function esperar(url: string, que: string, segundos = 90): Promise<void> {
   for (let intento = 0; intento < segundos; intento++) {
@@ -19,7 +19,10 @@ async function esperar(url: string, que: string, segundos = 90): Promise<void> {
 export default async function globalSetup(): Promise<void> {
   await esperar(`${API_URL}/health`, 'la API');
   await esperar(`${WEB_URL}/entrar`, 'el front');
-  if (!MODO_REAL) await esperar(`${STUB_URL}/health`, 'el OpenRouter falso');
+  if (!MODO_REAL) {
+    await esperar(`${STUB_URL}/health`, 'el OpenRouter falso');
+    await esperar(`${MP_STUB_URL}/health`, 'el Mercado Pago falso');
+  }
 
   const estado = (await fetch(`${API_URL}/auth/dev`)
     .then((res) => (res.ok ? res.json() : null))

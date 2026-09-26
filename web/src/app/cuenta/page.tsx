@@ -183,11 +183,18 @@ function CuentaContenido() {
               Eliminar mi cuenta
             </h2>
             <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
-              Borra tu usuario, tu asistente, tus conversaciones, los mensajes, los turnos, tu agenda
-              y tu suscripción, y desvincula tu WhatsApp
+              {esVentas
+                ? "Borra tu usuario, tu asistente, tus conversaciones, los mensajes, tu catálogo, tus ventas, tus avisos, la conexión con Mercado Pago y tu suscripción, y desvincula tu WhatsApp"
+                : "Borra tu usuario, tu asistente, tus conversaciones, los mensajes, los turnos, tu agenda y tu suscripción, y desvincula tu WhatsApp"}
               {conGoogle ? " y revoca el acceso a tu Google Calendar" : ""}. Si tenés un cobro activo,
               lo cancelamos.
             </p>
+            {esVentas && (
+              <p className="mt-2.5 text-[13.5px] leading-[1.6] text-ink-secondary">
+                Si querés guardar tu histórico, exportalo antes desde Ventas → Exportar CSV. Lo que ya
+                cobraste queda en tu cuenta de Mercado Pago.
+              </p>
+            )}
             {conGoogle && (
               <p className="mt-2.5 text-[13.5px] leading-[1.6] text-ink-secondary">
                 Los eventos que ya están en tu Google Calendar quedan ahí: son tuyos y no los tocamos.

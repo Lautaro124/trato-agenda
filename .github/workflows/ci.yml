@@ -207,8 +207,9 @@ jobs:
 
       - name: api/.env descartable
         # El compose exige api/.env. En CI se arma con valores de mentira
-        # generados en el momento: el override de e2e pisa OpenRouter y prende
-        # el login dev, y ningún test habla con Google ni con Mercado Pago.
+        # generados en el momento: el override de e2e pisa OpenRouter y
+        # Mercado Pago con sus falsos y prende el login dev, y ningún test habla
+        # con Google.
         run: |
           umask 077
           {
