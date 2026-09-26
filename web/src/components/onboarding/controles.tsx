@@ -98,14 +98,21 @@ function CampoPrecio({
   onChange,
   etiqueta,
   placeholder = "Opcional",
+  deshabilitado = false,
 }: {
   valor: number | undefined;
   onChange: (precio: number | undefined) => void;
   etiqueta: string;
   placeholder?: string;
+  deshabilitado?: boolean;
 }) {
   return (
-    <div className="flex items-center rounded-sm border border-line bg-card focus-within:border-[var(--color-semantic-border-focus)]">
+    <div
+      className={cn(
+        "flex items-center rounded-sm border border-line focus-within:border-[var(--color-semantic-border-focus)]",
+        deshabilitado ? "bg-sunken" : "bg-card",
+      )}
+    >
       <span aria-hidden className="pl-3 text-[14px] text-muted">
         $
       </span>
@@ -115,8 +122,9 @@ function CampoPrecio({
         inputMode="numeric"
         autoComplete="off"
         aria-label={etiqueta}
-        placeholder={placeholder}
-        className="w-full min-w-0 bg-transparent px-2 py-[9px] font-mono text-[14px] text-ink outline-none"
+        placeholder={deshabilitado ? "—" : placeholder}
+        disabled={deshabilitado}
+        className="w-full min-w-0 bg-transparent px-2 py-[9px] font-mono text-[14px] text-ink outline-none disabled:cursor-not-allowed"
       />
     </div>
   );
@@ -215,18 +223,31 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
               )}
             </button>
             {activo && (
-              <div className="flex items-center gap-2">
+              // En móvil el precio y "Sin precio" bajan a su propia línea: al lado del − / + no entran.
+              <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                 <SelectorDuracion
                   nombre={evento.nombre}
                   duracion={duracion}
                   onChange={(min) => ob.fijarDuracion(evento.nombre, min)}
                 />
-                <div className="min-w-0 flex-1 sm:w-[130px] sm:flex-none">
-                  <CampoPrecio
-                    valor={datos.precio}
-                    onChange={(precio) => ob.fijarPrecio(evento.nombre, precio)}
-                    etiqueta={`Precio de ${evento.nombre}`}
-                  />
+                <div className="flex min-w-[200px] flex-1 items-center gap-2 sm:min-w-0 sm:flex-none">
+                  <div className="min-w-0 flex-1 sm:w-[120px] sm:flex-none">
+                    <CampoPrecio
+                      valor={datos.precio}
+                      onChange={(precio) => ob.fijarPrecio(evento.nombre, precio)}
+                      etiqueta={`Precio de ${evento.nombre}`}
+                      deshabilitado={Boolean(datos.sinPrecio)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    aria-pressed={Boolean(datos.sinPrecio)}
+                    aria-label={`Sin precio para ${evento.nombre}`}
+                    onClick={() => ob.fijarSinPrecio(evento.nombre, !datos.sinPrecio)}
+                    className={cn(chip(Boolean(datos.sinPrecio)), "flex-none whitespace-nowrap")}
+                  >
+                    Sin precio
+                  </button>
                 </div>
               </div>
             )}
@@ -237,17 +258,20 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
   );
 }
 
-/** Atajo para cuando todos los tipos elegidos cuestan lo mismo. */
+/** Atajo para cuando todos los tipos elegidos cuestan lo mismo, o ninguno tiene precio. */
 export function PrecioParaTodos({ ob }: { ob: TiposEventoState }) {
   const [precio, setPrecio] = useState<number | undefined>(undefined);
   if (ob.seleccionados.length < 2) return null;
   return (
-    <div className="mb-3 flex items-center gap-2">
-      <div className="min-w-0 flex-1">
+    <div className="mb-3 flex flex-wrap items-center gap-2 sm:flex-nowrap">
+      <div className="w-full min-w-0 sm:w-auto sm:flex-1">
         <CampoPrecio valor={precio} onChange={setPrecio} etiqueta="Mismo precio para todos" placeholder="Mismo precio para todos" />
       </div>
       <Button variant="secondary" size="md" onClick={() => ob.fijarPrecioATodos(precio)} disabled={precio === undefined}>
         Aplicar
+      </Button>
+      <Button variant="secondary" size="md" onClick={() => ob.fijarPrecioATodos(undefined)} aria-label="Sin precio para todos">
+        Sin precio
       </Button>
     </div>
   );

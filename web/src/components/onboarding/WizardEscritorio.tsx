@@ -136,7 +136,8 @@ export function WizardEscritorio({
             </h1>
             <p className="mb-4 text-sm leading-[1.6] text-ink-secondary text-pretty">
               Sugerencias para <strong className="font-semibold">{usoElegido}</strong>. Tildá los que
-              tomás; la duración y el precio se ajustan en la misma fila.
+              tomás; la duración y el precio se ajustan en la misma fila. Sin precio, el asistente lo
+              deriva a vos.
             </p>
             <PrecioParaTodos ob={ob} />
             <ListaEventos ob={ob} />

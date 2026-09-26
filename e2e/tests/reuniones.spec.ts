@@ -50,7 +50,45 @@ test.describe('editar reuniones después del onboarding', () => {
     await expect(page.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled();
   });
 
-  test('sin agente manda al onboarding', async ({ page, usuarioDev }) => {
+  test('"Sin precio" borra el precio de una reunión y el de todas', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgentePorApi(context.request, {
+      tiposEvento: [
+        { nombre: 'Control', duracionMin: 30, precio: 15000 },
+        { nombre: 'Estudio', duracionMin: 60, precio: 30000 },
+      ],
+    });
+
+    await page.goto('/reuniones');
+    const guardar = page.getByRole('button', { name: 'Guardar cambios' });
+    const precioControl = page.getByLabel('Precio de Control', { exact: true });
+    await expect(precioControl).toHaveValue('15.000');
+
+    // Una sola: el campo se vacía y se traba hasta apagar el botón.
+    const sinPrecioControl = page.getByRole('button', { name: 'Sin precio para Control' });
+    await sinPrecioControl.click();
+    await expect(sinPrecioControl).toHaveAttribute('aria-pressed', 'true');
+    await expect(precioControl).toHaveValue('');
+    await expect(precioControl).toBeDisabled();
+    await guardar.click();
+    await expect(page.getByText('Listo: tu asistente ya usa estas reuniones.')).toBeVisible();
+    expect((await agenteActual(context.request))?.tiposEvento).toEqual([
+      { nombre: 'Control', duracionMin: 30 },
+      { nombre: 'Estudio', duracionMin: 60, precio: 30000 },
+    ]);
+
+    // Todas de una.
+    await page.getByRole('button', { name: 'Sin precio para todos' }).click();
+    await expect(page.getByLabel('Precio de Estudio', { exact: true })).toBeDisabled();
+    await guardar.click();
+    await expect(guardar).toBeDisabled();
+    expect((await agenteActual(context.request))?.tiposEvento).toEqual([
+      { nombre: 'Control', duracionMin: 30 },
+      { nombre: 'Estudio', duracionMin: 60 },
+    ]);
+  });
+
+  test('sin agente manda al onboarding',async ({ page, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await page.goto('/reuniones');
     await expect(page).toHaveURL(/\/contanos/);

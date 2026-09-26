@@ -24,11 +24,11 @@ test.describe('generación de agente: formulario móvil', { tag: '@movil' }, () 
     expect(usuarioDev.email).toBeTruthy();
     const perfil: PerfilWizard = {
       tipoTitular: 'persona',
-      nombreTitular: `Profe Martín ${sufijo()}`,
-      tipoUso: 'personal',
+      nombreTitular: `Dra. Martina ${sufijo()}`,
+      tipoUso: 'consultorio',
       sugeridos: [
-        { nombre: 'Clase', duracionMin: 60, precio: 12000 },
-        { nombre: 'Entrenamiento', duracionMin: 45 },
+        { nombre: 'Consulta de control', duracionMin: 30, precio: 12000 },
+        { nombre: 'Urgencia', duracionMin: 15 },
       ],
       preset: { label: 'Extendida', desde: '08:00', hasta: '21:00' },
       nombreBot: 'Beto',
