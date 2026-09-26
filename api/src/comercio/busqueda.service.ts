@@ -6,6 +6,7 @@ import {
   fusionarRankings,
   hayStock,
   normalizarTexto,
+  unidadesDisponibles,
   type Ranking,
 } from './catalogo.rules.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
@@ -43,8 +44,12 @@ export type VarianteEncontrada = {
   nombre: string;
   precioCentavos: number;
   hayStock: boolean;
-  /** "disponible" | "quedan N unidades" | "sin stock" — ver describirStock. */
+  /** "disponible" | "quedan N unidades" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
   stock: string;
+  /** Unidades vendibles ya descontadas las reservas; null sin control de cantidad. Sólo para el dueño. */
+  unidades: number | null;
+  reservadas: number;
+  stockMinimo: number | null;
 };
 
 export type ProductoEncontrado = {
@@ -206,6 +211,9 @@ export class BusquedaService {
               precioCentavos: variante.precioCentavos,
               hayStock: hayStock(variante, 1, reservadasVariante),
               stock: describirStock(variante, reservadasVariante),
+              unidades: unidadesDisponibles(variante, reservadasVariante),
+              reservadas: reservadasVariante,
+              stockMinimo: variante.stockMinimo,
             };
           }),
         },

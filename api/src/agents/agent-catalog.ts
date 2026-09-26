@@ -21,6 +21,37 @@ export function esAccionValida(id: string): id is AccionId {
   return (ACCIONES_IDS as string[]).includes(id);
 }
 
+/**
+ * Catálogo del asistente de ventas (`Agent.tipoAsistente = "ventas"`). Mismo
+ * contrato que el de agenda: el grafo de ventas (api/src/conversation/ventas)
+ * tiene un tool 1:1 con cada id, así que agregar una acción acá implica
+ * agregar su schema en ventas-tools.ts.
+ */
+export const ACCIONES_VENTAS = {
+  buscar_productos: 'Buscar en el catálogo lo que pide el cliente, con precio y stock reales.',
+} as const;
+
+export type AccionVentasId = keyof typeof ACCIONES_VENTAS;
+
+export const ACCIONES_VENTAS_IDS = Object.keys(ACCIONES_VENTAS) as AccionVentasId[];
+
+export function esAccionDeVentas(id: string): id is AccionVentasId {
+  return (ACCIONES_VENTAS_IDS as string[]).includes(id);
+}
+
+/**
+ * Qué hace el asistente: agendar turnos o vender. Define qué grafo atiende la
+ * conversación. Una cuenta elige uno en /contanos y no lo cambia.
+ */
+export const TIPOS_ASISTENTE = ['agenda', 'ventas'] as const;
+
+export type TipoAsistente = (typeof TIPOS_ASISTENTE)[number];
+
+/** La columna es un string: cualquier cosa que no sea "ventas" es la agenda de siempre. */
+export function tipoAsistenteDe(agent: { tipoAsistente: string }): TipoAsistente {
+  return agent.tipoAsistente === 'ventas' ? 'ventas' : 'agenda';
+}
+
 export const TIPOS_USO = ['comercio', 'consultorio', 'reuniones', 'visitas', 'personal', 'otro'] as const;
 
 /**

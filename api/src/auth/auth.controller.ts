@@ -89,8 +89,8 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  me(@CurrentUser() user: User): UsuarioPublico {
-    return aUsuarioPublico(user);
+  async me(@CurrentUser() user: User): Promise<UsuarioPublico> {
+    return aUsuarioPublico(user, await this.agentsService.findByUserId(user.id));
   }
 
   /** Poner (después del QR) o cambiar la contraseña de una cuenta con WhatsApp. */

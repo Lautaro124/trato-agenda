@@ -88,9 +88,49 @@ function llamadaATool(model, name, args) {
   });
 }
 
+// --- Ventas ------------------------------------------------------------------
+//
+// El asistente de ventas se reconoce por el bloque "Reglas de venta de <titular>"
+// que agrega el runtime en código (reglas-ventas.ts). Guion: cualquier mensaje
+// que no sea un saludo busca en el catálogo con el texto del cliente, y con el
+// resultado de la herramienta contesta el primer producto encontrado.
+
+function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUsuario, resultadoTool }) {
+  const titular = sistema.match(/Reglas de venta de (.*?) \(no las rompas\)/)?.[1]?.trim();
+  llamadas.push({ tipo: 'ventas', titular, mensaje: ultimoUsuario, conResultado: Boolean(resultadoTool), ...resumenDelPedido(body) });
+
+  if (resultadoTool) {
+    const resultado = textoDe(resultadoTool);
+    const primero = resultado.match(/1\. "(.+?)" \(código/)?.[1];
+    const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
+    return responder(
+      res,
+      200,
+      completion(body.model, {
+        content: primero ? `Tengo ${primero} a ${precio}.` : 'No tengo eso, ¿buscás otra cosa?',
+      }),
+    );
+  }
+
+  if (/^(hola|buenas|gracias)\b/.test(ultimoUsuario)) {
+    return responder(res, 200, completion(body.model, { content: '¡Hola! ¿Qué estás buscando?' }));
+  }
+  return responder(res, 200, llamadaATool(body.model, 'buscar_productos', { consulta: textoDe(mensajes[indiceUsuario]) }));
+}
+
 function conversar(body, res) {
   const mensajes = body.messages ?? [];
   const sistema = textoDe(mensajes.find((mensaje) => mensaje.role === 'system'));
+  if (sistema.includes('Reglas de venta de ')) {
+    const indice = mensajes.findLastIndex((mensaje) => mensaje.role === 'user');
+    return conversarVentas(body, res, {
+      mensajes,
+      sistema,
+      indiceUsuario: indice,
+      ultimoUsuario: normalizar(textoDe(mensajes[indice])),
+      resultadoTool: mensajes.slice(indice + 1).findLast((mensaje) => mensaje.role === 'tool'),
+    });
+  }
   const indiceUsuario = mensajes.findLastIndex((mensaje) => mensaje.role === 'user');
   const ultimoUsuario = normalizar(textoDe(mensajes[indiceUsuario]));
   const resultadoTool = mensajes.slice(indiceUsuario + 1).findLast((mensaje) => mensaje.role === 'tool');

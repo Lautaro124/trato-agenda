@@ -6,6 +6,7 @@ import { AgentsService } from './agents.service.js';
 import {
   aAgentPublico,
   ActualizarTiposEventoDto,
+  GenerarAgenteVentasDto,
   GenerateAgentDto,
   type AgentPublico,
 } from './agents.types.js';
@@ -25,6 +26,13 @@ export class AgentsController {
   @Post('generate')
   async generate(@CurrentUser() user: User, @Body() dto: GenerateAgentDto): Promise<AgentPublico> {
     const agent = await this.agentsService.generate(user.id, dto);
+    return aAgentPublico(agent);
+  }
+
+  /** Onboarding del asistente de ventas (catálogo de productos en vez de agenda). */
+  @Post('generate-ventas')
+  async generarVentas(@CurrentUser() user: User, @Body() dto: GenerarAgenteVentasDto): Promise<AgentPublico> {
+    const agent = await this.agentsService.generarVentas(user.id, dto);
     return aAgentPublico(agent);
   }
 

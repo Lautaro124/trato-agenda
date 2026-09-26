@@ -2,22 +2,30 @@
 
 import { useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { useSession } from "@/lib/session";
 
 type Mensaje = { role: "agent" | "user"; text: string };
 
-const SALUDO_INICIAL: Mensaje = {
-  role: "agent",
-  text: "Hola. Decime qué querés agendar y lo coordino: “reunión con Ana el jueves a la tarde”, “movés mi turno del martes”, “qué tengo mañana”.",
-};
-
-const CHIPS = [
-  "Reunión con Ana el jueves a la tarde",
-  "¿Qué tengo mañana?",
-  "Movés mi turno del martes 30 min más tarde",
-];
+/** Saludo y atajos del banco de pruebas, según qué hace el asistente. */
+const GUIONES = {
+  agenda: {
+    saludo:
+      "Hola. Decime qué querés agendar y lo coordino: “reunión con Ana el jueves a la tarde”, “movés mi turno del martes”, “qué tengo mañana”.",
+    chips: ["Reunión con Ana el jueves a la tarde", "¿Qué tengo mañana?", "Movés mi turno del martes 30 min más tarde"],
+  },
+  ventas: {
+    saludo:
+      "Hola. Probá escribirme como un cliente: preguntame por un producto, su precio o si hay stock. Si me preguntás como dueño, también te digo el stock exacto.",
+    chips: ["¿Qué tenés para regalar?", "¿Cuánto sale el producto más barato?", "¿Cuánto stock me queda de todo?"],
+  },
+} as const;
 
 /** Banco de pruebas del agente (variante 3a del canvas): habla de verdad con ConversationService. */
 export function TestChat() {
+  const { user } = useSession();
+  const guion = GUIONES[user?.tipoAsistente === "ventas" ? "ventas" : "agenda"];
+  const SALUDO_INICIAL: Mensaje = { role: "agent", text: guion.saludo };
+  const CHIPS = guion.chips;
   const [msgs, setMsgs] = useState<Mensaje[]>([SALUDO_INICIAL]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);

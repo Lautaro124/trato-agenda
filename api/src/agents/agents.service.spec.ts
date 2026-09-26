@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { ACCIONES_IDS } from './agent-catalog.js';
+import { ACCIONES_IDS, ACCIONES_VENTAS_IDS } from './agent-catalog.js';
 import { PLANTILLA_VERSION, construirConfiguracion } from './agent-template.js';
+import { PLANTILLA_VENTAS_VERSION } from './agent-template-ventas.js';
 import { AgentsService, construirDescripcion } from './agents.service.js';
 import type { GenerateAgentDto } from './agents.types.js';
 
@@ -229,6 +230,65 @@ describe('AgentsService.actualizarTiposEvento', () => {
         { nombre: ' consulta ', duracionMin: 45 },
       ]),
     ).rejects.toMatchObject({ status: 400 });
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentsService.generarVentas', () => {
+  it('persiste un asistente de ventas con su plantilla y el catálogo de ventas entero', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generarVentas('user-1', { nombreTitular: ' Mates "El Gaucho" ', nombreBot: 'Nina' });
+
+    const [{ where, create }] = upsert.mock.calls[0] as [{ where: unknown; create: Record<string, unknown> }];
+    expect(where).toEqual({ userId: 'user-1' });
+    expect(create).toMatchObject({
+      userId: 'user-1',
+      tipoAsistente: 'ventas',
+      tipoUso: 'comercio',
+      tipoTitular: 'negocio',
+      nombreTitular: 'Mates "El Gaucho"',
+      nombreBot: 'Nina',
+      tiposEvento: [],
+      allowedActions: ACCIONES_VENTAS_IDS,
+      model: null,
+      templateVersion: PLANTILLA_VENTAS_VERSION,
+    });
+    // Los textos libres van escapados como dato, no como instrucción.
+    expect(create.systemPrompt).toContain('"Mates \\"El Gaucho\\""');
+    expect(create.systemPrompt).toContain('"Nina"');
+    expect(create.systemPrompt).not.toContain('lunes a viernes');
+  });
+
+  it('se puede regenerar si ya era de ventas', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas' });
+
+    await service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati' });
+    expect(upsert).toHaveBeenCalledOnce();
+  });
+
+  it('no deja pasar una cuenta de agenda a ventas ni al revés (409)', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
+    await expect(service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati' })).rejects.toMatchObject({
+      status: 409,
+    });
+
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas' });
+    await expect(service.generate('user-1', dto)).rejects.toMatchObject({ status: 409 });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('un asistente de ventas no tiene reuniones para editar (409)', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ ...agenteGuardado, tipoAsistente: 'ventas' });
+
+    await expect(
+      service.actualizarTiposEvento('user-1', [{ nombre: 'Consulta', duracionMin: 30 }]),
+    ).rejects.toMatchObject({ status: 409 });
     expect(update).not.toHaveBeenCalled();
   });
 });

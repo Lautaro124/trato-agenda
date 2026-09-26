@@ -5,6 +5,7 @@
  * Google (que viaja dentro de `contexto.agent.user`) nunca quede serializado
  * en la base del checkpointer.
  */
+import type { BaseMessage } from '@langchain/core/messages';
 import type { ToolCall } from '@langchain/core/messages/tool';
 import { MessagesValue, StateSchema, UntrackedValue } from '@langchain/langgraph';
 import { z } from 'zod';
@@ -12,6 +13,17 @@ import type { PeriodoOcupado } from '../../calendar/calendar.service.js';
 import type { Agent, Conversation, Turno, User } from '../../generated/prisma/client.js';
 
 export type AgentConUser = Agent & { user: User };
+
+/**
+ * Lo que comparten el grafo de agenda y el de ventas, y con eso lo único que
+ * leen los nodos que usan los dos (`conversacion` y `persistir`).
+ */
+export type EstadoComun = {
+  messages: BaseMessage[];
+  esPropietario: boolean;
+  indiceDesde: number;
+  contexto: { agent: Agent; conversation: Conversation; bloqueSistema: string };
+};
 
 /** Lo que el nodo `cargar_contexto` deja listo para el resto del grafo. */
 export type ContextoTurno = {

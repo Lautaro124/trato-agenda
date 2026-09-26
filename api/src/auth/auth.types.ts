@@ -1,3 +1,4 @@
+import { tipoAsistenteDe } from '../agents/agent-catalog.js';
 import type { User } from '../generated/prisma/client.js';
 
 /** Datos que devuelve Google después del consentimiento. */
@@ -28,6 +29,8 @@ export type UsuarioPublico = Pick<User, 'id' | 'email' | 'name' | 'avatarUrl' | 
   tienePassword: boolean;
   /** Cuenta de WhatsApp (sin Google) que todavía no eligió contraseña. */
   debePonerPassword: boolean;
+  /** Qué hace su asistente (define la navegación del panel); null sin onboarding. */
+  tipoAsistente: 'agenda' | 'ventas' | null;
 };
 
 /**
@@ -38,7 +41,7 @@ export function debePonerPassword(user: Pick<User, 'googleId' | 'phoneNumber' | 
   return user.googleId === null && user.phoneNumber !== null && user.passwordHash === null;
 }
 
-export function aUsuarioPublico(user: User): UsuarioPublico {
+export function aUsuarioPublico(user: User, agent: { tipoAsistente: string } | null = null): UsuarioPublico {
   return {
     id: user.id,
     email: user.email,
@@ -48,6 +51,7 @@ export function aUsuarioPublico(user: User): UsuarioPublico {
     calendario: user.calendario === 'local' ? 'local' : 'google',
     tienePassword: user.passwordHash !== null,
     debePonerPassword: debePonerPassword(user),
+    tipoAsistente: agent ? tipoAsistenteDe(agent) : null,
   };
 }
 

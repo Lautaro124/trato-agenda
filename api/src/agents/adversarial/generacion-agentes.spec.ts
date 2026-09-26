@@ -9,7 +9,8 @@ function crearServicio() {
   const upsert = vi.fn().mockImplementation(({ create }: { create: Record<string, unknown> }) =>
     Promise.resolve({ id: 'agent-1', ...create }),
   );
-  const prisma = { agent: { upsert } } as unknown as PrismaService;
+  // Sin agente previo: el chequeo de "no cambiar de tipo" no encuentra nada.
+  const prisma = { agent: { upsert, findUnique: vi.fn().mockResolvedValue(null) } } as unknown as PrismaService;
   return { service: new AgentsService(prisma), upsert };
 }
 

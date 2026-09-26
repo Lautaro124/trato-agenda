@@ -15,7 +15,7 @@ import {
   type TipoUsoId,
 } from "@/app/contanos/useOnboarding";
 
-type AgentGuardado = { tipoUso: string; tiposEvento: TipoEvento[] };
+type AgentGuardado = { tipoUso: string; tipoAsistente?: "agenda" | "ventas"; tiposEvento: TipoEvento[] };
 
 /** Orden y forma estables, para saber si lo que hay en pantalla difiere de lo guardado. */
 function firma(tipos: TipoEvento[]): string {
@@ -43,6 +43,11 @@ export default function ReunionesPage() {
       .then((guardado) => {
         if (!guardado) {
           router.replace("/contanos");
+          return;
+        }
+        // Un asistente de ventas no tiene reuniones: lo suyo es el catálogo.
+        if (guardado.tipoAsistente === "ventas") {
+          router.replace("/productos");
           return;
         }
         setAgent(guardado);

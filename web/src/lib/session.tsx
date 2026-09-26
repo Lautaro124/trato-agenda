@@ -28,6 +28,8 @@ export type Usuario = {
   tienePassword: boolean;
   /** Cuenta de WhatsApp que todavía no eligió contraseña. */
   debePonerPassword: boolean;
+  /** Qué hace su asistente: define la navegación. null antes del onboarding. */
+  tipoAsistente: "agenda" | "ventas" | null;
 };
 
 /**
@@ -41,6 +43,8 @@ type SessionValue = {
   status: SessionStatus;
   signIn: () => void;
   signOut: () => Promise<void>;
+  /** Vuelve a pedir `/auth/me`: después de algo que cambia al usuario sin recargar la página. */
+  refrescar: () => Promise<void>;
 };
 
 const SessionContext = createContext<SessionValue | null>(null);
@@ -94,9 +98,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [router]);
 
+  const refrescar = useCallback(async () => {
+    const res = await apiFetch("/auth/me").catch(() => null);
+    if (res?.ok) setUser((await res.json()) as Usuario);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, status, signIn, signOut }),
-    [user, status, signIn, signOut],
+    () => ({ user, status, signIn, signOut, refrescar }),
+    [user, status, signIn, signOut, refrescar],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

@@ -113,4 +113,27 @@ describe('ConversationService.handleIncoming', () => {
 
     expect(respuesta).toContain('Perdón');
   });
+
+  it('un agente de ventas va al grafo de ventas, no al de agenda', async () => {
+    const prisma = crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' });
+    const agenda = crearGrafo('soy la agenda');
+    const ventas = crearGrafo('soy el de ventas');
+    const service = new ConversationService(prisma, agenda, ventas as never);
+
+    const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', '¿tenés mates?');
+
+    expect(respuesta).toBe('soy el de ventas');
+    expect(agenda.invoke).not.toHaveBeenCalled();
+    expect(ventas.getState).toHaveBeenCalled();
+  });
+
+  it('un agente sin tipoAsistente (los de antes) sigue en la agenda', async () => {
+    const prisma = crearPrisma({ id: 'agent-1' });
+    const agenda = crearGrafo('soy la agenda');
+    const ventas = crearGrafo('soy el de ventas');
+    const service = new ConversationService(prisma, agenda, ventas as never);
+
+    expect(await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola')).toBe('soy la agenda');
+    expect(ventas.invoke).not.toHaveBeenCalled();
+  });
 });
