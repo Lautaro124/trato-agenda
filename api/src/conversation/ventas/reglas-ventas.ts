@@ -7,6 +7,7 @@
  * Todo acá es puro (sin base ni red), para poder testearlo directo.
  */
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
+import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
 import { detalleDeRenglones, estadoVisible, fechaYHora, MAX_PEDIDOS_PENDIENTES } from '../../comercio/ventas.rules.js';
 import type { Agent, ItemVenta, Venta } from '../../generated/prisma/client.js';
@@ -204,4 +205,65 @@ export function formatearStockDueno(consulta: string, productos: ProductoEncontr
       return [`${JSON.stringify(producto.nombre)} (código ${producto.codigo})`, ...variantes].join('\n');
     })
     .join('\n');
+}
+
+/** Máximo de ventas que se le listan al dueño en el chat (el resto está en el panel). */
+export const MAX_VENTAS_EN_CHAT = 10;
+
+function periodo(rango: { primerDia: string; ultimoDia: string }): string {
+  const corto = (dia: string) => `${Number(dia.slice(8, 10))}/${Number(dia.slice(5, 7))}`;
+  return rango.primerDia === rango.ultimoDia
+    ? `el ${corto(rango.primerDia)}`
+    : `del ${corto(rango.primerDia)} al ${corto(rango.ultimoDia)}`;
+}
+
+const ESTADO_EN_CHAT: Record<string, string> = {
+  pendiente_pago: 'sin pagar',
+  pagada: 'pagada',
+  cancelada: 'cancelada',
+  vencida: 'vencida',
+};
+
+/** "1 venta pagada", "3 ventas pagadas". */
+function cuantas(cantidad: number, singular: string, plural: string): string {
+  return `${cantidad} ${cantidad === 1 ? singular : plural}`;
+}
+
+/** Resultado de listar_ventas (sólo el dueño). */
+export function formatearListadoVentas(listado: ListadoVentas): string {
+  const { totales } = listado;
+  const pendientes =
+    totales.pendientes > 0
+      ? `; ${cuantas(totales.pendientes, 'pedido sin pagar', 'pedidos sin pagar')} por ${formatearCentavos(totales.pendienteCentavos)}`
+      : '';
+  const cabecera =
+    `Ventas ${periodo(listado.rango)}: cobrado ${formatearCentavos(totales.cobradoCentavos)} en ` +
+    `${cuantas(totales.pagadas, 'venta pagada', 'ventas pagadas')}${pendientes}.`;
+  if (listado.total === 0) return `${cabecera} No hay ventas en ese período.`;
+  const lineas = listado.ventas.slice(0, MAX_VENTAS_EN_CHAT).map(
+    (venta) =>
+      `- ${fechaYHora(new Date(venta.createdAt))} · ${venta.nombreCliente ?? 'sin nombre'} · ` +
+      `${detalleDeRenglones(venta.items)} · ${ESTADO_EN_CHAT[venta.estado]}`,
+  );
+  const resto = listado.total > MAX_VENTAS_EN_CHAT ? `\n(y ${listado.total - MAX_VENTAS_EN_CHAT} más en la pantalla Ventas)` : '';
+  return `${cabecera}\n${lineas.join('\n')}${resto}`;
+}
+
+/** Resultado de resumen_ventas (sólo el dueño). */
+export function formatearResumenVentas(resumen: ResumenVentas, listado: ListadoVentas): string {
+  const { totales } = listado;
+  // Redondeado al peso, como en la pantalla Ventas.
+  const promedio =
+    totales.pagadas > 0 ? ` (ticket promedio ${formatearCentavos(Math.round(totales.ticketPromedioCentavos / 100) * 100)})` : '';
+  const top =
+    resumen.topProductos.length > 0
+      ? ` Lo más vendido: ${resumen.topProductos
+          .slice(0, 5)
+          .map((producto) => `${producto.nombreProducto} (${producto.unidades} u., ${formatearCentavos(producto.cobradoCentavos)})`)
+          .join(', ')}.`
+      : '';
+  return (
+    `${periodo(resumen.rango).replace(/^./, (letra) => letra.toUpperCase())}: cobrado ` +
+    `${formatearCentavos(totales.cobradoCentavos)} en ${cuantas(totales.pagadas, 'venta', 'ventas')}${promedio}.${top}`
+  );
 }

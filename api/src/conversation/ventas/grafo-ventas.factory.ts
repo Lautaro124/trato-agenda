@@ -15,6 +15,7 @@ import type { BaseCheckpointSaver } from '@langchain/langgraph';
 import { END, START, StateGraph } from '@langchain/langgraph';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService } from '../../comercio/busqueda.service.js';
+import type { HistoricoVentasService } from '../../comercio/historico.service.js';
 import type { VentasService } from '../../comercio/ventas.service.js';
 import type { NotificacionesService } from '../../notificaciones/notificaciones.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
@@ -31,6 +32,7 @@ export type DepsGrafoVentas = {
   busqueda: Pick<BusquedaService, 'buscar'>;
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
+  historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   openRouter: OpenRouterClient;
   llm: BaseChatModel;
   checkpointer?: BaseCheckpointSaver;

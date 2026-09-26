@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import { VentasController } from './ventas.controller.js';
+import type { HistoricoVentasService } from './historico.service.js';
+import { RangoInvalidoError } from './historico.rules.js';
 import type { VentasService } from './ventas.service.js';
 
 const SECRETO = 'secreto-de-prueba';
@@ -21,7 +23,12 @@ function crear() {
     cancelar: vi.fn(),
   };
   const config = { get: () => SECRETO } as unknown as ConfigService<Env, true>;
-  return { controller: new VentasController(ventas as unknown as VentasService, config), ventas };
+  const historico = { listar: vi.fn(), resumen: vi.fn(), exportarCsv: vi.fn(), obtener: vi.fn() };
+  return {
+    controller: new VentasController(ventas as unknown as VentasService, historico as unknown as HistoricoVentasService, config),
+    ventas,
+    historico,
+  };
 }
 
 describe('VentasController.webhook', () => {
@@ -63,5 +70,22 @@ describe('VentasController.marcarPagada', () => {
     ventas.marcarPagadaPorElDueno.mockResolvedValue(null);
     await expect(controller.marcarPagada(DUENO, 'v-1')).rejects.toMatchObject({ status: 404 });
     expect(ventas.marcarPagadaPorElDueno).toHaveBeenCalledWith('user-1', 'v-1');
+  });
+});
+
+describe('VentasController histórico', () => {
+  it('un rango inválido es un 400 con el motivo', async () => {
+    const { controller, historico } = crear();
+    historico.listar.mockRejectedValue(new RangoInvalidoError('El día de inicio es posterior al de fin.'));
+    await expect(controller.listar({ id: 'user-1' } as User, {})).rejects.toMatchObject({
+      status: 400,
+      message: 'El día de inicio es posterior al de fin.',
+    });
+  });
+
+  it('una venta ajena da 404', async () => {
+    const { controller, historico } = crear();
+    historico.obtener.mockResolvedValue(null);
+    await expect(controller.obtener({ id: 'user-1' } as User, 'v-ajena')).rejects.toMatchObject({ status: 404 });
   });
 });

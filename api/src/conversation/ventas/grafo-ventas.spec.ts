@@ -63,6 +63,33 @@ function crearNotificaciones(reciente = false) {
   return { avisar: vi.fn().mockResolvedValue({}), consultaRecienteDe: vi.fn().mockResolvedValue(reciente) };
 }
 
+const LISTADO = {
+  ventas: [
+    {
+      createdAt: new Date('2026-09-26T20:42:00Z'),
+      nombreCliente: 'Juan',
+      estado: 'pagada',
+      items: [{ nombreProducto: 'Mate', nombreVariante: '', cantidad: 2, subtotalCentavos: 1_600_000 }],
+    },
+  ],
+  total: 1,
+  pagina: 1,
+  porPagina: 25,
+  rango: { primerDia: '2026-09-20', ultimoDia: '2026-09-26' },
+  totales: { cobradoCentavos: 1_600_000, pagadas: 1, ticketPromedioCentavos: 1_600_000, pendienteCentavos: 0, pendientes: 0 },
+};
+
+function crearHistorico() {
+  return {
+    listar: vi.fn().mockResolvedValue(LISTADO),
+    resumen: vi.fn().mockResolvedValue({
+      rango: LISTADO.rango,
+      porDia: [],
+      topProductos: [{ codigo: 'MATE', nombreProducto: 'Mate', unidades: 2, cobradoCentavos: 1_600_000 }],
+    }),
+  };
+}
+
 function crearVentas() {
   return {
     crearPedido: vi.fn(),
@@ -102,6 +129,7 @@ function correr(
     busqueda: Pick<BusquedaService, 'buscar'>;
     ventas?: ReturnType<typeof crearVentas>;
     notificaciones?: ReturnType<typeof crearNotificaciones>;
+    historico?: ReturnType<typeof crearHistorico>;
   },
   esPropietario = false,
 ) {
@@ -109,6 +137,7 @@ function correr(
     ...deps,
     ventas: deps.ventas ?? crearVentas(),
     notificaciones: deps.notificaciones ?? crearNotificaciones(),
+    historico: deps.historico ?? crearHistorico(),
     openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
     checkpointer: new MemorySaver(),
   });
@@ -365,6 +394,66 @@ describe('grafo de ventas', () => {
       });
       expect(notificaciones.avisar).not.toHaveBeenCalled();
       expect(toolMessages(resultado.messages)[0].content).toContain('no lo vuelvo a molestar');
+    });
+  });
+
+  describe('herramientas del dueño', () => {
+    it('listar_ventas y resumen_ventas no existen para un cliente', async () => {
+      const historico = crearHistorico();
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([llamada('listar_ventas', {}), new AIMessage('.')]),
+        busqueda: { buscar: vi.fn() },
+        historico,
+      });
+      expect(toolMessages(resultado.messages)[0].content).toContain('no existe');
+      expect(historico.listar).not.toHaveBeenCalled();
+    });
+
+    it('el dueño ve sus ventas y el resumen del período', async () => {
+      const historico = crearHistorico();
+      const listado = await correr(
+        {
+          prisma: crearPrisma(),
+          llm: crearModelo([llamada('listar_ventas', { desde: '2026-09-20', hasta: '2026-09-26' }), new AIMessage('.')]),
+          busqueda: { buscar: vi.fn() },
+          historico,
+        },
+        true,
+      );
+      expect(historico.listar).toHaveBeenCalledWith('user-1', { desde: '2026-09-20', hasta: '2026-09-26', estado: undefined });
+      expect(toolMessages(listado.messages)[0].content).toBe(
+        'Ventas del 20/9 al 26/9: cobrado $ 16.000 en 1 venta pagada.\n' +
+          '- sábado 26/9 a las 17:42 · Juan · 2 × Mate ($ 16.000) · pagada',
+      );
+
+      const resumen = await correr(
+        {
+          prisma: crearPrisma(),
+          llm: crearModelo([llamada('resumen_ventas', {}), new AIMessage('.')]),
+          busqueda: { buscar: vi.fn() },
+          historico,
+        },
+        true,
+      );
+      expect(toolMessages(resumen.messages)[0].content).toBe(
+        'Del 20/9 al 26/9: cobrado $ 16.000 en 1 venta (ticket promedio $ 16.000). Lo más vendido: Mate (2 u., $ 16.000).',
+      );
+    });
+
+    it('rechaza fechas mal escritas sin consultar nada', async () => {
+      const historico = crearHistorico();
+      const resultado = await correr(
+        {
+          prisma: crearPrisma(),
+          llm: crearModelo([llamada('resumen_ventas', { desde: 'ayer' }), new AIMessage('.')]),
+          busqueda: { buscar: vi.fn() },
+          historico,
+        },
+        true,
+      );
+      expect(toolMessages(resultado.messages)[0].content).toBe('desde tiene que ser un día AAAA-MM-DD.');
+      expect(historico.resumen).not.toHaveBeenCalled();
     });
   });
 });

@@ -49,6 +49,16 @@ export function validarLlamadaVentas(state: EstadoVentasValue, llamada: Operacio
     return { ok: true, operacion: { ...llamada, args: { ...args, consulta } } };
   }
 
+  if (llamada.nombre === 'listar_ventas' || llamada.nombre === 'resumen_ventas') {
+    for (const campo of ['desde', 'hasta'] as const) {
+      const valor = args[campo];
+      if (valor !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(valor))) {
+        return { ok: false, motivo: `${campo} tiene que ser un día AAAA-MM-DD.` };
+      }
+    }
+    return { ok: true, operacion: { ...llamada, args } };
+  }
+
   if (llamada.nombre === 'derivar_consulta') {
     const resumen = String(args.resumen ?? '').trim();
     if (!resumen) return { ok: false, motivo: 'El resumen de la consulta está vacío.' };

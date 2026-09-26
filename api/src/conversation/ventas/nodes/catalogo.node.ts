@@ -5,19 +5,29 @@
 import { ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import type { BusquedaService } from '../../../comercio/busqueda.service.js';
+import type { HistoricoVentasService } from '../../../comercio/historico.service.js';
+import { RangoInvalidoError } from '../../../comercio/historico.rules.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
-import { formatearPedidoCreado, formatearPedidos, formatearResultados, formatearStockDueno } from '../reglas-ventas.js';
+import {
+  formatearListadoVentas,
+  formatearPedidoCreado,
+  formatearPedidos,
+  formatearResultados,
+  formatearResumenVentas,
+  formatearStockDueno,
+} from '../reglas-ventas.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 export type DepsCatalogo = {
   busqueda: Pick<BusquedaService, 'buscar'>;
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
+  historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
 };
 
 export const MENSAJE_CATALOGO_CAIDO =
@@ -82,6 +92,27 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
           }),
         );
         return `Listo, le avisé a ${titular}. ${decile}`;
+      }
+      case 'listar_ventas':
+      case 'resumen_ventas': {
+        const filtros = {
+          desde: typeof args.desde === 'string' ? args.desde : undefined,
+          hasta: typeof args.hasta === 'string' ? args.hasta : undefined,
+        };
+        try {
+          if (operacion.nombre === 'listar_ventas') {
+            const estado = typeof args.estado === 'string' ? (args.estado as never) : undefined;
+            return formatearListadoVentas(await deps.historico.listar(state.ownerUserId, { ...filtros, estado }));
+          }
+          const [resumen, listado] = await Promise.all([
+            deps.historico.resumen(state.ownerUserId, filtros),
+            deps.historico.listar(state.ownerUserId, filtros),
+          ]);
+          return formatearResumenVentas(resumen, listado);
+        } catch (error) {
+          if (error instanceof RangoInvalidoError) return `Fechas inválidas: ${error.message}`;
+          throw error;
+        }
       }
       case 'consultar_pedido':
         return formatearPedidos(await deps.ventas.pedidosDeConversacion(state.contexto.conversation.id));

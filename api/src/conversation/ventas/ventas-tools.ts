@@ -85,7 +85,32 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
  * Herramientas que sólo ve el dueño desde el banco de pruebas del Home, nunca
  * un cliente de WhatsApp. Igual que ESQUEMAS_PROPIETARIO de la agenda.
  */
+const DIA = 'Día AAAA-MM-DD en la zona del negocio (opcional; sin fechas son los últimos 30 días).';
+
+const esquemaRango = {
+  desde: z.string().optional().describe(`Primer día. ${DIA}`),
+  hasta: z.string().optional().describe(`Último día, inclusive. ${DIA}`),
+};
+
 export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
+  listar_ventas: {
+    name: 'listar_ventas',
+    description:
+      'Para el dueño: las ventas y pedidos de un período (los más recientes primero) con cliente, productos, ' +
+      'total y estado, más los totales cobrados y pendientes. No incluye los pedidos de prueba.',
+    schema: z.object({
+      ...esquemaRango,
+      estado: z
+        .enum(['pendiente_pago', 'pagada', 'cancelada', 'vencida'])
+        .optional()
+        .describe('Opcional: sólo las de un estado.'),
+    }),
+  },
+  resumen_ventas: {
+    name: 'resumen_ventas',
+    description: 'Para el dueño: cuánto cobró en un período, cuántas ventas, ticket promedio y los productos más vendidos.',
+    schema: z.object(esquemaRango),
+  },
   consultar_stock: {
     name: 'consultar_stock',
     description:

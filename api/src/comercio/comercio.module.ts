@@ -5,6 +5,7 @@ import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { BusquedaService } from './busqueda.service.js';
 import { ConciliacionService } from './conciliacion.service.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
+import { HistoricoVentasService } from './historico.service.js';
 import { EmbeddingsClient } from './embeddings.client.js';
 import { IndexadorService } from './indexador.service.js';
 import { ProductosController } from './productos.controller.js';
@@ -31,7 +32,8 @@ import { VentasService } from './ventas.service.js';
     VentasService,
     CuentaMercadoPagoService,
     ConciliacionService,
+    HistoricoVentasService,
   ],
-  exports: [BusquedaService, ProductosService, VentasService, CuentaMercadoPagoService],
+  exports: [BusquedaService, ProductosService, VentasService, CuentaMercadoPagoService, HistoricoVentasService],
 })
 export class ComercioModule {}

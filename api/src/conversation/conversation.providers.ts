@@ -3,6 +3,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { OpenRouterClient } from '../agents/openrouter.client.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { BusquedaService } from '../comercio/busqueda.service.js';
+import { HistoricoVentasService } from '../comercio/historico.service.js';
 import { VentasService } from '../comercio/ventas.service.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -38,6 +39,7 @@ export const grafoVentasProvider = {
     BusquedaService,
     VentasService,
     NotificacionesService,
+    HistoricoVentasService,
     OpenRouterClient,
     LLM_CONVERSACION,
     CheckpointerService,
@@ -47,9 +49,19 @@ export const grafoVentasProvider = {
     busqueda: BusquedaService,
     ventas: VentasService,
     notificaciones: NotificacionesService,
+    historico: HistoricoVentasService,
     openRouter: OpenRouterClient,
     llm: BaseChatModel,
     checkpointer: CheckpointerService,
   ): GrafoVentas =>
-    construirGrafoVentas({ prisma, busqueda, ventas, notificaciones, openRouter, llm, checkpointer: checkpointer.saver }),
+    construirGrafoVentas({
+      prisma,
+      busqueda,
+      ventas,
+      notificaciones,
+      historico,
+      openRouter,
+      llm,
+      checkpointer: checkpointer.saver,
+    }),
 };

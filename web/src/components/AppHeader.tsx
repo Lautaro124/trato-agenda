@@ -29,7 +29,12 @@ function pestanasDe(user: Usuario): Pestana[] {
   const inicio: Pestana = { tab: "inicio", href: "/inicio", label: "Inicio" };
   const plan: Pestana = { tab: "plan", href: "/plan", label: "Plan" };
   if (user.tipoAsistente === "ventas") {
-    return [inicio, { tab: "productos", href: "/productos", label: "Productos" }, plan];
+    return [
+      inicio,
+      { tab: "productos", href: "/productos", label: "Productos" },
+      { tab: "ventas", href: "/ventas", label: "Ventas" },
+      plan,
+    ];
   }
   return [
     inicio,

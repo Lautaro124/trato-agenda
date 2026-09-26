@@ -31,7 +31,7 @@ describe('ConversationService.handleIncoming', () => {
   it('sin Agent configurado, no invoca el grafo ni crea la conversación', async () => {
     const prisma = crearPrisma(null);
     const grafo = crearGrafo('irrelevante');
-    const service = new ConversationService(prisma, grafo);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
 
@@ -43,7 +43,7 @@ describe('ConversationService.handleIncoming', () => {
   it('devuelve el texto del último mensaje del grafo y usa la conversación como hilo', async () => {
     const prisma = crearPrisma();
     const grafo = crearGrafo('Hola, soy Tati.');
-    const service = new ConversationService(prisma, grafo);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
 
@@ -57,7 +57,7 @@ describe('ConversationService.handleIncoming', () => {
   it('marca esPropietario cuando el mensaje viene del banco de pruebas del Home', async () => {
     const prisma = crearPrisma();
     const grafo = crearGrafo('Hola, dueño.');
-    const service = new ConversationService(prisma, grafo);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
 
     await service.handleIncoming('user-1', jidDePrueba('user-1'), 'hola');
 
@@ -73,7 +73,7 @@ describe('ConversationService.handleIncoming', () => {
       { role: 'user', content: { content: 'hola' } },
     ]);
     const grafo = crearGrafo('Dale.');
-    const service = new ConversationService(prisma, grafo);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
 
     await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'quiero un turno');
 
@@ -85,7 +85,7 @@ describe('ConversationService.handleIncoming', () => {
   it('con el hilo ya en el checkpointer no relee la tabla Message', async () => {
     const prisma = crearPrisma({ id: 'agent-1' }, [{ role: 'user', content: { content: 'hola' } }]);
     const grafo = crearGrafo('Dale.', [new AIMessage('ya estaba')]);
-    const service = new ConversationService(prisma, grafo);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
 
     await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'quiero un turno');
 
@@ -97,7 +97,7 @@ describe('ConversationService.handleIncoming', () => {
   it('si el grafo se queda sin vueltas, responde que lo va a confirmar', async () => {
     const prisma = crearPrisma();
     const grafo = crearGrafo(new GraphRecursionError('sin vueltas'));
-    const service = new ConversationService(prisma, grafo);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
 
@@ -107,7 +107,7 @@ describe('ConversationService.handleIncoming', () => {
   it('ante cualquier otra falla del grafo, responde la disculpa genérica', async () => {
     const prisma = crearPrisma();
     const grafo = crearGrafo(new Error('se cayó todo'));
-    const service = new ConversationService(prisma, grafo);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
 

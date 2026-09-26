@@ -97,9 +97,19 @@ function llamadaATool(model, name, args) {
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
 //   - "envío" / "envían" → derivar_consulta (el asistente no sabe de envíos);
+//   - sólo con las herramientas del dueño (banco de pruebas del Home):
+//     "cuánto vendí" → resumen_ventas de los últimos 7 días, "ventas de hoy" →
+//     listar_ventas de hoy;
 //   - un saludo → saludo; cualquier otra cosa → buscar_productos con el texto.
 // Con el resultado de la herramienta contesta: el primer producto encontrado,
 // o el texto de la herramienta tal cual (así el link de pago llega al cliente).
+
+/** "YYYY-MM-DD" en Buenos Aires, corrido `dias` días. */
+function diaDeBuenosAires(dias = 0) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(
+    new Date(Date.now() + dias * 24 * 60 * 60 * 1000),
+  );
+}
 
 function varianteDeLaUltimaBusqueda(mensajes) {
   for (const mensaje of [...mensajes].reverse()) {
@@ -135,6 +145,13 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   }
   if (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian')) {
     return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: textoDe(mensajes[indiceUsuario]) }));
+  }
+  const delDueno = (body.tools ?? []).some((tool) => tool.function?.name === 'resumen_ventas');
+  if (delDueno && ultimoUsuario.includes('cuanto vendi')) {
+    return responder(res, 200, llamadaATool(body.model, 'resumen_ventas', { desde: diaDeBuenosAires(-6), hasta: diaDeBuenosAires() }));
+  }
+  if (delDueno && ultimoUsuario.includes('ventas de hoy')) {
+    return responder(res, 200, llamadaATool(body.model, 'listar_ventas', { desde: diaDeBuenosAires(), hasta: diaDeBuenosAires() }));
   }
   if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
     return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));

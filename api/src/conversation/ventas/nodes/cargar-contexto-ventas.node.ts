@@ -33,8 +33,9 @@ export function contextoFijoVentas(
   if (esPropietario) {
     return (
       'Contexto: estás hablando con el dueño del negocio, de prueba por la web (no un cliente de WhatsApp). ' +
-      'Atendelo como atenderías a un cliente para que vea cómo vendés, y si te pregunta por el stock real ' +
-      `usá consultar_stock. ${base}\n\n${reglas}`
+      'Atendelo como atenderías a un cliente para que vea cómo vendés. Si te pregunta por su negocio, tenés ' +
+      'herramientas propias: consultar_stock para el stock real, listar_ventas para ver ventas y pedidos, y ' +
+      `resumen_ventas para cuánto cobró y qué se vende más. ${base}\n\n${reglas}`
     );
   }
 

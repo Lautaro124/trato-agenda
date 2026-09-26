@@ -1,4 +1,5 @@
-import { IsIn, IsOptional } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import type { ItemVenta, Venta } from '../generated/prisma/client.js';
 import { estadoVisible, ESTADOS_VENTA, type EstadoVenta } from './ventas.rules.js';
 
@@ -16,6 +17,7 @@ export type VentaPublica = Pick<
   | 'pagadaAt'
   | 'canceladaAt'
   | 'sinStockAlPagar'
+  | 'dePrueba'
   | 'createdAt'
 > & {
   estado: EstadoVenta;
@@ -40,6 +42,7 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
     pagadaAt: venta.pagadaAt,
     canceladaAt: venta.canceladaAt,
     sinStockAlPagar: venta.sinStockAlPagar,
+    dePrueba: venta.dePrueba,
     createdAt: venta.createdAt,
     mpPaymentId: venta.mpPaymentId,
     items: venta.items.map((item) => ({
@@ -53,9 +56,37 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
   };
 }
 
-/** Query de filtros del listado; también lo usa el export CSV. */
-export class FiltroEstadoQuery {
+const DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Filtros del histórico (`GET /ventas`, `/ventas/resumen`, `/ventas/export.csv`). */
+export class FiltrosVentasQuery {
+  @IsOptional()
+  @Matches(DIA, { message: 'desde tiene que ser AAAA-MM-DD.' })
+  desde?: string;
+
+  @IsOptional()
+  @Matches(DIA, { message: 'hasta tiene que ser AAAA-MM-DD.' })
+  hasta?: string;
+
   @IsOptional()
   @IsIn(ESTADOS_VENTA)
   estado?: EstadoVenta;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  /** "true" en el query string. */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  incluirPrueba?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10_000)
+  pagina?: number;
 }

@@ -50,7 +50,7 @@ describe('catalogo.rules (propiedades)', () => {
   });
 
   it('fusionarRankings devuelve ids únicos, de los rankings, hasta el límite', () => {
-    const arbIds = fc.array(fc.constantFrom('a', 'b', 'c', 'd', 'e', 'f'), { maxLength: 6 });
+    const arbIds = fc.array(fc.constantFrom<string>('a', 'b', 'c', 'd', 'e', 'f'), { maxLength: 6 });
     fc.assert(
       fc.property(fc.array(arbIds, { maxLength: 4 }), fc.integer({ min: 0, max: 8 }), (listas, limite) => {
         const resultado = fusionarRankings(

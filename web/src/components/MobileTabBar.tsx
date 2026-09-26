@@ -75,6 +75,19 @@ const ITEMS_VENTAS: Item[] = [
       </svg>
     ),
   },
+  {
+    tab: "ventas",
+    href: "/ventas",
+    label: "Ventas",
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 3v18h18" />
+        <path d="M8 17v-4" />
+        <path d="M13 17V8" />
+        <path d="M18 17v-7" />
+      </svg>
+    ),
+  },
 ];
 
 /** Barra inferior de navegación móvil (variante 5a-5c del canvas): reemplaza al <nav> de AppHeader debajo de md. */
