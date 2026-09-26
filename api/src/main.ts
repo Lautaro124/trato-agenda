@@ -5,6 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module.js';
 import { chequeoDeOrigen } from './auth/csrf-origin.js';
+import { cabecerasDeSeguridad } from './security-headers.js';
 import type { Env } from './config/env.js';
 
 async function bootstrap() {
@@ -16,6 +17,9 @@ async function bootstrap() {
   // Railway pone un proxy adelante: sin esto `req.ip` es el del proxy y los
   // límites por IP del login con WhatsApp tratarían a todos como una sola IP.
   app.set('trust proxy', 1);
+  // No anunciar el framework: es información gratis para quien escanea.
+  app.disable('x-powered-by');
+  app.use(cabecerasDeSeguridad());
   app.use(cookieParser());
   // credentials: true es obligatorio para que el navegador mande la cookie de sesión.
   app.enableCors({ origin: frontendUrl, credentials: true });
