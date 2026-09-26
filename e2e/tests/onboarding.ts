@@ -2,18 +2,18 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { visible, type PayloadAgente, type TipoEvento } from './fixtures';
 
 /** Etiquetas de la grilla de tipo de uso (web/src/app/contanos/useOnboarding.ts). */
-const ETIQUETA_USO: Record<Exclude<PayloadAgente['tipoUso'], 'comercio'>, string> = {
+const ETIQUETA_USO: Record<TipoUsoWizard, string> = {
   consultorio: 'Consultorio',
-  reuniones: 'Reuniones',
-  visitas: 'Visitas',
-  personal: 'Agenda personal',
   otro: 'Otro',
 };
+
+/** Los únicos tipos de uso que ofrece el wizard; el resto quedó en `TIPOS_USO_RETIRADOS`. */
+type TipoUsoWizard = Extract<PayloadAgente['tipoUso'], 'consultorio' | 'otro'>;
 
 export type PerfilWizard = {
   tipoTitular: 'persona' | 'negocio';
   nombreTitular: string;
-  tipoUso: Exclude<PayloadAgente['tipoUso'], 'comercio'>;
+  tipoUso: TipoUsoWizard;
   /** Tipos sugeridos del catálogo a activar, con la duración por defecto. */
   sugeridos?: TipoEvento[];
   /** Tipos propios a agregar (arrancan en 30 min) con la duración final deseada. */

@@ -3,25 +3,20 @@
 import { useCallback, useMemo, useState } from "react";
 import { formatearPrecio } from "@/lib/precio";
 
-export type TipoUsoId =
-  | "consultorio"
-  | "reuniones"
-  | "visitas"
-  | "personal"
-  | "otro";
+export type TipoUsoId = "consultorio" | "otro";
 
 export type TipoTitular = "persona" | "negocio";
 
 export type TipoEvento = { nombre: string; duracionMin: number; precio?: number };
 
-/** Lo que el usuario fue cargando de un tipo de evento activado. */
-export type DatosEvento = { duracionMin: number; precio?: number };
+/**
+ * Lo que el usuario fue cargando de un tipo de evento activado. `sinPrecio` es
+ * sólo de pantalla (el botón "Sin precio" traba el campo): nunca viaja a la API.
+ */
+export type DatosEvento = { duracionMin: number; precio?: number; sinPrecio?: boolean };
 
 export const TIPOS_USO: Array<{ id: TipoUsoId; label: string; hint: string }> = [
   { id: "consultorio", label: "Consultorio", hint: "Consultas, controles, estudios" },
-  { id: "reuniones", label: "Reuniones", hint: "Demos, 1 a 1, entrevistas" },
-  { id: "visitas", label: "Visitas", hint: "Visitas técnicas y relevamientos" },
-  { id: "personal", label: "Agenda personal", hint: "Clases, trámites, entrenos" },
   { id: "otro", label: "Otro", hint: "Lo definís vos" },
 ];
 
@@ -33,23 +28,6 @@ export const CATALOGO_EVENTOS: Record<TipoUsoId, TipoEvento[]> = {
     { nombre: "Visita común", duracionMin: 20 },
     { nombre: "Estudio", duracionMin: 60 },
     { nombre: "Urgencia", duracionMin: 15 },
-  ],
-  reuniones: [
-    { nombre: "Demo de producto", duracionMin: 30 },
-    { nombre: "1 a 1 con el equipo", duracionMin: 30 },
-    { nombre: "Entrevista", duracionMin: 45 },
-    { nombre: "Seguimiento", duracionMin: 15 },
-  ],
-  visitas: [
-    { nombre: "Visita técnica", duracionMin: 60 },
-    { nombre: "Relevamiento", duracionMin: 45 },
-    { nombre: "Instalación", duracionMin: 90 },
-    { nombre: "Mantenimiento", duracionMin: 30 },
-  ],
-  personal: [
-    { nombre: "Clase", duracionMin: 60 },
-    { nombre: "Entrenamiento", duracionMin: 45 },
-    { nombre: "Trámite", duracionMin: 30 },
   ],
   otro: [],
 };
@@ -99,7 +77,7 @@ export const PASOS = [
 export const AYUDA_POR_PASO = [
   "Con este nombre se presenta el asistente y firma los avisos.",
   "Define los tipos de evento que te sugerimos después.",
-  "Elegí la duración y, si querés, el precio.",
+  "Elegí la duración y, si querés, el precio. Sin precio, el asistente lo deriva a vos.",
   "Fuera de esta franja el asistente no ofrece horarios.",
   "Así arranca cada conversación en WhatsApp.",
 ];
@@ -149,10 +127,23 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     );
   }, []);
 
+  /** El botón "Sin precio": lo borra y traba el campo; apagarlo lo deja editable y vacío. */
+  const fijarSinPrecio = useCallback((nombre: string, sinPrecio: boolean) => {
+    setElegidos((previos) =>
+      previos[nombre]
+        ? { ...previos, [nombre]: { ...previos[nombre], precio: undefined, sinPrecio } }
+        : previos,
+    );
+  }, []);
+
+  /** `undefined` es "Sin precio" para todos. */
   const fijarPrecioATodos = useCallback((precio: number | undefined) => {
     setElegidos((previos) =>
       Object.fromEntries(
-        Object.entries(previos).map(([nombre, datos]) => [nombre, { ...datos, precio }]),
+        Object.entries(previos).map(([nombre, datos]) => [
+          nombre,
+          { ...datos, precio, sinPrecio: precio === undefined },
+        ]),
       ),
     );
   }, []);
@@ -194,6 +185,7 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     alternarEvento,
     fijarDuracion,
     fijarPrecio,
+    fijarSinPrecio,
     fijarPrecioATodos,
     personalizado,
     setPersonalizado,

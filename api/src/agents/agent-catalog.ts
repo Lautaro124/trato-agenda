@@ -27,7 +27,7 @@ export const TIPOS_USO = ['comercio', 'consultorio', 'reuniones', 'visitas', 'pe
  * Ids que el wizard web ya no ofrece pero la API sigue aceptando: hay `Agent`
  * guardados con ese `tipoUso` y regenerarlos (o leerlos) no debe romper.
  */
-export const TIPOS_USO_RETIRADOS = ['comercio'] as const satisfies readonly TipoUso[];
+export const TIPOS_USO_RETIRADOS = ['comercio', 'reuniones', 'visitas', 'personal'] as const satisfies readonly TipoUso[];
 
 export type TipoUso = (typeof TIPOS_USO)[number];
 

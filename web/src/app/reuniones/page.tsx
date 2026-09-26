@@ -74,7 +74,7 @@ function Editor({
   agent: AgentGuardado;
   onGuardado: (agent: AgentGuardado) => void;
 }) {
-  // Un `tipoUso` retirado (p. ej. "comercio") ya no tiene sugerencias propias.
+  // Un `tipoUso` retirado (p. ej. "comercio" o "reuniones") ya no tiene sugerencias propias.
   const tipoUso = (agent.tipoUso in CATALOGO_EVENTOS ? agent.tipoUso : "otro") as TipoUsoId;
   const tipos = useTiposEvento(tipoUso, agent.tiposEvento);
   const [guardando, setGuardando] = useState(false);
@@ -111,8 +111,8 @@ function Editor({
             Tus reuniones
           </h1>
           <p className="text-sm leading-[1.6] text-ink-secondary">
-            Cambiá cuánto dura cada una y, si querés, cuánto cuesta. Tu asistente lo usa desde el próximo
-            mensaje; los turnos ya agendados no cambian.
+            Cambiá cuánto dura cada una y, si querés, cuánto cuesta (sin precio, el asistente lo deriva a
+            vos). Tu asistente lo usa desde el próximo mensaje; los turnos ya agendados no cambian.
           </p>
         </div>
 
