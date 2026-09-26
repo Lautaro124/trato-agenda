@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-alpine AS base
+FROM node:26-alpine AS base
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -22,7 +22,7 @@ COPY . .
 RUN npm run build
 
 # Producción: output "standalone" trae su propio server.js y su node_modules mínimo.
-FROM node:24-alpine AS prod
+FROM node:26-alpine AS prod
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
