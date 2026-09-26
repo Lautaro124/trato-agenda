@@ -4,10 +4,11 @@
 //
 // La generación del agente (POST /agents/generate) ya no llama al modelo —
 // usa una plantilla determinista (api/src/agents/agent-template.ts) — así que
-// este stub sólo distingue dos tipos de pedido:
+// este stub sólo distingue tres tipos de pedido:
 //   - conversación (trae `tools`): un guion por palabras clave del último
 //     mensaje humano, que agenda/mueve/cancela con tool calls reales;
-//   - resumen del cliente (sin tools): texto fijo.
+//   - resumen del cliente (sin tools): texto fijo;
+//   - embeddings del catálogo de ventas: bolsa de palabras determinista.
 //
 // Sin dependencias: corre con `node server.mjs` o dentro de node:24-alpine.
 import http from 'node:http';
@@ -145,6 +146,39 @@ function conversar(body, res) {
   return responder(res, 200, completion(body.model, { content: 'Hola, ¿querés sacar un turno?' }));
 }
 
+// --- Embeddings --------------------------------------------------------------
+//
+// El catálogo del asistente de ventas pide embeddings (1536 dimensiones, como
+// openai/text-embedding-3-small). Acá son una bolsa de palabras: cada palabra
+// de 3+ letras suma 1 en una posición fija. Determinista y con geometría real,
+// así la búsqueda vectorial encuentra lo que comparte palabras.
+
+const DIMENSIONES_EMBEDDING = 1536;
+
+function embeddingDe(texto) {
+  const vector = new Array(DIMENSIONES_EMBEDDING).fill(0);
+  for (const palabra of normalizar(texto).split(/[^a-z0-9ñ]+/)) {
+    if (palabra.length < 3) continue;
+    let hash = 0;
+    for (const letra of palabra) hash = (hash * 31 + letra.charCodeAt(0)) % DIMENSIONES_EMBEDDING;
+    vector[hash] += 1;
+  }
+  // Un texto sin palabras largas daría el vector nulo, y el coseno con él no existe.
+  if (vector.every((valor) => valor === 0)) vector[0] = 1;
+  return vector;
+}
+
+function embeddings(body, res) {
+  const entradas = Array.isArray(body.input) ? body.input : [body.input ?? ''];
+  llamadas.push({ tipo: 'embeddings', cantidad: entradas.length, model: body.model, provider: body.provider ?? null });
+  return responder(res, 200, {
+    object: 'list',
+    model: body.model,
+    data: entradas.map((texto, index) => ({ object: 'embedding', index, embedding: embeddingDe(String(texto)) })),
+    usage: { prompt_tokens: entradas.length, total_tokens: entradas.length },
+  });
+}
+
 // --- Servidor --------------------------------------------------------------
 
 function resumenDelPedido(body) {
@@ -199,6 +233,16 @@ const servidor = http.createServer(async (req, res) => {
 
     llamadas.push({ tipo: 'resumen', ...resumenDelPedido(body) });
     return responder(res, 200, completion(body.model, { content: 'Cliente de prueba E2E.' }));
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/v1/embeddings') {
+    let body;
+    try {
+      body = await leerCuerpo(req);
+    } catch {
+      return responder(res, 400, { error: { message: 'JSON inválido' } });
+    }
+    return embeddings(body, res);
   }
 
   return responder(res, 404, { error: { message: `Ruta desconocida: ${req.method} ${url.pathname}` } });

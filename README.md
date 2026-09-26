@@ -80,6 +80,7 @@ Las tres primeras arman a la vez las credenciales del servicio `db` y la
 | `OPENROUTER_API_KEY` | Clave de [OpenRouter](https://openrouter.ai/), usada para la conversación por WhatsApp y el resumen de cliente. La generación de la config del agente en `/contanos` no la necesita: usa una plantilla determinista (`api/src/agents/agent-template.ts`), sin llamadas al modelo. Sin esta clave la API arranca igual, pero la conversación falla con un error claro. |
 | `OPENROUTER_MODEL` | Modelo de OpenRouter a usar (formato `proveedor/modelo`). Por defecto `google/gemma-4-31b-it`. Tiene que soportar tool calling **y** reasoning: el runtime conversacional lo llama con `reasoning: { effort: 'low' }` ([lista filtrada](https://openrouter.ai/models?supported_parameters=tools,reasoning)). |
 | `OPENROUTER_BASE_URL` | Opcional. Base del endpoint OpenAI-compatible. Por defecto `https://openrouter.ai/api/v1`; los E2E la apuntan al OpenRouter falso. |
+| `OPENROUTER_EMBEDDINGS_MODEL` | Opcional. Modelo de embeddings del catálogo del asistente de ventas. Por defecto `openai/text-embedding-3-small`, que tiene endpoint ZDR (Azure). Tiene que dar vectores de **1536** dimensiones (la columna `Producto.embedding`): otro tamaño es una migración, y otro modelo obliga a recalibrar `DISTANCIA_MAXIMA` en `busqueda.service.ts`. |
 
 Sobre el modelo: **toda** llamada a OpenRouter viaja con
 `provider: { data_collection: 'deny', zdr: true }` (`POLITICA_DE_PROVEEDOR` en

@@ -33,4 +33,11 @@ describe('validateEnv', () => {
       'http://openrouter-stub:4010/api/v1',
     );
   });
+
+  it('OPENROUTER_EMBEDDINGS_MODEL por defecto es el modelo ZDR de 1536 dimensiones', () => {
+    expect(validateEnv(BASE).OPENROUTER_EMBEDDINGS_MODEL).toBe('openai/text-embedding-3-small');
+    expect(validateEnv({ ...BASE, OPENROUTER_EMBEDDINGS_MODEL: 'otro/modelo' }).OPENROUTER_EMBEDDINGS_MODEL).toBe(
+      'otro/modelo',
+    );
+  });
 });

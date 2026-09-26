@@ -8,7 +8,7 @@ import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
 import { identificador, iniciales, useSession, type Usuario } from "@/lib/session";
 
-type Tab = "inicio" | "vinculacion" | "calendario" | "reuniones" | "chat" | "plan" | "cuenta";
+type Tab = "inicio" | "vinculacion" | "calendario" | "reuniones" | "productos" | "ventas" | "chat" | "plan" | "cuenta";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 

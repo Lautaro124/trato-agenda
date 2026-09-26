@@ -15,6 +15,11 @@ export type Env = {
   OPENROUTER_MODEL: string;
   /** Base del endpoint OpenAI-compatible. Los E2E la apuntan a un OpenRouter falso. */
   OPENROUTER_BASE_URL: string;
+  /**
+   * Modelo de embeddings del catálogo de ventas. Tiene que tener endpoint ZDR
+   * y dar vectores de 1536 dimensiones (la columna Producto.embedding).
+   */
+  OPENROUTER_EMBEDDINGS_MODEL: string;
   /** Contraseña del login de desarrollo. Vacía = login dev apagado. Prohibida en producción. */
   DEV_LOGIN_PASSWORD: string;
   MERCADOPAGO_ACCESS_TOKEN: string;
@@ -85,6 +90,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     OPENROUTER_API_KEY: String(raw.OPENROUTER_API_KEY ?? ''),
     OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'google/gemma-4-31b-it'),
     OPENROUTER_BASE_URL: String(raw.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_POR_DEFECTO).replace(/\/+$/, ''),
+    OPENROUTER_EMBEDDINGS_MODEL: String(raw.OPENROUTER_EMBEDDINGS_MODEL || 'openai/text-embedding-3-small'),
     DEV_LOGIN_PASSWORD: devLoginPassword,
     MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),
     MERCADOPAGO_WEBHOOK_SECRET: String(raw.MERCADOPAGO_WEBHOOK_SECRET ?? ''),

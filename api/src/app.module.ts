@@ -5,6 +5,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CalendarModule } from './calendar/calendar.module.js';
+import { ComercioModule } from './comercio/comercio.module.js';
 import { validateEnv } from './config/env.js';
 import { ConversationModule } from './conversation/conversation.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -19,6 +20,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module.js';
     AuthModule,
     AgentsModule,
     CalendarModule,
+    ComercioModule,
     ConversationModule,
     SubscriptionModule,
     WhatsappModule,

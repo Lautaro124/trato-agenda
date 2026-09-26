@@ -43,6 +43,7 @@ model User {
   suscripcion     Subscription?
   eventos         Evento[]
   codigosAcceso   CodigoAcceso[]
+  productos       Producto[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -81,6 +82,11 @@ model Agent {
 
   /// "comercio" | "consultorio" | "reuniones" | "visitas" | "personal" | "otro"
   tipoUso String
+
+  /// "agenda" | "ventas" — qué hace el asistente, y con eso qué grafo lo
+  /// atiende. Es el discriminador y no `tipoUso`: hay agentes guardados con
+  /// `tipoUso: 'comercio'` que son bots de turnos y tienen que seguir siéndolo.
+  tipoAsistente String @default("agenda")
 
   /// Ya no la escribe el usuario: la arma el backend con los campos de abajo
   /// (construirDescripcion en agents.service.ts) y es lo que ve el meta-agente.
@@ -253,4 +259,80 @@ model CodigoAcceso {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+/// Producto del catálogo de una cuenta de ventas. El precio y el stock no
+/// viven acá sino en sus variantes: todo producto tiene al menos una (la
+/// "única", con nombre vacío, si no tiene talles ni colores).
+///
+/// `textoBusqueda`, `busqueda` y `embedding` son para el RAG del asistente
+/// (comercio/busqueda.service.ts). `busqueda` y `embedding` se escriben por SQL
+/// crudo — Prisma no conoce tsvector ni vector. `embedding` no tiene índice
+/// HNSW a propósito (ver la migración comercio_catalogo): la búsqueda vectorial
+/// es exacta sobre el catálogo de una sola cuenta.
+model Producto {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Clave del producto para el dueño: con ella se re-importa sin duplicar.
+  codigo      String
+  nombre      String
+  descripcion String  @default("")
+  categoria   String?
+
+  /// Baja lógica: un producto borrado deja de venderse pero sus ventas
+  /// guardan igual su snapshot.
+  activo Boolean @default(true)
+
+  /// Nombre, categoría, descripción, códigos y variantes en minúsculas y sin
+  /// tildes (catalogo.rules.ts). Es la base del full-text, de los trigramas y
+  /// del embedding.
+  textoBusqueda String @default("")
+  /// to_tsvector('spanish', textoBusqueda).
+  busqueda      Unsupported("tsvector")?
+  /// openai/text-embedding-3-small vía OpenRouter (1536 dimensiones).
+  embedding     Unsupported("vector(1536)")?
+  /// Hash del texto con el que se calculó `embedding`: si no coincide con el
+  /// de `textoBusqueda`, el indexador lo recalcula.
+  embeddingHash String?
+
+  variantes Variante[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, codigo])
+  @@index([userId, categoria])
+  @@index([busqueda], type: Gin)
+  @@index([textoBusqueda(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Variante vendible de un producto (talle, color, sabor…), con su precio y su
+/// stock. Un producto sin variantes tiene una sola, con `nombre` vacío.
+model Variante {
+  id         String   @id @default(cuid())
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  sku    String
+  /// "" para la variante única de un producto sin variantes.
+  nombre String @default("")
+
+  /// Precio en centavos, como `Subscription.montoCentavos`.
+  precioCentavos Int
+
+  /// Unidades en stock. Null = el dueño no controla cantidad y vale `disponible`.
+  stock        Int?
+  /// Switch manual "hay / no hay", que sólo cuenta cuando `stock` es null.
+  disponible   Boolean @default(true)
+  /// Con stock controlado: por debajo de esto se avisa al dueño.
+  stockMinimo  Int?
+
+  activo Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productoId, sku])
 }

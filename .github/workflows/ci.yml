@@ -36,6 +36,27 @@ jobs:
     defaults:
       run:
         working-directory: api
+    # Postgres con pgvector para los specs que prueban SQL crudo (catálogo,
+    # reservas): ver api/test/base-de-prueba.ts. Sin TEST_DATABASE_URL esos
+    # specs se saltean, así que en local `npm test` sigue sin pedir una base.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          # Base descartable del runner: sin contraseña, así ninguna URL con
+          # credenciales queda en el repo para que la marque TruffleHog.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: trato_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d trato_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres@localhost:5432/trato_test
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,6 +86,11 @@ jobs:
         # tsconfig.build.json: el código que va a producción. Los specs se
         # chequean al correr con vitest.
         run: npx tsc --noEmit -p tsconfig.build.json
+
+      - name: Migrar la base de prueba
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
       - name: Tests (vitest)
         run: npm test
