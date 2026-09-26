@@ -81,12 +81,19 @@ test.describe('wizard de /contanos: validaciones antes de generar', () => {
     await tarjetaEvento(page, 'Urgencia').click();
     await expect(contador(page, '1 tipo elegido')).toBeVisible();
 
+    // "Otro" no trae sugerencias; volver a "Consultorio" muestra las mismas
+    // tarjetas de antes, pero ya sin la que estaba elegida.
     await page.getByRole('button', { name: 'Atrás' }).click();
-    await page.getByRole('button', { name: /^Reuniones/ }).click();
+    await page.getByRole('button', { name: /^Otro/ }).click();
+    await botonContinuar(page).click();
+    await expect(contador(page, '0 tipos elegidos')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Atrás' }).click();
+    await page.getByRole('button', { name: /^Consultorio/ }).click();
     await botonContinuar(page).click();
 
     await expect(contador(page, '0 tipos elegidos')).toBeVisible();
-    await expect(tarjetaEvento(page, 'Demo de producto')).toHaveAttribute('aria-pressed', 'false');
+    await expect(tarjetaEvento(page, 'Urgencia')).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('una franja invertida bloquea el avance', async ({ page }) => {
