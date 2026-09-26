@@ -1,0 +1,44 @@
+# Actualizaciones automáticas. Agrupadas por paquete para que llegue un PR
+# por semana y carpeta, no uno por dependencia. Las de seguridad no esperan
+# al lunes: Dependabot las abre apenas sale el aviso.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /api
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      api-menores:
+        update-types: [minor, patch]
+    commit-message: { prefix: 'chore(api)' }
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      web-menores:
+        update-types: [minor, patch]
+    commit-message: { prefix: 'chore(web)' }
+
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule: { interval: monthly }
+    groups:
+      e2e:
+        patterns: ['*']
+    commit-message: { prefix: 'chore(e2e)' }
+
+  - package-ecosystem: docker
+    directories: [/api, /web]
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: 'chore(docker)' }
+
+  # Mantiene al día los SHA fijados en los workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message: { prefix: 'ci' }
