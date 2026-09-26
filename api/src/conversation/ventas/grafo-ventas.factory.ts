@@ -16,6 +16,7 @@ import { END, START, StateGraph } from '@langchain/langgraph';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService } from '../../comercio/busqueda.service.js';
 import type { VentasService } from '../../comercio/ventas.service.js';
+import type { NotificacionesService } from '../../notificaciones/notificaciones.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { crearNodoConversacion } from '../graph/nodes/conversacion.node.js';
 import { crearNodoPersistir } from '../graph/nodes/persistir.node.js';
@@ -29,6 +30,7 @@ export type DepsGrafoVentas = {
   prisma: PrismaService;
   busqueda: Pick<BusquedaService, 'buscar'>;
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
+  notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   openRouter: OpenRouterClient;
   llm: BaseChatModel;
   checkpointer?: BaseCheckpointSaver;

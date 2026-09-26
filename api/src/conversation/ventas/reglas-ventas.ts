@@ -8,7 +8,7 @@
  */
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
-import { detalleDeRenglones, estadoVisible, MAX_PEDIDOS_PENDIENTES } from '../../comercio/ventas.rules.js';
+import { detalleDeRenglones, estadoVisible, fechaYHora, MAX_PEDIDOS_PENDIENTES } from '../../comercio/ventas.rules.js';
 import type { Agent, ItemVenta, Venta } from '../../generated/prisma/client.js';
 import { TIMEZONE } from '../graph/agenda-rules.js';
 
@@ -33,6 +33,8 @@ export function reglasDeVenta(agent: Agent): string {
     `que devolvió la búsqueda. Nunca prometas cuándo vuelve a entrar.\n` +
     `- Si la búsqueda no encuentra lo que pide, decile que no lo tenés. No ofrezcas productos que no ` +
     `aparecieron en los resultados.\n` +
+    `- Si el cliente necesita algo del negocio que vos no sabés (un producto que no está, envíos, formas de ` +
+    `pago, un reclamo), avisale al dueño con derivar_consulta y decile que ${titular} le responde por este chat.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
     `- Para vender: repetile al cliente qué lleva (producto, variante y cantidad) y el total, preguntale su ` +
     `nombre si no lo sabés, y esperá que confirme por texto. Recién ahí llamá crear_pedido con los ids de ` +
@@ -61,16 +63,6 @@ export function bloquePedidos(agent: Agent, mpConectado: boolean, pedidos: Venta
 
 // h23: "17:42" y no "05:42 p. m.", que es lo que da es-AR por defecto.
 const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-const FECHA_HORA = new Intl.DateTimeFormat('es-AR', {
-  timeZone: TIMEZONE,
-  weekday: 'long',
-  day: 'numeric',
-  month: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-});
-
 /** Lo que vuelve al modelo después de crear un pedido. */
 export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
   const titular = agent.nombreTitular || 'el negocio';
@@ -84,7 +76,7 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
     );
   }
   return (
-    `${base} Queda reservado hasta el ${FECHA_HORA.format(venta.reservaVenceAt)}. ${titular} se va a ` +
+    `${base} Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}. ${titular} se va a ` +
     `comunicar por este chat para coordinar el pago y la entrega: decíselo así al cliente.`
   );
 }
@@ -107,7 +99,7 @@ export function formatearPedidos(pedidos: VentaConItems[], ahora: Date = new Dat
           ? ` Link de pago vigente hasta las ${HORA.format(pedido.reservaVenceAt)}: ${pedido.linkPago}`
           : '';
       return (
-        `Pedido del ${FECHA_HORA.format(pedido.createdAt)}: ${detalleDeRenglones(pedido.items)}, total ` +
+        `Pedido del ${fechaYHora(pedido.createdAt)}: ${detalleDeRenglones(pedido.items)}, total ` +
         `${formatearCentavos(pedido.totalCentavos)}, ${ETIQUETA_ESTADO[estado]}.${link}`
       );
     })
@@ -127,7 +119,8 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
     (esPropietario
       ? `- Estás hablando con el dueño: podés darle el stock exacto con consultar_stock.\n`
       : `- Los datos de ${titular} que no salen del catálogo —dirección, horarios, formas de pago, envíos— no ` +
-        `los sabés: nunca los inventes, decile que eso lo consulte directamente con ${titular}.\n`) +
+        `los sabés: nunca los inventes; avisale al dueño con derivar_consulta y decile al cliente que ${titular} ` +
+        `le responde.\n`) +
     `- Saludos, gracias y despedidas no son otro tema: respondelos normal y breve.`
   );
 }

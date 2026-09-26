@@ -32,6 +32,7 @@ export const ACCIONES_VENTAS = {
   crear_pedido: 'Reservar el stock de lo que el cliente confirmó y generar el link de pago (o dejar el pedido a coordinar).',
   consultar_pedido: 'Contar el estado de los pedidos de esta conversación.',
   cancelar_pedido: 'Cancelar el pedido sin pagar de esta conversación y liberar su reserva.',
+  derivar_consulta: 'Avisarle al dueño una consulta que el asistente no puede responder.',
 } as const;
 
 export type AccionVentasId = keyof typeof ACCIONES_VENTAS;

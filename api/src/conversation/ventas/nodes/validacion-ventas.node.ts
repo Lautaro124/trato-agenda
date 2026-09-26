@@ -7,6 +7,7 @@
 import { ToolMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
+import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
 import { llamadasDe, type OperacionPendiente } from '../../graph/state.js';
 import { ESQUEMAS_PROPIETARIO_VENTAS, ESQUEMAS_VENTAS } from '../ventas-tools.js';
@@ -46,6 +47,12 @@ export function validarLlamadaVentas(state: EstadoVentasValue, llamada: Operacio
       return { ok: false, motivo: `La consulta es demasiado larga: resumila en menos de ${MAX_LARGO_CONSULTA} caracteres.` };
     }
     return { ok: true, operacion: { ...llamada, args: { ...args, consulta } } };
+  }
+
+  if (llamada.nombre === 'derivar_consulta') {
+    const resumen = String(args.resumen ?? '').trim();
+    if (!resumen) return { ok: false, motivo: 'El resumen de la consulta está vacío.' };
+    return { ok: true, operacion: { ...llamada, args: { resumen: resumen.slice(0, LARGO_MAX_CONSULTA) } } };
   }
 
   if (llamada.nombre === 'crear_pedido') {

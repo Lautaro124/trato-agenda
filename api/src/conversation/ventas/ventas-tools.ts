@@ -64,6 +64,16 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
     description: 'Devuelve los pedidos de esta conversación con su estado (pendiente de pago, pagado, vencido, cancelado) y el link si sigue vigente.',
     schema: z.object({}),
   },
+  derivar_consulta: {
+    name: 'derivar_consulta',
+    description:
+      'Le avisa al dueño del negocio una consulta que vos no podés responder (un producto que no está en el ' +
+      'catálogo, envíos, formas de pago, un reclamo). Después decile al cliente que el negocio le responde por ' +
+      'este chat. No la uses para cosas que no tienen que ver con el negocio: esas se rechazan.',
+    schema: z.object({
+      resumen: z.string().describe('Qué necesita el cliente, en una o dos frases, sin datos que no te dio.'),
+    }),
+  },
   cancelar_pedido: {
     name: 'cancelar_pedido',
     description: 'Cancela el pedido sin pagar más reciente de esta conversación. Usala sólo si el cliente lo pide explícitamente.',

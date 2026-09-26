@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   agruparItems,
   detalleDeRenglones,
+  fechaYHora,
   estadoVisible,
   MAX_CANTIDAD_POR_ITEM,
   MAX_ITEMS_POR_PEDIDO,
@@ -102,5 +103,12 @@ describe('detalleDeRenglones', () => {
         { nombreProducto: 'Remera', nombreVariante: 'Talle M', cantidad: 1, subtotalCentavos: 1_500_000 },
       ]),
     ).toBe('2 × Mate ($ 16.000), 1 × Remera (Talle M) ($ 15.000)');
+  });
+});
+
+describe('fechaYHora', () => {
+  it('escribe día, fecha y hora de 24 horas en la zona del negocio', () => {
+    expect(fechaYHora(new Date('2026-09-26T20:42:00Z'))).toBe('sábado 26/9 a las 17:42');
+    expect(fechaYHora(new Date('2026-12-01T03:05:00Z'))).toBe('martes 1/12 a las 00:05');
   });
 });

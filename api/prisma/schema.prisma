@@ -46,6 +46,7 @@ model User {
   productos       Producto[]
   ventas          Venta[]
   cuentaMercadoPago CuentaMercadoPago?
+  notificaciones  Notificacion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -438,4 +439,33 @@ model CuentaMercadoPago {
   updatedAt   DateTime @updatedAt
 
   @@index([mpUserId])
+}
+
+/// Aviso para el dueño: se ve en la campanita del panel y, si hay WhatsApp
+/// vinculado, también le llega a su propio chat. Lo generan las ventas
+/// (pagada, a cobrar), el stock (bajo, agotado) y las consultas que el
+/// asistente no puede responder.
+model Notificacion {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "venta_pagada" | "pedido_manual" | "stock_bajo" | "stock_agotado" |
+  /// "consulta_derivada" | "mercadopago_desconectado"
+  tipo   String
+  titulo String
+  cuerpo String
+
+  /// Ruta del panel a la que lleva (ej. "/ventas?venta=…"). Nunca una URL externa.
+  enlace String?
+
+  /// Para no repetir un aviso que sigue sin leer (ej. "stock:<varianteId>").
+  clave String?
+
+  leidaAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, leidaAt])
+  @@index([userId, createdAt])
+  @@index([userId, clave])
 }

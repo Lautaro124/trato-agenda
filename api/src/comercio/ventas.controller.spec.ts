@@ -17,8 +17,7 @@ function firmar(dataId: string) {
 function crear() {
   const ventas = {
     procesarPago: vi.fn().mockResolvedValue(null),
-    buscarDelDueno: vi.fn(),
-    marcarPagada: vi.fn(),
+    marcarPagadaPorElDueno: vi.fn(),
     cancelar: vi.fn(),
   };
   const config = { get: () => SECRETO } as unknown as ConfigService<Env, true>;
@@ -59,13 +58,10 @@ describe('VentasController.webhook', () => {
 describe('VentasController.marcarPagada', () => {
   const DUENO = { id: 'user-1' } as User;
 
-  it('sólo marca pedidos propios sin pagar', async () => {
+  it('un pedido ajeno, pagado o cancelado da 404', async () => {
     const { controller, ventas } = crear();
-    ventas.buscarDelDueno.mockResolvedValue({ estado: 'pagada' });
+    ventas.marcarPagadaPorElDueno.mockResolvedValue(null);
     await expect(controller.marcarPagada(DUENO, 'v-1')).rejects.toMatchObject({ status: 404 });
-
-    ventas.buscarDelDueno.mockResolvedValue(null);
-    await expect(controller.marcarPagada(DUENO, 'v-ajena')).rejects.toMatchObject({ status: 404 });
-    expect(ventas.marcarPagada).not.toHaveBeenCalled();
+    expect(ventas.marcarPagadaPorElDueno).toHaveBeenCalledWith('user-1', 'v-1');
   });
 });

@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
 import type { ItemVenta, Prisma, Venta } from '../generated/prisma/client.js';
+import { avisoMercadoPagoDesconectado, avisoPedidoManual, avisoStock, avisoVentaPagada } from '../notificaciones/avisos.js';
+import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   MercadoPagoClient,
@@ -91,6 +93,7 @@ export class VentasService {
     private readonly mp: MercadoPagoClient,
     private readonly cuentas: CuentaMercadoPagoService,
     private readonly config: ConfigService<Env, true>,
+    private readonly notificaciones: NotificacionesService,
   ) {}
 
   /** Unidades retenidas por pedidos pendientes y sin vencer, por variante (ver reservas.ts). */
@@ -146,13 +149,15 @@ export class VentasService {
       } catch (error) {
         // Sin link no hay forma de pagar: se libera la reserva en el acto.
         await this.prisma.venta.update({ where: { id: venta.id }, data: { estado: 'cancelada', canceladaAt: ahora } });
-        if (error instanceof MercadoPagoNoAutorizadoError) await this.cuentas.desconectar(input.userId);
+        if (error instanceof MercadoPagoNoAutorizadoError) await this.desconectarPorRevocacion(input.userId);
         this.logger.error(`No se pudo crear el link de pago de la venta ${venta.id}: ${(error as Error).message}`);
         throw new PedidoRechazadoError(
           'No se pudo generar el link de pago de Mercado Pago. Ofrecé el pedido a coordinar con el negocio (medioPago "manual").',
         );
       }
     }
+    // Un pedido a cobrar a mano no avanza solo: el dueño tiene que enterarse.
+    await this.avisar(input.userId, avisoPedidoManual(venta));
     return venta;
   }
 
@@ -357,9 +362,43 @@ export class VentasService {
     return this.aplicarPago(venta, pago);
   }
 
+  /** El dueño cobró por fuera. Sólo pedidos propios sin pagar; avisa el stock, no la venta (la marcó él). */
+  async marcarPagadaPorElDueno(userId: string, ventaId: string): Promise<VentaConItems | null> {
+    const venta = await this.buscarDelDueno(userId, ventaId);
+    if (!venta || !['pendiente_pago', 'vencida'].includes(venta.estado)) return null;
+    const resultado = await this.marcarPagada(ventaId);
+    if (!resultado) return null;
+    await this.avisarStock(userId, resultado);
+    return resultado.venta;
+  }
+
   private async aplicarPago(venta: Venta, pago: PagoMp): Promise<ResultadoPago | null> {
     if (!pagoSaldaVenta(pago, venta)) return null;
-    return this.marcarPagada(venta.id, { mpPaymentId: String(pago.id) });
+    const resultado = await this.marcarPagada(venta.id, { mpPaymentId: String(pago.id) });
+    if (resultado?.nueva) {
+      await this.avisar(venta.userId, avisoVentaPagada(resultado.venta));
+      await this.avisarStock(venta.userId, resultado);
+    }
+    return resultado;
+  }
+
+  private async avisarStock(userId: string, resultado: ResultadoPago): Promise<void> {
+    for (const variante of resultado.stockBajo) await this.avisar(userId, avisoStock(variante));
+  }
+
+  /** Mercado Pago dejó de aceptar el token del comercio: se desconecta y se le avisa. */
+  private async desconectarPorRevocacion(userId: string): Promise<void> {
+    await this.cuentas.desconectar(userId);
+    await this.avisar(userId, avisoMercadoPagoDesconectado());
+  }
+
+  /** Un aviso que falla no tira abajo la venta: queda logueado y sigue. */
+  private async avisar(userId: string, aviso: Parameters<NotificacionesService['avisar']>[1]): Promise<void> {
+    try {
+      await this.notificaciones.avisar(userId, aviso);
+    } catch (error) {
+      this.logger.error(`No se pudo guardar el aviso ${aviso.tipo} para ${userId}: ${(error as Error).message}`);
+    }
   }
 
   /**
@@ -391,7 +430,7 @@ export class VentasService {
         if (resultado?.nueva) cobradas.push(resultado);
       } catch (error) {
         if (error instanceof MercadoPagoNoAutorizadoError) {
-          await this.cuentas.desconectar(venta.userId);
+          await this.desconectarPorRevocacion(venta.userId);
         } else if (!(error instanceof MercadoPagoError)) {
           throw error;
         }

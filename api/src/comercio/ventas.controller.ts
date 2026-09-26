@@ -75,13 +75,9 @@ export class VentasController {
   @Post(':id/pagada')
   @UseGuards(JwtAuthGuard)
   async marcarPagada(@CurrentUser() user: User, @Param('id') id: string): Promise<VentaPublica> {
-    const venta = await this.ventas.buscarDelDueno(user.id, id);
-    if (!venta || !['pendiente_pago', 'vencida'].includes(venta.estado)) {
-      throw new NotFoundException('No hay un pedido pendiente con ese id.');
-    }
-    const resultado = await this.ventas.marcarPagada(id);
-    if (!resultado) throw new NotFoundException('No hay un pedido pendiente con ese id.');
-    return aVentaPublica(resultado.venta);
+    const venta = await this.ventas.marcarPagadaPorElDueno(user.id, id);
+    if (!venta) throw new NotFoundException('No hay un pedido pendiente con ese id.');
+    return aVentaPublica(venta);
   }
 
   @Post(':id/cancelar')

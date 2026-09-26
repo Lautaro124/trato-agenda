@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { CampanaNotificaciones } from "@/components/CampanaNotificaciones";
 import { Badge } from "@/components/ui/Badge";
 import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
@@ -105,11 +106,14 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
         ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-3 sm:gap-4">
+        <CampanaNotificaciones />
         {whatsapp && (
-          <Badge tone={whatsapp.linked ? "success" : "warning"}>
-            {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
-          </Badge>
+          <span className="whitespace-nowrap">
+            <Badge tone={whatsapp.linked ? "success" : "warning"}>
+              {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
+            </Badge>
+          </span>
         )}
 
         <div ref={menuRef} className="relative">

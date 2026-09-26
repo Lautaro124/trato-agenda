@@ -8,7 +8,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { MercadoPagoError, type MercadoPagoClient } from '../subscription/mercadopago.client.js';
+import type { NotificacionesService } from '../notificaciones/notificaciones.service.js';
+import {
+  MercadoPagoError,
+  MercadoPagoNoAutorizadoError,
+  type MercadoPagoClient,
+} from '../subscription/mercadopago.client.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
 import type { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import { MAX_PEDIDOS_PENDIENTES } from './ventas.rules.js';
@@ -32,6 +37,9 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     obtenerPago: vi.fn(),
   };
   const cuentas = { tokenDe: vi.fn(), desconectar: vi.fn() };
+  const notificaciones = { avisar: vi.fn() };
+  const avisosDeTipo = (tipo: string) =>
+    notificaciones.avisar.mock.calls.filter(([, aviso]) => (aviso as { tipo: string }).tipo === tipo);
   let ventas: VentasService;
 
   const pedido = (items: Array<{ varianteId: string; cantidad: number }>, extra: Record<string, unknown> = {}) =>
@@ -56,6 +64,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       mp as unknown as MercadoPagoClient,
       cuentas as unknown as CuentaMercadoPagoService,
       config,
+      notificaciones as unknown as NotificacionesService,
     );
     dueno = await crearUsuarioDePrueba(prisma);
     const crear = (codigo: string, precioCentavos: number, stock: number | null, stockMinimo: number | null = null) =>
@@ -104,6 +113,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       cantidad: 3,
       precioUnitarioCentavos: 4_500_050,
     });
+    // Un pedido a cobrar a mano le llega al dueño.
+    expect(avisosDeTipo('pedido_manual')).toEqual([[dueno.id, expect.objectContaining({ enlace: `/ventas?venta=${venta.id}` })]]);
     // Reservar no descuenta stock: eso pasa recién al pagar.
     expect(await stockDe(termo)).toBe(5);
     expect(await ventas.reservadasPorVariante([termo])).toEqual(new Map([[termo, 3]]));
@@ -207,6 +218,30 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     mp.obtenerPago.mockResolvedValue(pago);
     expect(await ventas.procesarPago('555', venta.id)).toMatchObject({ nueva: true, venta: { mpPaymentId: '555' } });
     expect(mp.obtenerPago).toHaveBeenLastCalledWith('TOKEN', '555');
+    // Pagada por Mercado Pago: aviso de venta; con link no hay aviso de pedido a cobrar.
+    expect(avisosDeTipo('venta_pagada')).toHaveLength(1);
+    expect(avisosDeTipo('pedido_manual')).toHaveLength(0);
+  });
+
+  it('si Mercado Pago rechaza el token del comercio, se desconecta y se le avisa', async () => {
+    cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN-VIEJO', mpUserId: '777' });
+    mp.crearPreferencia.mockRejectedValue(new MercadoPagoNoAutorizadoError('401'));
+    await expect(pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago' })).rejects.toThrow(
+      'No se pudo generar el link',
+    );
+    expect(cuentas.desconectar).toHaveBeenCalledWith(dueno.id);
+    expect(avisosDeTipo('mercadopago_desconectado')).toHaveLength(1);
+  });
+
+  it('marcarla pagada a mano avisa el stock bajo pero no la venta', async () => {
+    const venta = await pedido([{ varianteId: termo, cantidad: 2 }]);
+    notificaciones.avisar.mockClear();
+    expect(await ventas.marcarPagadaPorElDueno(dueno.id, venta.id)).toMatchObject({ estado: 'pagada' });
+    expect(avisosDeTipo('venta_pagada')).toHaveLength(0);
+    expect(avisosDeTipo('stock_bajo')).toEqual([[dueno.id, expect.objectContaining({ clave: `stock:${termo}` })]]);
+    // Ya pagada, o de otro dueño: nada.
+    expect(await ventas.marcarPagadaPorElDueno(dueno.id, venta.id)).toBeNull();
+    expect(await ventas.marcarPagadaPorElDueno('otro', venta.id)).toBeNull();
   });
 
   it('la conciliación encuentra el pago aunque el webhook no haya llegado', async () => {

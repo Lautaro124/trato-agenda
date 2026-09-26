@@ -22,7 +22,7 @@ const AGENT = {
   user: { id: 'user-1' },
 };
 
-const CONVERSATION = { id: 'conv-1', userId: 'user-1', remoteJid: '54911@s.whatsapp.net', resumen: null, nombreCliente: null };
+const CONVERSATION = { id: 'conv-1', userId: 'user-1', remoteJid: '5491122334455@s.whatsapp.net', resumen: null, nombreCliente: null };
 
 const MATE: ProductoEncontrado = {
   productoId: 'p-1',
@@ -57,6 +57,10 @@ function crearPrisma(opciones: { totalProductos?: number; mpConectado?: boolean;
     venta: { findMany: vi.fn().mockResolvedValue(opciones.pedidos ?? []) },
     message: { create: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(1) },
   } as unknown as PrismaService;
+}
+
+function crearNotificaciones(reciente = false) {
+  return { avisar: vi.fn().mockResolvedValue({}), consultaRecienteDe: vi.fn().mockResolvedValue(reciente) };
 }
 
 function crearVentas() {
@@ -97,12 +101,14 @@ function correr(
     llm: BaseChatModel;
     busqueda: Pick<BusquedaService, 'buscar'>;
     ventas?: ReturnType<typeof crearVentas>;
+    notificaciones?: ReturnType<typeof crearNotificaciones>;
   },
   esPropietario = false,
 ) {
   const grafo = construirGrafoVentas({
     ...deps,
     ventas: deps.ventas ?? crearVentas(),
+    notificaciones: deps.notificaciones ?? crearNotificaciones(),
     openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
     checkpointer: new MemorySaver(),
   });
@@ -322,6 +328,43 @@ describe('grafo de ventas', () => {
       });
       expect(ventas.cancelarUltimoPendiente).toHaveBeenCalledWith('conv-1');
       expect(toolMessages(cancelacion.messages)[0].content).toContain('Pedido cancelado y reserva liberada');
+    });
+  });
+
+  describe('derivar_consulta', () => {
+    it('le avisa al dueño con el número del cliente y le dice al modelo qué contestar', async () => {
+      const notificaciones = crearNotificaciones();
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([llamada('derivar_consulta', { resumen: '¿Hacen envíos a Rosario?' }), new AIMessage('Le aviso.')]),
+        busqueda: { buscar: vi.fn() },
+        notificaciones,
+      });
+
+      expect(notificaciones.avisar).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({
+          tipo: 'consulta_derivada',
+          titulo: 'Consulta de un cliente',
+          cuerpo: expect.stringContaining('Un cliente (+5491122334455) preguntó algo que el asistente no sabe responder: "¿Hacen envíos a Rosario?"'),
+          clave: 'consulta:conv-1',
+        }),
+      );
+      expect(toolMessages(resultado.messages)[0].content).toBe(
+        'Listo, le avisé a Mates del Sur. Decile al cliente que Mates del Sur le va a responder por este chat.',
+      );
+    });
+
+    it('no molesta dos veces al dueño con la misma conversación', async () => {
+      const notificaciones = crearNotificaciones(true);
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([llamada('derivar_consulta', { resumen: 'otra vez' }), new AIMessage('.')]),
+        busqueda: { buscar: vi.fn() },
+        notificaciones,
+      });
+      expect(notificaciones.avisar).not.toHaveBeenCalled();
+      expect(toolMessages(resultado.messages)[0].content).toContain('no lo vuelvo a molestar');
     });
   });
 });

@@ -96,6 +96,7 @@ function llamadaATool(model, name, args) {
 //   - "quiero …" / "lo compro" (con "soy <Nombre>") → crear_pedido con la
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
+//   - "envío" / "envían" → derivar_consulta (el asistente no sabe de envíos);
 //   - un saludo → saludo; cualquier otra cosa → buscar_productos con el texto.
 // Con el resultado de la herramienta contesta: el primer producto encontrado,
 // o el texto de la herramienta tal cual (así el link de pago llega al cliente).
@@ -131,6 +132,9 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   }
   if (ultimoUsuario.includes('cancel')) {
     return responder(res, 200, llamadaATool(body.model, 'cancelar_pedido', {}));
+  }
+  if (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian')) {
+    return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: textoDe(mensajes[indiceUsuario]) }));
   }
   if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
     return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));

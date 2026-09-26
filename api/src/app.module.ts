@@ -8,6 +8,7 @@ import { CalendarModule } from './calendar/calendar.module.js';
 import { ComercioModule } from './comercio/comercio.module.js';
 import { validateEnv } from './config/env.js';
 import { ConversationModule } from './conversation/conversation.module.js';
+import { NotificacionesModule } from './notificaciones/notificaciones.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RetentionModule } from './retention/retention.module.js';
 import { SubscriptionModule } from './subscription/subscription.module.js';
@@ -22,6 +23,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module.js';
     CalendarModule,
     ComercioModule,
     ConversationModule,
+    NotificacionesModule,
     SubscriptionModule,
     WhatsappModule,
     RetentionModule,

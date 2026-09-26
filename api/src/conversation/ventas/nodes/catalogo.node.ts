@@ -6,7 +6,10 @@ import { ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import type { BusquedaService } from '../../../comercio/busqueda.service.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
+import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
+import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
+import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import { formatearPedidoCreado, formatearPedidos, formatearResultados, formatearStockDueno } from '../reglas-ventas.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
@@ -14,6 +17,7 @@ import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 export type DepsCatalogo = {
   busqueda: Pick<BusquedaService, 'buscar'>;
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
+  notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
 };
 
 export const MENSAJE_CATALOGO_CAIDO =
@@ -59,6 +63,25 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
           if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
           throw error;
         }
+      }
+      case 'derivar_consulta': {
+        const { agent, conversation } = state.contexto;
+        const titular = agent.nombreTitular || 'el negocio';
+        const decile = `Decile al cliente que ${titular} le va a responder por este chat.`;
+        if (await deps.notificaciones.consultaRecienteDe(state.ownerUserId, conversation.id)) {
+          return `Ya le avisé a ${titular} hace un rato de una consulta de este cliente: no lo vuelvo a molestar. ${decile}`;
+        }
+        await deps.notificaciones.avisar(
+          state.ownerUserId,
+          avisoConsultaDerivada({
+            conversationId: conversation.id,
+            nombreCliente: conversation.nombreCliente,
+            telefonoCliente: telefonoDeJid(state.remoteJid),
+            resumen: String(args.resumen),
+            dePrueba: state.esPropietario,
+          }),
+        );
+        return `Listo, le avisé a ${titular}. ${decile}`;
       }
       case 'consultar_pedido':
         return formatearPedidos(await deps.ventas.pedidosDeConversacion(state.contexto.conversation.id));

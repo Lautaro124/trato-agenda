@@ -4,6 +4,7 @@ import { OpenRouterClient } from '../agents/openrouter.client.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { BusquedaService } from '../comercio/busqueda.service.js';
 import { VentasService } from '../comercio/ventas.service.js';
+import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CheckpointerService } from './checkpointer.provider.js';
 import { construirGrafo, type GrafoConversacion } from './graph/graph.factory.js';
@@ -32,14 +33,23 @@ export const grafoProvider = {
 /** El grafo del asistente de ventas, con el mismo modelo y el mismo checkpointer. */
 export const grafoVentasProvider = {
   provide: GRAFO_VENTAS,
-  inject: [PrismaService, BusquedaService, VentasService, OpenRouterClient, LLM_CONVERSACION, CheckpointerService],
+  inject: [
+    PrismaService,
+    BusquedaService,
+    VentasService,
+    NotificacionesService,
+    OpenRouterClient,
+    LLM_CONVERSACION,
+    CheckpointerService,
+  ],
   useFactory: (
     prisma: PrismaService,
     busqueda: BusquedaService,
     ventas: VentasService,
+    notificaciones: NotificacionesService,
     openRouter: OpenRouterClient,
     llm: BaseChatModel,
     checkpointer: CheckpointerService,
   ): GrafoVentas =>
-    construirGrafoVentas({ prisma, busqueda, ventas, openRouter, llm, checkpointer: checkpointer.saver }),
+    construirGrafoVentas({ prisma, busqueda, ventas, notificaciones, openRouter, llm, checkpointer: checkpointer.saver }),
 };

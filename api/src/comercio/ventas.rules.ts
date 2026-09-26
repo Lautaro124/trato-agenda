@@ -116,3 +116,22 @@ export function detalleDeRenglones(items: RenglonVenta[]): string {
     )
     .join(', ');
 }
+
+const PARTES_FECHA = new Intl.DateTimeFormat('es-AR', {
+  timeZone: 'America/Argentina/Buenos_Aires',
+  weekday: 'long',
+  day: 'numeric',
+  month: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/**
+ * "sábado 26/9 a las 17:42", en la zona del negocio. Armado a mano porque el
+ * formato de es-AR para día y mes numéricos sale "26-9", que se lee raro.
+ */
+export function fechaYHora(fecha: Date): string {
+  const partes = Object.fromEntries(PARTES_FECHA.formatToParts(fecha).map((parte) => [parte.type, parte.value]));
+  return `${partes.weekday} ${partes.day}/${partes.month} a las ${partes.hour}:${partes.minute}`;
+}

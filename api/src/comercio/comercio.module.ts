@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
+import { NotificacionesModule } from '../notificaciones/notificaciones.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { BusquedaService } from './busqueda.service.js';
 import { ConciliacionService } from './conciliacion.service.js';
@@ -20,7 +21,7 @@ import { VentasService } from './ventas.service.js';
  */
 @Module({
   // JwtAuthGuard necesita AuthModuleOptions de PassportModule en el árbol de DI.
-  imports: [PassportModule.register({ session: false }), SubscriptionModule],
+  imports: [PassportModule.register({ session: false }), SubscriptionModule, NotificacionesModule],
   controllers: [ProductosController, VentasController, MercadoPagoController],
   providers: [
     ProductosService,
