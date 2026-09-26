@@ -20,11 +20,15 @@ RUN npx prisma generate && npm run build && npm prune --omit=dev
 FROM node:24-alpine AS prod
 WORKDIR /app
 ENV NODE_ENV=production
+# Los archivos quedan de root (sólo lectura para el proceso) y el proceso corre
+# como el usuario sin privilegios que ya trae la imagen: si alguien toma el
+# proceso, no puede reescribir el código ni instalar nada en el contenedor.
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/package.json ./package.json
+USER node
 EXPOSE 4000
 # Las migraciones corren al arrancar el contenedor, no a mano: en un deploy
 # (Railway y compañía) la base arranca vacía y nadie entra a correr
