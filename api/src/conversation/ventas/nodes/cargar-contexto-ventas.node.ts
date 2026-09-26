@@ -7,7 +7,13 @@ import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { TIMEZONE } from '../../graph/agenda-rules.js';
 import type { AgentConUser } from '../../graph/state.js';
 import type { Agent, Conversation } from '../../../generated/prisma/client.js';
-import { bloqueCatalogo, reglasDeAlcanceVentas, reglasDeEstiloVentas, reglasDeVenta } from '../reglas-ventas.js';
+import {
+  bloqueCatalogo,
+  bloquePedidos,
+  reglasDeAlcanceVentas,
+  reglasDeEstiloVentas,
+  reglasDeVenta,
+} from '../reglas-ventas.js';
 import type { ContextoVentas, EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 export type DepsContextoVentas = { prisma: PrismaService };
@@ -56,7 +62,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       where: { userId_remoteJid: { userId: state.ownerUserId, remoteJid: state.remoteJid } },
     });
 
-    const [grupos, totalProductos] = await Promise.all([
+    const [grupos, totalProductos, cuentaMp, pedidos] = await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
         where: { userId: state.ownerUserId, activo: true, categoria: { not: null } },
@@ -64,15 +70,24 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
         orderBy: { _count: { categoria: 'desc' } },
       }),
       deps.prisma.producto.count({ where: { userId: state.ownerUserId, activo: true } }),
+      deps.prisma.cuentaMercadoPago.findUnique({ where: { userId: state.ownerUserId }, select: { id: true } }),
+      deps.prisma.venta.findMany({
+        where: { conversationId: conversation.id },
+        include: { items: true },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+      }),
     ]);
+    const mpConectado = cuentaMp !== null;
     const categorias = grupos.map((grupo) => ({ nombre: grupo.categoria as string, cantidad: grupo._count._all }));
 
     const contexto: ContextoVentas = {
       agent,
       conversation,
+      mpConectado,
       bloqueSistema:
         `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario)}\n\n` +
-        bloqueCatalogo(categorias, totalProductos),
+        `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloquePedidos(agent, mpConectado, pedidos)}`,
     };
 
     return { contexto, pendientes: [], indiceDesde: Math.max(state.messages.length - 1, 0) };

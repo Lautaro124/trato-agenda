@@ -6,6 +6,7 @@
  */
 import { ToolMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
+import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
 import { llamadasDe, type OperacionPendiente } from '../../graph/state.js';
 import { ESQUEMAS_PROPIETARIO_VENTAS, ESQUEMAS_VENTAS } from '../ventas-tools.js';
@@ -45,6 +46,17 @@ export function validarLlamadaVentas(state: EstadoVentasValue, llamada: Operacio
       return { ok: false, motivo: `La consulta es demasiado larga: resumila en menos de ${MAX_LARGO_CONSULTA} caracteres.` };
     }
     return { ok: true, operacion: { ...llamada, args: { ...args, consulta } } };
+  }
+
+  if (llamada.nombre === 'crear_pedido') {
+    const nombreCliente = String(args.nombreCliente ?? '').trim();
+    if (!nombreCliente) {
+      return { ok: false, motivo: 'Falta el nombre de la persona que compra: preguntáselo antes de crear el pedido.' };
+    }
+    const items = (args.items ?? []) as ItemPedido[];
+    const problema = problemaDeForma(items);
+    if (problema) return { ok: false, motivo: problema };
+    return { ok: true, operacion: { ...llamada, args: { ...args, nombreCliente, items: agruparItems(items) } } };
   }
 
   return { ok: true, operacion: { ...llamada, args } };

@@ -10,6 +10,7 @@ import type { PrismaService } from '../../prisma/prisma.service.js';
 import { LIMITE_RECURSION } from '../graph/graph.factory.js';
 import { construirGrafoVentas } from './grafo-ventas.factory.js';
 import { MENSAJE_CATALOGO_CAIDO } from './nodes/catalogo.node.js';
+import { PedidoRechazadoError } from '../../comercio/ventas.service.js';
 
 const AGENT = {
   id: 'agent-1',
@@ -44,7 +45,7 @@ const MATE: ProductoEncontrado = {
   ],
 };
 
-function crearPrisma(opciones: { totalProductos?: number } = {}) {
+function crearPrisma(opciones: { totalProductos?: number; mpConectado?: boolean; pedidos?: unknown[] } = {}) {
   return {
     agent: { findUnique: vi.fn().mockResolvedValue(AGENT) },
     conversation: { findUniqueOrThrow: vi.fn().mockResolvedValue(CONVERSATION) },
@@ -52,9 +53,32 @@ function crearPrisma(opciones: { totalProductos?: number } = {}) {
       groupBy: vi.fn().mockResolvedValue([{ categoria: 'Mates', _count: { _all: 12 } }]),
       count: vi.fn().mockResolvedValue(opciones.totalProductos ?? 12),
     },
+    cuentaMercadoPago: { findUnique: vi.fn().mockResolvedValue(opciones.mpConectado ? { id: 'mp-1' } : null) },
+    venta: { findMany: vi.fn().mockResolvedValue(opciones.pedidos ?? []) },
     message: { create: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(1) },
   } as unknown as PrismaService;
 }
+
+function crearVentas() {
+  return {
+    crearPedido: vi.fn(),
+    pedidosDeConversacion: vi.fn().mockResolvedValue([]),
+    cancelarUltimoPendiente: vi.fn().mockResolvedValue(null),
+  };
+}
+
+const VENTA = {
+  id: 'venta-1',
+  nombreCliente: 'Juan',
+  totalCentavos: 1_600_000,
+  moneda: 'ARS',
+  estado: 'pendiente_pago',
+  medioPago: 'mercadopago',
+  linkPago: 'https://mp/pagar/venta-1',
+  reservaVenceAt: new Date('2099-01-01T15:30:00-03:00'),
+  createdAt: new Date('2099-01-01T15:00:00-03:00'),
+  items: [{ nombreProducto: 'Mate de calabaza', nombreVariante: '', cantidad: 2, subtotalCentavos: 1_600_000 }],
+};
 
 function crearModelo(respuestas: BaseMessage[]) {
   const invoke = vi.fn(async () => respuestas[Math.min(invoke.mock.calls.length - 1, respuestas.length - 1)]);
@@ -67,9 +91,18 @@ function llamada(name: string, args: Record<string, unknown>) {
   return new AIMessage({ content: '', tool_calls: [{ id: 'call-1', name, args }] });
 }
 
-function correr(deps: { prisma: PrismaService; llm: BaseChatModel; busqueda: Pick<BusquedaService, 'buscar'> }, esPropietario = false) {
+function correr(
+  deps: {
+    prisma: PrismaService;
+    llm: BaseChatModel;
+    busqueda: Pick<BusquedaService, 'buscar'>;
+    ventas?: ReturnType<typeof crearVentas>;
+  },
+  esPropietario = false,
+) {
   const grafo = construirGrafoVentas({
     ...deps,
+    ventas: deps.ventas ?? crearVentas(),
     openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
     checkpointer: new MemorySaver(),
   });
@@ -182,5 +215,113 @@ describe('grafo de ventas', () => {
 
     expect(toolMessages(resultado.messages)[0].content).toBe(MENSAJE_CATALOGO_CAIDO);
     expect(resultado.messages.at(-1)?.content).toBe('Perdón, probá en un rato.');
+  });
+
+  describe('pedidos', () => {
+    const itemsPedido = [
+      { varianteId: 'v-1', cantidad: 1 },
+      { varianteId: 'v-1', cantidad: 1 },
+    ];
+
+    it('crea el pedido con Mercado Pago si el comercio lo conectó y le pasa el link al modelo', async () => {
+      const ventas = crearVentas();
+      ventas.crearPedido.mockResolvedValue(VENTA);
+      const llm = crearModelo([
+        llamada('crear_pedido', { nombreCliente: ' Juan ', items: itemsPedido }),
+        new AIMessage('Listo, te paso el link.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma({ mpConectado: true }), llm, busqueda: { buscar: vi.fn() }, ventas });
+
+      expect(ventas.crearPedido).toHaveBeenCalledWith({
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        remoteJid: CONVERSATION.remoteJid,
+        nombreCliente: 'Juan',
+        // Los renglones repetidos llegan juntos.
+        items: [{ varianteId: 'v-1', cantidad: 2 }],
+        medioPago: 'mercadopago',
+        dePrueba: false,
+      });
+      const [tool] = toolMessages(resultado.messages);
+      expect(tool.content).toContain('Pedido creado para "Juan": 2 × Mate de calabaza ($ 16.000). Total $ 16.000.');
+      expect(tool.content).toContain('https://mp/pagar/venta-1');
+      expect(sistemaDe(llm)).toContain('Cobro: con link de pago de Mercado Pago');
+    });
+
+    it('sin Mercado Pago el pedido queda para coordinar, y desde el banco de pruebas va marcado', async () => {
+      const ventas = crearVentas();
+      ventas.crearPedido.mockResolvedValue({ ...VENTA, linkPago: null, medioPago: 'manual' });
+      const llm = crearModelo([
+        llamada('crear_pedido', { nombreCliente: 'Juan', items: [{ varianteId: 'v-1', cantidad: 2 }] }),
+        new AIMessage('Anotado.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, ventas }, true);
+
+      expect(ventas.crearPedido).toHaveBeenCalledWith(expect.objectContaining({ medioPago: 'manual', dePrueba: true }));
+      expect(toolMessages(resultado.messages)[0].content).toContain('Mates del Sur se va a comunicar por este chat');
+      expect(sistemaDe(llm)).toContain('no cobra con link por ahora');
+    });
+
+    it('sin nombre o con cantidades imposibles no llega a crear nada', async () => {
+      const ventas = crearVentas();
+      const sinNombre = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([llamada('crear_pedido', { nombreCliente: '', items: itemsPedido }), new AIMessage('.')]),
+        busqueda: { buscar: vi.fn() },
+        ventas,
+      });
+      expect(toolMessages(sinNombre.messages)[0].content).toContain('Falta el nombre');
+
+      const cantidad = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([
+          llamada('crear_pedido', { nombreCliente: 'Juan', items: [{ varianteId: 'v-1', cantidad: 500 }] }),
+          new AIMessage('.'),
+        ]),
+        busqueda: { buscar: vi.fn() },
+        ventas,
+      });
+      expect(toolMessages(cantidad.messages)[0].content).toContain('hasta 50 unidades');
+      expect(ventas.crearPedido).not.toHaveBeenCalled();
+    });
+
+    it('un rechazo de negocio (sin stock) vuelve al modelo como texto', async () => {
+      const ventas = crearVentas();
+      ventas.crearPedido.mockRejectedValue(new PedidoRechazadoError('No hay stock suficiente de "Mate" para 2 unidades: queda 1 unidad.'));
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido }), new AIMessage('Perdón.')]),
+        busqueda: { buscar: vi.fn() },
+        ventas,
+      });
+      expect(toolMessages(resultado.messages)[0].content).toBe(
+        'No se pudo crear el pedido: No hay stock suficiente de "Mate" para 2 unidades: queda 1 unidad.',
+      );
+    });
+
+    it('consulta y cancela los pedidos de esta conversación', async () => {
+      const ventas = crearVentas();
+      ventas.pedidosDeConversacion.mockResolvedValue([VENTA]);
+      ventas.cancelarUltimoPendiente.mockResolvedValue({ ...VENTA, estado: 'cancelada' });
+
+      const consulta = await correr({
+        prisma: crearPrisma({ pedidos: [VENTA] }),
+        llm: crearModelo([llamada('consultar_pedido', {}), new AIMessage('.')]),
+        busqueda: { buscar: vi.fn() },
+        ventas,
+      });
+      expect(toolMessages(consulta.messages)[0].content).toContain('pendiente de pago. Link de pago vigente');
+
+      const cancelacion = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([llamada('cancelar_pedido', {}), new AIMessage('.')]),
+        busqueda: { buscar: vi.fn() },
+        ventas,
+      });
+      expect(ventas.cancelarUltimoPendiente).toHaveBeenCalledWith('conv-1');
+      expect(toolMessages(cancelacion.messages)[0].content).toContain('Pedido cancelado y reserva liberada');
+    });
   });
 });

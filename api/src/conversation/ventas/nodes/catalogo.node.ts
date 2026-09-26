@@ -5,11 +5,16 @@
 import { ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import type { BusquedaService } from '../../../comercio/busqueda.service.js';
+import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
+import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
-import { formatearResultados, formatearStockDueno } from '../reglas-ventas.js';
+import { formatearPedidoCreado, formatearPedidos, formatearResultados, formatearStockDueno } from '../reglas-ventas.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
-export type DepsCatalogo = { busqueda: Pick<BusquedaService, 'buscar'> };
+export type DepsCatalogo = {
+  busqueda: Pick<BusquedaService, 'buscar'>;
+  ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
+};
 
 export const MENSAJE_CATALOGO_CAIDO =
   'No pude consultar el catálogo en este momento. Pedile disculpas al cliente y decile que en un rato lo vuelva a intentar.';
@@ -29,6 +34,39 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       case 'consultar_stock': {
         const consulta = String(args.consulta);
         return formatearStockDueno(consulta, await deps.busqueda.buscar(state.ownerUserId, consulta));
+      }
+      case 'crear_pedido': {
+        const { agent, conversation, mpConectado } = state.contexto;
+        const medioPago: MedioDePago =
+          args.medioPago === 'manual' || args.medioPago === 'mercadopago'
+            ? args.medioPago
+            : mpConectado
+              ? 'mercadopago'
+              : 'manual';
+        try {
+          const venta = await deps.ventas.crearPedido({
+            userId: state.ownerUserId,
+            conversationId: conversation.id,
+            remoteJid: state.remoteJid,
+            nombreCliente: String(args.nombreCliente),
+            items: args.items as ItemPedido[],
+            medioPago,
+            // El banco de pruebas del Home (quien habla es el dueño): pedido real, fuera del histórico.
+            dePrueba: state.esPropietario,
+          });
+          return formatearPedidoCreado(agent, venta);
+        } catch (error) {
+          if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
+          throw error;
+        }
+      }
+      case 'consultar_pedido':
+        return formatearPedidos(await deps.ventas.pedidosDeConversacion(state.contexto.conversation.id));
+      case 'cancelar_pedido': {
+        const cancelado = await deps.ventas.cancelarUltimoPendiente(state.contexto.conversation.id);
+        return cancelado
+          ? `Pedido cancelado y reserva liberada: ${formatearPedidos([cancelado])}`
+          : 'Este cliente no tiene pedidos sin pagar para cancelar.';
       }
       default:
         return `La herramienta ${operacion.nombre} no existe.`;

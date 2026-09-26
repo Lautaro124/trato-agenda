@@ -99,6 +99,10 @@ está pendiente.
 | `DEV_LOGIN_PASSWORD` | Opcional, **sólo desarrollo**. Prende el login con contraseña y el calendario falso (ver arriba). Si está definida con `NODE_ENV=production`, la API no arranca. |
 | `MERCADOPAGO_ACCESS_TOKEN` | Access token de la aplicación de [Mercado Pago](https://www.mercadopago.com.ar/developers/panel) con la que se cobra la suscripción. Sin ella la API arranca igual; sólo falla el checkout. **Secreto real, nunca commitear.** |
 | `MERCADOPAGO_WEBHOOK_SECRET` | Clave secreta de las notificaciones de esa misma aplicación: con ella se verifica la firma `x-signature` de cada webhook. Sin ella, los webhooks se descartan. |
+| `MERCADOPAGO_CLIENT_ID` | Client ID de esa misma aplicación de Mercado Pago, con OAuth habilitado. Con esto cada comercio conecta **su** cuenta desde `/cuenta` y el asistente de ventas cobra con links a su nombre. Sin ella, "Conectar Mercado Pago" queda deshabilitado y los pedidos quedan para cobrar a mano. |
+| `MERCADOPAGO_CLIENT_SECRET` | Client secret de la aplicación, para canjear y renovar los tokens OAuth de los comercios. **Secreto real, nunca commitear.** En el panel de Mercado Pago, la Redirect URL tiene que ser `<API_PUBLIC_URL>/mercadopago/callback`. |
+| `API_PUBLIC_URL` | Opcional. URL pública de la API (redirect del OAuth y `notification_url` de los links de pago). Por defecto, el origen de `GOOGLE_CALLBACK_URL`. |
+| `MERCADOPAGO_BASE_URL` / `MERCADOPAGO_AUTH_URL` | Opcionales. `https://api.mercadopago.com` y `https://auth.mercadopago.com` por defecto; los E2E las apuntan al Mercado Pago falso (`e2e/mercadopago-stub`). |
 | `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan en pesos. Por defecto `20000`. |
 
 El frontend solo necesita `NEXT_PUBLIC_API_URL`, que sale del `.env` de la raíz.

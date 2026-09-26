@@ -21,6 +21,27 @@ export const esquemaBuscarProductos = z.object({
     .describe('Opcional: una categoría exacta de la lista del contexto, para acotar la búsqueda.'),
 });
 
+export const esquemaCrearPedido = z.object({
+  nombreCliente: z
+    .string()
+    .describe('Nombre de la persona que compra. Obligatorio: si no lo sabés, preguntáselo antes.'),
+  items: z
+    .array(
+      z.object({
+        varianteId: z.string().describe('El id de variante entre corchetes de la última búsqueda, nunca uno inventado.'),
+        cantidad: z.number().int().describe('Unidades de esa variante.'),
+      }),
+    )
+    .describe('Lo que el cliente confirmó que compra.'),
+  medioPago: z
+    .enum(['mercadopago', 'manual'])
+    .optional()
+    .describe(
+      '"mercadopago" manda un link de pago; "manual" deja el pedido anotado para que el negocio coordine el pago ' +
+        '(transferencia, efectivo). Si no lo sabés, no lo mandes: se usa el que corresponde al negocio.',
+    ),
+});
+
 export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
   buscar_productos: {
     name: 'buscar_productos',
@@ -29,6 +50,24 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
       'precio y stock reales. Usala SIEMPRE antes de hablar de un producto, de su precio o de si hay: sin ' +
       'buscar no sabés nada del catálogo.',
     schema: esquemaBuscarProductos,
+  },
+  crear_pedido: {
+    name: 'crear_pedido',
+    description:
+      'Crea el pedido: reserva el stock y devuelve el link de pago (o lo deja anotado para coordinar). Usala sólo ' +
+      'después de repetirle al cliente productos, cantidades y total, y de que confirme por texto. Los precios los ' +
+      'pone el sistema: vos sólo mandás variantes y cantidades.',
+    schema: esquemaCrearPedido,
+  },
+  consultar_pedido: {
+    name: 'consultar_pedido',
+    description: 'Devuelve los pedidos de esta conversación con su estado (pendiente de pago, pagado, vencido, cancelado) y el link si sigue vigente.',
+    schema: z.object({}),
+  },
+  cancelar_pedido: {
+    name: 'cancelar_pedido',
+    description: 'Cancela el pedido sin pagar más reciente de esta conversación. Usala sólo si el cliente lo pide explícitamente.',
+    schema: z.object({}),
   },
 };
 

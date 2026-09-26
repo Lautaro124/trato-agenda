@@ -24,6 +24,22 @@ export type Env = {
   DEV_LOGIN_PASSWORD: string;
   MERCADOPAGO_ACCESS_TOKEN: string;
   MERCADOPAGO_WEBHOOK_SECRET: string;
+  /**
+   * OAuth de la misma aplicación de Mercado Pago: con esto cada comercio
+   * conecta su cuenta y el asistente de ventas cobra a su nombre.
+   */
+  MERCADOPAGO_CLIENT_ID: string;
+  MERCADOPAGO_CLIENT_SECRET: string;
+  /** Base de la API de Mercado Pago. Los E2E la apuntan a un Mercado Pago falso. */
+  MERCADOPAGO_BASE_URL: string;
+  /** Dónde se autoriza el OAuth (la pantalla de Mercado Pago). Los E2E también la reemplazan. */
+  MERCADOPAGO_AUTH_URL: string;
+  /**
+   * URL pública de la propia API: el redirect del OAuth de Mercado Pago y el
+   * notification_url de los links de pago. Por defecto, el origen de
+   * GOOGLE_CALLBACK_URL, que ya es la API.
+   */
+  API_PUBLIC_URL: string;
   SUSCRIPCION_PRECIO_ARS: number;
 };
 
@@ -40,9 +56,18 @@ const REQUIRED = [
 // OpenRouterClient falla con un error claro apenas se intenta generar un
 // agente o procesar un mensaje. Lo mismo vale para las MERCADOPAGO_*: sin
 // ellas el producto funciona entero durante el mes de prueba y sólo falla al
-// intentar suscribirse.
+// intentar suscribirse, o (las de OAuth) al conectar Mercado Pago para vender.
 
 export const OPENROUTER_BASE_URL_POR_DEFECTO = 'https://openrouter.ai/api/v1';
+export const MERCADOPAGO_BASE_URL_POR_DEFECTO = 'https://api.mercadopago.com';
+
+function origenDe(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Validación de entorno: mejor romper al arrancar que descubrir a mitad
@@ -94,6 +119,11 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     DEV_LOGIN_PASSWORD: devLoginPassword,
     MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),
     MERCADOPAGO_WEBHOOK_SECRET: String(raw.MERCADOPAGO_WEBHOOK_SECRET ?? ''),
+    MERCADOPAGO_CLIENT_ID: String(raw.MERCADOPAGO_CLIENT_ID ?? ''),
+    MERCADOPAGO_CLIENT_SECRET: String(raw.MERCADOPAGO_CLIENT_SECRET ?? ''),
+    MERCADOPAGO_BASE_URL: String(raw.MERCADOPAGO_BASE_URL || MERCADOPAGO_BASE_URL_POR_DEFECTO).replace(/\/+$/, ''),
+    MERCADOPAGO_AUTH_URL: String(raw.MERCADOPAGO_AUTH_URL || 'https://auth.mercadopago.com').replace(/\/+$/, ''),
+    API_PUBLIC_URL: String(raw.API_PUBLIC_URL || origenDe(String(raw.GOOGLE_CALLBACK_URL))).replace(/\/+$/, ''),
     SUSCRIPCION_PRECIO_ARS: Number(raw.SUSCRIPCION_PRECIO_ARS ?? 20000),
   };
 }

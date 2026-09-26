@@ -13,6 +13,8 @@ export type ContextoVentas = {
   agent: AgentConUser;
   conversation: Conversation;
   bloqueSistema: string;
+  /** Si el comercio conectó Mercado Pago: define el medio de pago por defecto de crear_pedido. */
+  mpConectado: boolean;
 };
 
 export const EstadoVentas = new StateSchema({

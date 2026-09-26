@@ -44,6 +44,8 @@ model User {
   eventos         Evento[]
   codigosAcceso   CodigoAcceso[]
   productos       Producto[]
+  ventas          Venta[]
+  cuentaMercadoPago CuentaMercadoPago?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -149,6 +151,7 @@ model Conversation {
 
   messages Message[]
   turnos   Turno[]
+  ventas   Venta[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -331,8 +334,108 @@ model Variante {
 
   activo Boolean @default(true)
 
+  itemsVenta ItemVenta[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([productoId, sku])
+}
+
+/// Un pedido del asistente de ventas, desde que se reserva el stock hasta que
+/// se paga (o vence, o se cancela). La reserva no es una fila aparte: una
+/// venta `pendiente_pago` con `reservaVenceAt` en el futuro retiene sus
+/// unidades (ver comercio/ventas.rules.ts). El stock se descuenta recién al
+/// pasar a `pagada`.
+model Venta {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// La conversación de WhatsApp de donde salió. Null si se borró.
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  /// A nombre de quién. Se anonimiza a los 12 meses (retention.rules.ts).
+  nombreCliente   String?
+  /// Número de WhatsApp del cliente (sin '+'). Misma retención que el nombre.
+  telefonoCliente String?
+
+  /// "pendiente_pago" | "pagada" | "cancelada" | "vencida"
+  estado    String @default("pendiente_pago")
+  /// "mercadopago" | "manual"
+  medioPago String
+
+  totalCentavos Int
+  moneda        String @default("ARS")
+
+  /// Hasta cuándo retiene el stock mientras está pendiente de pago.
+  reservaVenceAt DateTime
+
+  /// Preferencia de Checkout Pro creada con el token del comercio.
+  mpPreferenceId String?
+  linkPago       String?
+  /// El pago que la saldó: la llave para que el webhook sea idempotente.
+  mpPaymentId    String? @unique
+
+  pagadaAt    DateTime?
+  canceladaAt DateTime?
+
+  /// Se pagó cuando ya no había stock para cubrirla (la reserva venció y
+  /// otro compró lo último): el dueño tiene que devolver o reponer.
+  sinStockAlPagar Boolean @default(false)
+
+  /// Salió del banco de pruebas del Home (el dueño probando su asistente):
+  /// es un pedido real, pero no cuenta en el histórico ni en los totales.
+  dePrueba Boolean @default(false)
+
+  items ItemVenta[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([estado, reservaVenceAt])
+  @@index([conversationId])
+}
+
+/// Renglón de una venta. Guarda una foto del producto (código, nombres,
+/// precio) para que el histórico no cambie si el producto se edita o se borra.
+model ItemVenta {
+  id      String @id @default(cuid())
+  ventaId String
+  venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+
+  varianteId String?
+  variante   Variante? @relation(fields: [varianteId], references: [id], onDelete: SetNull)
+
+  codigo                 String
+  nombreProducto         String
+  nombreVariante         String @default("")
+  precioUnitarioCentavos Int
+  cantidad               Int
+  subtotalCentavos       Int
+
+  @@index([varianteId])
+  @@index([ventaId])
+}
+
+/// La cuenta de Mercado Pago de un comercio, conectada por OAuth: con su token
+/// se crean los links de pago a su nombre. Los tokens van cifrados con
+/// AES-256-GCM igual que el refresh token de Google y nunca salen de la API.
+model CuentaMercadoPago {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// user_id de Mercado Pago (el collector de los pagos).
+  mpUserId     String
+  accessToken  String
+  refreshToken String
+  expiraAt     DateTime
+
+  conectadaAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([mpUserId])
 }

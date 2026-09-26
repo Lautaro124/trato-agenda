@@ -3,6 +3,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { OpenRouterClient } from '../agents/openrouter.client.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { BusquedaService } from '../comercio/busqueda.service.js';
+import { VentasService } from '../comercio/ventas.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CheckpointerService } from './checkpointer.provider.js';
 import { construirGrafo, type GrafoConversacion } from './graph/graph.factory.js';
@@ -31,12 +32,14 @@ export const grafoProvider = {
 /** El grafo del asistente de ventas, con el mismo modelo y el mismo checkpointer. */
 export const grafoVentasProvider = {
   provide: GRAFO_VENTAS,
-  inject: [PrismaService, BusquedaService, OpenRouterClient, LLM_CONVERSACION, CheckpointerService],
+  inject: [PrismaService, BusquedaService, VentasService, OpenRouterClient, LLM_CONVERSACION, CheckpointerService],
   useFactory: (
     prisma: PrismaService,
     busqueda: BusquedaService,
+    ventas: VentasService,
     openRouter: OpenRouterClient,
     llm: BaseChatModel,
     checkpointer: CheckpointerService,
-  ): GrafoVentas => construirGrafoVentas({ prisma, busqueda, openRouter, llm, checkpointer: checkpointer.saver }),
+  ): GrafoVentas =>
+    construirGrafoVentas({ prisma, busqueda, ventas, openRouter, llm, checkpointer: checkpointer.saver }),
 };

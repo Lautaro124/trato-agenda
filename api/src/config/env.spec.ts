@@ -40,4 +40,14 @@ describe('validateEnv', () => {
       'otro/modelo',
     );
   });
+
+  it('API_PUBLIC_URL sale del origen de GOOGLE_CALLBACK_URL si no se define', () => {
+    const conCallback = { ...BASE, GOOGLE_CALLBACK_URL: 'https://api.tratoagenda.com/auth/google/callback' };
+    expect(validateEnv(conCallback).API_PUBLIC_URL).toBe('https://api.tratoagenda.com');
+    expect(validateEnv({ ...conCallback, API_PUBLIC_URL: 'https://otra.api/' }).API_PUBLIC_URL).toBe('https://otra.api');
+  });
+
+  it('MERCADOPAGO_BASE_URL por defecto es la API real', () => {
+    expect(validateEnv(BASE).MERCADOPAGO_BASE_URL).toBe('https://api.mercadopago.com');
+  });
 });

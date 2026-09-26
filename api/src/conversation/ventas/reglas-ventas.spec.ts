@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
-import { bloqueCatalogo, formatearResultados, formatearStockDueno, MAX_CATEGORIAS_EN_PROMPT } from './reglas-ventas.js';
+import {
+  bloqueCatalogo,
+  formatearPedidoCreado,
+  formatearResultados,
+  formatearStockDueno,
+  MAX_CATEGORIAS_EN_PROMPT,
+} from './reglas-ventas.js';
 
 const PRODUCTO: ProductoEncontrado = {
   productoId: 'p-1',
@@ -49,5 +55,29 @@ describe('bloqueCatalogo', () => {
 
   it('sin categorías igual cuenta los productos', () => {
     expect(bloqueCatalogo([], 3)).toBe('Catálogo: 3 productos. No lo ves entero: buscá con buscar_productos cada vez que hablen de un producto.');
+  });
+});
+
+describe('formatearPedidoCreado', () => {
+  const AGENT = { nombreTitular: 'Mates del Sur' } as never;
+  const VENTA = {
+    nombreCliente: 'Juan',
+    totalCentavos: 1_600_000,
+    linkPago: 'https://mp/pagar',
+    reservaVenceAt: new Date('2026-09-26T17:42:00-03:00'),
+    items: [{ nombreProducto: 'Mate', nombreVariante: '', cantidad: 2, subtotalCentavos: 1_600_000 }],
+  } as never;
+
+  it('con link dice hasta qué hora vale, en formato 24 horas', () => {
+    expect(formatearPedidoCreado(AGENT, VENTA)).toBe(
+      'Pedido creado para "Juan": 2 × Mate ($ 16.000). Total $ 16.000. Link de pago (mandáselo tal cual): ' +
+        'https://mp/pagar — vale hasta las 17:42; si no paga antes, el pedido se libera.',
+    );
+  });
+
+  it('sin link avisa que el negocio coordina el pago', () => {
+    expect(formatearPedidoCreado(AGENT, { ...(VENTA as object), linkPago: null } as never)).toContain(
+      'Mates del Sur se va a comunicar por este chat',
+    );
   });
 });

@@ -91,9 +91,23 @@ function llamadaATool(model, name, args) {
 // --- Ventas ------------------------------------------------------------------
 //
 // El asistente de ventas se reconoce por el bloque "Reglas de venta de <titular>"
-// que agrega el runtime en código (reglas-ventas.ts). Guion: cualquier mensaje
-// que no sea un saludo busca en el catálogo con el texto del cliente, y con el
-// resultado de la herramienta contesta el primer producto encontrado.
+// que agrega el runtime en código (reglas-ventas.ts). Guion por palabras clave
+// del último mensaje del cliente:
+//   - "quiero …" / "lo compro" (con "soy <Nombre>") → crear_pedido con la
+//     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
+//   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
+//   - un saludo → saludo; cualquier otra cosa → buscar_productos con el texto.
+// Con el resultado de la herramienta contesta: el primer producto encontrado,
+// o el texto de la herramienta tal cual (así el link de pago llega al cliente).
+
+function varianteDeLaUltimaBusqueda(mensajes) {
+  for (const mensaje of [...mensajes].reverse()) {
+    if (mensaje.role !== 'tool') continue;
+    const id = textoDe(mensaje).match(/\[variante ([\w-]+)\]/)?.[1];
+    if (id) return id;
+  }
+  return null;
+}
 
 function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUsuario, resultadoTool }) {
   const titular = sistema.match(/Reglas de venta de (.*?) \(no las rompas\)/)?.[1]?.trim();
@@ -101,19 +115,37 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
 
   if (resultadoTool) {
     const resultado = textoDe(resultadoTool);
-    const primero = resultado.match(/1\. "(.+?)" \(código/)?.[1];
-    const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
-    return responder(
-      res,
-      200,
-      completion(body.model, {
-        content: primero ? `Tengo ${primero} a ${precio}.` : 'No tengo eso, ¿buscás otra cosa?',
-      }),
-    );
+    if (resultado.startsWith('Resultados de')) {
+      const primero = resultado.match(/1\. "(.+?)" \(código/)?.[1];
+      const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
+      return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.` }));
+    }
+    if (resultado.startsWith('No hay productos')) {
+      return responder(res, 200, completion(body.model, { content: 'No tengo eso, ¿buscás otra cosa?' }));
+    }
+    return responder(res, 200, completion(body.model, { content: `Listo: ${resultado}` }));
   }
 
   if (/^(hola|buenas|gracias)\b/.test(ultimoUsuario)) {
     return responder(res, 200, completion(body.model, { content: '¡Hola! ¿Qué estás buscando?' }));
+  }
+  if (ultimoUsuario.includes('cancel')) {
+    return responder(res, 200, llamadaATool(body.model, 'cancelar_pedido', {}));
+  }
+  if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
+    return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));
+  }
+  if (ultimoUsuario.includes('quiero') || ultimoUsuario.includes('lo compro')) {
+    const nombre = textoDe(mensajes[indiceUsuario]).match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
+    if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
+    const varianteId = varianteDeLaUltimaBusqueda(mensajes);
+    if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
+    const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
+    return responder(
+      res,
+      200,
+      llamadaATool(body.model, 'crear_pedido', { nombreCliente: nombre, items: [{ varianteId, cantidad }] }),
+    );
   }
   return responder(res, 200, llamadaATool(body.model, 'buscar_productos', { consulta: textoDe(mensajes[indiceUsuario]) }));
 }

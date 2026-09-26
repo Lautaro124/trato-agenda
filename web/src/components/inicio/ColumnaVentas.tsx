@@ -17,6 +17,7 @@ type Paso = { hecho: boolean; titulo: string; detalle: string; href: string; acc
 export function ColumnaVentas() {
   const [productos, setProductos] = useState<number | null>(null);
   const [whatsapp, setWhatsapp] = useState<boolean | null>(null);
+  const [mercadoPago, setMercadoPago] = useState<boolean | null>(null);
 
   useEffect(() => {
     listarProductos({})
@@ -26,6 +27,10 @@ export function ColumnaVentas() {
       .then((res) => (res.ok ? (res.json() as Promise<WhatsappStatus>) : null))
       .then((estado) => setWhatsapp(estado?.linked ?? false))
       .catch(() => setWhatsapp(null));
+    apiFetch("/mercadopago/estado")
+      .then((res) => (res.ok ? (res.json() as Promise<{ conectada: boolean }>) : null))
+      .then((estado) => setMercadoPago(estado?.conectada ?? false))
+      .catch(() => setMercadoPago(null));
   }, []);
 
   const pasos: Paso[] = [
@@ -38,6 +43,15 @@ export function ColumnaVentas() {
           : "Subí tu lista de productos en una planilla o cargalos de a uno.",
       href: "/productos",
       accion: productos && productos > 0 ? "Ver productos" : "Cargar productos",
+    },
+    {
+      hecho: mercadoPago === true,
+      titulo: "Conectá Mercado Pago",
+      detalle: mercadoPago
+        ? "Tu asistente manda links de pago a tu nombre."
+        : "Para que el asistente cobre con link. Sin esto, los pedidos quedan anotados y cobrás vos.",
+      href: "/cuenta",
+      accion: mercadoPago ? "Ver cuenta" : "Conectar",
     },
     {
       hecho: whatsapp === true,

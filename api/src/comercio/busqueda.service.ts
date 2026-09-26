@@ -10,6 +10,7 @@ import {
   type Ranking,
 } from './catalogo.rules.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
+import { reservadasPorVariante } from './reservas.js';
 
 /** Productos que devuelve una búsqueda del asistente: los que entran en un mensaje de WhatsApp. */
 export const RESULTADOS_POR_BUSQUEDA = 8;
@@ -64,7 +65,10 @@ export type ProductoEncontrado = {
 export type OpcionesBusqueda = {
   categoria?: string | null;
   limite?: number;
-  /** Unidades reservadas por pedidos pendientes, por varianteId. */
+  /**
+   * Unidades reservadas por pedidos pendientes, por varianteId. Sin esto se
+   * leen de la base (reservas.ts); los tests lo pasan a mano.
+   */
   reservadas?: Map<string, number>;
 };
 
@@ -109,7 +113,7 @@ export class BusquedaService {
       { ids: vectoriales },
     ];
     const ids = fusionarRankings(rankings, opciones.limite ?? RESULTADOS_POR_BUSQUEDA);
-    return this.cargar(userId, ids, opciones.reservadas ?? new Map());
+    return this.cargar(userId, ids, opciones.reservadas);
   }
 
   private async exactos(userId: string, texto: string): Promise<string[]> {
@@ -184,13 +188,23 @@ export class BusquedaService {
   }
 
   /** Carga los productos en el orden de la fusión, con sus variantes activas y el stock visible. */
-  private async cargar(userId: string, ids: string[], reservadas: Map<string, number>): Promise<ProductoEncontrado[]> {
+  private async cargar(
+    userId: string,
+    ids: string[],
+    reservadasDadas?: Map<string, number>,
+  ): Promise<ProductoEncontrado[]> {
     if (ids.length === 0) return [];
     const productos = await this.prisma.producto.findMany({
       where: { id: { in: ids }, userId, activo: true },
       include: { variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' } } },
     });
     const porId = new Map(productos.map((producto) => [producto.id, producto]));
+    const reservadas =
+      reservadasDadas ??
+      (await reservadasPorVariante(
+        this.prisma,
+        productos.flatMap((producto) => producto.variantes.map((variante) => variante.id)),
+      ));
 
     return ids.flatMap((id) => {
       const producto = porId.get(id);

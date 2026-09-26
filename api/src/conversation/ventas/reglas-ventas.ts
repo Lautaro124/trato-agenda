@@ -8,7 +8,11 @@
  */
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
-import type { Agent } from '../../generated/prisma/client.js';
+import { detalleDeRenglones, estadoVisible, MAX_PEDIDOS_PENDIENTES } from '../../comercio/ventas.rules.js';
+import type { Agent, ItemVenta, Venta } from '../../generated/prisma/client.js';
+import { TIMEZONE } from '../graph/agenda-rules.js';
+
+type VentaConItems = Venta & { items: ItemVenta[] };
 
 /** Productos que el asistente muestra como mucho en un mensaje. */
 export const MAX_PRODUCTOS_POR_MENSAJE = 3;
@@ -30,8 +34,84 @@ export function reglasDeVenta(agent: Agent): string {
     `- Si la búsqueda no encuentra lo que pide, decile que no lo tenés. No ofrezcas productos que no ` +
     `aparecieron en los resultados.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
+    `- Para vender: repetile al cliente qué lleva (producto, variante y cantidad) y el total, preguntale su ` +
+    `nombre si no lo sabés, y esperá que confirme por texto. Recién ahí llamá crear_pedido con los ids de ` +
+    `variante de la búsqueda.\n` +
+    `- El link de pago mandalo tal cual te lo devuelve crear_pedido, sin acortarlo ni cambiarlo, y avisale ` +
+    `hasta qué hora vale.\n` +
     `- La entrega, el envío y los retiros los coordina ${titular} directamente: no prometas plazos ni costos.`
   );
+}
+
+/** Cómo cobra este comercio y qué pedidos tiene en curso esta conversación. */
+export function bloquePedidos(agent: Agent, mpConectado: boolean, pedidos: VentaConItems[], ahora: Date = new Date()): string {
+  const titular = agent.nombreTitular || 'el negocio';
+  const cobro = mpConectado
+    ? `Cobro: con link de pago de Mercado Pago (crear_pedido lo genera y vale 30 minutos). Si el cliente ` +
+      `prefiere transferencia o efectivo, creá el pedido con medioPago "manual" y ${titular} coordina el pago.`
+    : `Cobro: ${titular} no cobra con link por ahora. Los pedidos quedan anotados (crear_pedido con medioPago ` +
+      `"manual") y ${titular} se comunica para coordinar el pago y la entrega.`;
+  const pendientes = pedidos.filter((pedido) => estadoVisible(pedido, ahora) === 'pendiente_pago');
+  if (pendientes.length === 0) return cobro;
+  return (
+    `${cobro}\nPedidos sin pagar de este cliente (como mucho ${MAX_PEDIDOS_PENDIENTES} a la vez; consultá el ` +
+    `detalle con consultar_pedido): ${pendientes.map((pedido) => detalleDeRenglones(pedido.items)).join(' | ')}.`
+  );
+}
+
+// h23: "17:42" y no "05:42 p. m.", que es lo que da es-AR por defecto.
+const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const FECHA_HORA = new Intl.DateTimeFormat('es-AR', {
+  timeZone: TIMEZONE,
+  weekday: 'long',
+  day: 'numeric',
+  month: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** Lo que vuelve al modelo después de crear un pedido. */
+export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
+  const titular = agent.nombreTitular || 'el negocio';
+  const base =
+    `Pedido creado para ${JSON.stringify(venta.nombreCliente ?? '')}: ${detalleDeRenglones(venta.items)}. ` +
+    `Total ${formatearCentavos(venta.totalCentavos)}.`;
+  if (venta.linkPago) {
+    return (
+      `${base} Link de pago (mandáselo tal cual): ${venta.linkPago} — vale hasta las ` +
+      `${HORA.format(venta.reservaVenceAt)}; si no paga antes, el pedido se libera.`
+    );
+  }
+  return (
+    `${base} Queda reservado hasta el ${FECHA_HORA.format(venta.reservaVenceAt)}. ${titular} se va a ` +
+    `comunicar por este chat para coordinar el pago y la entrega: decíselo así al cliente.`
+  );
+}
+
+const ETIQUETA_ESTADO: Record<string, string> = {
+  pendiente_pago: 'pendiente de pago',
+  pagada: 'pagado',
+  cancelada: 'cancelado',
+  vencida: 'vencido (no se pagó a tiempo, ya no está reservado)',
+};
+
+/** Resultado de consultar_pedido. */
+export function formatearPedidos(pedidos: VentaConItems[], ahora: Date = new Date()): string {
+  if (pedidos.length === 0) return 'Este cliente no tiene pedidos.';
+  return pedidos
+    .map((pedido) => {
+      const estado = estadoVisible(pedido, ahora);
+      const link =
+        estado === 'pendiente_pago' && pedido.linkPago
+          ? ` Link de pago vigente hasta las ${HORA.format(pedido.reservaVenceAt)}: ${pedido.linkPago}`
+          : '';
+      return (
+        `Pedido del ${FECHA_HORA.format(pedido.createdAt)}: ${detalleDeRenglones(pedido.items)}, total ` +
+        `${formatearCentavos(pedido.totalCentavos)}, ${ETIQUETA_ESTADO[estado]}.${link}`
+      );
+    })
+    .join('\n');
 }
 
 export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): string {
