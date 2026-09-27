@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Agent } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PLANTILLA_VERSION, construirConfiguracion } from './agent-template.js';
-import type { TipoTitular, TipoUso } from './agent-catalog.js';
-import type { GenerateAgentDto, TipoEventoDto } from './agents.types.js';
+import { PLANTILLA_VENTAS_VERSION, construirConfiguracionVentas } from './agent-template-ventas.js';
+import { tipoAsistenteDe, type TipoAsistente, type TipoTitular, type TipoUso } from './agent-catalog.js';
+import type { GenerarAgenteVentasDto, GenerateAgentDto, TipoEventoDto } from './agents.types.js';
 
 function listarTiposEvento(dto: GenerateAgentDto): string {
   return dto.tiposEvento
@@ -46,12 +47,14 @@ export class AgentsService {
       // Comparar "HH:MM" como strings alcanza: mismo largo y campos de ancho fijo.
       throw new BadRequestException('La hora de fin tiene que ser posterior a la de inicio.');
     }
+    await this.exigirMismoTipo(userId, 'agenda');
 
     const descripcion = construirDescripcion(dto);
     const config = construirConfiguracion(dto);
 
     const datos = {
       tipoUso: dto.tipoUso,
+      tipoAsistente: 'agenda',
       descripcion,
       tipoTitular: dto.tipoTitular,
       nombreTitular: dto.nombreTitular.trim(),
@@ -75,6 +78,56 @@ export class AgentsService {
   }
 
   /**
+   * Onboarding del asistente de ventas: plantilla determinista propia
+   * (agent-template-ventas.ts). No usa franja horaria (atiende 24/7) ni tipos
+   * de turno; esas columnas quedan en sus defaults y el grafo de ventas no las
+   * lee. `tipoUso` queda en "comercio" sólo como dato informativo: lo que
+   * decide el grafo es `tipoAsistente`.
+   */
+  async generarVentas(userId: string, dto: GenerarAgenteVentasDto): Promise<Agent> {
+    await this.exigirMismoTipo(userId, 'ventas');
+    const nombreTitular = dto.nombreTitular.trim();
+    const nombreBot = dto.nombreBot.trim();
+    const config = construirConfiguracionVentas({ nombreTitular, nombreBot });
+
+    const datos = {
+      tipoUso: 'comercio',
+      tipoAsistente: 'ventas',
+      tipoTitular: 'negocio',
+      descripcion: `Negocio: ${nombreTitular} (ventas). El asistente se llama ${nombreBot}.`,
+      nombreTitular,
+      nombreBot,
+      tiposEvento: [] as unknown as Prisma.InputJsonValue,
+      systemPrompt: config.systemPrompt,
+      allowedActions: config.allowedActions,
+      model: null,
+      templateVersion: PLANTILLA_VENTAS_VERSION,
+    };
+
+    return this.prisma.agent.upsert({
+      where: { userId },
+      create: { userId, ...datos },
+      update: datos,
+    });
+  }
+
+  /**
+   * Una cuenta no cambia de tipo de asistente: el de ventas y el de agenda
+   * tienen datos distintos (catálogo y ventas vs. turnos), y pasar de uno a
+   * otro los dejaría huérfanos. Regenerar el mismo tipo sí se puede.
+   */
+  private async exigirMismoTipo(userId: string, tipo: TipoAsistente): Promise<void> {
+    const actual = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+    if (actual && tipoAsistenteDe(actual) !== tipo) {
+      throw new ConflictException(
+        tipo === 'ventas'
+          ? 'Tu asistente ya está configurado para agendar turnos.'
+          : 'Tu asistente ya está configurado para vender.',
+      );
+    }
+  }
+
+  /**
    * Reemplaza sólo los tipos de turno y regenera lo que los repite (el system
    * prompt y la descripción) desde el resto de la fila, que no cambia. Los
    * turnos ya agendados guardan su propio inicio/fin: no se tocan.
@@ -82,6 +135,9 @@ export class AgentsService {
   async actualizarTiposEvento(userId: string, tipos: TipoEventoDto[]): Promise<Agent> {
     const agent = await this.prisma.agent.findUnique({ where: { userId } });
     if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
+    if (tipoAsistenteDe(agent) === 'ventas') {
+      throw new ConflictException('Tu asistente vende productos: no tiene reuniones para editar.');
+    }
 
     const tiposEvento = tipos.map((tipo) => ({ ...tipo, nombre: tipo.nombre.trim() }));
     const nombres = new Set(tiposEvento.map((tipo) => tipo.nombre.toLowerCase()));

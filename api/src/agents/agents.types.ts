@@ -15,7 +15,14 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Agent } from '../generated/prisma/client.js';
-import { TIPOS_TITULAR, TIPOS_USO, type TipoTitular, type TipoUso } from './agent-catalog.js';
+import {
+  TIPOS_TITULAR,
+  TIPOS_USO,
+  tipoAsistenteDe,
+  type TipoAsistente,
+  type TipoTitular,
+  type TipoUso,
+} from './agent-catalog.js';
 import { PRECIO_MAX } from './precio.js';
 
 /** "HH:MM" en formato 24hs. */
@@ -72,6 +79,19 @@ export class GenerateAgentDto {
   nombreBot!: string;
 }
 
+/** Body de `POST /agents/generate-ventas`: el onboarding del asistente de ventas. */
+export class GenerarAgenteVentasDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  nombreTitular!: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(40)
+  nombreBot!: string;
+}
+
 /** Body de `PUT /agents/me/tipos-evento`: reemplaza la lista entera de tipos de turno. */
 export class ActualizarTiposEventoDto {
   @IsArray()
@@ -96,12 +116,13 @@ export type AgentPublico = Pick<
   | 'allowedActions'
   | 'createdAt'
   | 'updatedAt'
-> & { tiposEvento: TipoEvento[] };
+> & { tiposEvento: TipoEvento[]; tipoAsistente: TipoAsistente };
 
 export function aAgentPublico(agent: Agent): AgentPublico {
   return {
     id: agent.id,
     tipoUso: agent.tipoUso,
+    tipoAsistente: tipoAsistenteDe(agent),
     descripcion: agent.descripcion,
     tipoTitular: agent.tipoTitular,
     nombreTitular: agent.nombreTitular,

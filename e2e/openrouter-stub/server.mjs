@@ -4,10 +4,11 @@
 //
 // La generación del agente (POST /agents/generate) ya no llama al modelo —
 // usa una plantilla determinista (api/src/agents/agent-template.ts) — así que
-// este stub sólo distingue dos tipos de pedido:
+// este stub sólo distingue tres tipos de pedido:
 //   - conversación (trae `tools`): un guion por palabras clave del último
 //     mensaje humano, que agenda/mueve/cancela con tool calls reales;
-//   - resumen del cliente (sin tools): texto fijo.
+//   - resumen del cliente (sin tools): texto fijo;
+//   - embeddings del catálogo de ventas: bolsa de palabras determinista.
 //
 // Sin dependencias: corre con `node server.mjs` o dentro de node:24-alpine.
 import http from 'node:http';
@@ -87,9 +88,102 @@ function llamadaATool(model, name, args) {
   });
 }
 
+// --- Ventas ------------------------------------------------------------------
+//
+// El asistente de ventas se reconoce por el bloque "Reglas de venta de <titular>"
+// que agrega el runtime en código (reglas-ventas.ts). Guion por palabras clave
+// del último mensaje del cliente:
+//   - "quiero …" / "lo compro" (con "soy <Nombre>") → crear_pedido con la
+//     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
+//   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
+//   - "envío" / "envían" → derivar_consulta (el asistente no sabe de envíos);
+//   - sólo con las herramientas del dueño (banco de pruebas del Home):
+//     "cuánto vendí" → resumen_ventas de los últimos 7 días, "ventas de hoy" →
+//     listar_ventas de hoy;
+//   - un saludo → saludo; cualquier otra cosa → buscar_productos con el texto.
+// Con el resultado de la herramienta contesta: el primer producto encontrado,
+// o el texto de la herramienta tal cual (así el link de pago llega al cliente).
+
+/** "YYYY-MM-DD" en Buenos Aires, corrido `dias` días. */
+function diaDeBuenosAires(dias = 0) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(
+    new Date(Date.now() + dias * 24 * 60 * 60 * 1000),
+  );
+}
+
+function varianteDeLaUltimaBusqueda(mensajes) {
+  for (const mensaje of [...mensajes].reverse()) {
+    if (mensaje.role !== 'tool') continue;
+    const id = textoDe(mensaje).match(/\[variante ([\w-]+)\]/)?.[1];
+    if (id) return id;
+  }
+  return null;
+}
+
+function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUsuario, resultadoTool }) {
+  const titular = sistema.match(/Reglas de venta de (.*?) \(no las rompas\)/)?.[1]?.trim();
+  llamadas.push({ tipo: 'ventas', titular, mensaje: ultimoUsuario, conResultado: Boolean(resultadoTool), ...resumenDelPedido(body) });
+
+  if (resultadoTool) {
+    const resultado = textoDe(resultadoTool);
+    if (resultado.startsWith('Resultados de')) {
+      const primero = resultado.match(/1\. "(.+?)" \(código/)?.[1];
+      const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
+      return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.` }));
+    }
+    if (resultado.startsWith('No hay productos')) {
+      return responder(res, 200, completion(body.model, { content: 'No tengo eso, ¿buscás otra cosa?' }));
+    }
+    return responder(res, 200, completion(body.model, { content: `Listo: ${resultado}` }));
+  }
+
+  if (/^(hola|buenas|gracias)\b/.test(ultimoUsuario)) {
+    return responder(res, 200, completion(body.model, { content: '¡Hola! ¿Qué estás buscando?' }));
+  }
+  if (ultimoUsuario.includes('cancel')) {
+    return responder(res, 200, llamadaATool(body.model, 'cancelar_pedido', {}));
+  }
+  if (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian')) {
+    return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: textoDe(mensajes[indiceUsuario]) }));
+  }
+  const delDueno = (body.tools ?? []).some((tool) => tool.function?.name === 'resumen_ventas');
+  if (delDueno && ultimoUsuario.includes('cuanto vendi')) {
+    return responder(res, 200, llamadaATool(body.model, 'resumen_ventas', { desde: diaDeBuenosAires(-6), hasta: diaDeBuenosAires() }));
+  }
+  if (delDueno && ultimoUsuario.includes('ventas de hoy')) {
+    return responder(res, 200, llamadaATool(body.model, 'listar_ventas', { desde: diaDeBuenosAires(), hasta: diaDeBuenosAires() }));
+  }
+  if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
+    return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));
+  }
+  if (ultimoUsuario.includes('quiero') || ultimoUsuario.includes('lo compro')) {
+    const nombre = textoDe(mensajes[indiceUsuario]).match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
+    if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
+    const varianteId = varianteDeLaUltimaBusqueda(mensajes);
+    if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
+    const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
+    return responder(
+      res,
+      200,
+      llamadaATool(body.model, 'crear_pedido', { nombreCliente: nombre, items: [{ varianteId, cantidad }] }),
+    );
+  }
+  return responder(res, 200, llamadaATool(body.model, 'buscar_productos', { consulta: textoDe(mensajes[indiceUsuario]) }));
+}
+
 function conversar(body, res) {
   const mensajes = body.messages ?? [];
   const sistema = textoDe(mensajes.find((mensaje) => mensaje.role === 'system'));
+  if (sistema.includes('Reglas de venta de ')) {
+    const indice = mensajes.findLastIndex((mensaje) => mensaje.role === 'user');
+    return conversarVentas(body, res, {
+      mensajes,
+      sistema,
+      indiceUsuario: indice,
+      ultimoUsuario: normalizar(textoDe(mensajes[indice])),
+      resultadoTool: mensajes.slice(indice + 1).findLast((mensaje) => mensaje.role === 'tool'),
+    });
+  }
   const indiceUsuario = mensajes.findLastIndex((mensaje) => mensaje.role === 'user');
   const ultimoUsuario = normalizar(textoDe(mensajes[indiceUsuario]));
   const resultadoTool = mensajes.slice(indiceUsuario + 1).findLast((mensaje) => mensaje.role === 'tool');
@@ -143,6 +237,39 @@ function conversar(body, res) {
   }
 
   return responder(res, 200, completion(body.model, { content: 'Hola, ¿querés sacar un turno?' }));
+}
+
+// --- Embeddings --------------------------------------------------------------
+//
+// El catálogo del asistente de ventas pide embeddings (1536 dimensiones, como
+// openai/text-embedding-3-small). Acá son una bolsa de palabras: cada palabra
+// de 3+ letras suma 1 en una posición fija. Determinista y con geometría real,
+// así la búsqueda vectorial encuentra lo que comparte palabras.
+
+const DIMENSIONES_EMBEDDING = 1536;
+
+function embeddingDe(texto) {
+  const vector = new Array(DIMENSIONES_EMBEDDING).fill(0);
+  for (const palabra of normalizar(texto).split(/[^a-z0-9ñ]+/)) {
+    if (palabra.length < 3) continue;
+    let hash = 0;
+    for (const letra of palabra) hash = (hash * 31 + letra.charCodeAt(0)) % DIMENSIONES_EMBEDDING;
+    vector[hash] += 1;
+  }
+  // Un texto sin palabras largas daría el vector nulo, y el coseno con él no existe.
+  if (vector.every((valor) => valor === 0)) vector[0] = 1;
+  return vector;
+}
+
+function embeddings(body, res) {
+  const entradas = Array.isArray(body.input) ? body.input : [body.input ?? ''];
+  llamadas.push({ tipo: 'embeddings', cantidad: entradas.length, model: body.model, provider: body.provider ?? null });
+  return responder(res, 200, {
+    object: 'list',
+    model: body.model,
+    data: entradas.map((texto, index) => ({ object: 'embedding', index, embedding: embeddingDe(String(texto)) })),
+    usage: { prompt_tokens: entradas.length, total_tokens: entradas.length },
+  });
 }
 
 // --- Servidor --------------------------------------------------------------
@@ -199,6 +326,16 @@ const servidor = http.createServer(async (req, res) => {
 
     llamadas.push({ tipo: 'resumen', ...resumenDelPedido(body) });
     return responder(res, 200, completion(body.model, { content: 'Cliente de prueba E2E.' }));
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/v1/embeddings') {
+    let body;
+    try {
+      body = await leerCuerpo(req);
+    } catch {
+      return responder(res, 400, { error: { message: 'JSON inválido' } });
+    }
+    return embeddings(body, res);
   }
 
   return responder(res, 404, { error: { message: `Ruta desconocida: ${req.method} ${url.pathname}` } });

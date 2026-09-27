@@ -28,7 +28,7 @@ export default function TerminosPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Términos de servicio
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 17 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 26 de septiembre de 2026</p>
 
         <Seccion titulo="El servicio">
           <p>
@@ -36,6 +36,12 @@ export default function TerminosPage() {
             tu disponibilidad y crea, mueve o cancela eventos según lo que acuerde con la persona que te
             escribe. Tu agenda puede vivir en Trato Agenda (si creaste la cuenta sólo con WhatsApp) o en
             tu Google Calendar, si lo conectás.
+          </p>
+          <p>
+            Si tenés un comercio, el asistente puede, en cambio, vender: busca en el catálogo que cargás,
+            informa precios y disponibilidad, arma el pedido, reserva el stock y, si conectaste tu cuenta
+            de Mercado Pago, le manda al cliente un link de pago a tu nombre. Las ventas quedan
+            registradas en tu panel.
           </p>
         </Seccion>
 
@@ -61,11 +67,33 @@ export default function TerminosPage() {
           </p>
         </Seccion>
 
+        <Seccion titulo="Responsabilidad sobre las ventas">
+          <p>
+            Trato Agenda no es parte de las ventas: la venta es entre vos y tu cliente. Sos responsable
+            de lo que ofrecés y de cómo lo vendés: que los precios, el stock y las descripciones de tu
+            catálogo estén al día, la entrega, la facturación, los impuestos, los cambios y las
+            devoluciones, y lo que te exija la ley de defensa del consumidor.
+          </p>
+          <p>
+            El asistente informa precios y disponibilidad sólo a partir de tu catálogo, pero es
+            automático y puede equivocarse al interpretar un pedido. Un pedido con link de Mercado Pago
+            reserva el stock 30 minutos, y uno a coordinar con vos, 24 horas; pasado ese plazo la reserva
+            se libera. Si un pago llega cuando ya no hay stock, te avisamos para que lo resuelvas con tu
+            cliente.
+          </p>
+          <p>
+            Los cobros de tus ventas van directo a tu cuenta de Mercado Pago y se rigen por sus
+            condiciones; nosotros no recibimos ni retenemos ese dinero.
+          </p>
+        </Seccion>
+
         <Seccion titulo="Uso aceptable">
           <p>
             No uses el servicio para enviar contenido ilegal, spam masivo, ni para fines distintos a
-            coordinar turnos con tus propios clientes. Nos reservamos el derecho de suspender cuentas que
-            hagan un uso indebido de WhatsApp o de la API de Google.
+            coordinar turnos con tus propios clientes o venderles tus productos. No se pueden vender
+            productos prohibidos por la ley o por las políticas de Mercado Pago. Nos reservamos el
+            derecho de suspender cuentas que hagan un uso indebido de WhatsApp, de Mercado Pago o de la
+            API de Google.
           </p>
         </Seccion>
 
@@ -117,7 +145,7 @@ export default function TerminosPage() {
           <p>
             Podés borrar tu cuenta y todos tus datos vos mismo, desde <strong className="font-semibold text-ink">Cuenta → Eliminar mi cuenta</strong>{" "}
             en la aplicación: eso desvincula tu WhatsApp, revoca el acceso a tu Google Calendar si lo
-            habías conectado y borra todo, sin pasar por
+            habías conectado, borra los tokens de tu cuenta de Mercado Pago y borra todo, sin pasar por
             nosotros. Si preferís que lo hagamos, escribinos a{" "}
             <a href={`mailto:${EMAIL_SOPORTE}`} className="text-link">
               {EMAIL_SOPORTE}

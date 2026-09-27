@@ -1,6 +1,9 @@
 services:
   db:
-    image: postgres:16-alpine
+    # Postgres 16 con pgvector: el catálogo del asistente de ventas guarda sus
+    # embeddings ahí (ver la migración comercio_catalogo). Mismo major que la
+    # imagen anterior (postgres:16-alpine), así el volumen existente sirve.
+    image: pgvector/pgvector:pg16
     environment:
       # Los defaults dejan que `docker compose up` ande sin configurar nada;
       # para pisarlos, definilos en el .env de la raíz (ver .env.example).

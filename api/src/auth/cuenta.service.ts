@@ -42,7 +42,12 @@ export class CuentaService {
     await this.borrarCheckpoints(user.id);
 
     // Cascade en el schema: WhatsappSession, Agent, Conversation (con sus
-    // Message y Turno) y Subscription se van con el usuario.
+    // Message y Turno), Subscription, Evento y, en un comercio, Producto (con
+    // sus variantes), Venta (con sus ítems), Notificacion y CuentaMercadoPago
+    // se van con el usuario (cuenta.db.spec.ts lo verifica). Los tokens de
+    // Mercado Pago del vendedor se borran con la fila; la autorización del
+    // lado de Mercado Pago la quita el vendedor desde su cuenta, y
+    // /privacidad le dice cómo.
     await this.prisma.user.delete({ where: { id: user.id } });
 
     // Los eventos que el asistente ya creó en el Google Calendar del titular

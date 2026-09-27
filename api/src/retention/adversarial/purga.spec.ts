@@ -24,6 +24,8 @@ function servicioConDatos(altasPendientes: { id: string }[] = []) {
       findMany: vi.fn().mockResolvedValue(altasPendientes),
       deleteMany: vi.fn().mockResolvedValue({ count: altasPendientes.length }),
     },
+    venta: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    notificacion: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
   } as unknown as PrismaService;
 
   const deleteThread = vi.fn().mockResolvedValue(undefined);
@@ -77,5 +79,15 @@ describe('purga de retención — adversarial (matriz E)', () => {
     await servicio.purgar();
 
     expect(turnoTocado).toBe(false);
+  });
+
+  it('las ventas nunca se borran: sólo pierden el nombre y el teléfono del comprador', async () => {
+    const { servicio, prisma } = servicioConDatos();
+
+    await servicio.purgar();
+
+    expect('deleteMany' in prisma.venta).toBe(false);
+    const { data } = vi.mocked(prisma.venta.updateMany).mock.calls[0][0]!;
+    expect(data).toEqual({ nombreCliente: null, telefonoCliente: null });
   });
 });

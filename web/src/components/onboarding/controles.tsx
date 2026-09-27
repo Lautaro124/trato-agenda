@@ -20,10 +20,10 @@ import {
 
 /** Controles compartidos por el wizard de escritorio y el formulario móvil. */
 
-const INPUT =
+export const INPUT =
   "w-full box-border rounded-md border border-line bg-card px-3.5 py-[13px] font-body text-[15px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
 
-function chip(activo: boolean): string {
+export function chip(activo: boolean): string {
   return cn(
     "cursor-pointer rounded-full border px-3 py-[7px] text-[13px] select-none",
     activo

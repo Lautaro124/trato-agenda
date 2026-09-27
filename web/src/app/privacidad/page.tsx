@@ -53,12 +53,13 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 17 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 26 de septiembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
             Trato Agenda es un asistente de WhatsApp que coordina turnos con tus clientes, sobre una
-            agenda que guardamos nosotros o, si lo elegís, sobre tu Google Calendar. Se opera desde la República Argentina y
+            agenda que guardamos nosotros o, si lo elegís, sobre tu Google Calendar; o que, si tenés un
+            comercio, les vende tus productos. Se opera desde la República Argentina y
             está disponible en{" "}
             <a href="https://tratoagenda.com" className="text-link">
               tratoagenda.com
@@ -121,13 +122,27 @@ export default function PrivacidadPage() {
             Guardamos el identificador de la suscripción y su estado. <Fuerte>Ningún dato de tarjeta
             pasa por nuestros sistemas</Fuerte>: no lo recibimos ni lo almacenamos.
           </p>
+          <p>
+            <Fuerte>Si usás el asistente de ventas.</Fuerte> Tu catálogo: nombre, descripción,
+            categoría, código, variantes, precio y stock de cada producto. De cada pedido: el nombre
+            que da el cliente, su número de WhatsApp, los productos, el total, el estado y las fechas,
+            y, si pagó con Mercado Pago, el número de operación. Los avisos que te mostramos en el
+            panel (ventas, pedidos, stock, consultas) repiten algunos de esos datos.
+          </p>
+          <p>
+            <Fuerte>De tu cuenta de Mercado Pago, si la conectás</Fuerte> para cobrar tus ventas: tu
+            identificador de Mercado Pago y los tokens que nos da. Los usamos sólo para crear links de
+            pago a tu nombre y consultar si se pagaron: nunca para devolver, mover ni consultar tu
+            dinero. Los datos de pago de tus clientes los maneja Mercado Pago; nosotros no los vemos.
+          </p>
         </Seccion>
 
         <Seccion titulo="Para qué usamos cada dato">
           <p>
             Usamos tus datos únicamente para hacer funcionar el servicio que contrataste: coordinar
-            turnos por WhatsApp y reflejarlos en tu agenda. No hacemos publicidad, no hacemos
-            perfilado con fines comerciales y no vendemos datos a nadie.
+            turnos por WhatsApp y reflejarlos en tu agenda o, en un comercio, vender tus productos,
+            registrar los pedidos y avisarte. No hacemos publicidad, no hacemos perfilado con fines
+            comerciales y no vendemos datos a nadie.
           </p>
           <p>
             <Fuerte>De tu calendario leemos lo mínimo.</Fuerte> Para calcular tu disponibilidad
@@ -155,6 +170,16 @@ export default function PrivacidadPage() {
             (nombre, tipos de turno, franja horaria, nombre del asistente), los rangos de horario libre
             derivados de tu calendario —sólo horarios, sin contenido de eventos—, y la conversación de
             WhatsApp con tu cliente.
+          </p>
+          <p>
+            <Fuerte>En el asistente de ventas</Fuerte> también se le mandan los productos que encuentra
+            cada búsqueda (nombre, descripción, precio y disponibilidad) y los pedidos de esa
+            conversación. Para que la búsqueda entienda lo que el cliente quiso decir aunque no use las
+            mismas palabras, el texto de tus productos y el de cada búsqueda se convierten en
+            representaciones numéricas (embeddings) con el modelo{" "}
+            <Scope>openai/text-embedding-3-small</Scope>, también a través de OpenRouter y con la misma
+            configuración de no retención que se describe abajo. Los tokens de Mercado Pago nunca
+            llegan a ningún modelo.
           </p>
           <p>
             <Fuerte>Qué no se le manda:</Fuerte> el contenido de los eventos de tu Google Calendar. En
@@ -193,7 +218,8 @@ export default function PrivacidadPage() {
               conversaciones.
             </Punto>
             <Punto>
-              Las credenciales de tu sesión de WhatsApp se guardan con el mismo cifrado AES-256-GCM.
+              Las credenciales de tu sesión de WhatsApp y los tokens de tu cuenta de Mercado Pago se
+              guardan con el mismo cifrado AES-256-GCM, y tampoco salen de nuestro backend.
             </Punto>
             <Punto>
               Todo el tráfico va cifrado en tránsito con HTTPS/TLS, tanto entre tu navegador y
@@ -211,7 +237,9 @@ export default function PrivacidadPage() {
             </Punto>
             <Punto>
               Las notificaciones de pago se verifican con firma HMAC antes de tocar nada, y se
-              reconsulta el estado real a Mercado Pago en lugar de confiar en el contenido recibido.
+              reconsulta el estado real a Mercado Pago en lugar de confiar en el contenido recibido. Un
+              pedido se da por pagado sólo si el pago está aprobado y coincide con ese pedido, su monto
+              y su moneda.
             </Punto>
             <Punto>
               Pedimos a Google el permiso más chico que alcanza para que el asistente funcione. Si un
@@ -245,8 +273,9 @@ export default function PrivacidadPage() {
               clientes y tu asistente.
             </Punto>
             <Punto>
-              <Fuerte>Mercado Pago</Fuerte>: el cobro de la suscripción. Es quien maneja los datos de
-              pago; nosotros no los vemos.
+              <Fuerte>Mercado Pago</Fuerte>: el cobro de la suscripción y, si lo conectás, el de tus
+              ventas, en tu propia cuenta. Le mandamos el detalle y el total de cada pedido para armar
+              el link de pago. Es quien maneja los datos de pago; nosotros no los vemos.
             </Punto>
             <Punto>
               <Fuerte>Railway</Fuerte>: la infraestructura donde corren la aplicación y la base de
@@ -273,6 +302,19 @@ export default function PrivacidadPage() {
               <Fuerte>Turnos y eventos de tu agenda:</Fuerte> se conservan mientras tu cuenta exista,
               porque son el registro de tu agenda. Si conectás Google Calendar, copiamos ahí los
               eventos que todavía no pasaron y borramos nuestra copia; los que ya pasaron se borran.
+            </Punto>
+            <Punto>
+              <Fuerte>Ventas:</Fuerte> se conservan mientras tu cuenta exista, porque son tu histórico.
+              A los 12 meses de cada pedido se borran el nombre y el número de WhatsApp del cliente; los
+              productos, los montos y las fechas quedan.
+            </Punto>
+            <Punto>
+              <Fuerte>Avisos del panel:</Fuerte> los leídos se borran a los 90 días; los que nunca
+              leíste, a los 12 meses.
+            </Punto>
+            <Punto>
+              <Fuerte>Tu catálogo:</Fuerte> mientras tu cuenta exista. Un producto que borrás deja de
+              ofrecerse en el momento.
             </Punto>
             <Punto>
               <Fuerte>Un registro con WhatsApp que no se terminó</Fuerte> (se pidió el código QR pero
@@ -302,6 +344,11 @@ export default function PrivacidadPage() {
               agenda, la huella de tu contraseña, los códigos de acceso, el estado interno de las conversaciones y tu suscripción. Si había un cobro activo, lo
               cancelamos.
             </Punto>
+            <Punto>
+              Si vendías con el asistente: borramos tu catálogo, tus ventas, tus avisos y los tokens de
+              tu cuenta de Mercado Pago. Los links de pago que ya se habían mandado vencen solos en
+              menos de una hora.
+            </Punto>
           </Lista>
           <p>
             Se borra de inmediato de nuestra base de datos. Si algo quedara en una copia de seguridad
@@ -311,7 +358,9 @@ export default function PrivacidadPage() {
           <p>
             <Fuerte>Los eventos que ya están en tu Google Calendar no los borramos</Fuerte>: son
             eventos de tu calendario y quedan ahí, bajo tu control. Si querés que se vayan, borralos
-            desde Google antes o después de darte de baja.
+            desde Google antes o después de darte de baja. Lo mismo con tu cuenta de Mercado Pago: los
+            cobros que ya recibiste son tuyos, y la autorización que le diste a Trato Agenda la podés
+            quitar también desde las aplicaciones conectadas de tu cuenta de Mercado Pago.
           </p>
         </Seccion>
 

@@ -7,7 +7,10 @@
  * escriben al asistente y nunca aceptaron nada con nosotros): el texto de los
  * mensajes, el estado de la conversación en el checkpointer, el nombre y el
  * resumen. Los `Turno` se conservan mientras exista la cuenta: son el registro
- * de la agenda del titular.
+ * de la agenda del titular. Con las `Venta` pasa lo mismo (son el histórico
+ * del comercio), pero a los `DIAS_RETENCION_DATOS_CLIENTE` pierden el nombre y
+ * el teléfono del cliente. Los avisos del panel también traen nombres y
+ * consultas de clientes, así que tienen su propio plazo.
  *
  * Si estos números cambian, hay que cambiar también la política de privacidad:
  * una vez publicados son un compromiso, no una preferencia.
@@ -16,8 +19,17 @@
 /** Conversación sin actividad: se le borra el historial de mensajes y su checkpoint. */
 export const DIAS_RETENCION_MENSAJES = 90;
 
-/** Más adelante se le borran también el nombre del cliente y el resumen. */
+/**
+ * Más adelante se le borran también el nombre del cliente y el resumen, y a
+ * las ventas el nombre y el teléfono del comprador.
+ */
 export const DIAS_RETENCION_DATOS_CLIENTE = 365;
+
+/**
+ * Avisos del panel ya leídos: cumplieron su función. Los que nadie leyó duran
+ * lo mismo que los datos del cliente que llevan adentro.
+ */
+export const DIAS_RETENCION_AVISOS_LEIDOS = 90;
 
 /**
  * Alta por WhatsApp que nunca escaneó el QR: un usuario sin Google ni

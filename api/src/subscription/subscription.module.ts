@@ -9,6 +9,7 @@ import { SubscriptionService } from './subscription.service.js';
   imports: [PassportModule.register({ session: false })],
   controllers: [SubscriptionController],
   providers: [SubscriptionService, MercadoPagoClient],
-  exports: [SubscriptionService],
+  // MercadoPagoClient también lo usa el módulo comercio (links de pago de cada comercio).
+  exports: [SubscriptionService, MercadoPagoClient],
 })
 export class SubscriptionModule {}

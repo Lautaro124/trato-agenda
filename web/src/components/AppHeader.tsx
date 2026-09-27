@@ -3,12 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { CampanaNotificaciones } from "@/components/CampanaNotificaciones";
 import { Badge } from "@/components/ui/Badge";
 import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
 import { identificador, iniciales, useSession, type Usuario } from "@/lib/session";
 
-type Tab = "inicio" | "vinculacion" | "calendario" | "reuniones" | "chat" | "plan" | "cuenta";
+type Tab = "inicio" | "vinculacion" | "calendario" | "reuniones" | "productos" | "ventas" | "chat" | "plan" | "cuenta";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 
@@ -17,6 +18,31 @@ const TAB_CLASSES = {
   inactive: "text-ink-secondary hover:bg-sunken",
   disabled: "cursor-default text-muted",
 };
+
+type Pestana = { tab: Tab; href: string; label: string };
+
+/**
+ * Las pestañas dependen de qué hace el asistente: una cuenta de ventas no
+ * tiene calendario ni reuniones, tiene catálogo.
+ */
+function pestanasDe(user: Usuario): Pestana[] {
+  const inicio: Pestana = { tab: "inicio", href: "/inicio", label: "Inicio" };
+  const plan: Pestana = { tab: "plan", href: "/plan", label: "Plan" };
+  if (user.tipoAsistente === "ventas") {
+    return [
+      inicio,
+      { tab: "productos", href: "/productos", label: "Productos" },
+      { tab: "ventas", href: "/ventas", label: "Ventas" },
+      plan,
+    ];
+  }
+  return [
+    inicio,
+    { tab: "calendario", href: "/calendario", label: "Calendario" },
+    { tab: "reuniones", href: "/reuniones", label: "Reuniones" },
+    plan,
+  ];
+}
 
 /** Nav superior compartida por /inicio y /vincular (variantes 1e/3a del canvas). */
 export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
@@ -74,37 +100,25 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
       </Link>
 
       <nav className="ml-4 hidden gap-0.5 md:flex">
-        <Link
-          href="/inicio"
-          className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "inicio" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
-        >
-          Inicio
-        </Link>
-        <Link
-          href="/calendario"
-          className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "calendario" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
-        >
-          Calendario
-        </Link>
-        <Link
-          href="/reuniones"
-          className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "reuniones" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
-        >
-          Reuniones
-        </Link>
-        <Link
-          href="/plan"
-          className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === "plan" ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
-        >
-          Plan
-        </Link>
+        {pestanasDe(user).map((pestana) => (
+          <Link
+            key={pestana.tab}
+            href={pestana.href}
+            className={`rounded-sm px-3 py-1.5 text-[13.5px] ${active === pestana.tab ? TAB_CLASSES.active : TAB_CLASSES.inactive}`}
+          >
+            {pestana.label}
+          </Link>
+        ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-3 sm:gap-4">
+        <CampanaNotificaciones />
         {whatsapp && (
-          <Badge tone={whatsapp.linked ? "success" : "warning"}>
-            {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
-          </Badge>
+          <span className="whitespace-nowrap">
+            <Badge tone={whatsapp.linked ? "success" : "warning"}>
+              {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
+            </Badge>
+          </span>
         )}
 
         <div ref={menuRef} className="relative">

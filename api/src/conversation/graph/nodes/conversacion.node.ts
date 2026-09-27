@@ -4,15 +4,22 @@
  * calls pedir. La validación y la escritura quedan en los nodos de código.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { AIMessage, SystemMessage } from '@langchain/core/messages';
+import { AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import { esAccionValida } from '../../../agents/agent-catalog.js';
 import { resumenDeError } from '../../../agents/openrouter.client.js';
 import { MENSAJE_DISCULPA_GENERICO } from '../../mensajes.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO, type EsquemaHerramienta } from '../../conversation-tools.js';
-import type { EstadoConversacionUpdate, EstadoConversacionValue } from '../state.js';
+import type { EstadoComun } from '../state.js';
 
-export type DepsConversacion = { llm: BaseChatModel };
+export type DepsConversacion = {
+  llm: BaseChatModel;
+  /**
+   * Qué herramientas ve el modelo. Por defecto las de la agenda; el grafo de
+   * ventas pasa las suyas (ventas-tools.ts).
+   */
+  herramientas?: (allowedActions: string[], esPropietario: boolean) => EsquemaHerramienta[];
+};
 
 /** Herramientas visibles para este agente: las habilitadas + las del dueño si corresponde. */
 export function herramientasDisponibles(
@@ -28,9 +35,11 @@ export function herramientasDisponibles(
 export function crearNodoConversacion(deps: DepsConversacion) {
   const logger = new Logger('ConversacionNode');
 
-  return async (state: EstadoConversacionValue): Promise<EstadoConversacionUpdate> => {
+  const elegirHerramientas = deps.herramientas ?? herramientasDisponibles;
+
+  return async (state: EstadoComun): Promise<{ messages: BaseMessage[] }> => {
     const { contexto } = state;
-    const herramientas = herramientasDisponibles(contexto.agent.allowedActions, state.esPropietario);
+    const herramientas = elegirHerramientas(contexto.agent.allowedActions, state.esPropietario);
     const modelo =
       herramientas.length > 0 && deps.llm.bindTools
         ? deps.llm.bindTools(herramientas)

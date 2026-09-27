@@ -1,11 +1,13 @@
 # Override para los E2E de Playwright (paquete e2e/). Suma un OpenRouter falso
-# y determinista, y le prende a la API el login de desarrollo:
+# y determinista, un Mercado Pago falso (OAuth, links de pago y webhooks
+# firmados) y le prende a la API el login de desarrollo:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
 #   cd e2e && npm run e2e
 #
-# `environment` pisa lo que venga de api/.env, así que la clave real de
-# OpenRouter nunca se usa mientras este override esté activo.
+# `environment` pisa lo que venga de api/.env, así que ni la clave real de
+# OpenRouter ni las credenciales reales de Mercado Pago se usan mientras este
+# override esté activo.
 services:
   openrouter-stub:
     image: node:24-alpine
@@ -17,6 +19,28 @@ services:
       - "4010:4010"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4010/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  mercadopago-stub:
+    image: node:24-alpine
+    working_dir: /stub
+    command: ["node", "server.mjs"]
+    environment:
+      PORT: "4020"
+      # El navegador llega por localhost (pantallas de autorización y de pago);
+      # la API, por el nombre del servicio. El webhook sale hacia la API por la
+      # red de compose aunque el notification_url diga localhost.
+      URL_PUBLICA: http://localhost:4020
+      API_INTERNA: http://api:4000
+      SECRETO_WEBHOOK: e2e-webhook-secret
+    volumes:
+      - ./e2e/mercadopago-stub:/stub:ro
+    ports:
+      - "4020:4020"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4020/health"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -33,6 +57,14 @@ services:
       # Secreto fijo sólo para este stack: permite a los specs de e2e firmar un
       # webhook de Mercado Pago válido sin conocer (ni imprimir) el secreto real.
       MERCADOPAGO_WEBHOOK_SECRET: e2e-webhook-secret
+      # OAuth y links de pago de los comercios contra el Mercado Pago falso: la
+      # API lo llama por la red de compose, y al navegador se lo manda a localhost.
+      MERCADOPAGO_BASE_URL: http://mercadopago-stub:4020
+      MERCADOPAGO_AUTH_URL: http://localhost:4020
+      MERCADOPAGO_CLIENT_ID: e2e-app
+      MERCADOPAGO_CLIENT_SECRET: e2e-secret
     depends_on:
       openrouter-stub:
+        condition: service_healthy
+      mercadopago-stub:
         condition: service_healthy

@@ -1,8 +1,14 @@
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { GraphRecursionError } from '@langchain/langgraph';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { tipoAsistenteDe } from '../agents/agent-catalog.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { GRAFO_CONVERSACION, type GrafoConversacion } from './conversation.providers.js';
+import {
+  GRAFO_CONVERSACION,
+  GRAFO_VENTAS,
+  type GrafoConversacion,
+  type GrafoVentas,
+} from './conversation.providers.js';
 import { LIMITE_RECURSION } from './graph/graph.factory.js';
 import { VENTANA_HISTORIAL, mensajesDesdeFilas } from './graph/historial.js';
 import {
@@ -31,9 +37,25 @@ export function esConversacionDePrueba(remoteJid: string): boolean {
 }
 
 /**
- * Fachada del runtime conversacional. La lógica vive en el grafo de LangGraph
- * (graph/): acá sólo se resuelve a qué agente y a qué hilo pertenece el
- * mensaje entrante, se invoca el grafo y se devuelve el texto para WhatsApp.
+ * Lo que la fachada usa de cualquiera de los dos grafos. Los dos comparten la
+ * entrada (mensajes + dueño + remitente) y la salida (mensajes).
+ */
+type GrafoInvocable = {
+  invoke: (entrada: {
+    messages: BaseMessage[];
+    ownerUserId: string;
+    remoteJid: string;
+    esPropietario: boolean;
+  }, config: { configurable: { thread_id: string }; recursionLimit: number }) => Promise<{ messages: BaseMessage[] }>;
+  getState: (config: { configurable: { thread_id: string } }) => Promise<{ values?: { messages?: BaseMessage[] } }>;
+};
+
+/**
+ * Fachada del runtime conversacional. La lógica vive en los grafos de
+ * LangGraph (graph/ para la agenda, ventas/ para el asistente de ventas): acá
+ * sólo se resuelve a qué agente y a qué hilo pertenece el mensaje entrante,
+ * qué grafo lo atiende (`Agent.tipoAsistente`), se lo invoca y se devuelve el
+ * texto para WhatsApp.
  */
 @Injectable()
 export class ConversationService {
@@ -41,7 +63,8 @@ export class ConversationService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(GRAFO_CONVERSACION) private readonly grafo: GrafoConversacion,
+    @Inject(GRAFO_CONVERSACION) private readonly grafoAgenda: GrafoConversacion,
+    @Inject(GRAFO_VENTAS) private readonly grafoVentas: GrafoVentas,
   ) {}
 
   async handleIncoming(ownerUserId: string, remoteJid: string, texto: string): Promise<string> {
@@ -61,11 +84,12 @@ export class ConversationService {
       configurable: { thread_id: conversation.id },
       recursionLimit: LIMITE_RECURSION,
     };
+    const grafo = (tipoAsistenteDe(agent) === 'ventas' ? this.grafoVentas : this.grafoAgenda) as unknown as GrafoInvocable;
 
     try {
-      const resultado = await this.grafo.invoke(
+      const resultado = await grafo.invoke(
         {
-          messages: [...(await this.historialSemilla(conversation.id, config)), new HumanMessage(texto)],
+          messages: [...(await this.historialSemilla(grafo, conversation.id, config)), new HumanMessage(texto)],
           ownerUserId,
           remoteJid,
           esPropietario: esConversacionDePrueba(remoteJid),
@@ -93,10 +117,11 @@ export class ConversationService {
    * devuelve vacío.
    */
   private async historialSemilla(
+    grafo: GrafoInvocable,
     conversationId: string,
     config: { configurable: { thread_id: string } },
   ): Promise<BaseMessage[]> {
-    const estado = await this.grafo.getState(config);
+    const estado = await grafo.getState(config);
     if ((estado.values?.messages ?? []).length > 0) return [];
 
     const filasDesc = await this.prisma.message.findMany({

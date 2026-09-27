@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { AvisoSuscripcion } from "@/components/AvisoSuscripcion";
+import { ColumnaVentas } from "@/components/inicio/ColumnaVentas";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { TestChat } from "@/components/TestChat";
 import { apiFetch } from "@/lib/api";
@@ -55,8 +56,11 @@ export default function InicioPage() {
       .catch(() => setTieneAgente(true));
   }, [status, router]);
 
+  const esVentas = user?.tipoAsistente === "ventas";
+
   useEffect(() => {
-    if (!tieneAgente) return;
+    // Una cuenta de ventas no tiene agenda que resumir.
+    if (!tieneAgente || esVentas) return;
     apiFetch("/calendar/resumen")
       .then((res) => {
         if (!res.ok) throw new Error("resumen no disponible");
@@ -64,7 +68,7 @@ export default function InicioPage() {
       })
       .then(setResumen)
       .catch(() => setErrorAgenda(true));
-  }, [tieneAgente]);
+  }, [tieneAgente, esVentas]);
 
   if (status !== "authenticated" || !user || !tieneAgente) {
     return (
@@ -98,44 +102,50 @@ export default function InicioPage() {
             </div>
           )}
 
-          <div className="flex gap-3">
-            <div className="flex-1 rounded-lg border border-line bg-card p-4">
-              <div className="font-display text-2xl font-bold text-ink">{resumen?.hoy.length ?? "–"}</div>
-              <div className="text-[12.5px] text-ink-secondary">Hoy</div>
-            </div>
-            <div className="flex-1 rounded-lg border border-line bg-card p-4">
-              <div className="font-display text-2xl font-bold text-ink">{resumen?.semanaCount ?? "–"}</div>
-              <div className="text-[12.5px] text-ink-secondary">Esta semana</div>
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-card">
-            <div className="flex items-center justify-between border-b border-line px-5 py-4">
-              <h2 className="font-display text-[15px] font-bold text-ink">Tu día</h2>
-            </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-5 py-4">
-              {errorAgenda && (
-                <p className="text-sm text-danger-text">
-                  {user.calendario === "google"
-                    ? "No pudimos cargar tu agenda de Google Calendar ahora mismo."
-                    : "No pudimos cargar tu agenda ahora mismo."}
-                </p>
-              )}
-              {!errorAgenda && resumen && resumen.hoy.length === 0 && (
-                <p className="text-sm text-muted">No tenés reuniones hoy.</p>
-              )}
-              {resumen?.hoy.map((evento) => (
-                <div key={evento.id} className="flex items-start gap-4">
-                  <span className="w-[52px] flex-none pt-[3px] font-mono text-[12.5px] text-muted">
-                    {formatearHora(evento.inicio)}
-                  </span>
-                  <div className="flex-1 rounded-md bg-sunken px-4 py-3">
-                    <div className="text-sm font-semibold text-ink">{evento.resumen || "(Sin título)"}</div>
-                  </div>
+          {esVentas ? (
+            <ColumnaVentas />
+          ) : (
+            <>
+              <div className="flex gap-3">
+                <div className="flex-1 rounded-lg border border-line bg-card p-4">
+                  <div className="font-display text-2xl font-bold text-ink">{resumen?.hoy.length ?? "–"}</div>
+                  <div className="text-[12.5px] text-ink-secondary">Hoy</div>
                 </div>
-              ))}
-            </div>
-          </div>
+                <div className="flex-1 rounded-lg border border-line bg-card p-4">
+                  <div className="font-display text-2xl font-bold text-ink">{resumen?.semanaCount ?? "–"}</div>
+                  <div className="text-[12.5px] text-ink-secondary">Esta semana</div>
+                </div>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-card">
+                <div className="flex items-center justify-between border-b border-line px-5 py-4">
+                  <h2 className="font-display text-[15px] font-bold text-ink">Tu día</h2>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-5 py-4">
+                  {errorAgenda && (
+                    <p className="text-sm text-danger-text">
+                      {user.calendario === "google"
+                        ? "No pudimos cargar tu agenda de Google Calendar ahora mismo."
+                        : "No pudimos cargar tu agenda ahora mismo."}
+                    </p>
+                  )}
+                  {!errorAgenda && resumen && resumen.hoy.length === 0 && (
+                    <p className="text-sm text-muted">No tenés reuniones hoy.</p>
+                  )}
+                  {resumen?.hoy.map((evento) => (
+                    <div key={evento.id} className="flex items-start gap-4">
+                      <span className="w-[52px] flex-none pt-[3px] font-mono text-[12.5px] text-muted">
+                        {formatearHora(evento.inicio)}
+                      </span>
+                      <div className="flex-1 rounded-md bg-sunken px-4 py-3">
+                        <div className="text-sm font-semibold text-ink">{evento.resumen || "(Sin título)"}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Banco de pruebas del agente: en móvil vive en /chat */}

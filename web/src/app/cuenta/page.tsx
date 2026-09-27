@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { AVISOS_MP, SeccionMercadoPago } from "@/components/cuenta/SeccionMercadoPago";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import { API_URL, apiFetch } from "@/lib/api";
@@ -34,8 +35,12 @@ function describirCuenta(user: Usuario): string {
     Boolean,
   );
   const agenda =
-    user.calendario === "google" ? "Tu agenda está en Google Calendar." : "Tu agenda está en Trato Agenda.";
-  return partes.length > 0 ? `Cuenta de ${partes.join(" · ")}. ${agenda}` : agenda;
+    user.tipoAsistente === "ventas"
+      ? ""
+      : user.calendario === "google"
+        ? "Tu agenda está en Google Calendar."
+        : "Tu agenda está en Trato Agenda.";
+  return partes.length > 0 ? `Cuenta de ${partes.join(" · ")}. ${agenda}`.trim() : agenda;
 }
 
 export default function CuentaPage() {
@@ -57,7 +62,8 @@ function Cargando() {
 
 function CuentaContenido() {
   const { user, status } = useRequireSession();
-  const aviso = AVISOS_GOOGLE[useSearchParams().get("google") ?? ""];
+  const parametros = useSearchParams();
+  const aviso = AVISOS_GOOGLE[parametros.get("google") ?? ""] ?? AVISOS_MP[parametros.get("mp") ?? ""];
   const [confirmacion, setConfirmacion] = useState("");
   const [borrando, setBorrando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +73,7 @@ function CuentaContenido() {
   }
 
   const conGoogle = user.calendario === "google";
+  const esVentas = user.tipoAsistente === "ventas";
 
   const eliminar = () => {
     setBorrando(true);
@@ -112,7 +119,9 @@ function CuentaContenido() {
             </p>
           )}
 
-          {!conGoogle && (
+          {esVentas && <SeccionMercadoPago />}
+
+          {!conGoogle && !esVentas && (
             <section className="rounded-lg border border-line bg-card p-5">
               <h2 className="mb-2 font-display text-[15px] font-bold text-ink">Tu agenda</h2>
               <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
@@ -174,11 +183,18 @@ function CuentaContenido() {
               Eliminar mi cuenta
             </h2>
             <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
-              Borra tu usuario, tu asistente, tus conversaciones, los mensajes, los turnos, tu agenda
-              y tu suscripción, y desvincula tu WhatsApp
+              {esVentas
+                ? "Borra tu usuario, tu asistente, tus conversaciones, los mensajes, tu catálogo, tus ventas, tus avisos, la conexión con Mercado Pago y tu suscripción, y desvincula tu WhatsApp"
+                : "Borra tu usuario, tu asistente, tus conversaciones, los mensajes, los turnos, tu agenda y tu suscripción, y desvincula tu WhatsApp"}
               {conGoogle ? " y revoca el acceso a tu Google Calendar" : ""}. Si tenés un cobro activo,
               lo cancelamos.
             </p>
+            {esVentas && (
+              <p className="mt-2.5 text-[13.5px] leading-[1.6] text-ink-secondary">
+                Si querés guardar tu histórico, exportalo antes desde Ventas → Exportar CSV. Lo que ya
+                cobraste queda en tu cuenta de Mercado Pago.
+              </p>
+            )}
             {conGoogle && (
               <p className="mt-2.5 text-[13.5px] leading-[1.6] text-ink-secondary">
                 Los eventos que ya están en tu Google Calendar quedan ahí: son tuyos y no los tocamos.

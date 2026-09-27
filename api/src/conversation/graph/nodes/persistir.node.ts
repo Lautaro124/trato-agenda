@@ -9,7 +9,7 @@ import { Logger } from '@nestjs/common';
 import { resumenDeError, type OpenRouterClient } from '../../../agents/openrouter.client.js';
 import type { Prisma } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
-import type { EstadoConversacionUpdate, EstadoConversacionValue } from '../state.js';
+import type { EstadoComun } from '../state.js';
 
 export type DepsPersistir = {
   prisma: PrismaService;
@@ -114,7 +114,7 @@ export function crearNodoPersistir(deps: DepsPersistir) {
     }
   }
 
-  return async (state: EstadoConversacionValue): Promise<EstadoConversacionUpdate> => {
+  return async (state: EstadoComun): Promise<Record<string, never>> => {
     const { conversation } = state.contexto;
     const nuevos = state.messages.slice(state.indiceDesde);
 
