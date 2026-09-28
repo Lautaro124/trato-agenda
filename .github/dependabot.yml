@@ -8,6 +8,10 @@ updates:
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 5
     groups:
+      # vitest y @vitest/coverage-v8 se piden la misma versión exacta como
+      # peer: separados, cada PR rompe `npm ci` por sí solo.
+      vitest:
+        patterns: ['vitest', '@vitest/*']
       api-menores:
         update-types: [minor, patch]
     commit-message: { prefix: 'chore(api)' }
@@ -19,6 +23,14 @@ updates:
     groups:
       web-menores:
         update-types: [minor, patch]
+    # Mayores bloqueadas por eslint-config-next: su eslint-plugin-react no
+    # carga en ESLint 10 y typescript-eslint no soporta TS 7. Sacar cada
+    # regla cuando Next publique un config compatible.
+    ignore:
+      - dependency-name: eslint
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
     commit-message: { prefix: 'chore(web)' }
 
   - package-ecosystem: npm
