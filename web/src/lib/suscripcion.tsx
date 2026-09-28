@@ -81,6 +81,31 @@ export function useSuscripcion(): SuscripcionValue {
   return ctx;
 }
 
+/** Espejo de `PrecioPublico` en la API: el precio del plan, sin sesión. */
+export type PrecioPlan = { monto: number; moneda: string };
+
+/**
+ * El precio del plan tal como lo fija SUSCRIPCION_PRECIO_ARS en la API. Lo usa
+ * la landing, que no tiene sesión; `null` mientras carga o si la API no responde,
+ * para no mostrar nunca un número inventado.
+ */
+export function usePrecioPlan(): PrecioPlan | null {
+  const [precio, setPrecio] = useState<PrecioPlan | null>(null);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+
+    apiFetch("/suscripcion/precio", { signal: ctrl.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<PrecioPlan>) : null))
+      .then((datos) => datos && setPrecio(datos))
+      .catch(() => {});
+
+    return () => ctrl.abort();
+  }, []);
+
+  return precio;
+}
+
 /** "$20.000", como se escribe en Argentina. */
 export function formatearMonto(monto: number, moneda = "ARS"): string {
   return new Intl.NumberFormat("es-AR", {

@@ -14,18 +14,28 @@ export type SuscripcionPublica = {
   moneda: string;
 };
 
+/** Lo que muestra la landing antes de que haya sesión: el precio de env, nada más. */
+export type PrecioPublico = { monto: number; moneda: 'ARS' };
+
+/**
+ * El monto guardado en la fila sólo vale mientras la suscripción está activa:
+ * es lo que efectivamente se cobra. Una fila pendiente o cancelada puede tener
+ * un precio viejo, y el próximo checkout cobra el de env — que es el que hay
+ * que mostrar, igual que en la landing.
+ */
 export function aSuscripcionPublica(
   estado: EstadoSuscripcion,
   suscripcion: Subscription | null,
   montoPorDefecto: number,
 ): SuscripcionPublica {
+  const pagando = estado.estado === 'activa' && suscripcion !== null;
   return {
     estado: estado.estado,
     diasRestantes: estado.diasRestantes,
     pruebaHasta: estado.pruebaHasta,
     proximoCobroAt: suscripcion?.proximoCobroAt ?? null,
-    monto: suscripcion ? suscripcion.montoCentavos / 100 : montoPorDefecto,
-    moneda: suscripcion?.moneda ?? 'ARS',
+    monto: pagando ? suscripcion.montoCentavos / 100 : montoPorDefecto,
+    moneda: pagando ? suscripcion.moneda : 'ARS',
   };
 }
 

@@ -178,7 +178,8 @@ function Checkout({
 }) {
   const [email, setEmail] = useState("");
   const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const precio = formatearMonto(suscripcion?.monto ?? 20000, suscripcion?.moneda);
+  // Sin la respuesta de la API no inventamos un número: el precio es el de env.
+  const precio = suscripcion ? formatearMonto(suscripcion.monto, suscripcion.moneda) : "—";
   const vencida = suscripcion?.estado === "vencida";
 
   return (
@@ -286,7 +287,7 @@ function Exito({ suscripcion, onVolver }: { suscripcion: Suscripcion | null; onV
       </p>
       <div className="mb-5 flex flex-col gap-2 rounded-md border border-line bg-sunken p-4 text-left">
         <Fila etiqueta="Plan" valor="Mensual" />
-        <Fila etiqueta="Importe" valor={formatearMonto(suscripcion?.monto ?? 20000, suscripcion?.moneda)} />
+        <Fila etiqueta="Importe" valor={suscripcion ? formatearMonto(suscripcion.monto, suscripcion.moneda) : "—"} />
         <Fila etiqueta="Medio de pago" valor="Mercado Pago" />
       </div>
       <Button onClick={onVolver}>Volver a la agenda</Button>

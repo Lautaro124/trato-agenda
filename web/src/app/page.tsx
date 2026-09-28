@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { PrecioPlan } from "@/components/PrecioPlan";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { EMAIL_SOPORTE } from "@/lib/contacto";
@@ -223,9 +224,7 @@ export default function Home() {
           <div className="rounded-[36px] border border-line-strong bg-page p-7 text-left shadow-md md:p-10">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <div className="font-display text-[38px] leading-none font-bold tracking-[-0.03em] text-ink md:text-[46px]">
-                  $20.000
-                </div>
+                <PrecioPlan className="font-display text-[38px] leading-none font-bold tracking-[-0.03em] text-ink md:text-[46px]" />
                 <div className="mt-1.5 text-sm text-muted">por mes · después del mes gratis</div>
               </div>
               <Link href="/entrar">

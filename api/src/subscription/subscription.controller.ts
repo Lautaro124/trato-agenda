@@ -18,7 +18,12 @@ import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import { MercadoPagoError } from './mercadopago.client.js';
 import { SubscriptionService } from './subscription.service.js';
-import { CheckoutDto, MercadoPagoWebhookDto, type SuscripcionPublica } from './subscription.types.js';
+import {
+  CheckoutDto,
+  MercadoPagoWebhookDto,
+  type PrecioPublico,
+  type SuscripcionPublica,
+} from './subscription.types.js';
 import { firmaDeWebhookValida } from './webhook-signature.js';
 
 /** Tipos de notificación de Mercado Pago que nos mueven el estado. */
@@ -37,6 +42,12 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   async estado(@CurrentUser() user: User): Promise<SuscripcionPublica> {
     return this.subscriptionService.estadoPublico(user.id);
+  }
+
+  /** Público: la landing muestra el mismo precio que /plan, sacado de SUSCRIPCION_PRECIO_ARS. */
+  @Get('precio')
+  precio(): PrecioPublico {
+    return this.subscriptionService.precioPublico();
   }
 
   @Post('checkout')

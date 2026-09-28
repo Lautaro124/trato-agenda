@@ -134,6 +134,15 @@ export function telefonoVisible(telefono: string): string {
   return `+${telefono}`;
 }
 
+/**
+ * Ya escaneó el QR: el número se escribe al abrir la sesión de WhatsApp, sea
+ * una cuenta de Google o una creada sólo con WhatsApp. A esa cuenta no hay que
+ * mandarla a /vincular.
+ */
+export function yaVinculoWhatsapp(user: Usuario): boolean {
+  return user.phoneNumber !== null;
+}
+
 /** Cómo se identifica la cuenta en la UI: email si hay, si no el número. */
 export function identificador(user: Usuario): string {
   if (user.email) return user.email;
