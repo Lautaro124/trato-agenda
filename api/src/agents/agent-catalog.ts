@@ -29,7 +29,7 @@ export function esAccionValida(id: string): id is AccionId {
  */
 export const ACCIONES_VENTAS = {
   buscar_productos: 'Buscar en el catálogo lo que pide el cliente, con precio y stock reales.',
-  crear_pedido: 'Reservar el stock de lo que el cliente confirmó y generar el link de pago (o dejar el pedido a coordinar).',
+  crear_pedido: 'Reservar el stock de lo que el cliente eligió y generar el link de pago (o dejar el pedido a coordinar).',
   consultar_pedido: 'Contar el estado de los pedidos de esta conversación.',
   cancelar_pedido: 'Cancelar el pedido sin pagar de esta conversación y liberar su reserva.',
   derivar_consulta: 'Avisarle al dueño una consulta que el asistente no puede responder.',

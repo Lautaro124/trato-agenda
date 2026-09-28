@@ -21,11 +21,19 @@ export const MAX_PRODUCTOS_POR_MENSAJE = 3;
 /** Categorías que entran en el prompt; con más, el modelo busca sin filtrar. */
 export const MAX_CATEGORIAS_EN_PROMPT = 30;
 
-export function reglasDeVenta(agent: Agent): string {
+/** La pregunta de cierre: después de que el cliente elige, antes de crear el pedido. */
+export function preguntaDeCierre(mpConectado: boolean): string {
+  return mpConectado ? '¿Querés algo más antes de que te pase el link de pago?' : '¿Querés algo más o te lo anoto así?';
+}
+
+export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
   const titular = agent.nombreTitular || 'este negocio';
+  const cierre = preguntaDeCierre(mpConectado);
+  const entrega = mpConectado ? 'mandale el link de pago' : 'decile que quedó anotado';
   return (
     `Reglas de venta de ${titular} (no las rompas):\n` +
-    `- Te llamás ${agent.nombreBot} y sos el asistente de ventas de ${titular}.\n` +
+    `- Sos ${agent.nombreBot}, el asistente de ventas de ${titular}. Saludás y decís tu nombre sólo en tu ` +
+    `primer mensaje de la conversación; después seguís la charla directo, sin "hola" ni volver a presentarte.\n` +
     `- Todo lo que digas de un producto —si existe, su precio, sus variantes y si hay stock— sale de ` +
     `buscar_productos en este mismo mensaje. Nunca lo supongas, lo recuerdes de antes ni lo inventes.\n` +
     `- Informá los precios exactamente como los devuelve la búsqueda. Nunca redondees, hagas descuentos, ` +
@@ -37,14 +45,24 @@ export function reglasDeVenta(agent: Agent): string {
     `- Si el cliente necesita algo del negocio que vos no sabés (un producto que no está, envíos, formas de ` +
     `pago, un reclamo), avisale al dueño con derivar_consulta y decile que ${titular} le responde por este chat.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
-    `- Para vender: repetile al cliente qué lleva (producto, variante y cantidad) y el total, preguntale su ` +
-    `nombre si no lo sabés, y esperá que confirme por texto. Recién ahí llamá crear_pedido con los ids de ` +
-    `variante de la búsqueda.\n` +
+    `- Para vender: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, variante, ` +
+    `cantidad y precio) y preguntale "${cierre}". No le pidas que confirme el pedido ni le repitas el resumen ` +
+    `para que diga que sí.\n` +
+    `- Si quiere algo más, buscalo y volvé a hacerle la misma pregunta. Cuando te diga que no ("no", "nada más", ` +
+    `"eso es todo"), llamá crear_pedido con todo lo que eligió en esta charla y ${entrega}. Si no sabés su ` +
+    `nombre, preguntáselo en ese momento, antes de crear el pedido.\n` +
     `- El link de pago mandalo tal cual te lo devuelve crear_pedido, sin acortarlo ni cambiarlo, y avisale ` +
     `hasta qué hora vale.\n` +
     `- La entrega, el envío y los retiros los coordina ${titular} directamente: no prometas plazos ni costos.`
   );
 }
+
+/**
+ * Para una conversación que ya viene de antes: el modelo ve su propio saludo en
+ * el historial, pero igual tiende a volver a presentarse en cada respuesta.
+ */
+export const YA_TE_PRESENTASTE =
+  'Ya te presentaste en esta conversación: no saludes de nuevo ni digas tu nombre, contestá directo lo que te pide.';
 
 /** Cómo cobra este comercio y qué pedidos tiene en curso esta conversación. */
 export function bloquePedidos(agent: Agent, mpConectado: boolean, pedidos: VentaConItems[], ahora: Date = new Date()): string {
@@ -55,11 +73,22 @@ export function bloquePedidos(agent: Agent, mpConectado: boolean, pedidos: Venta
     : `Cobro: ${titular} no cobra con link por ahora. Los pedidos quedan anotados (crear_pedido con medioPago ` +
       `"manual") y ${titular} se comunica para coordinar el pago y la entrega.`;
   const pendientes = pedidos.filter((pedido) => estadoVisible(pedido, ahora) === 'pendiente_pago');
-  if (pendientes.length === 0) return cobro;
-  return (
-    `${cobro}\nPedidos sin pagar de este cliente (como mucho ${MAX_PEDIDOS_PENDIENTES} a la vez; consultá el ` +
-    `detalle con consultar_pedido): ${pendientes.map((pedido) => detalleDeRenglones(pedido.items)).join(' | ')}.`
-  );
+  const pagados = pedidos.filter((pedido) => pedido.estado === 'pagada');
+  const lineas = [cobro];
+  if (pendientes.length > 0) {
+    lineas.push(
+      `Pedidos sin pagar de este cliente (como mucho ${MAX_PEDIDOS_PENDIENTES} a la vez; consultá el detalle con ` +
+        `consultar_pedido): ${pendientes.map((pedido) => detalleDeRenglones(pedido.items)).join(' | ')}.`,
+    );
+  }
+  if (pagados.length > 0) {
+    // El aviso de "pago aprobado" sale fuera del grafo: sin esto el modelo no sabría que ya se cobró.
+    lineas.push(
+      `Pedidos ya pagados de este cliente (el pago está aprobado: si pregunta, decíselo): ` +
+        `${pagados.map((pedido) => detalleDeRenglones(pedido.items)).join(' | ')}.`,
+    );
+  }
+  return lineas.join('\n');
 }
 
 // h23: "17:42" y no "05:42 p. m.", que es lo que da es-AR por defecto.

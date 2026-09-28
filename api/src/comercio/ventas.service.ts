@@ -17,6 +17,7 @@ import { reservadasPorVariante } from './reservas.js';
 import {
   agruparItems,
   MAX_PEDIDOS_PENDIENTES,
+  mensajePagoAprobado,
   pagoSaldaVenta,
   problemaDeForma,
   telefonoDeJid,
@@ -370,6 +371,7 @@ export class VentasService {
     const resultado = await this.marcarPagada(ventaId);
     if (!resultado) return null;
     await this.avisarStock(userId, resultado);
+    if (resultado.nueva) await this.avisarPagoAlCliente(resultado.venta);
     return resultado.venta;
   }
 
@@ -379,8 +381,33 @@ export class VentasService {
     if (resultado?.nueva) {
       await this.avisar(venta.userId, avisoVentaPagada(resultado.venta));
       await this.avisarStock(venta.userId, resultado);
+      await this.avisarPagoAlCliente(resultado.venta);
     }
     return resultado;
+  }
+
+  /**
+   * Le dice al cliente, en el chat de donde salió el pedido, que su pago se
+   * aprobó. Sólo una vez (lo llaman cuando la venta pasa a pagada) y nunca
+   * para un pedido del banco de pruebas, que no tiene un chat de WhatsApp.
+   */
+  private async avisarPagoAlCliente(venta: Venta): Promise<void> {
+    if (venta.dePrueba || !venta.conversationId) return;
+    try {
+      const [conversation, agent] = await Promise.all([
+        this.prisma.conversation.findUnique({ where: { id: venta.conversationId }, select: { remoteJid: true } }),
+        this.prisma.agent.findUnique({ where: { userId: venta.userId }, select: { nombreTitular: true } }),
+      ]);
+      if (!conversation) return;
+      const enviado = await this.notificaciones.avisarAlCliente(
+        venta.userId,
+        conversation.remoteJid,
+        mensajePagoAprobado(venta, agent?.nombreTitular ?? null),
+      );
+      if (!enviado) this.logger.warn(`No se le pudo avisar al cliente el pago de la venta ${venta.id}.`);
+    } catch (error) {
+      this.logger.error(`No se pudo avisar al cliente el pago de la venta ${venta.id}: ${(error as Error).message}`);
+    }
   }
 
   private async avisarStock(userId: string, resultado: ResultadoPago): Promise<void> {

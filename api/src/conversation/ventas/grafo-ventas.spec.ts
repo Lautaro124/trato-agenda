@@ -10,6 +10,7 @@ import type { PrismaService } from '../../prisma/prisma.service.js';
 import { LIMITE_RECURSION } from '../graph/graph.factory.js';
 import { construirGrafoVentas } from './grafo-ventas.factory.js';
 import { MENSAJE_CATALOGO_CAIDO } from './nodes/catalogo.node.js';
+import { YA_TE_PRESENTASTE } from './reglas-ventas.js';
 import { PedidoRechazadoError } from '../../comercio/ventas.service.js';
 
 const AGENT = {
@@ -167,6 +168,43 @@ describe('grafo de ventas', () => {
     expect(sistema).toContain('existís sólo para vender los productos de Mates del Sur');
     expect(sistema).toContain('Catálogo: 12 productos en estas categorías: "Mates" (12)');
     expect(sistema).not.toContain('lunes a viernes');
+  });
+
+  it('se presenta sólo en el primer mensaje: después el contexto le dice que ya lo hizo', async () => {
+    const llm = crearModelo([new AIMessage('Hola, soy Nina. ¿Qué buscás?')]);
+    const grafo = construirGrafoVentas({
+      prisma: crearPrisma(),
+      llm,
+      busqueda: { buscar: vi.fn() },
+      ventas: crearVentas(),
+      notificaciones: crearNotificaciones(),
+      historico: crearHistorico(),
+      openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
+      checkpointer: new MemorySaver(),
+    });
+    const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION };
+    const entrada = (texto: string) => ({
+      messages: [new HumanMessage(texto)],
+      ownerUserId: 'user-1',
+      remoteJid: CONVERSATION.remoteJid,
+      esPropietario: false,
+    });
+
+    await grafo.invoke(entrada('hola'), config);
+    await grafo.invoke(entrada('¿tenés mates?'), config);
+
+    const sistemas = (llm.invoke.mock.calls as unknown as Array<[BaseMessage[]]>).map(([mensajes]) => String(mensajes[0].content));
+    expect(sistemas[0]).not.toContain(YA_TE_PRESENTASTE);
+    expect(sistemas[1]).toContain(YA_TE_PRESENTASTE);
+  });
+
+  it('cierra la venta preguntando si quiere algo más, sin pedir confirmación', async () => {
+    const llm = crearModelo([new AIMessage('ok')]);
+    await correr({ prisma: crearPrisma({ mpConectado: true }), llm, busqueda: { buscar: vi.fn() } });
+
+    const sistema = sistemaDe(llm);
+    expect(sistema).toContain('¿Querés algo más antes de que te pase el link de pago?');
+    expect(sistema).toContain('No le pidas que confirme el pedido');
   });
 
   it('avisa al modelo cuando el catálogo está vacío', async () => {

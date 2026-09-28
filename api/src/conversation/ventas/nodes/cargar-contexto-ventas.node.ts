@@ -13,6 +13,7 @@ import {
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
   reglasDeVenta,
+  YA_TE_PRESENTASTE,
 } from '../reglas-ventas.js';
 import type { ContextoVentas, EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
@@ -22,13 +23,17 @@ export function contextoFijoVentas(
   agent: Agent,
   conversation: Pick<Conversation, 'remoteJid' | 'resumen' | 'nombreCliente'>,
   esPropietario: boolean,
+  opciones: { mpConectado: boolean; yaSePresento: boolean },
   ahora: Date = new Date(),
 ): string {
   const fecha = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, dateStyle: 'full', timeStyle: 'short' }).format(
     ahora,
   );
   const base = `Fecha y hora actual: ${fecha} (zona horaria ${TIMEZONE}).`;
-  const reglas = `${reglasDeVenta(agent)}\n\n${reglasDeAlcanceVentas(agent, esPropietario)}\n\n${reglasDeEstiloVentas()}`;
+  const presentacion = opciones.yaSePresento ? `\n\n${YA_TE_PRESENTASTE}` : '';
+  const reglas =
+    `${reglasDeVenta(agent, opciones.mpConectado)}\n\n${reglasDeAlcanceVentas(agent, esPropietario)}\n\n` +
+    `${reglasDeEstiloVentas()}${presentacion}`;
 
   if (esPropietario) {
     return (
@@ -80,6 +85,8 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       }),
     ]);
     const mpConectado = cuentaMp !== null;
+    // El historial viene del checkpointer; el último mensaje es el que acaba de llegar.
+    const yaSePresento = state.messages.slice(0, -1).some((mensaje) => mensaje.getType() === 'ai');
     const categorias = grupos.map((grupo) => ({ nombre: grupo.categoria as string, cantidad: grupo._count._all }));
 
     const contexto: ContextoVentas = {
@@ -87,7 +94,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       conversation,
       mpConectado,
       bloqueSistema:
-        `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario)}\n\n` +
+        `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, { mpConectado, yaSePresento })}\n\n` +
         `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloquePedidos(agent, mpConectado, pedidos)}`,
     };
 

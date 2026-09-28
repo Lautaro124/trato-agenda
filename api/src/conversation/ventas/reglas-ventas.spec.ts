@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
+import type { Agent } from '../../generated/prisma/client.js';
 import {
   bloqueCatalogo,
+  bloquePedidos,
   formatearPedidoCreado,
   formatearResultados,
   formatearStockDueno,
   MAX_CATEGORIAS_EN_PROMPT,
+  reglasDeVenta,
 } from './reglas-ventas.js';
 
 const PRODUCTO: ProductoEncontrado = {
@@ -79,5 +82,41 @@ describe('formatearPedidoCreado', () => {
     expect(formatearPedidoCreado(AGENT, { ...(VENTA as object), linkPago: null } as never)).toContain(
       'Mates del Sur se va a comunicar por este chat',
     );
+  });
+});
+
+describe('reglasDeVenta', () => {
+  const agent = { nombreTitular: 'Mates del Sur', nombreBot: 'Nina' } as Agent;
+
+  it('se presenta una sola vez, al principio de la conversación', () => {
+    const reglas = reglasDeVenta(agent, true);
+    expect(reglas).toContain('Saludás y decís tu nombre sólo en tu primer mensaje de la conversación');
+    expect(reglas).not.toContain('Te llamás');
+  });
+
+  it('cierra con "¿algo más?" y no pide confirmar el pedido', () => {
+    const reglas = reglasDeVenta(agent, true);
+    expect(reglas).toContain('"¿Querés algo más antes de que te pase el link de pago?"');
+    expect(reglas).toContain('No le pidas que confirme el pedido');
+    expect(reglas).not.toContain('esperá que confirme');
+  });
+
+  it('sin Mercado Pago no promete un link de pago', () => {
+    const reglas = reglasDeVenta(agent, false);
+    expect(reglas).toContain('"¿Querés algo más o te lo anoto así?"');
+    expect(reglas).not.toContain('antes de que te pase el link de pago');
+  });
+});
+
+describe('bloquePedidos', () => {
+  const agent = { nombreTitular: 'Mates del Sur' } as Agent;
+  const renglon = { nombreProducto: 'Mate', nombreVariante: '', cantidad: 1, subtotalCentavos: 800_000 };
+
+  it('cuenta los pedidos ya pagados, para que sepa contestar "¿llegó mi pago?"', () => {
+    const pagado = { estado: 'pagada', reservaVenceAt: new Date('2020-01-01'), items: [renglon] };
+    const texto = bloquePedidos(agent, true, [pagado] as never);
+    expect(texto).toContain('Pedidos ya pagados de este cliente (el pago está aprobado');
+    expect(texto).toContain('1 × Mate ($ 8.000)');
+    expect(texto).not.toContain('Pedidos sin pagar');
   });
 });

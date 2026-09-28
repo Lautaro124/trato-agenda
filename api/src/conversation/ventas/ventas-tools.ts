@@ -28,11 +28,13 @@ export const esquemaCrearPedido = z.object({
   items: z
     .array(
       z.object({
-        varianteId: z.string().describe('El id de variante entre corchetes de la última búsqueda, nunca uno inventado.'),
+        varianteId: z
+          .string()
+          .describe('El id de variante entre corchetes de una búsqueda de esta charla, nunca uno inventado.'),
         cantidad: z.number().int().describe('Unidades de esa variante.'),
       }),
     )
-    .describe('Lo que el cliente confirmó que compra.'),
+    .describe('Todo lo que el cliente eligió en esta charla.'),
   medioPago: z
     .enum(['mercadopago', 'manual'])
     .optional()

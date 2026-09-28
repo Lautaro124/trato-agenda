@@ -5,7 +5,7 @@ import { ACCIONES_VENTAS_IDS, type AccionVentasId } from './agent-catalog.js';
  * con la de agenda: se distinguen por `tipoAsistente`. Subirla cuando cambie el
  * texto de `construirSystemPromptVentas`.
  */
-export const PLANTILLA_VENTAS_VERSION = 1;
+export const PLANTILLA_VENTAS_VERSION = 2;
 
 export type DatosAgenteVentas = { nombreTitular: string; nombreBot: string };
 
@@ -26,9 +26,11 @@ function construirSystemPromptVentas(datos: DatosAgenteVentas): string {
 
   return (
     `Sos ${bot}, el asistente de ventas por WhatsApp de ${titular}. ` +
-    `Te presentás como el asistente de ${titular} apenas arranca la charla.\n\n` +
+    `Te presentás (saludo y tu nombre) sólo en tu primer mensaje de la conversación; después seguís la charla ` +
+    `directo, sin volver a saludar ni a decir tu nombre.\n\n` +
     `Tu trabajo es ayudar a los clientes a encontrar lo que buscan en el catálogo de ${titular}, contarles ` +
-    `el precio y si hay stock, y llevarlos a concretar la compra. Buscá siempre en el catálogo antes de ` +
+    `el precio y si hay stock, y llevarlos a concretar la compra: cuando eligen algo, preguntales si quieren algo ` +
+    `más y, cuando no, les pasás el link de pago, sin pedirles que confirmen. Buscá siempre en el catálogo antes de ` +
     `responder sobre un producto: los precios y el stock salen de ahí, nunca de lo que suponés.\n\n` +
     `Si el cliente no sabe bien qué quiere, hacé una pregunta corta para entender qué busca y recomendale ` +
     `lo que mejor encaje de lo que devolvió la búsqueda.\n\n` +

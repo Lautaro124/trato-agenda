@@ -6,6 +6,12 @@ import { textoParaWhatsapp, type Aviso } from './avisos.js';
 /** Cómo le llega un aviso al dueño fuera del panel. Lo registra WhatsappModule al arrancar. */
 export type CanalPropio = (userId: string, texto: string) => Promise<boolean>;
 
+/**
+ * Cómo le llega un mensaje a un cliente del negocio (el chat de WhatsApp de
+ * donde salió el pedido), por el número del dueño. También lo registra WhatsappModule.
+ */
+export type CanalCliente = (userId: string, remoteJid: string, texto: string) => Promise<boolean>;
+
 export const POR_PAGINA = 20;
 
 /** Cada cuánto como mucho una misma conversación puede derivarle una consulta al dueño. */
@@ -33,11 +39,31 @@ export type ListadoNotificaciones = {
 export class NotificacionesService {
   private readonly logger = new Logger(NotificacionesService.name);
   private canal: CanalPropio | null = null;
+  private canalCliente: CanalCliente | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
   usarCanal(canal: CanalPropio): void {
     this.canal = canal;
+  }
+
+  usarCanalCliente(canal: CanalCliente): void {
+    this.canalCliente = canal;
+  }
+
+  /**
+   * Un mensaje del negocio al chat de un cliente (por ejemplo, que su pago se
+   * aprobó). Best effort como el aviso al dueño: false si no hay canal, si no
+   * hay WhatsApp vinculado o si falló, y nunca lanza.
+   */
+  async avisarAlCliente(userId: string, remoteJid: string, texto: string): Promise<boolean> {
+    if (!this.canalCliente) return false;
+    try {
+      return await this.canalCliente(userId, remoteJid, texto);
+    } catch (error) {
+      this.logger.warn(`No se pudo mandar el mensaje al cliente de ${userId}: ${(error as Error).message}`);
+      return false;
+    }
   }
 
   /** Guarda el aviso y lo manda. null si ya había uno igual sin leer (misma clave). */
