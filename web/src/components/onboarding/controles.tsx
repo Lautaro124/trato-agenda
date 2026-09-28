@@ -423,3 +423,8 @@ export function PreviewSaludo({ ob, conCliente = true }: { ob: Onboarding; conCl
     </div>
   );
 }
+
+/** El último botón del alta: quien ya escaneó el QR no tiene WhatsApp que vincular. */
+export function textoFinal(yaVinculado: boolean): string {
+  return yaVinculado ? "Crear mi asistente" : "Vincular WhatsApp";
+}

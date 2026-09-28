@@ -4,7 +4,7 @@ import { useState } from "react";
 import { LARGO_MAX_BOT, LARGO_MAX_TITULAR, SUGERENCIAS_BOT } from "@/app/contanos/useOnboarding";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { INPUT, chip } from "./controles";
+import { INPUT, chip, textoFinal } from "./controles";
 
 export type DatosVentas = { nombreTitular: string; nombreBot: string };
 
@@ -15,9 +15,12 @@ export type DatosVentas = { nombreTitular: string; nombreBot: string };
  */
 export function FormularioVentas({
   enviando,
+  yaVinculado,
   onFinalizar,
 }: {
   enviando: boolean;
+  /** La cuenta ya escaneó el QR (alta por WhatsApp): no hay nada que vincular. */
+  yaVinculado: boolean;
   onFinalizar: (datos: DatosVentas) => void;
 }) {
   const [nombreTitular, setNombreTitular] = useState("");
@@ -97,7 +100,7 @@ export function FormularioVentas({
       <div className="flex items-center justify-end gap-3">
         <span className="text-[12.5px] text-muted">Podés cambiar todo después</span>
         <Button type="submit" size="lg" disabled={!completo || enviando}>
-          {enviando ? "Creando tu asistente…" : "Vincular WhatsApp"}
+          {enviando ? "Creando tu asistente…" : textoFinal(yaVinculado)}
         </Button>
       </div>
     </form>

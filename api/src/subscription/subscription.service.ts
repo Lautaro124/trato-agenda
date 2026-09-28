@@ -5,7 +5,7 @@ import type { Subscription, User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { MercadoPagoClient, type PreapprovalStatus } from './mercadopago.client.js';
 import { estadoDeSuscripcion, type EstadoSuscripcion } from './subscription.rules.js';
-import { aSuscripcionPublica, type SuscripcionPublica } from './subscription.types.js';
+import { aSuscripcionPublica, type PrecioPublico, type SuscripcionPublica } from './subscription.types.js';
 
 /** Texto que la persona ve en el checkout y en su resumen de Mercado Pago. */
 const RAZON = 'Trato Agenda — plan mensual';
@@ -32,6 +32,11 @@ export class SubscriptionService {
   async estadoPublico(userId: string): Promise<SuscripcionPublica> {
     const { estado, suscripcion } = await this.resolver(userId);
     return aSuscripcionPublica(estado, suscripcion, this.precio());
+  }
+
+  /** El precio del plan, sin sesión: la landing lo lee de acá para no hardcodearlo. */
+  precioPublico(): PrecioPublico {
+    return { monto: this.precio(), moneda: 'ARS' };
   }
 
   /**
