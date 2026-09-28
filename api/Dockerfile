@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-alpine AS base
+FROM node:26-alpine AS base
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -17,7 +17,7 @@ FROM base AS build
 COPY . .
 RUN npx prisma generate && npm run build && npm prune --omit=dev
 
-FROM node:24-alpine AS prod
+FROM node:26-alpine AS prod
 WORKDIR /app
 ENV NODE_ENV=production
 # El runtime sólo necesita `node`. npm, npx, corepack y yarn vienen en la imagen
