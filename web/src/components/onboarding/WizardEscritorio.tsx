@@ -23,6 +23,7 @@ import {
   PreviewSaludo,
   SelectoresFranja,
   TextoRango,
+  textoFinal,
 } from "./controles";
 
 function Encabezado({ titulo, bajada }: { titulo: string; bajada: ReactNode }) {
@@ -75,10 +76,13 @@ function RielPasos({ ob }: { ob: Onboarding }) {
 export function WizardEscritorio({
   ob,
   enviando,
+  yaVinculado,
   onFinalizar,
 }: {
   ob: Onboarding;
   enviando: boolean;
+  /** La cuenta ya escaneó el QR (alta por WhatsApp): no hay nada que vincular. */
+  yaVinculado: boolean;
   onFinalizar: () => void;
 }) {
   const enUltimo = ob.paso === ULTIMO_PASO;
@@ -196,7 +200,7 @@ export function WizardEscritorio({
               disabled={!ob.puedeAvanzar[ob.paso] || enviando}
               onClick={enUltimo ? onFinalizar : ob.irAdelante}
             >
-              {enUltimo ? (enviando ? "Creando tu asistente…" : "Vincular WhatsApp") : "Continuar"}
+              {enUltimo ? (enviando ? "Creando tu asistente…" : textoFinal(yaVinculado)) : "Continuar"}
             </Button>
           </div>
         </div>

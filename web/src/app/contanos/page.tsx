@@ -8,7 +8,7 @@ import { FormularioVentas, type DatosVentas } from "@/components/onboarding/Form
 import { WizardEscritorio } from "@/components/onboarding/WizardEscritorio";
 import { SessionChip } from "@/components/SessionChip";
 import { apiFetch } from "@/lib/api";
-import { useRequireSession } from "@/lib/session";
+import { useRequireSession, yaVinculoWhatsapp } from "@/lib/session";
 import { useOnboarding } from "./useOnboarding";
 
 /** Qué decirle al usuario según cómo falló POST /agents/generate(-ventas). */
@@ -55,7 +55,8 @@ export default function ContanosPage() {
 
     // La sesión ya en memoria no sabe qué asistente eligió: la navegación depende de eso.
     await refrescar();
-    // /listo avisa que arrancó el mes de prueba; de ahí se sigue a /vincular.
+    // /listo avisa que arrancó el mes de prueba; de ahí se sigue a /vincular, o
+    // a la agenda y los planes si la cuenta ya escaneó el QR al registrarse.
     router.push("/listo");
   }
 
@@ -67,6 +68,7 @@ export default function ContanosPage() {
     );
   }
 
+  const yaVinculado = yaVinculoWhatsapp(user);
   const alerta = error && (
     <p role="alert" className="text-[12.5px] text-danger-text">
       {error}
@@ -86,7 +88,7 @@ export default function ContanosPage() {
             <SessionChip user={user} />
           </div>
           <ElegirAsistente valor={tipoAsistente} onCambio={elegir} />
-          <FormularioVentas enviando={enviando} onFinalizar={(datos) => void finalizar(datos)} />
+          <FormularioVentas enviando={enviando} yaVinculado={yaVinculado} onFinalizar={(datos) => void finalizar(datos)} />
           {alerta}
         </div>
       </main>
@@ -104,7 +106,7 @@ export default function ContanosPage() {
           <div className="max-w-[520px]">
             <ElegirAsistente valor={tipoAsistente} onCambio={elegir} />
           </div>
-          <WizardEscritorio ob={ob} enviando={enviando} onFinalizar={() => void finalizar()} />
+          <WizardEscritorio ob={ob} enviando={enviando} yaVinculado={yaVinculado} onFinalizar={() => void finalizar()} />
         </div>
         <div className="absolute bottom-6">{alerta}</div>
       </div>

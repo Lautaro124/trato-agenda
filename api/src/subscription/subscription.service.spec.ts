@@ -160,6 +160,26 @@ describe('SubscriptionService', () => {
     expect(await pagando.service.asistenteActivo('user-1')).toBe(true);
   });
 
+  it('el precio público es el de env', () => {
+    const { service } = crearServicio({ creadoHaceDias: 2 });
+
+    expect(service.precioPublico()).toEqual({ monto: 20000, moneda: 'ARS' });
+  });
+
+  it('una fila pendiente con un precio viejo muestra el de env, que es el que va a cobrar el checkout', async () => {
+    const { service, filas } = crearServicio({ creadoHaceDias: 2, suscripcion: { estado: 'pendiente' } });
+    filas.set('user-1', { ...filas.get('user-1'), montoCentavos: 1_500_000 } as Record<string, unknown>);
+
+    expect((await service.estadoPublico('user-1')).monto).toBe(20000);
+  });
+
+  it('una suscripción activa muestra lo que efectivamente paga', async () => {
+    const { service, filas } = crearServicio({ creadoHaceDias: 2, suscripcion: { estado: 'activa' } });
+    filas.set('user-1', { ...filas.get('user-1'), montoCentavos: 1_500_000 } as Record<string, unknown>);
+
+    expect((await service.estadoPublico('user-1')).monto).toBe(15000);
+  });
+
   it('cancelar avisa a Mercado Pago y marca la fila', async () => {
     const { service, mercadoPago, filas } = crearServicio({
       creadoHaceDias: 2,
