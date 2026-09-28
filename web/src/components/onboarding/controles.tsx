@@ -18,7 +18,7 @@ import {
   type TiposEventoState,
 } from "@/app/contanos/useOnboarding";
 
-/** Controles compartidos por el wizard de escritorio y el formulario móvil. */
+/** Controles del wizard de /contanos; los de tipos de evento también los usa /reuniones. */
 
 export const INPUT =
   "w-full box-border rounded-md border border-line bg-card px-3.5 py-[13px] font-body text-[15px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
@@ -34,60 +34,82 @@ export function chip(activo: boolean): string {
 
 export function ChipsTitular({ ob }: { ob: Onboarding }) {
   return (
-    <div className="flex gap-2">
-      <button type="button" onClick={() => ob.setTipoTitular("persona")} className={chip(ob.tipoTitular === "persona")}>
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        aria-pressed={ob.tipoTitular === "persona"}
+        onClick={() => ob.setTipoTitular("persona")}
+        className={chip(ob.tipoTitular === "persona")}
+      >
         Soy una persona
       </button>
-      <button type="button" onClick={() => ob.setTipoTitular("negocio")} className={chip(ob.tipoTitular === "negocio")}>
+      <button
+        type="button"
+        aria-pressed={ob.tipoTitular === "negocio"}
+        onClick={() => ob.setTipoTitular("negocio")}
+        className={chip(ob.tipoTitular === "negocio")}
+      >
         Tengo un negocio
       </button>
     </div>
   );
 }
 
-export function CampoNombreTitular({ ob, conLabel = true }: { ob: Onboarding; conLabel?: boolean }) {
+export function CampoNombreTitular({ ob }: { ob: Onboarding }) {
   const esPersona = ob.tipoTitular === "persona";
+  const ejemplo = esPersona ? "Ej.: Lucía Fernández" : ob.esVentas ? "Ej.: Mates del Sur" : "Ej.: Consultorio Belgrano";
   return (
     <>
-      {conLabel && (
-        <label htmlFor="nombre-titular" className="mb-2 block text-[12.5px] font-semibold text-ink-secondary">
-          {esPersona ? "¿Cómo te llamás?" : "¿Cómo se llama tu negocio?"}
-        </label>
-      )}
+      <label htmlFor="nombre-titular" className="mb-2 block text-[13px] font-semibold text-ink-secondary">
+        {esPersona ? "¿Cómo te llamás?" : "¿Cómo se llama tu negocio?"}
+      </label>
       <input
         id="nombre-titular"
         value={ob.nombreTitular}
         onChange={(e) => ob.setNombreTitular(e.target.value)}
         maxLength={LARGO_MAX_TITULAR}
-        // En móvil no hay <label>: sin esto el campo no tiene nombre accesible.
-        aria-label={conLabel ? undefined : "Nombre de la persona o del negocio"}
-        placeholder={esPersona ? "Ej.: Lucía Fernández" : "Ej.: Consultorio Belgrano"}
+        autoComplete="organization"
+        placeholder={ejemplo}
         className={INPUT}
       />
     </>
   );
 }
 
-export function GrillaTiposUso({ ob, conHint = true }: { ob: Onboarding; conHint?: boolean }) {
+/**
+ * "Empezar con": la lista de sugerencias o una propia. Es lo que viaja como
+ * `tipoUso`; cambiarlo reinicia los tipos elegidos (`elegirTipoUso`).
+ */
+export function EmpezarCon({ ob }: { ob: Onboarding }) {
   return (
-    <div className="grid grid-cols-2 gap-2.5">
-      {TIPOS_USO.map((tipo) => {
-        const activo = tipo.id === ob.tipoUso;
-        return (
-          <button
-            key={tipo.id}
-            type="button"
-            onClick={() => ob.elegirTipoUso(tipo.id)}
-            className={cn(
-              "cursor-pointer rounded-md border p-4 text-left transition-colors",
-              activo ? "border-primary bg-primary-subtle" : "border-line bg-card hover:border-line-strong",
-            )}
-          >
-            <div className="mb-[3px] font-display text-[15px] font-semibold text-ink">{tipo.label}</div>
-            {conHint && <div className="text-[12.5px] leading-[1.5] text-ink-secondary">{tipo.hint}</div>}
-          </button>
-        );
-      })}
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      <span id="empezar-con" className="text-[13px] font-semibold text-ink-secondary">
+        Empezar con
+      </span>
+      <div
+        role="radiogroup"
+        aria-labelledby="empezar-con"
+        className="grid grid-cols-2 gap-0.5 rounded-md bg-sunken p-[3px] sm:inline-grid"
+      >
+        {TIPOS_USO.map((tipo) => {
+          const activo = tipo.id === ob.tipoUso;
+          return (
+            <button
+              key={tipo.id}
+              type="button"
+              role="radio"
+              aria-checked={activo}
+              onClick={() => ob.elegirTipoUso(tipo.id)}
+              className={cn(
+                "min-h-9 cursor-pointer rounded-sm px-3.5 text-[13px] whitespace-nowrap",
+                activo ? "bg-card font-bold text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+              )}
+            >
+              {tipo.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -356,6 +378,7 @@ export function PresetsFranja({ ob }: { ob: Onboarding }) {
         <button
           key={preset.label}
           type="button"
+          aria-pressed={ob.horaDesde === preset.desde && ob.horaHasta === preset.hasta}
           onClick={() => ob.elegirPreset(preset.desde, preset.hasta)}
           className={chip(ob.horaDesde === preset.desde && ob.horaHasta === preset.hasta)}
         >
@@ -381,19 +404,25 @@ export function TextoRango({ ob }: { ob: Onboarding }) {
 export function CampoBot({ ob }: { ob: Onboarding }) {
   return (
     <>
+      <label htmlFor="nombre-asistente" className="mb-2 block text-[13px] font-semibold text-ink-secondary">
+        Nombre del asistente
+      </label>
       <input
+        id="nombre-asistente"
         value={ob.nombreBot}
         onChange={(e) => ob.setNombreBot(e.target.value)}
         maxLength={LARGO_MAX_BOT}
-        aria-label="Nombre del asistente"
-        placeholder="Ej.: Tati"
+        autoComplete="off"
+        placeholder={ob.esVentas ? "Ej.: Nina" : "Ej.: Tati"}
         className={INPUT}
       />
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-[13px] text-ink-secondary">Ideas:</span>
         {SUGERENCIAS_BOT.map((nombre) => (
           <button
             key={nombre}
             type="button"
+            aria-pressed={ob.nombreBot === nombre}
             onClick={() => ob.setNombreBot(nombre)}
             className={chip(ob.nombreBot === nombre)}
           >
@@ -402,25 +431,6 @@ export function CampoBot({ ob }: { ob: Onboarding }) {
         ))}
       </div>
     </>
-  );
-}
-
-/** Vista previa de cómo arranca la conversación con los datos cargados. */
-export function PreviewSaludo({ ob, conCliente = true }: { ob: Onboarding; conCliente?: boolean }) {
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-line bg-sunken p-4">
-      <div className="max-w-[88%] self-start rounded-[16px_16px_16px_4px] border border-line bg-card px-[13px] py-[11px] text-[13.5px] leading-[1.5] text-ink shadow-sm">
-        {ob.saludo}
-      </div>
-      <div className="max-w-[88%] self-start rounded-2xl border border-line bg-card px-[13px] py-[11px] text-[13.5px] leading-[1.5] text-ink-secondary shadow-sm">
-        {ob.saludoEventos} {ob.saludoHorarios}
-      </div>
-      {conCliente && (
-        <div className="max-w-[80%] self-end rounded-[16px_16px_4px_16px] border border-[#c9e9d6] bg-accent-subtle px-[13px] py-[11px] text-[13.5px] leading-[1.5] text-ink">
-          Quiero un turno para el jueves a la tarde
-        </div>
-      )}
-    </div>
   );
 }
 

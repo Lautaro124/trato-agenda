@@ -9,7 +9,7 @@ import {
   telefonoUnico,
   test,
 } from './fixtures';
-import { completarWizardEscritorio, perfilProduccion } from './onboarding';
+import { completarWizard, perfilProduccion } from './onboarding';
 
 test.describe('después de generar: /listo y /vincular', () => {
   test('/listo anuncia la prueba y lleva a la pantalla del QR', async ({ page, context, usuarioDev }) => {
@@ -36,7 +36,7 @@ test.describe('después de generar: /listo y /vincular', () => {
     await ponerPassword(context.request, 'mi-clave-segura');
 
     await page.goto('/contanos');
-    await completarWizardEscritorio(page, perfilProduccion(sufijo()));
+    await completarWizard(page, perfilProduccion(sufijo()));
     await expect(page.getByRole('button', { name: 'Vincular WhatsApp' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Crear mi asistente' }).click();
     await esperarRuta(page, '/listo');

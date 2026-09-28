@@ -1,5 +1,5 @@
-import { agenteActual, crearAgentePorApi, esperarRuta, expect, sufijo, test, visible } from './fixtures';
-import { completarWizardEscritorio, payloadEsperado, perfilProduccion, type PerfilWizard } from './onboarding';
+import { agenteActual, crearAgentePorApi, esperarRuta, expect, sufijo, test } from './fixtures';
+import { completarWizard, payloadEsperado, perfilProduccion, preguntaInicial, type PerfilWizard } from './onboarding';
 
 test.describe('generación de agente: wizard de escritorio', () => {
   test('el caso de producción: "Otro" con cinco tipos propios genera el agente y sigue a /vincular', async ({
@@ -11,8 +11,8 @@ test.describe('generación de agente: wizard de escritorio', () => {
     const perfil = perfilProduccion(sufijo());
 
     await page.goto('/contanos');
-    await expect(visible(page.getByText('Paso 2 de 3'))).toBeVisible();
-    await completarWizardEscritorio(page, perfil);
+    await expect(preguntaInicial(page)).toBeVisible();
+    await completarWizard(page, perfil);
 
     await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
     await esperarRuta(page, '/listo');
@@ -47,7 +47,7 @@ test.describe('generación de agente: wizard de escritorio', () => {
     };
 
     await page.goto('/contanos');
-    await completarWizardEscritorio(page, perfil);
+    await completarWizard(page, perfil);
     await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
     await esperarRuta(page, '/listo');
 
@@ -67,7 +67,7 @@ test.describe('generación de agente: wizard de escritorio', () => {
     });
 
     await page.goto('/contanos');
-    await completarWizardEscritorio(page, perfil);
+    await completarWizard(page, perfil);
     await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
 
     await expect(page.getByRole('button', { name: 'Creando tu asistente…' })).toBeDisabled();

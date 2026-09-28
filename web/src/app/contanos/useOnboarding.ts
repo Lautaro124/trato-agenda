@@ -15,9 +15,13 @@ export type TipoEvento = { nombre: string; duracionMin: number; precio?: number 
  */
 export type DatosEvento = { duracionMin: number; precio?: number; sinPrecio?: boolean };
 
-export const TIPOS_USO: Array<{ id: TipoUsoId; label: string; hint: string }> = [
-  { id: "consultorio", label: "Consultorio", hint: "Consultas, controles, estudios" },
-  { id: "otro", label: "Otro", hint: "Lo definís vos" },
+/**
+ * El "Empezar con" del paso de turnos: con qué lista arranca. Es lo que viaja
+ * como `tipoUso`; ya no es un paso propio del wizard.
+ */
+export const TIPOS_USO: Array<{ id: TipoUsoId; label: string }> = [
+  { id: "consultorio", label: "Ideas para consultorio" },
+  { id: "otro", label: "Mi propia lista" },
 ];
 
 /** Tipos de turno sugeridos por tipo de uso, con su duración por defecto. */
@@ -66,23 +70,46 @@ export const HORAS = Array.from({ length: 18 }, (_, i) =>
   `${String(i + 6).padStart(2, "0")}:00`,
 );
 
-export const PASOS = [
-  "Nombre",
-  "Tipo de uso",
-  "Tipos de evento",
-  "Franja horaria",
-  "Tu asistente",
-];
+/** Mínimo de GenerateAgentDto y GenerarAgenteVentasDto para el titular y el asistente. */
+export const LARGO_MIN_NOMBRE = 2;
 
-export const AYUDA_POR_PASO = [
-  "Con este nombre se presenta el asistente y firma los avisos.",
-  "Define los tipos de evento que te sugerimos después.",
-  "Elegí la duración y, si querés, el precio. Sin precio, el asistente lo deriva a vos.",
-  "Fuera de esta franja el asistente no ofrece horarios.",
-  "Así arranca cada conversación en WhatsApp.",
-];
+/**
+ * Qué asistente se arma. Es el primer paso del wizard y decide los que siguen;
+ * una cuenta no cambia de tipo después (la API responde 409).
+ */
+export type TipoAsistente = "agenda" | "ventas";
 
-export const ULTIMO_PASO = PASOS.length - 1;
+export type PasoId = "tipo" | "negocio" | "turnos" | "horarios" | "asistente";
+
+/**
+ * Los pasos de cada asistente, en orden. Ventas no pide turnos ni franja: vende
+ * las 24 horas y lo que ofrece sale del catálogo, que se carga en /productos.
+ */
+export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> = {
+  agenda: [
+    { id: "tipo", label: "Qué va a hacer" },
+    { id: "negocio", label: "Tu negocio" },
+    { id: "turnos", label: "Qué turnos das" },
+    { id: "horarios", label: "Horarios" },
+    { id: "asistente", label: "Tu asistente" },
+  ],
+  ventas: [
+    { id: "tipo", label: "Qué va a hacer" },
+    { id: "negocio", label: "Tu negocio" },
+    { id: "asistente", label: "Tu asistente" },
+  ],
+};
+
+export const AYUDA_POR_PASO: Record<PasoId, string> = {
+  tipo: "Los pasos se acomodan a lo que elijas. Todo se puede cambiar después, menos el tipo de asistente.",
+  negocio: "Con este nombre se presenta el asistente y firma los avisos.",
+  turnos: "Sin precio, el asistente le dice al cliente que lo consulte con vos.",
+  horarios: "Fuera de esta franja el asistente no ofrece horarios.",
+  asistente: "Así arranca cada conversación en WhatsApp.",
+};
+
+/** Body de POST /agents/generate-ventas. */
+export type DatosVentas = { nombreTitular: string; nombreBot: string };
 
 export type Onboarding = ReturnType<typeof useOnboarding>;
 
@@ -198,10 +225,12 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
 export type TiposEventoState = ReturnType<typeof useTiposEvento>;
 
 /**
- * Estado del wizard de /contanos. Lo comparten el layout de escritorio y el
- * de móvil, que muestran los mismos cinco datos con distinto envoltorio.
+ * Estado del wizard de /contanos, para los dos asistentes. El nombre del
+ * titular y el del asistente son compartidos: volver al primer paso y cambiar
+ * de tipo no los pierde.
  */
 export function useOnboarding() {
+  const [tipoAsistente, setTipoAsistente] = useState<TipoAsistente>("agenda");
   const [paso, setPaso] = useState(0);
   const [tipoTitular, setTipoTitular] = useState<TipoTitular>("negocio");
   const [nombreTitular, setNombreTitular] = useState("");
@@ -226,21 +255,44 @@ export function useOnboarding() {
     setHoraHasta(hasta);
   }, []);
 
+  const esVentas = tipoAsistente === "ventas";
+  const pasos = PASOS[tipoAsistente];
+  const ultimoPaso = pasos.length - 1;
+  const pasoId = pasos[paso]?.id ?? "tipo";
+  // Un comercio no elige "persona": el que vende es el negocio.
+  const tipoTitularEfectivo: TipoTitular = esVentas ? "negocio" : tipoTitular;
+
   const rangoValido = horaDesde < horaHasta;
 
-  const puedeAvanzar = [
-    nombreTitular.trim().length > 0,
-    true,
-    seleccionados.length > 0,
-    rangoValido,
-    nombreBot.trim().length > 0,
-  ];
+  const puedeAvanzar: Record<PasoId, boolean> = {
+    tipo: true,
+    negocio: nombreTitular.trim().length >= LARGO_MIN_NOMBRE,
+    turnos: seleccionados.length > 0,
+    horarios: rangoValido,
+    asistente: nombreBot.trim().length >= LARGO_MIN_NOMBRE,
+  };
 
-  const completo = puedeAvanzar.every(Boolean);
+  /** Lo que ya se respondió en cada paso, para el riel. */
+  const resumenes: Record<PasoId, string> = {
+    tipo: esVentas ? "Vender productos" : "Agendar turnos",
+    negocio: nombreTitular.trim(),
+    turnos: `${seleccionados.length} ${seleccionados.length === 1 ? "tipo" : "tipos"}`,
+    horarios: `${horaDesde}–${horaHasta}`,
+    asistente: nombreBot.trim(),
+  };
 
-  const titular = nombreTitular.trim() || (tipoTitular === "persona" ? "tu nombre" : "tu negocio");
-  const bot = nombreBot.trim() || "tu asistente";
-  const saludo = `Hola, soy ${bot}, el asistente de ${titular}. ¿En qué te ayudo?`;
+  const elegirTipoAsistente = useCallback((tipo: TipoAsistente) => {
+    setTipoAsistente(tipo);
+    // Sólo se elige en el primer paso, que existe en los dos: no hay índice que corregir.
+    setPaso(0);
+  }, []);
+
+  const titular = nombreTitular.trim() || (tipoTitularEfectivo === "persona" ? "tu nombre" : "tu negocio");
+  // Sin nombre todavía, "soy tu asistente, el asistente de…" suena repetido.
+  const presentacion = nombreBot.trim()
+    ? `Hola, soy ${nombreBot.trim()}, el asistente de ${titular}.`
+    : `Hola, soy el asistente de ${titular}.`;
+  const saludo = `${presentacion} ¿En qué te ayudo?`;
   const saludoHorarios = `Atiendo de ${horaDesde} a ${horaHasta}. Decime qué día te queda cómodo.`;
   const saludoEventos =
     seleccionados.length > 0
@@ -254,11 +306,18 @@ export function useOnboarding() {
       : "Todavía no cargaste tipos de evento: elegí al menos uno.";
 
   return {
+    tipoAsistente,
+    elegirTipoAsistente,
+    esVentas,
+    pasos,
     paso,
+    pasoId,
+    esUltimo: paso === ultimoPaso,
     setPaso,
     irAtras: () => setPaso((p) => Math.max(0, p - 1)),
-    irAdelante: () => setPaso((p) => Math.min(ULTIMO_PASO, p + 1)),
-    tipoTitular,
+    irAdelante: () => setPaso((p) => Math.min(ultimoPaso, p + 1)),
+    resumenes,
+    tipoTitular: tipoTitularEfectivo,
     setTipoTitular,
     nombreTitular,
     setNombreTitular,
@@ -274,10 +333,15 @@ export function useOnboarding() {
     nombreBot,
     setNombreBot,
     puedeAvanzar,
-    completo,
+    presentacion,
     saludo,
     saludoEventos,
     saludoHorarios,
+    /** Body de POST /agents/generate-ventas. */
+    payloadVentas: (): DatosVentas => ({
+      nombreTitular: nombreTitular.trim(),
+      nombreBot: nombreBot.trim(),
+    }),
     /** Body de POST /agents/generate. */
     payload: () => ({
       tipoTitular,

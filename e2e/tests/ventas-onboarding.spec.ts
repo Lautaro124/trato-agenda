@@ -1,13 +1,17 @@
 import type { Page } from '@playwright/test';
 import { API_URL } from '../entorno';
 import { agenteActual, esperarRuta, expect, sufijo, test, visible } from './fixtures';
+import { botonContinuar, elegirAsistente, preguntaInicial } from './onboarding';
 
 async function armarAsistenteDeVentas(page: Page): Promise<string> {
   const negocio = `Mates E2E ${sufijo()}`;
   await page.goto('/contanos');
-  await page.getByRole('radio', { name: /Vender productos/ }).click();
+  await elegirAsistente(page, 'ventas');
+  // Ventas no pregunta turnos ni horarios: son tres pasos.
+  await expect(visible(page.getByText('Paso 2 de 3'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
-  await visible(page.getByLabel('¿Cómo se llama tu asistente?')).fill('Sol');
+  await botonContinuar(page).click();
+  await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
   // La vista previa del saludo usa lo que se escribió.
   await expect(visible(page.getByText(`Hola, soy Sol, el asistente de ${negocio}.`, { exact: false }))).toBeVisible();
   await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
@@ -16,6 +20,23 @@ async function armarAsistenteDeVentas(page: Page): Promise<string> {
 }
 
 test.describe('onboarding de un comercio', () => {
+  test('cambiar de tipo en el primer paso no pierde el nombre del negocio', async ({ page, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await page.goto('/contanos');
+    await expect(preguntaInicial(page)).toBeVisible();
+    await elegirAsistente(page, 'ventas');
+    await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill('Mates del Sur');
+
+    // "Atrás" en escritorio, la flecha en el celular.
+    await visible(page.getByRole('button', { name: /^(Atrás|Volver al paso anterior)$/ })).first().click();
+    await expect(page.getByRole('radio', { name: /Vender productos/ })).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('radio', { name: /Agendar turnos/ }).click();
+    await expect(visible(page.getByText('Paso 1 de 5'))).toBeVisible();
+
+    await botonContinuar(page).click();
+    await expect(visible(page.getByLabel('¿Cómo se llama tu negocio?'))).toHaveValue('Mates del Sur');
+  });
+
   test('elige vender, arma su asistente y ve el panel de ventas', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await armarAsistenteDeVentas(page);
