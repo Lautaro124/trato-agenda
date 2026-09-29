@@ -18,6 +18,12 @@ export function huellaDeMensaje(mensaje: string): string {
     .replace(/\d+/g, '<n>');
 }
 
+function textoDe(message: unknown): string {
+  if (typeof message === 'string') return message;
+  if (message instanceof Error) return message.message;
+  return String(message);
+}
+
 /**
  * Logger de la app: escribe igual que el de Nest y además manda a Sentry cada
  * `logger.error`. Así los errores de fondo que se atrapan y se loguean (Baileys,
@@ -32,7 +38,7 @@ export class LoggerConSentry extends ConsoleLogger {
     const contexto = typeof ultimo === 'string' ? ultimo : this.context;
     if (contexto && CONTEXTOS_YA_REPORTADOS.has(contexto)) return;
 
-    const texto = typeof message === 'string' ? message : message instanceof Error ? message.message : String(message);
+    const texto = textoDe(message);
     const error = message instanceof Error ? message : parametros.find((p): p is Error => p instanceof Error);
 
     Sentry.withScope((scope) => {

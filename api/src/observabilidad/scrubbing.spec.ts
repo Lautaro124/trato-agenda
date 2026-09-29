@@ -16,6 +16,24 @@ describe('limpiarTexto', () => {
     expect(limpiarTexto('Venta 42 del 2026-09-29 a las 10:00')).toBe('Venta 42 del 2026-09-29 a las 10:00');
   });
 
+  it('saca emails con subdominios y dentro de otros textos', () => {
+    expect(limpiarTexto('para <ana.perez@mail.ejemplo.com.ar>')).toBe('para <[email]>');
+    expect(limpiarTexto('usuario=ana@ejemplo.com, reintentar')).toBe('[email], reintentar');
+  });
+
+  it('no confunde una arroba suelta ni un número corto con datos', () => {
+    expect(limpiarTexto('@usuario sin dominio, código 1234567')).toBe('@usuario sin dominio, código 1234567');
+  });
+
+  it('es lineal: textos enormes sin arroba o llenos de dígitos no traban el proceso', () => {
+    const inicio = performance.now();
+    limpiarTexto('a'.repeat(50_000));
+    limpiarTexto(`${'a.'.repeat(25_000)}@`);
+    limpiarTexto('1234567 '.repeat(10_000));
+    limpiarTexto(`+${'1 '.repeat(25_000)}`);
+    expect(performance.now() - inicio).toBeLessThan(250);
+  });
+
   it('recorta los textos largos (un error de proveedor puede repetir el prompt)', () => {
     expect(limpiarTexto('a'.repeat(MAX_TEXTO * 2))).toHaveLength(MAX_TEXTO + 1);
   });

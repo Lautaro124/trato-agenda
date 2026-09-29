@@ -14,8 +14,10 @@ import type { Breadcrumb, Event } from "@sentry/nextjs";
 export const SENTRY_DSN = process.env.NEXT_PUBLIC_SENTRY_DSN ?? "";
 
 const MAX_TEXTO = 500;
-const EMAIL = /[^\s@"'<>()[\]]+@[^\s@"'<>()[\]]+\.[^\s@"'<>()[\]]+/g;
-const TELEFONO = /\+\d[\d\s-]{6,}\d|\d{8,}/g;
+// Lineales a propósito (ver api/src/observabilidad/scrubbing.ts): corren sobre
+// cualquier texto de error y no pueden tener backtracking cuadrático.
+const EMAIL = /(?<![^\s@"'<>()[\]])[^\s@"'<>()[\]]+@[^\s@"'<>()[\].,;]+(?:\.[^\s@"'<>()[\].,;]+)+/g;
+const TELEFONO = /\+\d(?:[\s-]?\d){7,}|(?<!\d)\d{8,}/g;
 const QUERY = /\?[^\s#"']*/g;
 
 function limpiarTexto(texto: string): string {

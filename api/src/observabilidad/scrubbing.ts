@@ -24,11 +24,18 @@ const CABECERAS_PERMITIDAS = new Set(['user-agent', 'content-type', 'content-len
 /** Categorías de breadcrumb que se descartan enteras: la consola puede tener cualquier cosa. */
 const CATEGORIAS_DESCARTADAS = new Set(['console']);
 
-const EMAIL = /[^\s@"'<>()[\]]+@[^\s@"'<>()[\]]+\.[^\s@"'<>()[\]]+/g;
-// Teléfonos con prefijo internacional escritos con espacios o guiones, y
-// cualquier corrida de 8+ dígitos (los JID de WhatsApp, 5491122334455). Se
-// llevan también algún timestamp en milisegundos: preferible a dejar pasar un número.
-const TELEFONO = /\+\d[\d\s-]{6,}\d|\d{8,}/g;
+// Las dos regex corren sobre cualquier texto de error, así que están armadas
+// para ser lineales: cada intento arranca sólo en un borde (el lookbehind) y
+// ninguna repetición se superpone con la siguiente. Sin eso, un texto largo
+// sin arroba o con muchos dígitos costaba tiempo cuadrático.
+// Email: la parte local arranca después de un separador; el dominio son
+// etiquetas sin punto separadas por puntos.
+const EMAIL = /(?<![^\s@"'<>()[\]])[^\s@"'<>()[\]]+@[^\s@"'<>()[\].,;]+(?:\.[^\s@"'<>()[\].,;]+)+/g;
+// Teléfonos con prefijo internacional (8+ dígitos, con espacios o guiones
+// sueltos entre medio) y cualquier corrida de 8+ dígitos (los JID de WhatsApp,
+// 5491122334455). Se llevan también algún timestamp en milisegundos:
+// preferible a dejar pasar un número.
+const TELEFONO = /\+\d(?:[\s-]?\d){7,}|(?<!\d)\d{8,}/g;
 const QUERY = /\?[^\s#"']*/g;
 
 export function limpiarTexto(texto: string): string {
