@@ -12,3 +12,4 @@
 90004	IGNORE	COEP: no se usa aislamiento cross-origin
 90005	IGNORE	Sec-Fetch-Dest lo manda el navegador, no es una cabecera de respuesta
 10049	IGNORE	Cacheable en estáticos versionados y 404 del dev server
+10055	IGNORE	Wildcard/CSP incompleta en el front: la CSP de Next es sólo anti-clickjacking a propósito (ver web/next.config.ts); una con script-src pide nonces y queda aparte
