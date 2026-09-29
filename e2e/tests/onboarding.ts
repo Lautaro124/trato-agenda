@@ -1,10 +1,10 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { visible, type PayloadAgente, type TipoEvento } from './fixtures';
 
-/** Etiquetas de la grilla de tipo de uso (web/src/app/contanos/useOnboarding.ts). */
-const ETIQUETA_USO: Record<TipoUsoWizard, string> = {
-  consultorio: 'Consultorio',
-  otro: 'Otro',
+/** Etiquetas del "Empezar con" del paso de turnos (`TIPOS_USO` en web/src/app/contanos/useOnboarding.ts). */
+export const ETIQUETA_USO: Record<TipoUsoWizard, string> = {
+  consultorio: 'Ideas para consultorio',
+  otro: 'Mi propia lista',
 };
 
 /** Los únicos tipos de uso que ofrece el wizard; el resto quedó en `TIPOS_USO_RETIRADOS`. */
@@ -130,17 +130,33 @@ async function nombrarAsistente(page: Page, perfil: PerfilWizard): Promise<void>
   await expect(visible(page.getByText(saludoEsperado(perfil)))).toBeVisible();
 }
 
-/** Recorre el wizard de escritorio hasta el último paso, sin apretar el botón final. */
-export async function completarWizardEscritorio(page: Page, perfil: PerfilWizard): Promise<void> {
+/** La pregunta del primer paso: sirve para saber que el wizard ya cargó. */
+export function preguntaInicial(page: Page): Locator {
+  return page.getByRole('heading', { name: '¿Qué va a hacer tu asistente?' });
+}
+
+/** Primer paso: qué va a hacer el asistente. */
+export async function elegirAsistente(page: Page, tipo: 'agenda' | 'ventas'): Promise<void> {
+  const opcion = page.getByRole('radio', { name: tipo === 'ventas' ? /Vender productos/ : /Agendar turnos/ });
+  await opcion.click();
+  await expect(opcion).toHaveAttribute('aria-checked', 'true');
+  await botonContinuar(page).click();
+}
+
+/**
+ * Recorre el wizard de turnos hasta el último paso, sin apretar el botón final.
+ * Es el mismo en escritorio y en móvil: un paso por pantalla.
+ */
+export async function completarWizard(page: Page, perfil: PerfilWizard): Promise<void> {
+  await elegirAsistente(page, 'agenda');
+
   await page.getByRole('button', { name: perfil.tipoTitular === 'persona' ? 'Soy una persona' : 'Tengo un negocio' }).click();
   await visible(
     page.getByLabel(perfil.tipoTitular === 'persona' ? '¿Cómo te llamás?' : '¿Cómo se llama tu negocio?'),
   ).fill(perfil.nombreTitular);
   await botonContinuar(page).click();
 
-  await page.getByRole('button', { name: new RegExp(`^${ETIQUETA_USO[perfil.tipoUso]}`) }).click();
-  await botonContinuar(page).click();
-
+  await page.getByRole('radio', { name: ETIQUETA_USO[perfil.tipoUso], exact: true }).click();
   await cargarTiposDeEvento(page, perfil);
   const total = (perfil.sugeridos?.length ?? 0) + (perfil.propios?.length ?? 0);
   await expect(visible(page.getByText(`${total} ${total === 1 ? 'tipo elegido' : 'tipos elegidos'}`))).toBeVisible();
@@ -149,15 +165,5 @@ export async function completarWizardEscritorio(page: Page, perfil: PerfilWizard
   await elegirFranja(page, perfil);
   await botonContinuar(page).click();
 
-  await nombrarAsistente(page, perfil);
-}
-
-/** El formulario móvil: las mismas cinco preguntas en un solo scroll. */
-export async function completarFormularioMovil(page: Page, perfil: PerfilWizard): Promise<void> {
-  await page.getByRole('button', { name: perfil.tipoTitular === 'persona' ? 'Soy una persona' : 'Tengo un negocio' }).click();
-  await visible(page.getByLabel('Nombre de la persona o del negocio')).fill(perfil.nombreTitular);
-  await page.getByRole('button', { name: ETIQUETA_USO[perfil.tipoUso], exact: true }).click();
-  await cargarTiposDeEvento(page, perfil);
-  await elegirFranja(page, perfil);
   await nombrarAsistente(page, perfil);
 }

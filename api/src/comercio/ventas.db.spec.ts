@@ -37,7 +37,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     obtenerPago: vi.fn(),
   };
   const cuentas = { tokenDe: vi.fn(), desconectar: vi.fn() };
-  const notificaciones = { avisar: vi.fn() };
+  const notificaciones = { avisar: vi.fn(), avisarAlCliente: vi.fn() };
   const avisosDeTipo = (tipo: string) =>
     notificaciones.avisar.mock.calls.filter(([, aviso]) => (aviso as { tipo: string }).tipo === tipo);
   let ventas: VentasService;
@@ -256,6 +256,68 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     const cobradas = await ventas.conciliar();
     expect(cobradas.map((r) => r.venta.id)).toEqual([venta.id]);
     expect((await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).mpPaymentId).toBe('2');
+  });
+
+  describe('aviso de pago aprobado al cliente', () => {
+    const JID = '5491122334455@s.whatsapp.net';
+    const pagoDe = (ventaId: string, id = 900) => ({
+      id,
+      status: 'approved',
+      external_reference: ventaId,
+      transaction_amount: 45000.5,
+      currency_id: 'ARS',
+    });
+    const pedidoMp = async (extra: Record<string, unknown> = {}) => {
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+      mp.crearPreferencia.mockResolvedValue({ id: 'pref-aviso', init_point: 'https://mp/pagar' });
+      return pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago', conversationId, ...extra });
+    };
+
+    it('el webhook le avisa una sola vez, en el chat del pedido, aunque llegue repetido', async () => {
+      const venta = await pedidoMp();
+      mp.obtenerPago.mockResolvedValue(pagoDe(venta.id));
+
+      await ventas.procesarPago('900', venta.id);
+      await ventas.procesarPago('900', venta.id);
+
+      expect(notificaciones.avisarAlCliente).toHaveBeenCalledTimes(1);
+      expect(notificaciones.avisarAlCliente).toHaveBeenCalledWith(
+        dueno.id,
+        JID,
+        '¡Listo, Juan! Tu pago de $ 45.000,50 fue aprobado. El negocio te escribe por acá para coordinar la entrega.',
+      );
+    });
+
+    it('la conciliación también le avisa', async () => {
+      const venta = await pedidoMp();
+      mp.buscarPagos.mockResolvedValue([pagoDe(venta.id, 901)]);
+      await ventas.conciliar();
+      expect(notificaciones.avisarAlCliente).toHaveBeenCalledTimes(1);
+    });
+
+    it('cuando el dueño lo marca pagado a mano, también', async () => {
+      const venta = await pedido([{ varianteId: termo, cantidad: 1 }], { conversationId });
+      await ventas.marcarPagadaPorElDueno(dueno.id, venta.id);
+      expect(notificaciones.avisarAlCliente).toHaveBeenCalledWith(dueno.id, JID, expect.stringContaining('fue aprobado'));
+    });
+
+    it('un pedido del banco de pruebas o sin conversación no le escribe a nadie', async () => {
+      const dePrueba = await pedidoMp({ dePrueba: true });
+      mp.obtenerPago.mockResolvedValue(pagoDe(dePrueba.id, 902));
+      await ventas.procesarPago('902', dePrueba.id);
+
+      const sinChat = await pedido([{ varianteId: termo, cantidad: 1 }]);
+      await ventas.marcarPagadaPorElDueno(dueno.id, sinChat.id);
+
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+    });
+
+    it('si el aviso falla, la venta igual queda pagada', async () => {
+      notificaciones.avisarAlCliente.mockRejectedValue(new Error('socket caído'));
+      const venta = await pedidoMp();
+      mp.obtenerPago.mockResolvedValue(pagoDe(venta.id, 903));
+      expect(await ventas.procesarPago('903', venta.id)).toMatchObject({ nueva: true, venta: { estado: 'pagada' } });
+    });
   });
 
   it('vence las reservas pasadas de hora y cancela sólo lo que está sin pagar', async () => {

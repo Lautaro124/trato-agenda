@@ -135,3 +135,20 @@ export function fechaYHora(fecha: Date): string {
   const partes = Object.fromEntries(PARTES_FECHA.formatToParts(fecha).map((parte) => [parte.type, parte.value]));
   return `${partes.weekday} ${partes.day}/${partes.month} a las ${partes.hour}:${partes.minute}`;
 }
+
+/**
+ * Lo que recibe el cliente por WhatsApp cuando se confirma el pago de su
+ * pedido (webhook, conciliación o el dueño marcándolo a mano). Sale del
+ * código, no del modelo: es un mensaje transaccional y el monto es el de la base.
+ */
+export function mensajePagoAprobado(
+  venta: { nombreCliente: string | null; totalCentavos: number },
+  nombreTitular: string | null,
+): string {
+  const nombre = venta.nombreCliente?.trim().split(/\s+/)[0];
+  const titular = nombreTitular?.trim() || 'El negocio';
+  return (
+    `¡Listo${nombre ? `, ${nombre}` : ''}! Tu pago de ${formatearCentavos(venta.totalCentavos)} fue aprobado. ` +
+    `${titular} te escribe por acá para coordinar la entrega.`
+  );
+}

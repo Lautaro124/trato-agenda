@@ -1,5 +1,5 @@
 import { expect, sufijo, test } from './fixtures';
-import { completarWizardEscritorio, perfilProduccion } from './onboarding';
+import { completarWizard, perfilProduccion } from './onboarding';
 
 test.describe('generación de agente: errores de alta', () => {
   test('si la sesión venció, lo dice en vez de un error genérico', async ({ page, context, usuarioDev }) => {
@@ -7,7 +7,7 @@ test.describe('generación de agente: errores de alta', () => {
     const perfil = perfilProduccion(sufijo());
 
     await page.goto('/contanos');
-    await completarWizardEscritorio(page, perfil);
+    await completarWizard(page, perfil);
     await context.clearCookies();
     await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
 

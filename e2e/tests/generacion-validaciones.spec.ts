@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test, visible } from './fixtures';
-import { botonContinuar, campoNuevoTipo, tarjetaEvento } from './onboarding';
+import { botonContinuar, campoNuevoTipo, elegirAsistente, ETIQUETA_USO, preguntaInicial, tarjetaEvento } from './onboarding';
 
 function campoTitular(page: Page) {
   return visible(page.getByLabel('¿Cómo se llama tu negocio?'));
@@ -10,17 +10,26 @@ function contador(page: Page, texto: string) {
   return visible(page.getByText(texto, { exact: true }));
 }
 
+function empezarCon(page: Page, uso: keyof typeof ETIQUETA_USO) {
+  return page.getByRole('radio', { name: ETIQUETA_USO[uso], exact: true });
+}
+
 test.describe('wizard de /contanos: validaciones antes de generar', () => {
   test.beforeEach(async ({ page, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await page.goto('/contanos');
-    await expect(visible(page.getByText('Paso 2 de 3'))).toBeVisible();
+    await expect(preguntaInicial(page)).toBeVisible();
+    await elegirAsistente(page, 'agenda');
   });
 
   test('no avanza sin nombre del titular', async ({ page }) => {
     await expect(botonContinuar(page)).toBeDisabled();
 
     await campoTitular(page).fill('   ');
+    await expect(botonContinuar(page)).toBeDisabled();
+
+    // La API pide al menos dos letras: una sola no habilita el botón.
+    await campoTitular(page).fill('K');
     await expect(botonContinuar(page)).toBeDisabled();
 
     await campoTitular(page).fill('Kiosco Rápido');
@@ -30,8 +39,7 @@ test.describe('wizard de /contanos: validaciones antes de generar', () => {
   test('tipos de evento: exige uno, ignora nombres de 1 letra y corta en 60 caracteres', async ({ page }) => {
     await campoTitular(page).fill('Kiosco Rápido');
     await botonContinuar(page).click();
-    await page.getByRole('button', { name: /^Otro/ }).click();
-    await botonContinuar(page).click();
+    await empezarCon(page, 'otro').click();
 
     await expect(contador(page, '0 tipos elegidos')).toBeVisible();
     await expect(botonContinuar(page)).toBeDisabled();
@@ -53,8 +61,7 @@ test.describe('wizard de /contanos: validaciones antes de generar', () => {
   test('no deja pasar de 20 tipos de evento', async ({ page }) => {
     await campoTitular(page).fill('Kiosco Rápido');
     await botonContinuar(page).click();
-    await page.getByRole('button', { name: /^Otro/ }).click();
-    await botonContinuar(page).click();
+    await empezarCon(page, 'otro').click();
 
     const nuevo = campoNuevoTipo(page);
     for (let i = 1; i <= 20; i++) {
@@ -72,33 +79,27 @@ test.describe('wizard de /contanos: validaciones antes de generar', () => {
     await expect(nuevo).toBeEnabled();
   });
 
-  test('cambiar el tipo de uso reinicia los tipos elegidos', async ({ page }) => {
+  test('cambiar el "Empezar con" reinicia los tipos elegidos', async ({ page }) => {
     await campoTitular(page).fill('Consultorio Belgrano');
     await botonContinuar(page).click();
-    await page.getByRole('button', { name: /^Consultorio/ }).click();
-    await botonContinuar(page).click();
+    await expect(empezarCon(page, 'consultorio')).toHaveAttribute('aria-checked', 'true');
 
     await tarjetaEvento(page, 'Urgencia').click();
     await expect(contador(page, '1 tipo elegido')).toBeVisible();
 
-    // "Otro" no trae sugerencias; volver a "Consultorio" muestra las mismas
-    // tarjetas de antes, pero ya sin la que estaba elegida.
-    await page.getByRole('button', { name: 'Atrás' }).click();
-    await page.getByRole('button', { name: /^Otro/ }).click();
-    await botonContinuar(page).click();
+    // "Mi propia lista" no trae sugerencias; volver a las ideas muestra las
+    // mismas tarjetas de antes, pero ya sin la que estaba elegida.
+    await empezarCon(page, 'otro').click();
     await expect(contador(page, '0 tipos elegidos')).toBeVisible();
+    await expect(tarjetaEvento(page, 'Urgencia')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Atrás' }).click();
-    await page.getByRole('button', { name: /^Consultorio/ }).click();
-    await botonContinuar(page).click();
-
+    await empezarCon(page, 'consultorio').click();
     await expect(contador(page, '0 tipos elegidos')).toBeVisible();
     await expect(tarjetaEvento(page, 'Urgencia')).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('una franja invertida bloquea el avance', async ({ page }) => {
     await campoTitular(page).fill('Kiosco Rápido');
-    await botonContinuar(page).click();
     await botonContinuar(page).click();
     await tarjetaEvento(page, 'Urgencia').click();
     await botonContinuar(page).click();

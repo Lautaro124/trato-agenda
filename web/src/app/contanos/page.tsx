@@ -2,11 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ElegirAsistente, type TipoAsistente } from "@/components/onboarding/ElegirAsistente";
-import { FormularioMovil } from "@/components/onboarding/FormularioMovil";
-import { FormularioVentas, type DatosVentas } from "@/components/onboarding/FormularioVentas";
-import { WizardEscritorio } from "@/components/onboarding/WizardEscritorio";
+import { WizardContanos } from "@/components/onboarding/WizardContanos";
 import { SessionChip } from "@/components/SessionChip";
+import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession, yaVinculoWhatsapp } from "@/lib/session";
 import { useOnboarding } from "./useOnboarding";
@@ -22,24 +20,47 @@ function mensajeDeError(status: number): string {
   return "No pudimos crear tu asistente. Probá de nuevo.";
 }
 
+/** Dónde está parado en el alta completa: cuenta, asistente (este paso) y WhatsApp. */
+function EtapasDelAlta({ yaVinculado }: { yaVinculado: boolean }) {
+  const hecha = (texto: string) => (
+    <span className="flex items-center gap-1.5 font-semibold text-success-text">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+      {texto}
+    </span>
+  );
+  const linea = <span aria-hidden className="h-px w-6 bg-line-strong" />;
+  return (
+    <p className="hidden items-center gap-2 text-[13px] text-ink-secondary lg:flex">
+      {hecha("Cuenta")}
+      {linea}
+      <span className="font-bold text-ink" aria-current="step">
+        Tu asistente
+      </span>
+      {linea}
+      {yaVinculado ? hecha("WhatsApp") : <span>WhatsApp</span>}
+    </p>
+  );
+}
+
 export default function ContanosPage() {
   const router = useRouter();
   const { user, status, refrescar } = useRequireSession();
   const ob = useOnboarding();
-  const [tipoAsistente, setTipoAsistente] = useState<TipoAsistente>("agenda");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function finalizar(ventas?: DatosVentas) {
+  async function finalizar() {
     setEnviando(true);
     setError(null);
 
     let res: Response;
     try {
-      res = await apiFetch(ventas ? "/agents/generate-ventas" : "/agents/generate", {
+      res = await apiFetch(ob.esVentas ? "/agents/generate-ventas" : "/agents/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ventas ?? ob.payload()),
+        body: JSON.stringify(ob.esVentas ? ob.payloadVentas() : ob.payload()),
       });
     } catch {
       setError("No pudimos conectarnos. Revisá tu conexión y probá de nuevo.");
@@ -69,55 +90,27 @@ export default function ContanosPage() {
   }
 
   const yaVinculado = yaVinculoWhatsapp(user);
-  const alerta = error && (
-    <p role="alert" className="text-[12.5px] text-danger-text">
-      {error}
-    </p>
-  );
-  const elegir = (tipo: TipoAsistente) => {
-    setTipoAsistente(tipo);
-    setError(null);
-  };
-
-  if (tipoAsistente === "ventas") {
-    // El formulario de ventas es corto: el mismo layout sirve en escritorio y en móvil.
-    return (
-      <main className="min-h-dvh bg-page">
-        <div className="mx-auto flex max-w-[640px] flex-col gap-4 p-5 md:py-10">
-          <div className="flex justify-end">
-            <SessionChip user={user} />
-          </div>
-          <ElegirAsistente valor={tipoAsistente} onCambio={elegir} />
-          <FormularioVentas enviando={enviando} yaVinculado={yaVinculado} onFinalizar={(datos) => void finalizar(datos)} />
-          {alerta}
-        </div>
-      </main>
-    );
-  }
 
   return (
-    <main className="min-h-dvh bg-page">
-      {/* Escritorio: el wizard paso a paso. */}
-      <div className="relative hidden min-h-dvh place-items-center p-7 md:grid">
-        <div className="absolute top-6 right-6">
+    <main className="flex min-h-dvh flex-col bg-page">
+      <header className="flex items-center justify-end gap-6 px-5 pt-4 md:justify-between md:px-10 md:py-4">
+        <span className="hidden md:block">
+          <Wordmark size={24} />
+        </span>
+        <div className="flex items-center gap-6">
+          <EtapasDelAlta yaVinculado={yaVinculado} />
           <SessionChip user={user} />
         </div>
-        <div className="flex w-full max-w-[940px] flex-col gap-4">
-          <div className="max-w-[520px]">
-            <ElegirAsistente valor={tipoAsistente} onCambio={elegir} />
-          </div>
-          <WizardEscritorio ob={ob} enviando={enviando} yaVinculado={yaVinculado} onFinalizar={() => void finalizar()} />
-        </div>
-        <div className="absolute bottom-6">{alerta}</div>
-      </div>
+      </header>
 
-      {/* Móvil: las mismas preguntas apiladas en un solo scroll. */}
-      <div className="md:hidden">
-        <div className="px-5 pt-4">
-          <ElegirAsistente valor={tipoAsistente} onCambio={elegir} />
-        </div>
-        <FormularioMovil ob={ob} enviando={enviando} onFinalizar={() => void finalizar()} />
-        {error && <div className="px-5 pb-4">{alerta}</div>}
+      <div className="flex flex-1 flex-col md:items-center md:px-10 md:pt-2 md:pb-10">
+        <WizardContanos
+          ob={ob}
+          enviando={enviando}
+          yaVinculado={yaVinculado}
+          error={error}
+          onFinalizar={() => void finalizar()}
+        />
       </div>
     </main>
   );

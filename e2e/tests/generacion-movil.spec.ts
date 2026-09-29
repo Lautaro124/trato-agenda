@@ -1,20 +1,18 @@
 import { agenteActual, esperarRuta, expect, sufijo, test, visible } from './fixtures';
-import { completarFormularioMovil, payloadEsperado, perfilProduccion, type PerfilWizard } from './onboarding';
+import { completarWizard, payloadEsperado, perfilProduccion, preguntaInicial, type PerfilWizard } from './onboarding';
 
-test.describe('generación de agente: formulario móvil', { tag: '@movil' }, () => {
-  test('el caso de producción en una sola pantalla', async ({ page, context, usuarioDev }) => {
+test.describe('generación de agente: wizard en el celular', { tag: '@movil' }, () => {
+  test('el caso de producción, un paso por pantalla', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     const perfil = perfilProduccion(sufijo());
 
     await page.goto('/contanos');
-    await expect(visible(page.getByText('Contanos de vos'))).toBeVisible();
+    await expect(preguntaInicial(page)).toBeVisible();
+    await expect(visible(page.getByText('Paso 1 de 5'))).toBeVisible();
 
-    const continuar = page.getByRole('button', { name: 'Continuar', exact: true });
-    await expect(continuar).toBeDisabled();
-
-    await completarFormularioMovil(page, perfil);
-    await expect(continuar).toBeEnabled();
-    await continuar.click();
+    await completarWizard(page, perfil);
+    await expect(visible(page.getByText('Paso 5 de 5'))).toBeVisible();
+    await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
 
     await esperarRuta(page, '/listo');
     expect(await agenteActual(context.request)).toMatchObject(payloadEsperado(perfil));
@@ -35,10 +33,22 @@ test.describe('generación de agente: formulario móvil', { tag: '@movil' }, () 
     };
 
     await page.goto('/contanos');
-    await completarFormularioMovil(page, perfil);
-    await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+    await completarWizard(page, perfil);
+    await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
 
     await esperarRuta(page, '/listo');
     expect(await agenteActual(context.request)).toMatchObject(payloadEsperado(perfil));
+  });
+
+  test('volver al paso anterior no pierde lo cargado', async ({ page, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await page.goto('/contanos');
+    await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+    await page.getByLabel('¿Cómo se llama tu negocio?').fill('Kiosco Rápido');
+    await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '¿Qué turnos das?' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Volver al paso anterior' }).click();
+    await expect(page.getByLabel('¿Cómo se llama tu negocio?')).toHaveValue('Kiosco Rápido');
   });
 });

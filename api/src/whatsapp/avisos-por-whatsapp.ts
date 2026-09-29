@@ -3,7 +3,8 @@ import { NotificacionesService } from '../notificaciones/notificaciones.service.
 import { WhatsappService } from './whatsapp.service.js';
 
 /**
- * Enchufa el chat propio de WhatsApp como canal de los avisos al dueño. Vive
+ * Enchufa WhatsApp como canal de los avisos: el chat propio para los del
+ * dueño y el chat del cliente para los mensajes del negocio a él. Vive
  * acá y no en NotificacionesModule para no cerrar el ciclo de dependencias
  * (WhatsApp → conversación → comercio → avisos).
  */
@@ -16,5 +17,8 @@ export class AvisosPorWhatsapp implements OnModuleInit {
 
   onModuleInit(): void {
     this.notificaciones.usarCanal((userId, texto) => this.whatsapp.enviarAlPropioChat(userId, texto));
+    this.notificaciones.usarCanalCliente((userId, remoteJid, texto) =>
+      this.whatsapp.enviarAlCliente(userId, remoteJid, texto),
+    );
   }
 }

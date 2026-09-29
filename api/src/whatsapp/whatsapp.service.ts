@@ -146,6 +146,28 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Manda un mensaje del negocio al chat de un cliente (el aviso de pago
+   * aprobado) y lo deja en el historial de esa conversación, como si lo
+   * hubiera escrito el asistente. false si no hay un socket vinculado.
+   */
+  async enviarAlCliente(userId: string, remoteJid: string, texto: string): Promise<boolean> {
+    const sock = this.sockets.get(userId);
+    if (!sock || !estaVinculado(sock.authState.creds)) return false;
+    await sock.sendMessage(remoteJid, { text: texto });
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { userId_remoteJid: { userId, remoteJid } },
+      select: { id: true },
+    });
+    if (conversation) {
+      // Mismo formato que persistir.node.ts para un mensaje del asistente sin tool calls.
+      await this.prisma.message.create({
+        data: { conversationId: conversation.id, role: 'assistant', content: { content: texto } },
+      });
+    }
+    return true;
+  }
+
+  /**
    * Alguien escaneó el QR de un alta con un número que ya es de otra cuenta:
    * esa cuenta se queda con la vinculación nueva y el usuario pendiente se
    * descarta (lo borra quien llama). El orden importa porque `saveCreds`

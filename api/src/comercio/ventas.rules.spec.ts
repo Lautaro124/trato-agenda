@@ -6,6 +6,7 @@ import {
   estadoVisible,
   MAX_CANTIDAD_POR_ITEM,
   MAX_ITEMS_POR_PEDIDO,
+  mensajePagoAprobado,
   MINUTOS_RESERVA_MP,
   pagoSaldaVenta,
   problemaDeForma,
@@ -110,5 +111,19 @@ describe('fechaYHora', () => {
   it('escribe día, fecha y hora de 24 horas en la zona del negocio', () => {
     expect(fechaYHora(new Date('2026-09-26T20:42:00Z'))).toBe('sábado 26/9 a las 17:42');
     expect(fechaYHora(new Date('2026-12-01T03:05:00Z'))).toBe('martes 1/12 a las 00:05');
+  });
+});
+
+describe('mensajePagoAprobado', () => {
+  it('le dice al cliente, por su nombre de pila, que su pago se aprobó y quién sigue', () => {
+    expect(mensajePagoAprobado({ nombreCliente: ' Juan Pérez ', totalCentavos: 1_600_000 }, 'Mates del Sur')).toBe(
+      '¡Listo, Juan! Tu pago de $ 16.000 fue aprobado. Mates del Sur te escribe por acá para coordinar la entrega.',
+    );
+  });
+
+  it('sin nombre del cliente ni del negocio igual se entiende', () => {
+    expect(mensajePagoAprobado({ nombreCliente: null, totalCentavos: 50 }, null)).toBe(
+      '¡Listo! Tu pago de $ 0,50 fue aprobado. El negocio te escribe por acá para coordinar la entrega.',
+    );
   });
 });
