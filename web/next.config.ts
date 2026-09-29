@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs/config";
 
 // Cabeceras de seguridad para todas las páginas. Sin CSP completa a propósito:
 // Next inyecta scripts inline y una política con nonces es otro trabajo; lo que
@@ -28,4 +29,17 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Sube los source maps a Sentry sólo si el build tiene SENTRY_AUTH_TOKEN (el
+// build arg de Railway); sin él, el build no cambia y no falla. Después de
+// subirlos los borra: no se sirven al público.
+export default withSentryConfig(nextConfig, {
+  org: "inka-cf",
+  project: process.env.SENTRY_PROJECT || "trato-web",
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  telemetry: false,
+  // El mismo release que la API (instrument.ts): el commit que Railway buildeó.
+  release: { name: process.env.RAILWAY_GIT_COMMIT_SHA || undefined },
+  widenClientFileUpload: true,
+  sourcemaps: { deleteSourcemapsAfterUpload: true },
+});

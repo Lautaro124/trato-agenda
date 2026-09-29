@@ -64,6 +64,7 @@ Hay dos archivos, ninguno versionado:
 | `POSTGRES_PASSWORD` | Su contraseña. Por defecto `postgres`. Si tiene `@ : / ?`, escribila percent-encoded: termina adentro de la `DATABASE_URL`. |
 | `POSTGRES_DB` | Nombre de la base. Por defecto `trato`. |
 | `NEXT_PUBLIC_API_URL` | Origen desde el que **el browser** ve la API. Por defecto `http://localhost:4000`. Se inlinea en el bundle durante el build, no es una variable de runtime. |
+| `NEXT_PUBLIC_SENTRY_DSN` | Opcional. DSN del proyecto de Sentry de la web. Vacío (el default) = sin Sentry. También se inlinea en el build. |
 
 Las tres primeras arman a la vez las credenciales del servicio `db` y la
 `DATABASE_URL` que recibe la API, así que no pueden desincronizarse.
@@ -110,6 +111,16 @@ está pendiente.
 | `API_PUBLIC_URL` | Opcional. URL pública de la API (redirect del OAuth y `notification_url` de los links de pago). Por defecto, el origen de `GOOGLE_CALLBACK_URL`. |
 | `MERCADOPAGO_BASE_URL` / `MERCADOPAGO_AUTH_URL` | Opcionales. `https://api.mercadopago.com` y `https://auth.mercadopago.com` por defecto; los E2E las apuntan al Mercado Pago falso (`e2e/mercadopago-stub`). |
 | `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan en pesos. Por defecto `20000`. |
+| `SENTRY_DSN` | Opcional. DSN del proyecto de Sentry de la API. Vacía = sin Sentry (lo normal en local). La lee `src/instrument.ts`, que corre con `node --import` antes que la app, así que no pasa por `validateEnv`. |
+| `SENTRY_ENVIRONMENT` | Opcional. Environment de los eventos. Por defecto, el nombre del entorno de Railway (`RAILWAY_ENVIRONMENT_NAME`: `develop` o `production`, que corren los dos con `NODE_ENV=production`) y, fuera de Railway, `NODE_ENV`. La web hace lo mismo en el build. |
+| `SENTRY_TRACES_SAMPLE_RATE` | Opcional. Fracción de requests con traza de rendimiento. Por defecto `0.1` en producción y `0` fuera. |
+
+Sobre Sentry: **no** viajan prompts, mensajes, datos de Calendar, bodies,
+cookies ni variables locales. Las integraciones de IA del SDK están apagadas y
+cada evento pasa por `api/src/observabilidad/scrubbing.ts` (teléfonos y emails
+reemplazados, URLs sin query). Es lo que declaran `/privacidad` y
+[`docs/verificacion-google.md`](docs/verificacion-google.md): no aflojarlo sin
+cambiar las dos.
 
 El frontend solo necesita `NEXT_PUBLIC_API_URL`, que sale del `.env` de la raíz.
 
@@ -295,9 +306,16 @@ En el servicio `api`, además de las de la tabla de arriba:
 En el servicio `web`, `NEXT_PUBLIC_API_URL` apunta al dominio de la API. Se
 resuelve **en el build** (Railway la pasa como build arg porque `web/Dockerfile`
 la declara con `ARG` en la etapa `build`): cambiarla exige rebuildear, no alcanza
-con reiniciar.
+con reiniciar. Lo mismo `NEXT_PUBLIC_SENTRY_DSN`, y dos más que sólo usa el
+build: `SENTRY_AUTH_TOKEN` (token de organización de Sentry, sube los source
+maps y los borra de la imagen; sin él el build anda igual, con stack traces
+minificados) y `SENTRY_PROJECT` (por defecto `trato-web`).
 
-### Cuatro cosas que hay que hacer a mano
+En el servicio `api`, `SENTRY_DSN` con el DSN del proyecto `trato-api`. Los
+eventos quedan atados al commit por `RAILWAY_GIT_COMMIT_SHA`, que Railway define
+solo.
+
+### Cinco cosas que hay que hacer a mano
 
 1. **Consola de Google**: autorizar
    `https://api.tratoagenda.com/auth/google/callback` como *redirect URI* y
@@ -314,6 +332,12 @@ con reiniciar.
    Sin ellas la API arranca igual y "Conectar Mercado Pago" aparece
    deshabilitado: los pedidos quedan para cobrar a mano.
 4. **Railway GitHub App**: darle acceso al repo si todavía no lo tiene.
+5. **Sentry**: los proyectos `trato-api` y `trato-web` ya existen en la
+   organización `inka-cf` (team `inka`) y sus DSN están cargados en los dos
+   entornos de Railway. Falta a mano el `SENTRY_AUTH_TOKEN` del servicio `web`
+   (un *Organization Token* de `https://inka-cf.sentry.io/settings/auth-tokens/`),
+   y conviene prender *Data Scrubbing* del lado del servidor en los dos
+   proyectos, como tercera barrera.
 
 ### Dos límites que conviene tener presentes
 

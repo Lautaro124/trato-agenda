@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_FILTER } from '@nestjs/core';
+import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
 import { AgentsModule } from './agents/agents.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -16,6 +18,8 @@ import { WhatsappModule } from './whatsapp/whatsapp.module.js';
 
 @Module({
   imports: [
+    // Primero, como pide Sentry: su interceptor nombra las transacciones por ruta.
+    SentryModule.forRoot(),
     ConfigModule.forRoot({ isGlobal: true, cache: true, validate: validateEnv }),
     PrismaModule,
     AuthModule,
@@ -29,6 +33,11 @@ import { WhatsappModule } from './whatsapp/whatsapp.module.js';
     RetentionModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Reporta a Sentry lo que no es HttpException (los 4xx de negocio no) y
+    // después responde igual que el filtro por defecto de Nest.
+    { provide: APP_FILTER, useClass: SentryGlobalFilter },
+  ],
 })
 export class AppModule {}

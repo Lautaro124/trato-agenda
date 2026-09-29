@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import { json } from 'express';
 import { AppModule } from './app.module.js';
 import { chequeoDeOrigen } from './auth/csrf-origin.js';
+import { LoggerConSentry } from './observabilidad/logger-con-sentry.js';
 import { cabecerasDeSeguridad } from './security-headers.js';
 import type { Env } from './config/env.js';
 
@@ -15,7 +16,13 @@ const LIMITE_IMPORTACION = '6mb';
 async function bootstrap() {
   // Los parsers se registran a mano (abajo) para que sólo la importación del
   // catálogo acepte bodies grandes.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  // bufferLogs: lo que se loguea mientras arranca espera a useLogger, así
+  // también pasa por LoggerConSentry. El flush va explícito: en una app HTTP
+  // Nest recién vacía el buffer al terminar init, y si init falla (la base no
+  // responde) esos logs se perderían.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false, bufferLogs: true });
+  app.useLogger(new LoggerConSentry());
+  app.flushLogs();
   const config = app.get(ConfigService<Env, true>);
 
   const frontendUrl = config.get('FRONTEND_URL', { infer: true });

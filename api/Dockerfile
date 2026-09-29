@@ -44,4 +44,6 @@ EXPOSE 4000
 # Por eso el CLI de prisma vive en `dependencies` y no en `devDependencies`:
 # `npm prune --omit=dev` se lo llevaría. Se llama directo y no con `npx`, que
 # ya no está en la imagen.
-CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/main"]
+# `--import` carga Sentry antes que la app (ver src/instrument.ts); sin
+# SENTRY_DSN no hace nada.
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node --import ./dist/instrument.js dist/main"]
