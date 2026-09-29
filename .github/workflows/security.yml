@@ -223,10 +223,11 @@ jobs:
           done
 
       - name: Preparar la carpeta de reportes
-        # ZAP corre como usuario `zap` (uid 1000) dentro del contenedor.
+        # ZAP corre como usuario `zap` (uid 1000) dentro del contenedor: la
+        # carpeta pasa a ser suya en vez de abrirla a todos con 777.
         run: |
           mkdir -p zap-out
-          chmod 777 zap-out
+          sudo chown 1000:1000 zap-out
 
       - name: ZAP baseline contra el front
         # Escaneo pasivo: araña y mira respuestas, no ataca. -a suma las reglas
