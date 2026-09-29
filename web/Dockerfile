@@ -21,6 +21,10 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 # Sentry: el DSN se inlinea igual que la URL de la API (vacío = sin Sentry). El
 # token sólo sirve para subir los source maps durante el build; vive en este
 # stage y no llega a la imagen de producción.
+# El aviso SecretsUsedInArgOrEnv de BuildKit es esperable: Railway sólo pasa
+# variables a un build con Dockerfile por ARG (no hay --mount=type=secret), así
+# que pasarlo a un secret mount dejaría de subir los source maps sin fallar. Un
+# ARG no llega al contenedor ni a la imagen final: sólo existe en este stage.
 ARG NEXT_PUBLIC_SENTRY_DSN=
 ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 ARG SENTRY_AUTH_TOKEN=
