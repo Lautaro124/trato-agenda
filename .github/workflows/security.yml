@@ -1,5 +1,6 @@
 # Seguridad: dependencias vulnerables, análisis estático (CodeQL), secretos
-# filtrados, vulnerabilidades de las imágenes y lint de los propios workflows.
+# filtrados, vulnerabilidades de las imágenes, escaneo dinámico (OWASP ZAP) y
+# lint de los propios workflows.
 # Corre en cada PR, en cada push a main y una vez por semana, porque aparecen
 # CVEs nuevos sobre dependencias que no cambiaron.
 name: Seguridad
@@ -102,7 +103,7 @@ jobs:
         # historial. Falla con credenciales verificadas o no verificables.
         uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
         with:
-          extra_args: --results=verified,unknown
+          extra_args: --results=verified,unknown --exclude-paths=.trufflehog-ignore
 
   dependency-review:
     name: Dependencias nuevas del PR
@@ -177,6 +178,96 @@ jobs:
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}
           category: imagen-${{ matrix.servicio }}
+
+  zap:
+    name: OWASP ZAP (baseline dinámico)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE: docker compose -p trato-zap -f docker-compose.yml -f docker-compose.e2e.yml
+      # Etiqueta oficial de ZAP; Dependabot la sube con las imágenes de Docker.
+      ZAP_IMAGE: ghcr.io/zaproxy/zaproxy:stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: api/.env descartable
+        # Mismos valores de mentira que el job e2e de ci.yml: el override de
+        # e2e pisa OpenRouter y Mercado Pago con sus falsos, así que el escaneo
+        # nunca toca servicios reales.
+        run: |
+          umask 077
+          {
+            echo "GOOGLE_CLIENT_ID=ci-no-usa-google"
+            echo "GOOGLE_CLIENT_SECRET=ci-no-usa-google"
+            echo "GOOGLE_CALLBACK_URL=http://localhost:4000/auth/google/callback"
+            echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "TOKEN_ENCRYPTION_KEY=$(openssl rand -hex 32)"
+            echo "FRONTEND_URL=http://localhost:3000"
+          } > api/.env
+
+      - name: Levantar el stack
+        run: $COMPOSE up --build -d
+
+      - name: Esperar a la API y al front
+        run: |
+          for url in http://localhost:4000 http://localhost:3000; do
+            for _ in $(seq 1 90); do
+              # Cualquier respuesta HTTP (aunque sea 401/404) prueba que escucha.
+              if curl -s -o /dev/null "$url"; then break; fi
+              sleep 2
+            done
+            curl -s -o /dev/null "$url"
+          done
+
+      - name: Preparar la carpeta de reportes
+        # ZAP corre como usuario `zap` (uid 1000) dentro del contenedor: la
+        # carpeta pasa a ser suya en vez de abrirla a todos con 777.
+        run: |
+          mkdir -p zap-out
+          sudo chown 1000:1000 zap-out
+
+      - name: ZAP baseline contra el front
+        # Escaneo pasivo: araña y mira respuestas, no ataca. -a suma las reglas
+        # pasivas alfa. Sin -I, un WARN o FAIL que no esté en rules.tsv falla.
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/.zap:/zap/wrk/.zap:ro" \
+            -v "$PWD/zap-out:/zap/wrk/out:rw" \
+            "$ZAP_IMAGE" zap-baseline.py \
+            -t http://localhost:3000 \
+            -c .zap/rules.tsv -a -m 3 \
+            -r out/front.html -J out/front.json
+
+      - name: ZAP baseline contra la API
+        if: always()
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/.zap:/zap/wrk/.zap:ro" \
+            -v "$PWD/zap-out:/zap/wrk/out:rw" \
+            "$ZAP_IMAGE" zap-baseline.py \
+            -t http://localhost:4000 \
+            -c .zap/rules.tsv -a -m 3 \
+            -r out/api.html -J out/api.json
+
+      - name: Reportes de ZAP
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zap-reportes
+          path: zap-out/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Logs del stack
+        if: failure()
+        run: $COMPOSE logs --no-color --tail=300
+
+      - name: Bajar el stack
+        if: always()
+        run: $COMPOSE down -v
 
   workflows:
     name: Lint de workflows (actionlint)

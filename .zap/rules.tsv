@@ -1,0 +1,15 @@
+# Reglas de ZAP baseline (una por línea, separadas por TAB): id_de_regla	IGNORE|WARN|FAIL	comentario
+# Sólo se ignoran falsos positivos documentados. El stack escaneado corre en
+# modo dev (`next dev`, `nest start:dev`), así que ojo con silenciar algo que en
+# producción sí importa. Ids: https://www.zaproxy.org/docs/alerts/
+10027	IGNORE	Comentarios sospechosos: son los bundles de Next/Sentry, no código propio
+10094	IGNORE	Base64 en bundles y CSS
+10096	IGNORE	Timestamps unix en librerías de terceros
+10109	IGNORE	Aviso informativo de SPA
+110009	IGNORE	Ruta del filesystem en el 404 de robots.txt/sitemap.xml del dev server
+2	IGNORE	IP privada dentro del bundle de @sentry/conventions
+10110	IGNORE	Funciones JS "peligrosas" dentro de los chunks de Next/Turbopack
+90004	IGNORE	COEP: no se usa aislamiento cross-origin
+90005	IGNORE	Sec-Fetch-Dest lo manda el navegador, no es una cabecera de respuesta
+10049	IGNORE	Cacheable en estáticos versionados y 404 del dev server
+10055	IGNORE	Wildcard/CSP incompleta en el front: la CSP de Next es sólo anti-clickjacking a propósito (ver web/next.config.ts); una con script-src pide nonces y queda aparte

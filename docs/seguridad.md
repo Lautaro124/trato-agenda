@@ -126,6 +126,11 @@ de compose con un `api/.env` de mentira generado en el momento.
   la variable `DEPENDENCY_REVIEW=on` (ver pasos manuales).
 - Grype sobre las imágenes de producción, con los resultados en la pestaña
   *Security → Code scanning*.
+- OWASP ZAP baseline (escaneo pasivo, sin autenticar) contra el front y la API
+  levantados con compose (override de e2e, `api/.env` de mentira). Falla ante
+  cualquier alerta WARN/FAIL que no esté en `.zap/rules.tsv`; los reportes HTML/JSON
+  quedan como artifact `zap-reportes`. Limitación: el stack corre en modo dev, así
+  que las cabeceras y errores no son idénticos a producción.
 - actionlint sobre los workflows.
 
 **`dependabot.yml`**: PRs semanales agrupados para npm (`api`, `web`,

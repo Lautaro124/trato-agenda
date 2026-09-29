@@ -1,0 +1,7 @@
+# Rutas que TruffleHog no escanea (una regex por línea, relativa a la raíz).
+# Sólo tres archivos con la URI de ejemplo postgres:postgres@db (default de
+# desarrollo del compose, dato de test y ejemplo del README). No agregar acá
+# nada que pueda tener una credencial real.
+^docker-compose\.yml$
+^README\.md$
+^api/src/config/env\.spec\.ts$
