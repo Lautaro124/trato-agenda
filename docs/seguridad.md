@@ -32,6 +32,7 @@ controles que corren solos están en `.github/workflows/security.yml` y
 | 9 | Baja | El webhook de Mercado Pago verifica la firma pero no la antigüedad de `ts`, así que una notificación firmada se puede reenviar. | **Aceptado por ahora**: el handler ignora el cuerpo y vuelve a leer el preapproval de la API de MP, así que un replay no cambia nada. Si se quiere cerrar, rechazar `ts` con más de ~5 minutos. |
 | 10 | Info | Sin CSP completa en la web (sólo `frame-ancestors`). | **Pendiente**: una CSP con nonces en Next 16 necesita `proxy.ts`; ver la doc de Next en `web/node_modules/next/dist/docs/` antes de encararlo. |
 | 11 | Info | `npx tsc --noEmit -p tsconfig.json` en `api/` falla en dos specs (`turnos-del-dueno.spec.ts`, `test/app.e2e-spec.ts`). No afecta al build (`tsconfig.build.json`) ni a vitest. | **Pendiente**: CI chequea tipos con `tsconfig.build.json`. |
+| 12 | Media | Sentry v11 junta por defecto bodies, cookies, query strings, variables locales de cada frame y las entradas/salidas de los modelos: con la configuración por defecto, un error del grafo habría mandado la conversación del cliente a un tercero. | **Arreglado al integrarlo**: `dataCollection` todo apagado, integraciones de IA fuera (`api/src/instrument.ts`) y `limpiarEvento`/`limpiarSpan`/`limpiarBreadcrumb` (`api/src/observabilidad/scrubbing.ts`, con tests) como segunda barrera. Revisar esto en cada major del SDK. |
 
 Lo que se revisó y está bien: el CSRF por `Origin` más cookies `httpOnly`/`secure`;
 la validación de entorno que rechaza `DEV_LOGIN_PASSWORD` en producción; el

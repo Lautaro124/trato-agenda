@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 26 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 29 de septiembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -280,6 +280,12 @@ export default function PrivacidadPage() {
             <Punto>
               <Fuerte>Railway</Fuerte>: la infraestructura donde corren la aplicación y la base de
               datos.
+            </Punto>
+            <Punto>
+              <Fuerte>Sentry</Fuerte>: el registro de errores técnicos y una muestra de mediciones de
+              rendimiento, con servidores en Estados Unidos. Le llega qué falló y dónde en el código,
+              nunca el contenido de tus conversaciones, tu agenda ni lo que le mandamos al modelo; los
+              teléfonos y emails se borran antes de enviar cada reporte.
             </Punto>
           </Lista>
           <p>

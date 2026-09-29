@@ -76,8 +76,24 @@ People).
 - No hay entrenamiento, ni fine-tuning, ni export de datasets, ni
   almacenamiento de prompts con ese fin. Los evals (`api/evals/`) corren sobre
   fixtures y un calendario falso en memoria, nunca sobre datos reales.
-- No hay telemetría de terceros: ni Sentry, ni PostHog, ni LangSmith (LangChain
-  no manda trazas a ningún lado).
+- La única telemetría de terceros es **Sentry**, para errores y una muestra
+  del 10% de las trazas de rendimiento. No viaja contenido: nada de prompts,
+  mensajes de WhatsApp, datos de Calendar, bodies, cookies ni variables locales.
+  Cómo se garantiza, en código y no sólo en la configuración del panel:
+  - Las integraciones de IA del SDK (OpenAI, LangChain, LangGraph y las demás)
+    se sacan en `api/src/instrument.ts` (`INTEGRACIONES_DE_IA`), así que ninguna
+    llamada al modelo queda instrumentada.
+  - `dataCollection` apaga todo lo que el SDK junta por defecto desde la v11
+    (bodies, cookies, query strings, parámetros de queries, variables locales,
+    entradas y salidas de modelos).
+  - `limpiarEvento` / `limpiarSpan` / `limpiarBreadcrumb`
+    (`api/src/observabilidad/scrubbing.ts`, con tests; copia en
+    `web/src/lib/sentry.ts`) vuelven a filtrar cada evento antes de mandarlo:
+    teléfonos y emails se reemplazan, las URLs pierden la query, del usuario
+    sólo queda el id interno y los textos se recortan a 500 caracteres.
+  - En la web no hay Session Replay, y los breadcrumbs de clicks y consola se
+    descartan (traen texto de la pantalla).
+  No hay PostHog ni LangSmith (LangChain no manda trazas a ningún lado).
 
 ### Configuración de no entrenamiento / no retención
 

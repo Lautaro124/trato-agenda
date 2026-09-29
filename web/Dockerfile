@@ -18,6 +18,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # imagen de producción queda apuntando al fallback http://localhost:4000.
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Sentry: el DSN se inlinea igual que la URL de la API (vacío = sin Sentry). El
+# token sólo sirve para subir los source maps durante el build; vive en este
+# stage y no llega a la imagen de producción.
+ARG NEXT_PUBLIC_SENTRY_DSN=
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+ARG SENTRY_AUTH_TOKEN=
+ARG SENTRY_PROJECT=trato-web
 COPY . .
 RUN npm run build
 
