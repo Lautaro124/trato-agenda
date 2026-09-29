@@ -30,7 +30,7 @@ services:
       # Dentro de compose la base vive en el servicio "db", y las credenciales
       # son las mismas que arriba. Fuera de compose (Railway, por ejemplo) esta
       # variable la define el proveedor y el resto del archivo no interviene.
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-trato}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-trato} # trufflehog:ignore (default de desarrollo)
       # La zona del negocio, para que los logs y cualquier `new Date` suelto no
       # queden en UTC. Las fechas de la agenda no dependen de esto: agenda-rules
       # ancla explícitamente lo que llega sin offset.
