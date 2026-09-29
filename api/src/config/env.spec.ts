@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { validateEnv } from './env.js';
 
 const BASE = {
-  DATABASE_URL: 'postgresql://postgres:postgres@db:5432/trato', // trufflehog:ignore (dato de test)
+  DATABASE_URL: 'postgresql://postgres:postgres@db:5432/trato',
   GOOGLE_CLIENT_ID: 'client-id',
   GOOGLE_CLIENT_SECRET: 'client-secret',
   GOOGLE_CALLBACK_URL: 'http://localhost:4000/auth/google/callback',
