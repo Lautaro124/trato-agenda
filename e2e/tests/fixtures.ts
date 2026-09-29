@@ -6,6 +6,7 @@ import {
   type Locator,
   type Page,
 } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { API_URL, DEV_PASSWORD, STUB_URL } from '../entorno';
 
 export { expect };
@@ -34,7 +35,7 @@ export function emailUnico(prefijo = 'e2e'): string {
  * con 9 es ambiguo — no se sabe si ese 9 es el de WhatsApp o parte del número.
  */
 export function telefonoUnico(): string {
-  return `54911${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+  return `54911${String(randomInt(1e8)).padStart(8, '0')}`;
 }
 
 /**

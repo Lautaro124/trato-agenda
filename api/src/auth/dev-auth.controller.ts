@@ -14,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import type { Response } from 'express';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import { AgentsService } from '../agents/agents.service.js';
 import type { Env } from '../config/env.js';
 import { AuthService } from './auth.service.js';
@@ -56,11 +56,21 @@ export function loginDevHabilitado(config: ConfigService<Env, true>): boolean {
   );
 }
 
-/** Comparación en tiempo constante; los hashes igualan el largo que exige timingSafeEqual. */
+/**
+ * Comparación en tiempo constante. timingSafeEqual exige el mismo largo, así
+ * que las dos se copian a buffers del largo de la mayor; el largo se compara
+ * aparte y al final. No se hashea: un SHA-256 de una contraseña es justo lo
+ * que CodeQL marca (js/insufficient-password-hash) y acá no hace falta.
+ */
 export function contrasenaCorrecta(recibida: string, esperada: string): boolean {
-  const a = createHash('sha256').update(recibida).digest();
-  const b = createHash('sha256').update(esperada).digest();
-  return timingSafeEqual(a, b);
+  const a = Buffer.from(recibida, 'utf8');
+  const b = Buffer.from(esperada, 'utf8');
+  const largo = Math.max(a.length, b.length, 1);
+  const pa = Buffer.alloc(largo);
+  const pb = Buffer.alloc(largo);
+  a.copy(pa);
+  b.copy(pb);
+  return timingSafeEqual(pa, pb) && a.length === b.length;
 }
 
 @Controller('auth/dev')
