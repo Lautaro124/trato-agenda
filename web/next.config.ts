@@ -38,6 +38,8 @@ export default withSentryConfig(nextConfig, {
   authToken: process.env.SENTRY_AUTH_TOKEN,
   silent: !process.env.CI,
   telemetry: false,
+  // El mismo release que la API (instrument.ts): el commit que Railway buildeó.
+  release: { name: process.env.RAILWAY_GIT_COMMIT_SHA || undefined },
   widenClientFileUpload: true,
   sourcemaps: { deleteSourcemapsAfterUpload: true },
 });

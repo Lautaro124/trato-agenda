@@ -25,6 +25,12 @@ ARG NEXT_PUBLIC_SENTRY_DSN=
 ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 ARG SENTRY_AUTH_TOKEN=
 ARG SENTRY_PROJECT=trato-web
+# Railway pasa sus propias variables como build args si están declaradas: el
+# nombre del entorno (develop / production, los dos con NODE_ENV=production)
+# y el commit, para que los eventos queden separados y atados al release.
+ARG RAILWAY_ENVIRONMENT_NAME=
+ARG RAILWAY_GIT_COMMIT_SHA=
+ENV NEXT_PUBLIC_SENTRY_ENVIRONMENT=$RAILWAY_ENVIRONMENT_NAME
 COPY . .
 RUN npm run build
 

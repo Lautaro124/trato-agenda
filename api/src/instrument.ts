@@ -42,7 +42,13 @@ if (dsn) {
   const produccion = process.env.NODE_ENV === 'production';
   Sentry.init({
     dsn,
-    environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
+    // Los dos entornos de Railway corren con NODE_ENV=production: sin el
+    // nombre del entorno, los eventos de develop y de producción se mezclan.
+    environment:
+      process.env.SENTRY_ENVIRONMENT ||
+      process.env.RAILWAY_ENVIRONMENT_NAME ||
+      process.env.NODE_ENV ||
+      'development',
     // Railway la define en cada deploy: los errores quedan atados al commit.
     release: process.env.RAILWAY_GIT_COMMIT_SHA || undefined,
     // Desde la v11 el default es recolectar todo (bodies, cookies, variables
