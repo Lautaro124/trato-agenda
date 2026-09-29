@@ -1,0 +1,4 @@
+# Reglas de ZAP baseline (una por línea, separadas por TAB): id_de_regla	IGNORE|WARN|FAIL	comentario
+# Sólo se ignoran falsos positivos documentados. El stack escaneado corre en
+# modo dev (`next dev`, `nest start:dev`), así que ojo con silenciar algo que en
+# producción sí importa. Ids: https://www.zaproxy.org/docs/alerts/
