@@ -30,6 +30,8 @@ api/evals/resultados/
 
 # Config local de Claude Code (permisos de esta máquina)
 .claude/settings.local.json
+# Huella de la última validación de seguridad (hook Stop, .claude/hooks/)
+.claude/.validacion-seguridad
 
 # Sistema operativo / editor
 .DS_Store

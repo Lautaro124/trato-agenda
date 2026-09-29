@@ -19,8 +19,13 @@ describe('token-crypto', () => {
 
   it('falla si el texto cifrado fue alterado', () => {
     const [iv, tag, cifrado] = encryptToken('mismo', clave).split(':');
-    const alterado = `${iv}:${tag}:${cifrado.slice(0, -2)}ff`;
+    // XOR y no un valor fijo: pisar el último byte con `ff` no cambia nada
+    // cuando ya valía 0xff (1 de cada 256 corridas, el IV es aleatorio).
+    const bytes = Buffer.from(cifrado, 'hex');
+    bytes[bytes.length - 1] ^= 0x01;
+    const alterado = `${iv}:${tag}:${bytes.toString('hex')}`;
 
+    expect(alterado).not.toBe(`${iv}:${tag}:${cifrado}`);
     expect(() => decryptToken(alterado, clave)).toThrow();
   });
 

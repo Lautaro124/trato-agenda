@@ -172,4 +172,10 @@ describe('contrasenaCorrecta', () => {
     expect(contrasenaCorrecta('e2e', 'e2e-password')).toBe(false);
     expect(contrasenaCorrecta('', 'e2e-password')).toBe(false);
   });
+
+  it('no confunde el relleno de ceros con la contraseña', () => {
+    expect(contrasenaCorrecta('e2e-password\u0000', 'e2e-password')).toBe(false);
+    expect(contrasenaCorrecta('e2e-password', 'e2e-password\u0000')).toBe(false);
+    expect(contrasenaCorrecta('e2e-passworD', 'e2e-password')).toBe(false);
+  });
 });

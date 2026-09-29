@@ -108,6 +108,30 @@ Pendiente:
   autorización del lado de Mercado Pago; `/privacidad` le dice al vendedor que
   la quite desde su cuenta.
 
+## Code scanning (2026-09-29)
+
+Las alertas abiertas en *Security → Code scanning* se reprodujeron corriendo
+CodeQL 2.27.1 (la misma versión del workflow) con `security-extended` y los
+mismos `paths-ignore`. Grype no tenía hallazgos fuera de los ignorados en
+ninguna de las dos imágenes, así que todas eran de CodeQL:
+
+| Regla | Dónde | Arreglo |
+|-------|-------|---------|
+| `js/insufficient-password-hash` (2) | `api/src/auth/dev-auth.controller.ts`, `contrasenaCorrecta` | Hasheaba la contraseña de login dev con SHA-256 sólo para igualar largos antes de `timingSafeEqual`. Ahora copia las dos a buffers del mismo largo y compara el largo aparte, sin hash. Test nuevo para el relleno de ceros. |
+| `js/insecure-randomness` (1) | `e2e/tests/fixtures.ts`, `telefonoUnico` | `Math.random()` → `randomInt` de `node:crypto`. Es un número de prueba, pero entra al login y CodeQL lo trata como contexto de seguridad. |
+| `js/remote-property-injection` (13) | `docs/agentes-whatsapp.html` | Es un diagrama generado por archify con su JS embebido (mapas `{}` indexados por ids de la URL). No se despliega y se pisa al regenerarlo, así que se excluye con `paths-ignore` en el job de CodeQL en vez de parchear código generado. |
+
+Con eso el análisis local da 0 resultados en JavaScript/TypeScript y en Actions.
+Las alertas se cierran solas cuando el cambio llega a `main` y corre Seguridad.
+
+Para que no vuelva a pasar, cada prompt de Claude Code que deja cambios sin
+pushear termina con una validación: el hook `Stop` de `.claude/settings.json`
+(`.claude/hooks/validar-seguridad.sh`) pide correr en paralelo los subagentes
+`revisor-seguridad` (vulnerabilidades: lo que marcaría CodeQL más los controles
+de este documento) y `security-auditor` (secretos), y arreglar lo HIGH/MEDIUM
+antes de terminar. Guarda una huella del diff para no repetir la revisión del
+mismo estado y corta a las 3 rondas por prompt.
+
 ## Controles automáticos
 
 **`ci.yml`** (PRs y `main`): lint, tipos, tests y build de `api/`; lint, tipos y
