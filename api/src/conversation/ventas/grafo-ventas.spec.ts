@@ -195,7 +195,11 @@ describe('grafo de ventas', () => {
 
     const sistemas = (llm.invoke.mock.calls as unknown as Array<[BaseMessage[]]>).map(([mensajes]) => String(mensajes[0].content));
     expect(sistemas[0]).not.toContain(YA_TE_PRESENTASTE);
+    expect(sistemas[0]).toContain('Primera vez que te escribe este número');
     expect(sistemas[1]).toContain(YA_TE_PRESENTASTE);
+    // Todavía no hay resumen (se calcula cada 6 mensajes): el contexto no puede
+    // seguir diciendo que es la primera vez, porque eso lo hacía saludar de nuevo.
+    expect(sistemas[1]).not.toContain('Primera vez que te escribe este número');
   });
 
   it('cierra la venta preguntando si quiere algo más, sin pedir confirmación', async () => {

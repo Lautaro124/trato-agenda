@@ -48,6 +48,10 @@ describe('reglasDeEstilo', () => {
     expect(estilo).toContain('¿preferís por la mañana o por la tarde?');
     expect(estilo).toContain('libre entero');
   });
+
+  it('saluda y se presenta una sola vez por charla', () => {
+    expect(reglasDeEstilo()).toContain('Saludá y decí tu nombre sólo en tu primer mensaje');
+  });
 });
 
 describe('reglasDeAlcance', () => {

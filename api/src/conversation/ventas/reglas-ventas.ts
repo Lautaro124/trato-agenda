@@ -57,12 +57,7 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
   );
 }
 
-/**
- * Para una conversación que ya viene de antes: el modelo ve su propio saludo en
- * el historial, pero igual tiende a volver a presentarse en cada respuesta.
- */
-export const YA_TE_PRESENTASTE =
-  'Ya te presentaste en esta conversación: no saludes de nuevo ni digas tu nombre, contestá directo lo que te pide.';
+export { YA_TE_PRESENTASTE } from '../graph/saludo.js';
 
 /** Cómo cobra este comercio y qué pedidos tiene en curso esta conversación. */
 export function bloquePedidos(agent: Agent, mpConectado: boolean, pedidos: VentaConItems[], ahora: Date = new Date()): string {
@@ -151,7 +146,7 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
       : `- Los datos de ${titular} que no salen del catálogo —dirección, horarios, formas de pago, envíos— no ` +
         `los sabés: nunca los inventes; avisale al dueño con derivar_consulta y decile al cliente que ${titular} ` +
         `le responde.\n`) +
-    `- Saludos, gracias y despedidas no son otro tema: respondelos normal y breve.`
+    `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`
   );
 }
 

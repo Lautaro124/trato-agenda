@@ -8,6 +8,7 @@ import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { CalendarService, PeriodoOcupado } from '../../calendar/calendar.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { LIMITE_RECURSION, construirGrafo } from './graph.factory.js';
+import { YA_TE_PRESENTASTE } from './saludo.js';
 
 /** Los tests trabajan en -03:00, la zona fija del proyecto. */
 function hora(iso: string, dia = '2026-09-01'): string {
@@ -150,6 +151,33 @@ describe('grafo conversacional', () => {
     expect(sistema).toContain('existís sólo para la agenda de Tienda Centro');
     expect(sistema).toContain('Cualquier otro tema queda afuera');
     expect(sistema).toContain('mezclado con algo del turno');
+  });
+
+  it('se presenta sólo en el primer mensaje de la charla', async () => {
+    const llm = crearModelo([new AIMessage('Hola, soy Tati. ¿Qué día te queda bien?')]);
+    const grafo = construirGrafo({
+      prisma: crearPrisma(),
+      calendarService: crearCalendar(),
+      llm,
+      openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
+      checkpointer: new MemorySaver(),
+    });
+    const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION };
+    const entrada = (texto: string) => ({
+      messages: [new HumanMessage(texto)],
+      ownerUserId: 'user-1',
+      remoteJid: CONVERSATION.remoteJid,
+      esPropietario: false,
+    });
+
+    await grafo.invoke(entrada('hola'), config);
+    await grafo.invoke(entrada('quiero un turno'), config);
+
+    const sistemas = (llm.invoke.mock.calls as unknown as Array<[BaseMessage[]]>).map(([mensajes]) => String(mensajes[0].content));
+    expect(sistemas[0]).not.toContain(YA_TE_PRESENTASTE);
+    expect(sistemas[0]).toContain('Primera vez que te escribe este número');
+    expect(sistemas[1]).toContain(YA_TE_PRESENTASTE);
+    expect(sistemas[1]).not.toContain('Primera vez que te escribe este número');
   });
 
   it('lee la agenda una sola vez por mensaje entrante', async () => {

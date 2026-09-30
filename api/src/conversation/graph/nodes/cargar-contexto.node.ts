@@ -13,6 +13,7 @@ import { CalendarUnavailableError } from '../../../calendar/google-calendar.clie
 import type { Agent } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { MARGEN_MINIMO_MIN, MAX_OPCIONES_DIA, TIMEZONE, resumirDisponibilidad } from '../agenda-rules.js';
+import { memoriaDelCliente, YA_TE_PRESENTASTE, yaSePresento } from '../saludo.js';
 import type { AgentConUser, ContextoTurno, EstadoConversacionUpdate, EstadoConversacionValue, SnapshotAgenda } from '../state.js';
 
 /** Cuántos días hacia adelante se traen de Google en la única llamada a freeBusy. */
@@ -98,7 +99,7 @@ export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
     `- Para rechazar alcanza una línea, y después seguí con lo que faltaba del turno. Por ejemplo: "De eso no te puedo ayudar, yo me ocupo sólo de la agenda de ${titular}. Volviendo al turno: ¿qué día te queda cómodo?".\n` +
     precios +
     `${datosDesconocidos}\n` +
-    `- Saludos, gracias y despedidas no son otro tema: respondelos normal y breve.`
+    `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`
   );
 }
 
@@ -117,6 +118,7 @@ export function reglasDeEstilo(): string {
     '- Si el día está libre entero, decilo como rango ("el martes tengo de 09:00 a 18:00") en vez de enumerar horas.\n' +
     `- Si ese día ya tiene turnos, preguntá primero "¿preferís por la mañana o por la tarde?" y recién ahí pasá hasta ${MAX_OPCIONES_DIA} horarios.\n` +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.\n' +
+    '- Saludá y decí tu nombre sólo en tu primer mensaje de la conversación; después seguí la charla directo, sin "hola" ni volver a presentarte.\n' +
     '- Confirmá un turno en una línea: día, horario y nombre, sin resumir toda la charla.'
   );
 }
@@ -175,13 +177,19 @@ export function bloqueTurnosDelDueno(turnos: TurnoDelDueno[]): string {
   );
 }
 
-function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: string | null; nombreCliente: string | null }, esPropietario: boolean): string {
+function contextoFijo(
+  agent: Agent,
+  conversation: { remoteJid: string; resumen: string | null; nombreCliente: string | null },
+  esPropietario: boolean,
+  seHaPresentado: boolean,
+): string {
   const ahora = new Intl.DateTimeFormat('es-AR', {
     timeZone: TIMEZONE,
     dateStyle: 'full',
     timeStyle: 'short',
   }).format(new Date());
   const base = `Fecha y hora actual: ${ahora} (zona horaria ${TIMEZONE}). Usá siempre horarios en esa zona.`;
+  const presentacion = seHaPresentado ? `\n\n${YA_TE_PRESENTASTE}` : '';
 
   if (esPropietario) {
     return (
@@ -196,20 +204,18 @@ function contextoFijo(agent: Agent, conversation: { remoteJid: string; resumen: 
       `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
       `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}` +
       // Las mismas reglas que con un cliente: crear_turno las aplica igual acá.
-      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo()}`
+      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo()}${presentacion}`
     );
   }
 
   const numero = conversation.remoteJid.split('@')[0];
-  const memoria = conversation.resumen
-    ? `Ya escribió antes. Resumen de lo que sabés de este cliente: ${conversation.resumen}`
-    : 'Primera vez que te escribe este número.';
+  const memoria = memoriaDelCliente(conversation.resumen, seHaPresentado);
   const nombre = conversation.nombreCliente
     ? `Ya sabés que se llama ${conversation.nombreCliente}: no se lo vuelvas a preguntar, usá ese nombre al agendar.`
     : '';
   return (
     `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${nombre} ` +
-    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo()}`
+    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo()}${presentacion}`
   );
 }
 
@@ -287,7 +293,7 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
       conversation,
       turnoActivo,
       bloqueSistema:
-        `${agent.systemPrompt}\n\n${contextoFijo(agent, conversation, state.esPropietario)}\n\n` +
+        `${agent.systemPrompt}\n\n${contextoFijo(agent, conversation, state.esPropietario, yaSePresento(state.messages))}\n\n` +
         bloqueDisponibilidad(agent, agenda) +
         // Los nombres de los clientes son sólo para el dueño.
         (state.esPropietario ? `\n\n${bloqueTurnosDelDueno(turnos)}` : ''),

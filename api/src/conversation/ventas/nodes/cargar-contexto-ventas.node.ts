@@ -5,6 +5,7 @@
  */
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { TIMEZONE } from '../../graph/agenda-rules.js';
+import { memoriaDelCliente, YA_TE_PRESENTASTE, yaSePresento } from '../../graph/saludo.js';
 import type { AgentConUser } from '../../graph/state.js';
 import type { Agent, Conversation } from '../../../generated/prisma/client.js';
 import {
@@ -13,7 +14,6 @@ import {
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
   reglasDeVenta,
-  YA_TE_PRESENTASTE,
 } from '../reglas-ventas.js';
 import type { ContextoVentas, EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
@@ -45,9 +45,7 @@ export function contextoFijoVentas(
   }
 
   const numero = conversation.remoteJid.split('@')[0];
-  const memoria = conversation.resumen
-    ? `Ya escribió antes. Resumen de lo que sabés de este cliente: ${conversation.resumen}`
-    : 'Primera vez que te escribe este número.';
+  const memoria = memoriaDelCliente(conversation.resumen, opciones.yaSePresento);
   const nombre = conversation.nombreCliente
     ? `Ya sabés que se llama ${conversation.nombreCliente}: no se lo vuelvas a preguntar.`
     : '';
@@ -85,8 +83,6 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       }),
     ]);
     const mpConectado = cuentaMp !== null;
-    // El historial viene del checkpointer; el último mensaje es el que acaba de llegar.
-    const yaSePresento = state.messages.slice(0, -1).some((mensaje) => mensaje.getType() === 'ai');
     const categorias = grupos.map((grupo) => ({ nombre: grupo.categoria as string, cantidad: grupo._count._all }));
 
     const contexto: ContextoVentas = {
@@ -94,7 +90,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       conversation,
       mpConectado,
       bloqueSistema:
-        `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, { mpConectado, yaSePresento })}\n\n` +
+        `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, { mpConectado, yaSePresento: yaSePresento(state.messages) })}\n\n` +
         `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloquePedidos(agent, mpConectado, pedidos)}`,
     };
 
