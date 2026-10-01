@@ -132,6 +132,47 @@ de este documento) y `security-auditor` (secretos), y arreglar lo HIGH/MEDIUM
 antes de terminar. Guarda una huella del diff para no repetir la revisión del
 mismo estado y corta a las 3 rondas por prompt.
 
+## Pruebas de seguridad por el chat (2026-10-01)
+
+Mientras alguien probaba los límites del bot por WhatsApp, Sentry abrió
+TRATO-API-2: `TypeError: Cannot read properties of undefined (reading
+'message')` en `ConversacionNode`, cuatro veces en la misma conversación.
+OpenRouter había contestado HTTP 200 **sin `choices`** (el proveedor bloqueó o
+falló y el motivo venía en `error` dentro del cuerpo); `@langchain/openai` lo
+convierte en una lista vacía y `@langchain/core` revienta al leerla. No hubo
+daño: el nodo atrapó el error y mandó la disculpa genérica, sin tocar la agenda.
+Pero el motivo se perdía, el caso se reportaba como bug y el cliente recibía
+"probá de nuevo en un rato".
+
+Ahora:
+
+- `fetchQueRechazaRespuestasVacias` (`api/src/conversation/respuesta-sin-choices.ts`),
+  montado en `llm.provider.ts`, convierte ese 200 en un error HTTP con el código
+  del cuerpo (o 502), y `clasificarFalloDelModelo` lo separa en
+  `rechazo_contenido` (403 o moderación) y `sin_respuesta`.
+- El nodo de conversación lo registra como **warning** en Sentry con el
+  mensaje "El proveedor del modelo no respondió", fingerprint
+  `modelo-sin-respuesta` + motivo y las etiquetas `motivo`, `codigo`,
+  `proveedor`, `conversacion` y `user.id` (el dueño de la cuenta). Nunca el
+  texto del cliente: ni `error.message` ni `metadata.raw`/`flagged_input`.
+  Para verlos: `level:warning motivo:rechazo_contenido` en Issues; agrupar por
+  `conversacion` muestra quién está insistiendo.
+- Un rechazo por moderación contesta `MENSAJE_FUERA_DE_ALCANCE` ("Con eso no te
+  puedo ayudar…"), que no invita a reintentar. Un `sin_respuesta` sigue con la
+  disculpa genérica, porque puede ser una caída transitoria del proveedor.
+- Cualquier otro fallo del modelo (timeout, credenciales) sigue como antes:
+  `logger.error` y evento de nivel error.
+
+Cómo registrar los casos de una prueba de seguridad: pedirle al tester el texto
+de cada intento y convertir cada uno en una fila de
+`api/evals/adversarial/matriz/matriz-cobertura.csv` (sección C, regenerar el
+resumen con `npx tsx evals/adversarial/matriz/calcular-resumen.ts`) más un spec
+determinista en `api/src/conversation/graph/adversarial/` que simule la
+respuesta del modelo y verifique que no se ejecuta ninguna acción. Las
+conversaciones reales no se guardan en ningún lado para esto: lo promete
+`/privacidad`. Casos de esta ronda: C-021 y C-022
+(`rechazo-proveedor.spec.ts`, `respuesta-sin-choices.spec.ts`).
+
 ## Controles automáticos
 
 **`ci.yml`** (PRs y `main`): lint, tipos, tests y build de `api/`; lint, tipos y

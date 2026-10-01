@@ -91,6 +91,10 @@ People).
     `web/src/lib/sentry.ts`) vuelven a filtrar cada evento antes de mandarlo:
     teléfonos y emails se reemplazan, las URLs pierden la query, del usuario
     sólo queda el id interno y los textos se recortan a 500 caracteres.
+  - Cuando el proveedor del modelo rechaza o no contesta un mensaje, el aviso
+    a Sentry (`avisarASentry`, fingerprint `modelo-sin-respuesta`) lleva sólo
+    códigos, el nombre del proveedor y los ids internos de la conversación y
+    del dueño; nunca el texto del mensaje ni lo que el proveedor marcó.
   - En la web no hay Session Replay, y los breadcrumbs de clicks y consola se
     descartan (traen texto de la pantalla).
   No hay PostHog ni LangSmith (LangChain no manda trazas a ningún lado).

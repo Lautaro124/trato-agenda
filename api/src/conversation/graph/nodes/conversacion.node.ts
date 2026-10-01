@@ -8,7 +8,9 @@ import { AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/mess
 import { Logger } from '@nestjs/common';
 import { esAccionValida } from '../../../agents/agent-catalog.js';
 import { resumenDeError } from '../../../agents/openrouter.client.js';
-import { MENSAJE_DISCULPA_GENERICO } from '../../mensajes.js';
+import { avisarASentry } from '../../../observabilidad/aviso-a-sentry.js';
+import { MENSAJE_DISCULPA_GENERICO, MENSAJE_FUERA_DE_ALCANCE } from '../../mensajes.js';
+import { clasificarFalloDelModelo } from '../../respuesta-sin-choices.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO, type EsquemaHerramienta } from '../../conversation-tools.js';
 import type { EstadoComun } from '../state.js';
 
@@ -52,12 +54,34 @@ export function crearNodoConversacion(deps: DepsConversacion) {
       ]);
       return { messages: [respuesta] };
     } catch (error) {
-      logger.error(
-        `El modelo falló para la conversación ${contexto.conversation.id}: ${resumenDeError(error)}`,
+      // Se responde como si fuera el turno final: sin tool calls, el router
+      // manda directo a persistir y termina la vuelta.
+      const fallo = clasificarFalloDelModelo(error);
+      if (fallo.motivo === 'otro') {
+        logger.error(
+          `El modelo falló para la conversación ${contexto.conversation.id}: ${resumenDeError(error)}`,
+        );
+        return { messages: [new AIMessage(MENSAJE_DISCULPA_GENERICO)] };
+      }
+
+      // El proveedor rechazó o no devolvió nada: no es un bug nuestro y suele
+      // ser un mensaje que alguien manda para probar los límites del bot. Se
+      // registra aparte (warning, fingerprint propio) y sólo con códigos.
+      logger.warn(
+        `El proveedor del modelo no respondió para la conversación ${contexto.conversation.id}: ${fallo.motivo} (${fallo.codigo ?? 'sin código'})`,
       );
-      // Se responde con la disculpa como si fuera el turno final: sin tool
-      // calls, el router manda directo a persistir y termina la vuelta.
-      return { messages: [new AIMessage(MENSAJE_DISCULPA_GENERICO)] };
+      avisarASentry('El proveedor del modelo no respondió', {
+        fingerprint: ['modelo-sin-respuesta', fallo.motivo],
+        tags: {
+          motivo: fallo.motivo,
+          codigo: fallo.codigo,
+          proveedor: fallo.proveedor,
+          conversacion: contexto.conversation.id,
+        },
+        userId: contexto.agent.userId,
+      });
+      const texto = fallo.motivo === 'rechazo_contenido' ? MENSAJE_FUERA_DE_ALCANCE : MENSAJE_DISCULPA_GENERICO;
+      return { messages: [new AIMessage(texto)] };
     }
   };
 }
