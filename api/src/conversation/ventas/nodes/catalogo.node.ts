@@ -10,10 +10,12 @@ import { RangoInvalidoError } from '../../../comercio/historico.rules.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
+import type { SugerenciasService } from '../../../comercio/sugerencias.service.js';
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import {
+  formatearCatalogo,
   formatearListadoVentas,
   formatearPedidoCreado,
   formatearPedidos,
@@ -25,10 +27,18 @@ import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 export type DepsCatalogo = {
   busqueda: Pick<BusquedaService, 'buscar'>;
+  sugerencias: Pick<SugerenciasService, 'verCatalogo'>;
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
 };
+
+/** Sólo lo que escribió el cliente, en texto: es lo único que se le pasa a Jev. */
+export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages'>): string[] {
+  return state.messages
+    .filter((mensaje) => mensaje.getType() === 'human' && typeof mensaje.content === 'string')
+    .map((mensaje) => mensaje.content as string);
+}
 
 export const MENSAJE_CATALOGO_CAIDO =
   'No pude consultar el catálogo en este momento. Pedile disculpas al cliente y decile que en un rato lo vuelva a intentar.';
@@ -44,6 +54,12 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const productos = await deps.busqueda.buscar(state.ownerUserId, consulta, { categoria });
         return formatearResultados(consulta, productos);
+      }
+      case 'ver_catalogo': {
+        const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
+        return formatearCatalogo(
+          await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria),
+        );
       }
       case 'consultar_stock': {
         const consulta = String(args.consulta);

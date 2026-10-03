@@ -4,6 +4,7 @@ import { OpenRouterClient } from '../agents/openrouter.client.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { BusquedaService } from '../comercio/busqueda.service.js';
 import { HistoricoVentasService } from '../comercio/historico.service.js';
+import { SugerenciasService } from '../comercio/sugerencias.service.js';
 import { VentasService } from '../comercio/ventas.service.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -37,6 +38,7 @@ export const grafoVentasProvider = {
   inject: [
     PrismaService,
     BusquedaService,
+    SugerenciasService,
     VentasService,
     NotificacionesService,
     HistoricoVentasService,
@@ -47,6 +49,7 @@ export const grafoVentasProvider = {
   useFactory: (
     prisma: PrismaService,
     busqueda: BusquedaService,
+    sugerencias: SugerenciasService,
     ventas: VentasService,
     notificaciones: NotificacionesService,
     historico: HistoricoVentasService,
@@ -57,6 +60,7 @@ export const grafoVentasProvider = {
     construirGrafoVentas({
       prisma,
       busqueda,
+      sugerencias,
       ventas,
       notificaciones,
       historico,

@@ -10,7 +10,7 @@ import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comerci
 import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
 import { llamadasDe, type OperacionPendiente } from '../../graph/state.js';
-import { ESQUEMAS_PROPIETARIO_VENTAS, ESQUEMAS_VENTAS } from '../ventas-tools.js';
+import { accionesDeVentas, ESQUEMAS_PROPIETARIO_VENTAS, ESQUEMAS_VENTAS } from '../ventas-tools.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 /** Largo máximo de una consulta al catálogo: lo que pase de eso no es una búsqueda. */
@@ -19,7 +19,7 @@ export const MAX_LARGO_CONSULTA = 200;
 type Veredicto = { ok: true; operacion: OperacionPendiente } | { ok: false; motivo: string };
 
 function esquemaPara(state: EstadoVentasValue, nombre: string): EsquemaHerramienta | undefined {
-  if (esAccionDeVentas(nombre) && state.contexto.agent.allowedActions.includes(nombre)) {
+  if (esAccionDeVentas(nombre) && accionesDeVentas(state.contexto.agent.allowedActions).includes(nombre)) {
     return ESQUEMAS_VENTAS[nombre];
   }
   if (state.esPropietario) return ESQUEMAS_PROPIETARIO_VENTAS[nombre];
@@ -47,6 +47,14 @@ export function validarLlamadaVentas(state: EstadoVentasValue, llamada: Operacio
       return { ok: false, motivo: `La consulta es demasiado larga: resumila en menos de ${MAX_LARGO_CONSULTA} caracteres.` };
     }
     return { ok: true, operacion: { ...llamada, args: { ...args, consulta } } };
+  }
+
+  if (llamada.nombre === 'ver_catalogo') {
+    const categoria = typeof args.categoria === 'string' ? args.categoria.trim() : '';
+    if (categoria.length > MAX_LARGO_CONSULTA) {
+      return { ok: false, motivo: `La categoría es demasiado larga: usá el nombre tal como se la sugeriste.` };
+    }
+    return { ok: true, operacion: { ...llamada, args: categoria ? { categoria } : {} } };
   }
 
   if (llamada.nombre === 'listar_ventas' || llamada.nombre === 'resumen_ventas') {

@@ -88,6 +88,8 @@ Las tres primeras arman a la vez las credenciales del servicio `db` y la
 | `OPENROUTER_MODEL` | Modelo de OpenRouter a usar (formato `proveedor/modelo`). Por defecto `google/gemma-4-31b-it`. Tiene que soportar tool calling **y** reasoning: el runtime conversacional lo llama con `reasoning: { effort: 'low' }` ([lista filtrada](https://openrouter.ai/models?supported_parameters=tools,reasoning)). |
 | `OPENROUTER_BASE_URL` | Opcional. Base del endpoint OpenAI-compatible. Por defecto `https://openrouter.ai/api/v1`; los E2E la apuntan al OpenRouter falso. |
 | `OPENROUTER_EMBEDDINGS_MODEL` | Opcional. Modelo de embeddings del catálogo del asistente de ventas. Por defecto `openai/text-embedding-3-small`, que tiene endpoint ZDR (Azure). Tiene que dar vectores de **1536** dimensiones (la columna `Producto.embedding`): otro tamaño es una migración, y otro modelo obliga a recalibrar `DISTANCIA_MAXIMA` en `busqueda.service.ts`. |
+| `OPENROUTER_DECISIONS_MODEL` | Opcional. Modelo de decisiones con el que el asistente de ventas ordena las categorías (o productos) que le sugiere al cliente cuando pregunta "¿qué tenés?". Por defecto `typesafe/jev-1.13` (Jev, de TypeSafe), que tiene endpoint ZDR. No es un modelo de chat: se llama por la Decisions API de OpenRouter. Si falla o no hay `OPENROUTER_API_KEY`, las sugerencias salen ordenadas por cantidad de productos. |
+| `OPENROUTER_DECISIONS_URL` | Opcional. Endpoint de esa Decisions API. Por defecto `https://openrouter.ai/api/alpha/decisions`; sólo el stack de E2E lo cambia. |
 
 Sobre el modelo: **toda** llamada a OpenRouter viaja con
 `provider: { data_collection: 'deny', zdr: true }` (`POLITICA_DE_PROVEEDOR` en

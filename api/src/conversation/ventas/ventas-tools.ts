@@ -21,6 +21,16 @@ export const esquemaBuscarProductos = z.object({
     .describe('Opcional: una categoría exacta de la lista del contexto, para acotar la búsqueda.'),
 });
 
+export const esquemaVerCatalogo = z.object({
+  categoria: z
+    .string()
+    .optional()
+    .describe(
+      'Opcional: la categoría que eligió el cliente, tal como se la sugeriste. Sin categoría, devuelve el ' +
+        'listado entero si son pocos productos o las categorías para sugerirle si son muchos.',
+    ),
+});
+
 export const esquemaCrearPedido = z.object({
   nombreCliente: z
     .string()
@@ -52,6 +62,15 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
       'precio y stock reales. Usala SIEMPRE antes de hablar de un producto, de su precio o de si hay: sin ' +
       'buscar no sabés nada del catálogo.',
     schema: esquemaBuscarProductos,
+  },
+  ver_catalogo: {
+    name: 'ver_catalogo',
+    description:
+      'Muestra lo que vende el negocio cuando el cliente pregunta en general qué tenés, qué le ofrecés o pide ' +
+      'la lista de productos (sin un producto puntual: para eso está buscar_productos). Con pocos productos ' +
+      'devuelve la lista entera con precios; con muchos, las categorías que más le pueden interesar. Cuando el ' +
+      'cliente elige una categoría, llamala de nuevo con esa categoría.',
+    schema: esquemaVerCatalogo,
   },
   crear_pedido: {
     name: 'crear_pedido',
@@ -124,10 +143,22 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
   },
 };
 
+/**
+ * Las acciones de ventas que tiene un agente. `ver_catalogo` llegó después de
+ * que se crearan los primeros asistentes, y su `allowedActions` está guardado
+ * sin ella: la tiene todo agente que puede buscar en el catálogo, sin migrar
+ * ni regenerar nada (lo mismo que los bloques de reglas que viven en código).
+ */
+export function accionesDeVentas(allowedActions: string[]): AccionVentasId[] {
+  const acciones = allowedActions.filter(esAccionDeVentas);
+  if (acciones.includes('buscar_productos') && !acciones.includes('ver_catalogo')) acciones.push('ver_catalogo');
+  return acciones;
+}
+
 /** Herramientas visibles para un agente de ventas: las habilitadas + las del dueño si corresponde. */
 export function herramientasDeVentas(allowedActions: string[], esPropietario: boolean): EsquemaHerramienta[] {
   return [
-    ...allowedActions.filter(esAccionDeVentas).map((id) => ESQUEMAS_VENTAS[id]),
+    ...accionesDeVentas(allowedActions).map((id) => ESQUEMAS_VENTAS[id]),
     ...(esPropietario ? Object.values(ESQUEMAS_PROPIETARIO_VENTAS) : []),
   ];
 }

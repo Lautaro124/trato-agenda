@@ -7,6 +7,7 @@
  * Todo acá es puro (sin base ni red), para poder testearlo directo.
  */
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
+import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
 import { detalleDeRenglones, estadoVisible, fechaYHora, MAX_PEDIDOS_PENDIENTES } from '../../comercio/ventas.rules.js';
@@ -35,7 +36,11 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `- Sos ${agent.nombreBot}, el asistente de ventas de ${titular}. Saludás y decís tu nombre sólo en tu ` +
     `primer mensaje de la conversación; después seguís la charla directo, sin "hola" ni volver a presentarte.\n` +
     `- Todo lo que digas de un producto —si existe, su precio, sus variantes y si hay stock— sale de ` +
-    `buscar_productos en este mismo mensaje. Nunca lo supongas, lo recuerdes de antes ni lo inventes.\n` +
+    `buscar_productos (o del listado de ver_catalogo) en este mismo mensaje. Nunca lo supongas, lo recuerdes de ` +
+    `antes ni lo inventes. El listado trae sólo el precio "desde": para variantes y stock, buscá el producto.\n` +
+    `- Si el cliente pregunta en general qué tenés, qué le ofrecés o te pide la lista de productos, llamá ` +
+    `ver_catalogo en vez de preguntarle qué busca. Si te devuelve categorías y el cliente elige una, volvé a ` +
+    `llamarla con esa categoría.\n` +
     `- Informá los precios exactamente como los devuelve la búsqueda. Nunca redondees, hagas descuentos, ` +
     `promociones, cuotas ni cálculos de envío.\n` +
     `- Si una variante está "sin stock", decilo claro y ofrecé otra variante o producto con stock de los ` +
@@ -156,7 +161,9 @@ export function reglasDeEstiloVentas(): string {
     '- Contestá en una o dos frases cortas. Nada de markdown, viñetas, títulos ni listas numeradas.\n' +
     `- Nunca muestres más de ${MAX_PRODUCTOS_POR_MENSAJE} productos en un mismo mensaje, aunque la búsqueda ` +
     'devuelva más: elegí los que mejor encajan con lo que pidió.\n' +
-    '- Si pidió algo muy general ("¿qué tenés?"), preguntá qué busca antes de listar.\n' +
+    '- La única excepción es lo que devuelve ver_catalogo: ahí sí mostrá la lista entera que te da, una línea ' +
+    'por producto o categoría empezando con un guion, sin negritas ni numerar, y una frase corta antes y otra ' +
+    'después.\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.'
   );
 }
@@ -177,7 +184,8 @@ export function bloqueCatalogo(categorias: Array<{ nombre: string; cantidad: num
     `Catálogo: ${totalProductos} productos` +
     (lista ? ` en estas categorías: ${lista}` : '') +
     (categorias.length > MAX_CATEGORIAS_EN_PROMPT ? ' y otras' : '') +
-    '. No lo ves entero: buscá con buscar_productos cada vez que hablen de un producto.'
+    '. No lo ves entero: buscá con buscar_productos cada vez que hablen de un producto, y usá ver_catalogo ' +
+    'cuando pregunten en general qué tenés.'
   );
 }
 
@@ -211,6 +219,61 @@ export function formatearResultados(consulta: string, productos: ProductoEncontr
     `Resultados de ${JSON.stringify(consulta)}, del más al menos relevante (precios y stock exactos; si ninguno ` +
     `es lo que pidió, decile que no lo tenés):\n${lineas.join('\n')}`
   );
+}
+
+function lineaDeProducto(producto: ProductoPanorama): string {
+  const precio = formatearCentavos(producto.precioDesdeCentavos);
+  return `- ${JSON.stringify(producto.nombre)}: ${producto.variosPrecios ? `desde ${precio}` : precio}`;
+}
+
+function lineaDeCategoria(categoria: CategoriaPanorama): string {
+  return `- ${JSON.stringify(categoria.nombre)} (${categoria.cantidad} ${categoria.cantidad === 1 ? 'producto' : 'productos'})`;
+}
+
+/** Hay otras categorías además de las sugeridas. */
+function otrasCategorias(restantes: number): string {
+  return restantes > 0
+    ? `\nHay ${restantes} ${restantes === 1 ? 'categoría más' : 'categorías más'}: decile que también tenés otras ` +
+        'por si ninguna de estas le interesa, sin nombrarlas.'
+    : '';
+}
+
+/**
+ * Resultado de ver_catalogo. Los nombres del dueño van con `JSON.stringify`
+ * como en formatearResultados; el modelo los muestra sin las comillas.
+ */
+export function formatearCatalogo(resultado: ResultadoCatalogo): string {
+  switch (resultado.tipo) {
+    case 'vacio':
+      return (
+        'Ahora no hay ningún producto con stock para ofrecer. Decíselo al cliente en una frase y preguntale si ' +
+        'busca algo puntual.'
+      );
+    case 'listado': {
+      const de = resultado.categoria ? ` de ${JSON.stringify(resultado.categoria)}` : '';
+      const resto =
+        resultado.restantes > 0
+          ? `\nEstos son ${resultado.productos.length} de ${resultado.productos.length + resultado.restantes}, ` +
+            'los que más le pueden interesar. Decile que tenés más y que, si ninguno le interesa, te cuente qué busca.'
+          : '';
+      return (
+        `Productos con stock${de} (mostrale la lista entera, en este orden, con el precio tal cual; "desde" ` +
+        `significa que hay variantes con distinto precio):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
+      );
+    }
+    case 'categorias':
+      return (
+        `El catálogo tiene ${resultado.totalProductos} productos con stock, demasiados para listarlos. Sugerile ` +
+        `estas categorías, en este orden (las primeras son las que más le pueden interesar), y preguntale cuál ` +
+        `quiere ver:\n${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}\n` +
+        'Cuando elija una, llamá ver_catalogo con esa categoría.'
+      );
+    case 'categoria_sin_productos':
+      return (
+        `No hay productos con stock en la categoría ${JSON.stringify(resultado.categoria)}. Decíselo y sugerile ` +
+        `estas, en este orden:\n${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}`
+      );
+  }
 }
 
 /** Versión para el dueño: con las unidades exactas, lo reservado y el mínimo. */

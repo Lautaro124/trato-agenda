@@ -182,6 +182,14 @@ export default function PrivacidadPage() {
             llegan a ningún modelo.
           </p>
           <p>
+            Cuando un cliente pregunta qué vendés y tu catálogo es grande, el asistente le sugiere las
+            categorías (o los productos) que más le pueden interesar. Para elegirlas usa{" "}
+            <Scope>typesafe/jev-1.13</Scope>, un modelo de decisiones (no genera texto) al que también
+            accedemos a través de OpenRouter, con la misma configuración de no retención. Sólo recibe
+            los últimos mensajes que escribió el cliente, sin su número ni su nombre, y los nombres de
+            tus categorías o productos.
+          </p>
+          <p>
             <Fuerte>Qué no se le manda:</Fuerte> el contenido de los eventos de tu Google Calendar. En
             el flujo con tus clientes el modelo nunca recibe títulos, descripciones, invitados ni
             ubicaciones. Tampoco recibe tu email, tu nombre de Google, tu foto de perfil ni tus

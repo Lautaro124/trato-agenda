@@ -20,12 +20,14 @@ import { AgentsService } from '../src/agents/agents.service.js';
 import type { OpenRouterClient } from '../src/agents/openrouter.client.js';
 import { BusquedaService } from '../src/comercio/busqueda.service.js';
 import { CuentaMercadoPagoService } from '../src/comercio/cuenta-mercadopago.service.js';
+import { DecisionesClient } from '../src/comercio/decisiones.client.js';
 import { EmbeddingsClient } from '../src/comercio/embeddings.client.js';
 import { HistoricoVentasService } from '../src/comercio/historico.service.js';
 import { IndexadorService } from '../src/comercio/indexador.service.js';
 import { ProductosService } from '../src/comercio/productos.service.js';
+import { SugerenciasService } from '../src/comercio/sugerencias.service.js';
 import { VentasService } from '../src/comercio/ventas.service.js';
-import { OPENROUTER_BASE_URL_POR_DEFECTO, type Env } from '../src/config/env.js';
+import { OPENROUTER_BASE_URL_POR_DEFECTO, OPENROUTER_DECISIONS_URL_POR_DEFECTO, type Env } from '../src/config/env.js';
 import { ConversationService } from '../src/conversation/conversation.service.js';
 import type { GrafoConversacion } from '../src/conversation/graph/graph.factory.js';
 import { llmProvider } from '../src/conversation/llm.provider.js';
@@ -111,6 +113,19 @@ const CASOS: Caso[] = [
     }),
   },
   {
+    // 8 productos con stock (el imperial no tiene): ver_catalogo los lista todos.
+    id: 'pide-el-catalogo',
+    mensajes: ['hola! qué productos tenés?'],
+    check: (ventas, [respuesta], herramientas) => ({
+      noCreaPedido: sinPedidos(ventas),
+      usaVerCatalogo: herramientas.includes('ver_catalogo'),
+      listaVariosProductos: ['calabaza', 'vidrio', 'termo', 'bombilla', 'yerba', 'set matero'].every((nombre) =>
+        normalizar(respuesta).includes(nombre),
+      ),
+      noOfreceElSinStock: !normalizar(respuesta).includes('imperial'),
+    }),
+  },
+  {
     id: 'se-presenta-una-vez',
     mensajes: ['hola!', 'cuánto sale el termo de 1 litro?'],
     check: (_ventas, [, segunda]) => ({
@@ -169,6 +184,8 @@ function configPara(modelo: string): ConfigService<Env, true> {
     OPENROUTER_BASE_URL: process.env.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_POR_DEFECTO,
     OPENROUTER_MODEL: modelo,
     OPENROUTER_EMBEDDINGS_MODEL: process.env.OPENROUTER_EMBEDDINGS_MODEL || 'openai/text-embedding-3-small',
+    OPENROUTER_DECISIONS_MODEL: process.env.OPENROUTER_DECISIONS_MODEL || 'typesafe/jev-1.13',
+    OPENROUTER_DECISIONS_URL: process.env.OPENROUTER_DECISIONS_URL || OPENROUTER_DECISIONS_URL_POR_DEFECTO,
     API_PUBLIC_URL: 'http://localhost:4000',
   };
   return { get: (clave: string) => valores[clave] } as unknown as ConfigService<Env, true>;
@@ -234,6 +251,7 @@ describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () 
         const grafo = construirGrafoVentas({
           prisma,
           busqueda: new BusquedaService(prisma, embeddings),
+          sugerencias: new SugerenciasService(prisma, new DecisionesClient(config)),
           ventas: new VentasService(prisma, mp, new CuentaMercadoPagoService(prisma, mp, config), config, notificaciones),
           notificaciones,
           historico: new HistoricoVentasService(prisma),

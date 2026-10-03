@@ -41,6 +41,14 @@ describe('validateEnv', () => {
     );
   });
 
+  it('las sugerencias de ventas usan Jev por la Decisions API de OpenRouter, reemplazable para los E2E', () => {
+    expect(validateEnv(BASE).OPENROUTER_DECISIONS_MODEL).toBe('typesafe/jev-1.13');
+    expect(validateEnv(BASE).OPENROUTER_DECISIONS_URL).toBe('https://openrouter.ai/api/alpha/decisions');
+    expect(
+      validateEnv({ ...BASE, OPENROUTER_DECISIONS_URL: 'http://openrouter-stub:4010/api/alpha/decisions/' }).OPENROUTER_DECISIONS_URL,
+    ).toBe('http://openrouter-stub:4010/api/alpha/decisions');
+  });
+
   it('API_PUBLIC_URL sale del origen de GOOGLE_CALLBACK_URL si no se define', () => {
     const conCallback = { ...BASE, GOOGLE_CALLBACK_URL: 'https://api.tratoagenda.com/auth/google/callback' };
     expect(validateEnv(conCallback).API_PUBLIC_URL).toBe('https://api.tratoagenda.com');

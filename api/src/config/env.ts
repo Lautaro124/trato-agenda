@@ -20,6 +20,14 @@ export type Env = {
    * y dar vectores de 1536 dimensiones (la columna Producto.embedding).
    */
   OPENROUTER_EMBEDDINGS_MODEL: string;
+  /**
+   * Modelo de decisiones (no de chat) con el que el asistente de ventas elige
+   * qué categorías o productos sugerir: Jev, de TypeSafe. Tiene que tener
+   * endpoint ZDR, igual que los otros dos.
+   */
+  OPENROUTER_DECISIONS_MODEL: string;
+  /** La Decisions API de OpenRouter no cuelga de /api/v1. Los E2E la apuntan al stub. */
+  OPENROUTER_DECISIONS_URL: string;
   /** Contraseña del login de desarrollo. Vacía = login dev apagado. Prohibida en producción. */
   DEV_LOGIN_PASSWORD: string;
   MERCADOPAGO_ACCESS_TOKEN: string;
@@ -59,6 +67,7 @@ const REQUIRED = [
 // intentar suscribirse, o (las de OAuth) al conectar Mercado Pago para vender.
 
 export const OPENROUTER_BASE_URL_POR_DEFECTO = 'https://openrouter.ai/api/v1';
+export const OPENROUTER_DECISIONS_URL_POR_DEFECTO = 'https://openrouter.ai/api/alpha/decisions';
 export const MERCADOPAGO_BASE_URL_POR_DEFECTO = 'https://api.mercadopago.com';
 
 function origenDe(url: string): string {
@@ -116,6 +125,8 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'google/gemma-4-31b-it'),
     OPENROUTER_BASE_URL: String(raw.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_POR_DEFECTO).replace(/\/+$/, ''),
     OPENROUTER_EMBEDDINGS_MODEL: String(raw.OPENROUTER_EMBEDDINGS_MODEL || 'openai/text-embedding-3-small'),
+    OPENROUTER_DECISIONS_MODEL: String(raw.OPENROUTER_DECISIONS_MODEL || 'typesafe/jev-1.13'),
+    OPENROUTER_DECISIONS_URL: String(raw.OPENROUTER_DECISIONS_URL || OPENROUTER_DECISIONS_URL_POR_DEFECTO).replace(/\/+$/, ''),
     DEV_LOGIN_PASSWORD: devLoginPassword,
     MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),
     MERCADOPAGO_WEBHOOK_SECRET: String(raw.MERCADOPAGO_WEBHOOK_SECRET ?? ''),

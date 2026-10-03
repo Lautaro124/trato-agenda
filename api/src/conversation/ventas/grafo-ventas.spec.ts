@@ -6,6 +6,7 @@ import { ACCIONES_VENTAS_IDS } from '../../agents/agent-catalog.js';
 import { construirConfiguracionVentas } from '../../agents/agent-template-ventas.js';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService, ProductoEncontrado } from '../../comercio/busqueda.service.js';
+import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { LIMITE_RECURSION } from '../graph/graph.factory.js';
 import { construirGrafoVentas } from './grafo-ventas.factory.js';
@@ -46,9 +47,11 @@ const MATE: ProductoEncontrado = {
   ],
 };
 
-function crearPrisma(opciones: { totalProductos?: number; mpConectado?: boolean; pedidos?: unknown[] } = {}) {
+function crearPrisma(
+  opciones: { totalProductos?: number; mpConectado?: boolean; pedidos?: unknown[]; agent?: Record<string, unknown> } = {},
+) {
   return {
-    agent: { findUnique: vi.fn().mockResolvedValue(AGENT) },
+    agent: { findUnique: vi.fn().mockResolvedValue(opciones.agent ?? AGENT) },
     conversation: { findUniqueOrThrow: vi.fn().mockResolvedValue(CONVERSATION) },
     producto: {
       groupBy: vi.fn().mockResolvedValue([{ categoria: 'Mates', _count: { _all: 12 } }]),
@@ -128,6 +131,7 @@ function correr(
     prisma: PrismaService;
     llm: BaseChatModel;
     busqueda: Pick<BusquedaService, 'buscar'>;
+    sugerencias?: Pick<SugerenciasService, 'verCatalogo'>;
     ventas?: ReturnType<typeof crearVentas>;
     notificaciones?: ReturnType<typeof crearNotificaciones>;
     historico?: ReturnType<typeof crearHistorico>;
@@ -136,6 +140,7 @@ function correr(
 ) {
   const grafo = construirGrafoVentas({
     ...deps,
+    sugerencias: deps.sugerencias ?? { verCatalogo: vi.fn() },
     ventas: deps.ventas ?? crearVentas(),
     notificaciones: deps.notificaciones ?? crearNotificaciones(),
     historico: deps.historico ?? crearHistorico(),
@@ -176,6 +181,7 @@ describe('grafo de ventas', () => {
       prisma: crearPrisma(),
       llm,
       busqueda: { buscar: vi.fn() },
+      sugerencias: { verCatalogo: vi.fn() },
       ventas: crearVentas(),
       notificaciones: crearNotificaciones(),
       historico: crearHistorico(),
@@ -240,6 +246,86 @@ describe('grafo de ventas', () => {
     expect(resultado.messages.at(-1)?.content).toBe('Tengo el mate a $ 8.000.');
     // Humano, tool call, tool result y respuesta final.
     expect(prisma.message.create).toHaveBeenCalledTimes(4);
+  });
+
+  describe('ver_catalogo', () => {
+    const PRODUCTOS = [
+      { productoId: 'p-1', nombre: 'Mate de calabaza', categoria: 'Mates', descripcion: '', precioDesdeCentavos: 800_000, variosPrecios: false },
+      { productoId: 'p-2', nombre: 'Termo 1 L', categoria: 'Termos', descripcion: '', precioDesdeCentavos: 4_500_000, variosPrecios: true },
+    ];
+
+    it('con pocos productos le pasa al modelo la lista entera con precios', async () => {
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: PRODUCTOS, categoria: null, restantes: 0 });
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage('Tengo esto: ...')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      // A Jev le llega sólo lo que escribió el cliente.
+      expect(verCatalogo).toHaveBeenCalledWith('user-1', ['¿tenés mates?'], undefined);
+      const [tool] = toolMessages(resultado.messages);
+      expect(tool.content).toContain('- "Mate de calabaza": $ 8.000');
+      expect(tool.content).toContain('- "Termo 1 L": desde $ 45.000');
+      expect(tool.content).toContain('mostrale la lista entera');
+    });
+
+    it('con muchos le pasa las categorías sugeridas y que hay otras', async () => {
+      const verCatalogo = vi.fn().mockResolvedValue({
+        tipo: 'categorias',
+        categorias: [
+          { nombre: 'Termos', cantidad: 4 },
+          { nombre: 'Mates', cantidad: 12 },
+        ],
+        restantes: 3,
+        totalProductos: 40,
+      });
+      const llm = crearModelo([llamada('ver_catalogo', { categoria: '  ' }), new AIMessage('¿Qué te interesa?')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      // Una categoría vacía es lo mismo que no mandarla.
+      expect(verCatalogo).toHaveBeenCalledWith('user-1', ['¿tenés mates?'], undefined);
+      const contenido = String(toolMessages(resultado.messages)[0].content);
+      expect(contenido).toContain('40 productos con stock');
+      expect(contenido.indexOf('"Termos" (4 productos)')).toBeLessThan(contenido.indexOf('"Mates" (12 productos)'));
+      expect(contenido).toContain('Hay 3 categorías más');
+    });
+
+    it('con una categoría la pasa recortada', async () => {
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: PRODUCTOS.slice(0, 1), categoria: 'Mates', restantes: 0 });
+      const llm = crearModelo([llamada('ver_catalogo', { categoria: ' mates ' }), new AIMessage('.')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(verCatalogo).toHaveBeenCalledWith('user-1', ['¿tenés mates?'], 'mates');
+      expect(toolMessages(resultado.messages)[0].content).toContain('Productos con stock de "Mates"');
+    });
+
+    it('un agente creado antes de ver_catalogo la tiene igual, sin regenerarlo', async () => {
+      const viejo = { ...AGENT, allowedActions: ACCIONES_VENTAS_IDS.filter((id) => id !== 'ver_catalogo') };
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'vacio' });
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage('.')]);
+
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: viejo }),
+        llm,
+        busqueda: { buscar: vi.fn() },
+        sugerencias: { verCatalogo },
+      });
+
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('ver_catalogo');
+      expect(verCatalogo).toHaveBeenCalled();
+      expect(toolMessages(resultado.messages)[0].content).toContain('no hay ningún producto con stock');
+    });
+
+    it('el prompt le dice que use ver_catalogo y le permite la lista sólo ahí', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
+      const sistema = sistemaDe(llm);
+      expect(sistema).toContain('llamá ver_catalogo en vez de preguntarle qué busca');
+      expect(sistema).toContain('La única excepción es lo que devuelve ver_catalogo');
+      expect(sistema).not.toContain('preguntá qué busca antes de listar');
+    });
   });
 
   it('rechaza herramientas de la agenda sin tocar el catálogo', async () => {
