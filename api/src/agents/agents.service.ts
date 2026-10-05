@@ -29,6 +29,11 @@ export function construirDescripcion(dto: GenerateAgentDto): string {
   );
 }
 
+/** Lo mismo para el asistente de ventas, que sólo tiene los dos nombres. */
+export function construirDescripcionVentas(nombreTitular: string, nombreBot: string): string {
+  return `Negocio: ${nombreTitular} (ventas). El asistente se llama ${nombreBot}.`;
+}
+
 @Injectable()
 export class AgentsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -94,7 +99,7 @@ export class AgentsService {
       tipoUso: 'comercio',
       tipoAsistente: 'ventas',
       tipoTitular: 'negocio',
-      descripcion: `Negocio: ${nombreTitular} (ventas). El asistente se llama ${nombreBot}.`,
+      descripcion: construirDescripcionVentas(nombreTitular, nombreBot),
       nombreTitular,
       nombreBot,
       tiposEvento: [] as unknown as Prisma.InputJsonValue,
