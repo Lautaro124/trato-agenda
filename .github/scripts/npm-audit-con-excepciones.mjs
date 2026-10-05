@@ -10,23 +10,31 @@
 //   una actualización no mayor de una dependencia directa);
 // - cuando pasa su fecha `revisar`.
 //
-// Uso: node npm-audit-con-excepciones.mjs <salida-de-npm-audit.json> <nivel>
+// Uso: npm audit --json | node npm-audit-con-excepciones.mjs <nivel>
+// El reporte llega por stdin y no como ruta, para no leer un archivo elegido
+// desde afuera.
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const NIVELES = ['info', 'low', 'moderate', 'high', 'critical'];
 
-const [, , archivoAudit, nivel = 'high'] = process.argv;
-if (!archivoAudit || !NIVELES.includes(nivel)) {
-  console.error('Uso: node npm-audit-con-excepciones.mjs <audit.json> <info|low|moderate|high|critical>');
+const nivel = process.argv[2] ?? 'high';
+if (!NIVELES.includes(nivel)) {
+  console.error('Uso: npm audit --json | node npm-audit-con-excepciones.mjs <info|low|moderate|high|critical>');
   process.exit(2);
 }
 
-const audit = JSON.parse(readFileSync(archivoAudit, 'utf8'));
-if (audit.error || typeof audit.vulnerabilities !== 'object' || audit.vulnerabilities === null) {
-  // Un audit que no pudo correr (red, lockfile roto) no es un audit limpio.
-  console.error('npm audit no devolvió un reporte válido:', JSON.stringify(audit.error ?? audit).slice(0, 500));
+let audit;
+try {
+  audit = JSON.parse(readFileSync(0, 'utf8'));
+} catch {
+  audit = null;
+}
+if (!audit || audit.error || typeof audit.vulnerabilities !== 'object' || audit.vulnerabilities === null) {
+  // Un audit que no pudo correr (red, lockfile roto) no es un audit limpio. El
+  // detalle ya lo escribió npm en stderr: acá no se repite su contenido.
+  console.error('npm audit no devolvió un reporte válido.');
   process.exit(1);
 }
 
