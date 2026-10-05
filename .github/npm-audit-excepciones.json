@@ -1,0 +1,9 @@
+[
+  {
+    "ghsa": "GHSA-vfj7-8cjw-p6xm",
+    "paquete": "braces",
+    "en": ["web"],
+    "motivo": "Afecta a todas las versiones de braces y no hay parche publicado. En web/ llega sólo por el lint (eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch), sobre archivos propios, y no viaja en la imagen. El audit de producción sigue sin excepciones.",
+    "revisar": "2026-11-05"
+  }
+]

@@ -40,10 +40,13 @@ describe('reglasDeAgenda', () => {
 });
 
 describe('reglasDeEstilo', () => {
-  it('pide mensajes cortos y un pool chico de horarios', () => {
+  it('pide el formato de WhatsApp, emojis acotados y un pool chico de horarios', () => {
     const estilo = reglasDeEstilo();
 
-    expect(estilo).toContain('una o dos frases cortas');
+    expect(estilo).toContain('formato de WhatsApp, nunca markdown');
+    expect(estilo).toContain('una por línea empezando con "* "');
+    expect(estilo).toContain('como mucho 2 por mensaje');
+    expect(estilo).not.toContain('Nada de markdown, viñetas');
     expect(estilo).toContain('más de 3 horarios');
     expect(estilo).toContain('¿preferís por la mañana o por la tarde?');
     expect(estilo).toContain('libre entero');

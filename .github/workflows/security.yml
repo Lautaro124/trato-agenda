@@ -50,7 +50,11 @@ jobs:
 
       - name: Todas las dependencias (falla desde high)
         # Las de desarrollo corren en la máquina de quien desarrolla y en CI.
-        run: npm audit --package-lock-only --audit-level=high
+        # Admite las excepciones de .github/npm-audit-excepciones.json (sólo
+        # advisories sin parche), que vencen solas: ver el script.
+        # npm audit sale con error cuando encuentra algo: quien decide es el script.
+        run: |
+          { npm audit --package-lock-only --json || true; } | node ../.github/scripts/npm-audit-con-excepciones.mjs high
 
       - name: Firmas de los paquetes del registry
         # Verifica las firmas y atestaciones de procedencia de lo que npm baja.
