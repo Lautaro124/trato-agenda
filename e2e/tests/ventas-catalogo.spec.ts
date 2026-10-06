@@ -12,7 +12,7 @@ const PLANILLA = [
 ].join('\n');
 
 test.describe('catálogo de un comercio', () => {
-  test('importa una planilla con vista previa y errores por fila, y edita un precio', async ({ page, context, usuarioDev }) => {
+  test('importa una planilla con vista previa y errores por fila, y edita precio y stock con Guardar', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
 
@@ -41,18 +41,44 @@ test.describe('catálogo de un comercio', () => {
     await expect(lista).toContainText('Mate de calabaza');
     await expect(lista).toContainText('Remera');
 
-    // Edición rápida del precio, sin abrir el editor.
+    // Edición rápida del precio, sin abrir el editor: queda pendiente hasta Guardar.
     const precio = page.getByLabel('Precio de Mate de calabaza');
+    const tarjetaMate = lista.getByRole('listitem').filter({ hasText: 'MATE-1' });
     await precio.fill('9500');
-    await precio.press('Enter');
-    await expect
-      .poll(async () => {
-        const listado = (await (await context.request.get(`${API_URL}/productos?q=MATE-1`)).json()) as { productos: ProductoE2E[] };
-        return listado.productos[0]?.variantes[0]?.precioCentavos;
-      })
-      .toBe(950_000);
+    await expect(tarjetaMate).toContainText('Cambios sin guardar');
+    await precio.blur();
+    const precioEnApi = async () => {
+      const listado = (await (await context.request.get(`${API_URL}/productos?q=MATE-1`)).json()) as { productos: ProductoE2E[] };
+      return listado.productos[0]?.variantes[0]?.precioCentavos;
+    };
+    expect(await precioEnApi()).toBe(800_000);
 
-    // Stock vacío = sin control de cantidad: la variante se prende y se apaga con un switch.
-    await expect(page.getByRole('button', { name: 'Remera Talle M: hay stock' })).toBeVisible();
+    // Descartar vuelve a lo guardado sin escribir nada.
+    await tarjetaMate.getByRole('button', { name: 'Descartar' }).click();
+    await expect(precio).toHaveValue('8.000');
+    await expect(tarjetaMate).not.toContainText('Cambios sin guardar');
+    expect(await precioEnApi()).toBe(800_000);
+
+    await precio.fill('9500');
+    await page.getByRole('button', { name: 'Guardar cambios de Mate de calabaza' }).click();
+    await expect(tarjetaMate.getByRole('status')).toContainText('Guardado');
+    await expect.poll(precioEnApi).toBe(950_000);
+
+    // Enter también guarda.
+    await precio.fill('9.800');
+    await precio.press('Enter');
+    await expect.poll(precioEnApi).toBe(980_000);
+
+    // Stock vacío = sin control de cantidad: la variante se prende y se apaga con un switch,
+    // que también espera a Guardar.
+    await page.getByRole('button', { name: 'Remera Talle M: hay stock' }).click();
+    await expect(page.getByRole('button', { name: 'Remera Talle M: sin stock' })).toBeVisible();
+    const disponibleEnApi = async () => {
+      const listado = (await (await context.request.get(`${API_URL}/productos?q=REM-1`)).json()) as { productos: ProductoE2E[] };
+      return listado.productos[0]?.variantes.find((v) => v.nombre === 'Talle M')?.disponible;
+    };
+    expect(await disponibleEnApi()).toBe(true);
+    await page.getByRole('button', { name: 'Guardar cambios de Remera' }).click();
+    await expect.poll(disponibleEnApi).toBe(false);
   });
 });

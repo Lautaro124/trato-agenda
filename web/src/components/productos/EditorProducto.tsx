@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import {
   centavosParaInput,
@@ -80,14 +80,33 @@ export function EditorProducto({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Foto del formulario al abrirlo, para saber si hay algo sin guardar.
+  const formulario = JSON.stringify([
+    codigo,
+    nombre,
+    categoria,
+    descripcion,
+    variantes.map((v) => [v.sku, v.nombre, v.precio, v.stock, v.stockMinimo, v.disponible]),
+  ]);
+  const [formularioInicial] = useState(formulario);
+  const hayCambios = formulario !== formularioInicial;
+
+  const cerrar = useCallback(() => {
+    if (hayCambios && !window.confirm("Tenés cambios sin guardar. ¿Descartarlos?")) return;
+    onCerrar();
+  }, [hayCambios, onCerrar]);
+
   useEffect(() => {
     primerCampo.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const alEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCerrar();
+      if (e.key === "Escape") cerrar();
     };
     document.addEventListener("keydown", alEscape);
     return () => document.removeEventListener("keydown", alEscape);
-  }, [onCerrar]);
+  }, [cerrar]);
 
   const cambiarVariante = (clave: string, cambios: Partial<VarianteEnEdicion>) =>
     setVariantes((actuales) => actuales.map((v) => (v.clave === clave ? { ...v, ...cambios } : v)));
@@ -302,8 +321,13 @@ export function EditorProducto({
             </p>
           )}
 
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={onCerrar}>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {hayCambios && (
+              <p className="mr-auto text-[13px] font-semibold text-[var(--color-primitive-coral-700)]">
+                Cambios sin guardar
+              </p>
+            )}
+            <Button variant="secondary" onClick={cerrar}>
               Cancelar
             </Button>
             <Button type="submit" disabled={guardando}>
