@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateEnv } from './env.js';
+import { parsearDuracion, validateEnv } from './env.js';
 
 const BASE = {
   DATABASE_URL: 'postgresql://postgres:postgres@db:5432/trato',
@@ -57,5 +57,28 @@ describe('validateEnv', () => {
 
   it('MERCADOPAGO_BASE_URL por defecto es la API real', () => {
     expect(validateEnv(BASE).MERCADOPAGO_BASE_URL).toBe('https://api.mercadopago.com');
+  });
+
+  it('la ventana de historial para el modelo es de 14 días si no se configura', () => {
+    expect(validateEnv(BASE).HISTORIAL_IA_VENTANA_MS).toBe(14 * 24 * 60 * 60_000);
+  });
+
+  it('acepta la ventana de historial en días, horas o minutos', () => {
+    expect(validateEnv({ ...BASE, HISTORIAL_IA_VENTANA: '1d' }).HISTORIAL_IA_VENTANA_MS).toBe(24 * 60 * 60_000);
+    expect(validateEnv({ ...BASE, HISTORIAL_IA_VENTANA: '2h' }).HISTORIAL_IA_VENTANA_MS).toBe(2 * 60 * 60_000);
+    expect(validateEnv({ ...BASE, HISTORIAL_IA_VENTANA: '30m' }).HISTORIAL_IA_VENTANA_MS).toBe(30 * 60_000);
+  });
+
+  it('no arranca con una ventana de historial mal escrita', () => {
+    for (const valor of ['14', 'dos semanas', '0d', '-1d', '1.5h', '2w', '9999999999d']) {
+      expect(() => validateEnv({ ...BASE, HISTORIAL_IA_VENTANA: valor })).toThrow(/HISTORIAL_IA_VENTANA/);
+    }
+  });
+});
+
+describe('parsearDuracion', () => {
+  it('ignora mayúsculas y espacios', () => {
+    expect(parsearDuracion(' 2H ')).toBe(2 * 60 * 60_000);
+    expect(parsearDuracion('7 d')).toBe(7 * 24 * 60 * 60_000);
   });
 });

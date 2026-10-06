@@ -5,8 +5,9 @@
  */
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { TIMEZONE } from '../../graph/agenda-rules.js';
-import { memoriaDelCliente, YA_TE_PRESENTASTE, yaSePresento } from '../../graph/saludo.js';
+import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../../graph/saludo.js';
 import type { AgentConUser } from '../../graph/state.js';
+import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-historial.js';
 import type { Agent, Conversation } from '../../../generated/prisma/client.js';
 import {
   bloqueCatalogo,
@@ -17,7 +18,11 @@ import {
 } from '../reglas-ventas.js';
 import type { ContextoVentas, EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
-export type DepsContextoVentas = { prisma: PrismaService };
+export type DepsContextoVentas = {
+  prisma: PrismaService;
+  /** Hasta cuánto para atrás ve el modelo el historial (HISTORIAL_IA_VENTANA). Por defecto, 14 días. */
+  ventanaHistorialMs?: number;
+};
 
 export function contextoFijoVentas(
   agent: Agent,
@@ -30,10 +35,10 @@ export function contextoFijoVentas(
     ahora,
   );
   const base = `Fecha y hora actual: ${fecha} (zona horaria ${TIMEZONE}).`;
-  const presentacion = opciones.yaSePresento ? `\n\n${YA_TE_PRESENTASTE}` : '';
+  const presentacion = bloqueDeSaludo(agent, opciones.yaSePresento);
   const reglas =
     `${reglasDeVenta(agent, opciones.mpConectado)}\n\n${reglasDeAlcanceVentas(agent, esPropietario)}\n\n` +
-    `${reglasDeEstiloVentas()}${presentacion}`;
+    `${reglasDeEstiloVentas(agent)}${presentacion}`;
 
   if (esPropietario) {
     return (
@@ -62,9 +67,12 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       throw new Error(`El usuario ${state.ownerUserId} no tiene un Agent configurado.`);
     }
 
-    const conversation = await deps.prisma.conversation.findUniqueOrThrow({
+    const historial = prepararHistorial(state.messages, new Date(), deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS);
+    const guardada = await deps.prisma.conversation.findUniqueOrThrow({
       where: { userId_remoteJid: { userId: state.ownerUserId, remoteJid: state.remoteJid } },
     });
+    // Mismo criterio que la agenda: con historial fuera de la ventana, tampoco el resumen.
+    const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
     const [grupos, totalProductos, cuentaMp, pedidos] = await Promise.all([
       deps.prisma.producto.groupBy({
@@ -90,10 +98,17 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       conversation,
       mpConectado,
       bloqueSistema:
-        `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, { mpConectado, yaSePresento: yaSePresento(state.messages) })}\n\n` +
+        `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, { mpConectado, yaSePresento: yaSePresento(historial.visibles) })}\n\n` +
         `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloquePedidos(agent, mpConectado, pedidos)}`,
     };
 
-    return { contexto, pendientes: [], indiceDesde: Math.max(state.messages.length - 1, 0) };
+    return {
+      ...(historial.marcado ? { messages: [historial.marcado] } : {}),
+      contexto,
+      pendientes: [],
+      indiceDesde: Math.max(state.messages.length - 1, 0),
+      inicioVisible: historial.inicio,
+      correccion: '',
+    };
   };
 }

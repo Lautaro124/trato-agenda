@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PLANTILLA_VERSION, construirConfiguracion } from './agent-template.js';
 import { PLANTILLA_VENTAS_VERSION, construirConfiguracionVentas } from './agent-template-ventas.js';
 import { tipoAsistenteDe, type TipoAsistente, type TipoTitular, type TipoUso } from './agent-catalog.js';
-import type { GenerarAgenteVentasDto, GenerateAgentDto, TipoEventoDto } from './agents.types.js';
+import type { ActualizarMensajesDto, GenerarAgenteVentasDto, GenerateAgentDto, TipoEventoDto } from './agents.types.js';
+import { CLAVES_MENSAJE, leerMensajes, normalizarMensajes } from './mensajes.rules.js';
 
 function listarTiposEvento(dto: GenerateAgentDto): string {
   return dto.tiposEvento
@@ -171,6 +172,28 @@ export class AgentsService {
         model: null,
         templateVersion: PLANTILLA_VERSION,
       },
+    });
+  }
+
+  /**
+   * Guarda los mensajes que vienen y deja como estaban los demás. No toca el
+   * system prompt: los textos se aplican en cada mensaje (mensajes.rules.ts),
+   * así que el runtime los ve en la charla siguiente.
+   */
+  async actualizarMensajes(userId: string, dto: ActualizarMensajesDto): Promise<Agent> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId } });
+    if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
+
+    const entrada = Object.fromEntries(
+      CLAVES_MENSAJE.flatMap((clave) => (dto[clave] ? [[clave, dto[clave]] as const] : [])),
+    );
+    const resultado = normalizarMensajes(tipoAsistenteDe(agent), entrada);
+    if ('error' in resultado) throw new BadRequestException(resultado.error);
+
+    const mensajes = { ...leerMensajes(agent), ...resultado.mensajes };
+    return this.prisma.agent.update({
+      where: { userId },
+      data: { mensajes: mensajes as unknown as Prisma.InputJsonValue },
     });
   }
 }

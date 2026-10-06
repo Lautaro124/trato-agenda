@@ -5,6 +5,7 @@
  * mínimo y no superponer) contra el snapshot que ya cargó `cargar_contexto`.
  * Lo que rechaza vuelve al modelo como ToolMessage, sin haber tocado nada.
  */
+import { mensajePropio } from '../../../agents/mensajes.rules.js';
 import { ToolMessage } from '@langchain/core/messages';
 import { esAccionValida } from '../../../agents/agent-catalog.js';
 import type { PeriodoOcupado } from '../../../calendar/calendar.service.js';
@@ -110,6 +111,7 @@ function chequearHorario(
         fin,
         state.agenda.desde,
         state.agenda.hasta,
+        mensajePropio(agent, 'horarioOcupado'),
       ),
     };
   }

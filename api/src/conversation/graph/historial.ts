@@ -6,6 +6,7 @@
  */
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { Message } from '../../generated/prisma/client.js';
+import { conMarcaDeLlegada, sinParesCortados } from './ventana-historial.js';
 
 /** Cuántos mensajes previos se rescatan al sembrar un hilo sin checkpoint. */
 export const VENTANA_HISTORIAL = 20;
@@ -49,28 +50,14 @@ function aMensaje(fila: Pick<Message, 'role' | 'content'>): BaseMessage | null {
 /**
  * Convierte las filas (de más vieja a más nueva) en mensajes de LangChain,
  * descartando los pares tool_call/resultado que quedaron cortados por la
- * ventana: un assistant con tool_calls sin su ToolMessage (o al revés) hace
- * que la API del modelo rechace el pedido entero.
+ * ventana. Los mensajes del cliente llevan la hora en que se guardaron, que es
+ * con la que después se decide si siguen dentro de la ventana del modelo.
  */
-export function mensajesDesdeFilas(filas: Pick<Message, 'role' | 'content'>[]): BaseMessage[] {
-  const mensajes = filas.map(aMensaje).filter((mensaje): mensaje is BaseMessage => mensaje !== null);
-
-  const respondidos = new Set(
-    mensajes
-      .filter((mensaje) => mensaje.getType() === 'tool')
-      .map((mensaje) => (mensaje as ToolMessage).tool_call_id),
-  );
-  const pedidos = new Set(
-    mensajes
-      .filter((mensaje) => mensaje.getType() === 'ai')
-      .flatMap((mensaje) => ((mensaje as AIMessage).tool_calls ?? []).map((call) => call.id ?? '')),
-  );
-
-  return mensajes.filter((mensaje) => {
-    if (mensaje.getType() === 'tool') {
-      return pedidos.has((mensaje as ToolMessage).tool_call_id);
-    }
-    const llamadas = mensaje.getType() === 'ai' ? ((mensaje as AIMessage).tool_calls ?? []) : [];
-    return llamadas.every((call) => respondidos.has(call.id ?? ''));
+export function mensajesDesdeFilas(filas: Pick<Message, 'role' | 'content' | 'createdAt'>[]): BaseMessage[] {
+  const mensajes = filas.flatMap((fila) => {
+    const mensaje = aMensaje(fila);
+    if (!mensaje) return [];
+    return mensaje.getType() === 'human' ? [conMarcaDeLlegada(mensaje, fila.createdAt)] : [mensaje];
   });
+  return sinParesCortados(mensajes);
 }

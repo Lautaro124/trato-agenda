@@ -201,8 +201,13 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(await nombres('tenes bombiya de acro')).toContain('Bombilla de acero');
     });
 
-    it('encuentra por significado lo que no aparece en ningún texto', async () => {
-      expect((await nombres('infusion'))[0]).toBe('Mate de calabaza');
+    it('encuentra por significado lo que no aparece en ningún texto, marcado como parecido', async () => {
+      const [primero] = await busqueda.buscar(dueno.id, 'infusion');
+      expect(primero.nombre).toBe('Mate de calabaza');
+      expect(primero.soloParecido).toBe(true);
+      // Lo que coincide por texto no lleva la marca.
+      const [porCodigo] = await busqueda.buscar(dueno.id, 'MATE-01');
+      expect(porCodigo.soloParecido).toBeUndefined();
     });
 
     it('filtra por categoría', async () => {

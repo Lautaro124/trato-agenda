@@ -9,6 +9,7 @@ import {
   detalleSugerencias,
   esDiaHabil,
   horariosCercanos,
+  mensajeOcupado,
   huecosDelDia,
   ocupadosEnRango,
   opcionesDelDia,
@@ -331,5 +332,32 @@ describe('resumenDelDia', () => {
     const resumen = resumenDelDia(AGENT, [], '2026-09-05', VENTANA_DESDE, VENTANA_HASTA, 30);
 
     expect(resumen).toContain('sólo de lunes a viernes');
+  });
+});
+
+describe('mensajeOcupado', () => {
+  const VENTANA_DESDE = hora('00:00');
+  const VENTANA_HASTA = hora('00:00', '2026-09-08');
+  const ocupados = [{ inicio: hora('10:00'), fin: hora('10:30') }];
+
+  it('sin mensaje propio deja que el modelo ofrezca la alternativa', () => {
+    const texto = mensajeOcupado(AGENT, ocupados, ocupados, hora('10:00'), hora('10:30'), VENTANA_DESDE, VENTANA_HASTA);
+    expect(texto).toContain('Lo más cercano que tengo libre es');
+    expect(texto).not.toContain('exactamente este mensaje');
+  });
+
+  it('con el mensaje del dueño lo completa con lo pedido y la alternativa', () => {
+    const texto = mensajeOcupado(
+      { ...AGENT, nombreTitular: 'Dra. Ríos' },
+      ocupados,
+      ocupados,
+      hora('10:00'),
+      hora('10:30'),
+      VENTANA_DESDE,
+      VENTANA_HASTA,
+      'Uy, {horario_pedido} ya está tomado. Te ofrezco {sugerencia}. — {titular}',
+    );
+    expect(texto).toContain('exactamente este mensaje');
+    expect(texto).toMatch(/"Uy, .+ ya está tomado\. Te ofrezco .+10:35.+\. — Dra\. Ríos"/);
   });
 });
