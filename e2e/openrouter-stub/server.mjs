@@ -130,7 +130,8 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
 
   if (resultadoTool) {
     const resultado = textoDe(resultadoTool);
-    if (resultado.startsWith('Resultados de')) {
+    // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
+    if (resultado.startsWith('Resultados de') || resultado.startsWith('Ningún producto se llama como')) {
       const primero = resultado.match(/1\. "(.+?)" \(código/)?.[1];
       const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
       return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.` }));

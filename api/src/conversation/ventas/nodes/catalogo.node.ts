@@ -33,9 +33,10 @@ export type DepsCatalogo = {
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
 };
 
-/** Sólo lo que escribió el cliente, en texto: es lo único que se le pasa a Jev. */
-export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages'>): string[] {
+/** Sólo lo que escribió el cliente dentro de la ventana, en texto: es lo único que se le pasa a Jev. */
+export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages' | 'inicioVisible'>): string[] {
   return state.messages
+    .slice(state.inicioVisible ?? 0)
     .filter((mensaje) => mensaje.getType() === 'human' && typeof mensaje.content === 'string')
     .map((mensaje) => mensaje.content as string);
 }

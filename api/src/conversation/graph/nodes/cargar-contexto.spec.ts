@@ -37,6 +37,14 @@ describe('reglasDeAgenda', () => {
   it('deja afuera sábados y domingos', () => {
     expect(reglasDeAgenda(AGENT)).toContain('de lunes a viernes');
   });
+
+  it('agenda, mueve o cancela sin pedir confirmación', () => {
+    const reglas = reglasDeAgenda(AGENT);
+
+    expect(reglas).toContain('No pidas confirmación');
+    expect(reglas).toContain('llamá crear_turno en ese mismo mensaje');
+    expect(reglasDeEstilo()).not.toContain('Confirmá un turno');
+  });
 });
 
 describe('reglasDeEstilo', () => {

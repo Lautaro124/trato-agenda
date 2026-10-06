@@ -48,7 +48,8 @@ const AGENTE = {
     'Sos Tati, la asistente de la Dra. Lucía Fernández, que atiende en su consultorio de lunes a viernes de 09:00 a 18:00. ' +
     'Tomás turnos de Control (30 min) y Primera consulta (45 min). Presentate como "Hola, soy Tati, la asistente de la Dra. Lucía Fernández". ' +
     'Antes de agendar preguntá lo que falte (día, horario, tipo de turno y nombre de la persona), consultá la disponibilidad ' +
-    'y agendá, cancelá o reprogramá sólo cuando la persona confirme. Hablá únicamente de la agenda de la doctora; ' +
+    'y apenas la persona elige un horario libre agendalo y avisale; si pide moverlo o cancelarlo, hacelo y avisale, sin ' +
+    'pedirle que confirme. Hablá únicamente de la agenda de la doctora; ' +
     'cualquier otro tema se rechaza en una línea. No inventes precios, dirección ni formas de pago: derivá a la doctora.',
   allowedActions: ['consultar_disponibilidad', 'crear_turno', 'cancelar_turno', 'reprogramar_turno', 'consultar_turno'],
   model: 'eval',
@@ -143,23 +144,30 @@ function diaBA(fecha: Date | null): string {
   return fecha ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(fecha) : '';
 }
 
-const CONFIRMAR = 'Sí, dale, confirmo';
+/**
+ * Ya no se pide confirmación: acordado el horario, se agenda y se avisa en la
+ * misma respuesta. Lo que falla es una pregunta que espera el "sí" ("¿te lo
+ * confirmo?"), no un "te confirmo que quedó agendado".
+ */
+const noPideConfirmar = (respuesta: string) =>
+  !/[^.!?]*(confirm|te parece bien|lo agendo|lo reservo|lo cancelo|lo muevo)[^.!?]*\?/.test(normalizar(respuesta));
 
 const CASOS: Caso[] = [
   {
     id: 'consulta-ambigua-no-agenda',
     mensajes: ['che el jueves a la tardecita tenés algo? sino el viernes temprano'],
     check: (eventos, [respuesta]) => ({
-      noAgendaSinConfirmar: eventos.length === 0,
+      noAgendaSinElegirHorario: eventos.length === 0,
       respondeAlgo: respuesta.trim().length > 0,
       hablaDeLosDias: /jueves|viernes|\d{1,2}[:.]\d{2}/.test(normalizar(respuesta)),
     }),
   },
   {
     id: 'pedido-completo-en-un-mensaje',
-    mensajes: ['Hola, soy Caro. Dame el martes a las 10 y cuarto para un control', CONFIRMAR],
-    check: (eventos) => ({
+    mensajes: ['Hola, soy Caro. Dame el martes a las 10 y cuarto para un control'],
+    check: (eventos, [respuesta]) => ({
       agendaUno: eventos.length === 1,
+      noPideConfirmar: noPideConfirmar(respuesta),
       horaCorrecta: eventos[0] !== undefined && diaBA(eventos[0].inicio) === MARTES && horaBA(eventos[0].inicio) === '10:15',
       aNombreDeCaro: eventos[0]?.resumen.includes('Caro') ?? false,
     }),
@@ -167,8 +175,9 @@ const CASOS: Caso[] = [
   {
     id: 'mover-una-hora',
     turnoPrevio: '10:00',
-    mensajes: ['mejor movelo una hora más tarde', CONFIRMAR],
-    check: (eventos) => ({
+    mensajes: ['mejor movelo una hora más tarde'],
+    check: (eventos, [respuesta]) => ({
+      noPideConfirmar: noPideConfirmar(respuesta),
       sigueHabiendoUno: eventos.length === 1,
       quedaALas11: eventos[0] !== undefined && diaBA(eventos[0].inicio) === MARTES && horaBA(eventos[0].inicio) === '11:00',
     }),
@@ -176,12 +185,12 @@ const CASOS: Caso[] = [
   {
     id: 'cancelar-lo-del-martes',
     turnoPrevio: '10:00',
-    mensajes: ['cancelá lo del martes porfa', CONFIRMAR],
-    check: (eventos) => ({ cancela: eventos.length === 0 }),
+    mensajes: ['cancelá lo del martes porfa'],
+    check: (eventos, [respuesta]) => ({ cancela: eventos.length === 0, noPideConfirmar: noPideConfirmar(respuesta) }),
   },
   {
     id: 'sabado-no',
-    mensajes: ['quiero turno el sábado a las 10 para control, soy Juan', CONFIRMAR],
+    mensajes: ['quiero turno el sábado a las 10 para control, soy Juan'],
     check: (eventos) => ({ noAgendaFinDeSemana: eventos.every((evento) => ![0, 6].includes(evento.inicio!.getUTCDay())) }),
   },
   {

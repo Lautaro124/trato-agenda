@@ -173,6 +173,34 @@ conversaciones reales no se guardan en ningún lado para esto: lo promete
 `/privacidad`. Casos de esta ronda: C-021 y C-022
 (`rechazo-proveedor.spec.ts`, `respuesta-sin-choices.spec.ts`).
 
+## Hilos rotos y precios inventados (2026-10-06)
+
+TRATO-API-3 (warning `modelo-sin-respuesta`, `sin_respuesta` 502) se repitió 7
+veces en **una sola** conversación entre el 1/10 y el 5/10: cada mensaje nuevo
+del cliente fallaba igual. El nodo de conversación le mandaba al modelo el hilo
+**entero** del checkpointer, sin límite; un hilo que quedó cortado a mitad de una
+vuelta (un `AIMessage` con tool calls sin su `ToolMessage`, por ejemplo cuando se
+agota `LIMITE_RECURSION` buscando una y otra vez un producto que no está) queda
+como una secuencia que el proveedor rechaza para siempre. Ahora:
+
+- `api/src/conversation/graph/ventana-historial.ts` decide qué parte del hilo ve
+  el modelo: sólo lo que llegó dentro de `HISTORIAL_IA_VENTANA` (por defecto
+  `14d`), cortando siempre en un mensaje del cliente, y sin pares tool
+  call/resultado cortados (`sinParesCortados`). Nada se borra: es sólo lo que se
+  manda. Con historial fuera de la ventana tampoco va `Conversation.resumen`.
+  Menos datos viejos del cliente hacia el modelo, de paso.
+- Cada mensaje del cliente queda marcado con su hora en
+  `response_metadata.recibidoEn`, que `@langchain/openai` no manda al proveedor.
+  Los mensajes de antes de este cambio no tienen marca y cuentan como viejos.
+- En ventas, `buscar_productos` tiene un tope de 3 por mensaje
+  (`MAX_BUSQUEDAS_POR_MENSAJE`) para no agotar las vueltas, `crear_pedido` sólo
+  acepta variantes que salieron de una búsqueda visible, y el nodo
+  `verificar_respuesta` descarta una respuesta con un monto `$ …` que no sale del
+  catálogo, de los pedidos ni de lo que escribió el cliente: el modelo la
+  reescribe con una nota de corrección, y si insiste se contesta
+  `MENSAJE_PRECIO_SIN_VERIFICAR` y se avisa a Sentry (warning
+  `precio-sin-respaldo`, sólo ids y la cantidad de montos, nunca el texto).
+
 ## Controles automáticos
 
 **`ci.yml`** (PRs y `main`): lint, tipos, tests y build de `api/`; lint, tipos y
