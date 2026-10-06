@@ -303,3 +303,51 @@ describe('construirDescripcion', () => {
     expect(descripcion).toContain('de 09:00 a 18:00');
   });
 });
+
+describe('AgentsService.actualizarMensajes', () => {
+  const ventas = { ...agenteGuardado, tipoAsistente: 'ventas', mensajes: { saludo: { modo: 'propio', texto: 'Hola' } } };
+
+  it('guarda los que vienen y conserva los demás, sin tocar el prompt', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(ventas);
+
+    await service.actualizarMensajes('user-1', {
+      linkPago: { modo: 'propio', texto: 'Pagá acá: {link}' },
+    });
+
+    const [{ data }] = update.mock.calls[0] as [{ data: Record<string, unknown> }];
+    expect(data).toEqual({
+      mensajes: {
+        saludo: { modo: 'propio', texto: 'Hola' },
+        linkPago: { modo: 'propio', texto: 'Pagá acá: {link}' },
+      },
+    });
+  });
+
+  it('da 400 si al link de pago le falta {link}', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(ventas);
+
+    await expect(
+      service.actualizarMensajes('user-1', { linkPago: { modo: 'propio', texto: 'Te paso el link' } }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('da 400 con un mensaje que no es de su tipo de asistente', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(agenteGuardado);
+
+    await expect(
+      service.actualizarMensajes('user-1', { pagoAprobado: { modo: 'auto', texto: '' } }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('da 404 si todavía no hay agente', async () => {
+    const { service, findUnique } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await expect(service.actualizarMensajes('user-1', {})).rejects.toMatchObject({ status: 404 });
+  });
+});

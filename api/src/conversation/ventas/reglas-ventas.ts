@@ -18,6 +18,13 @@ import {
   MAX_PEDIDOS_PENDIENTES,
 } from '../../comercio/ventas.rules.js';
 import type { Agent, ItemVenta, Venta } from '../../generated/prisma/client.js';
+import {
+  completarPlantilla,
+  instruccionMandarTalCual,
+  mensajePropio,
+  neutralizarMarcador,
+  reglaDeMensajesPropios,
+} from '../../agents/mensajes.rules.js';
 import { TIMEZONE } from '../graph/agenda-rules.js';
 
 type VentaConItems = Venta & { items: ItemVenta[] };
@@ -162,9 +169,21 @@ const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-dig
 export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
   const titular = agent.nombreTitular || 'el negocio';
   const base =
-    `Pedido creado para ${JSON.stringify(venta.nombreCliente ?? '')}: ${detalleDeRenglones(venta.items)}. ` +
+    `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items)}. ` +
     `Total ${formatearCentavos(venta.totalCentavos)}.`;
   if (venta.linkPago) {
+    const propio = mensajePropio(agent, 'linkPago');
+    if (propio) {
+      // El dueño escribió cómo se manda el link: el modelo lo copia, con los datos ya puestos.
+      const mensaje = completarPlantilla(propio, {
+        nombre: primerNombre(venta.nombreCliente),
+        detalle: detalleDeRenglones(venta.items),
+        total: formatearCentavos(venta.totalCentavos),
+        link: venta.linkPago,
+        vence: HORA.format(venta.reservaVenceAt),
+      });
+      return `${base} ${instruccionMandarTalCual(mensaje)}`;
+    }
     return (
       `${base} Link de pago (mandáselo tal cual): ${venta.linkPago} — vale hasta las ` +
       `${HORA.format(venta.reservaVenceAt)}; si no paga antes, el pedido se libera.`
@@ -220,7 +239,7 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
   );
 }
 
-export function reglasDeEstiloVentas(): string {
+export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
   return (
     'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
     '- Contestá en una o dos frases cortas. Nada de markdown, viñetas, títulos ni listas numeradas.\n' +
@@ -229,7 +248,8 @@ export function reglasDeEstiloVentas(): string {
     '- La única excepción es lo que devuelve ver_catalogo: ahí sí mostrá la lista entera que te da, una línea ' +
     'por producto o categoría empezando con un guion, sin negritas ni numerar, y una frase corta antes y otra ' +
     'después.\n' +
-    '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.'
+    '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
+    (agent ? reglaDeMensajesPropios(agent) : '')
   );
 }
 
@@ -262,8 +282,14 @@ export function bloqueCatalogo(categorias: Array<{ nombre: string; cantidad: num
  * significado va aparte y dicho como "no es lo que pidió": tomarlo por el
  * producto pedido era como el asistente terminaba inventando que lo tenía.
  */
-export function formatearResultados(consulta: string, productos: ProductoEncontrado[]): string {
+export function formatearResultados(
+  consulta: string,
+  productos: ProductoEncontrado[],
+  agent?: Pick<Agent, 'mensajes' | 'nombreTitular'>,
+): string {
   if (productos.length === 0) {
+    const propio = agent && sinProductosPropio(agent, consulta);
+    if (propio) return `No hay productos para ${JSON.stringify(neutralizarMarcador(consulta))} en el catálogo. ${propio}`;
     return (
       `No hay productos para ${JSON.stringify(consulta)} en el catálogo. Decile al cliente que no lo tenés ` +
       '(sin inventar alternativas ni precios) y preguntale si busca otra cosa.'
@@ -329,13 +355,20 @@ function otrasCategorias(restantes: number): string {
  * Resultado de ver_catalogo. Los nombres del dueño van con `JSON.stringify`
  * como en formatearResultados; el modelo los muestra sin las comillas.
  */
-export function formatearCatalogo(resultado: ResultadoCatalogo): string {
+export function formatearCatalogo(
+  resultado: ResultadoCatalogo,
+  agent?: Pick<Agent, 'mensajes' | 'nombreTitular'>,
+): string {
   switch (resultado.tipo) {
-    case 'vacio':
+    case 'vacio': {
+      // Sin búsqueda de por medio no hay con qué completar {busqueda}: ahí queda el texto de siempre.
+      const propio = agent && sinProductosPropio(agent, null);
+      if (propio) return `Ahora no hay ningún producto con stock para ofrecer. ${propio}`;
       return (
         'Ahora no hay ningún producto con stock para ofrecer. Decíselo al cliente en una frase y preguntale si ' +
         'busca algo puntual.'
       );
+    }
     case 'listado': {
       const de = resultado.categoria ? ` de ${JSON.stringify(resultado.categoria)}` : '';
       const resto =
@@ -355,12 +388,37 @@ export function formatearCatalogo(resultado: ResultadoCatalogo): string {
         `quiere ver:\n${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}\n` +
         'Cuando elija una, llamá ver_catalogo con esa categoría.'
       );
-    case 'categoria_sin_productos':
+    case 'categoria_sin_productos': {
+      const propio = agent && sinProductosPropio(agent, resultado.categoria);
+      if (propio) {
+        return (
+          `No hay productos con stock en la categoría ${JSON.stringify(resultado.categoria)}. ${propio} ` +
+          `Si después te pregunta qué otra cosa tenés, estas son las categorías, en este orden:\n` +
+          `${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}`
+        );
+      }
       return (
         `No hay productos con stock en la categoría ${JSON.stringify(resultado.categoria)}. Decíselo y sugerile ` +
         `estas, en este orden:\n${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}`
       );
+    }
   }
+}
+
+/**
+ * El "no hay más productos" del dueño, listo para el modelo. Con `busqueda`
+ * null (ver_catalogo sin nada en stock) no se usa si el texto pide {busqueda}.
+ */
+function sinProductosPropio(agent: Pick<Agent, 'mensajes' | 'nombreTitular'>, busqueda: string | null): string | null {
+  const propio = mensajePropio(agent, 'sinProductos');
+  if (!propio || (busqueda === null && /\{busqueda\}/.test(propio))) return null;
+  return instruccionMandarTalCual(
+    completarPlantilla(propio, { busqueda: busqueda ?? '', negocio: agent.nombreTitular.trim() }),
+  );
+}
+
+function primerNombre(nombre: string | null): string {
+  return nombre?.trim().split(/\s+/)[0] ?? '';
 }
 
 /** Versión para el dueño: con las unidades exactas, lo reservado y el mínimo. */

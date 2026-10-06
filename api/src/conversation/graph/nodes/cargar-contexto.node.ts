@@ -13,7 +13,8 @@ import { CalendarUnavailableError } from '../../../calendar/google-calendar.clie
 import type { Agent } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { MARGEN_MINIMO_MIN, MAX_OPCIONES_DIA, TIMEZONE, resumirDisponibilidad } from '../agenda-rules.js';
-import { memoriaDelCliente, YA_TE_PRESENTASTE, yaSePresento } from '../saludo.js';
+import { reglaDeMensajesPropios } from '../../../agents/mensajes.rules.js';
+import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../saludo.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../ventana-historial.js';
 import type { AgentConUser, ContextoTurno, EstadoConversacionUpdate, EstadoConversacionValue, SnapshotAgenda } from '../state.js';
 
@@ -116,7 +117,7 @@ export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
  * generados. El nodo de validación empuja para el mismo lado: para un día suelto
  * le devuelve al modelo un puñado chico de horarios, no la lista completa.
  */
-export function reglasDeEstilo(): string {
+export function reglasDeEstilo(agent?: Pick<Agent, 'mensajes'>): string {
   return (
     'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
     '- Contestá en una o dos frases cortas. Nada de markdown, viñetas, títulos ni listas numeradas.\n' +
@@ -125,7 +126,8 @@ export function reglasDeEstilo(): string {
     `- Si ese día ya tiene turnos, preguntá primero "¿preferís por la mañana o por la tarde?" y recién ahí pasá hasta ${MAX_OPCIONES_DIA} horarios.\n` +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.\n' +
     '- Saludá y decí tu nombre sólo en tu primer mensaje de la conversación; después seguí la charla directo, sin "hola" ni volver a presentarte.\n' +
-    '- Cuando agendás, avisá que quedó agendado en una línea: día, horario y nombre, sin resumir toda la charla.'
+    '- Cuando agendás, avisá que quedó agendado en una línea: día, horario y nombre, sin resumir toda la charla.' +
+    (agent ? reglaDeMensajesPropios(agent) : '')
   );
 }
 
@@ -195,7 +197,7 @@ function contextoFijo(
     timeStyle: 'short',
   }).format(new Date());
   const base = `Fecha y hora actual: ${ahora} (zona horaria ${TIMEZONE}). Usá siempre horarios en esa zona.`;
-  const presentacion = seHaPresentado ? `\n\n${YA_TE_PRESENTASTE}` : '';
+  const presentacion = bloqueDeSaludo(agent, seHaPresentado);
 
   if (esPropietario) {
     return (
@@ -210,7 +212,7 @@ function contextoFijo(
       `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
       `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}` +
       // Las mismas reglas que con un cliente: crear_turno las aplica igual acá.
-      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo()}${presentacion}`
+      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo(agent)}${presentacion}`
     );
   }
 
@@ -221,7 +223,7 @@ function contextoFijo(
     : '';
   return (
     `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${nombre} ` +
-    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo()}${presentacion}`
+    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo(agent)}${presentacion}`
   );
 }
 

@@ -4,6 +4,7 @@
  * vencimiento), así que no hace falta ningún proceso que la "libere" para
  * que el stock vuelva a estar disponible.
  */
+import { completarPlantilla } from '../agents/mensajes.rules.js';
 import { formatearCentavos } from './catalogo.rules.js';
 
 /** Lo que dura la reserva de un pedido con link de Mercado Pago (el link vence a la vez). */
@@ -144,9 +145,19 @@ export function fechaYHora(fecha: Date): string {
 export function mensajePagoAprobado(
   venta: { nombreCliente: string | null; totalCentavos: number },
   nombreTitular: string | null,
+  propio?: { plantilla: string; detalle: string } | null,
 ): string {
   const nombre = venta.nombreCliente?.trim().split(/\s+/)[0];
   const titular = nombreTitular?.trim() || 'El negocio';
+  if (propio) {
+    // El texto del dueño (/asistente), con los datos de la base: tampoco pasa por el modelo.
+    return completarPlantilla(propio.plantilla, {
+      nombre: nombre ?? '',
+      total: formatearCentavos(venta.totalCentavos),
+      detalle: propio.detalle,
+      negocio: titular,
+    });
+  }
   return (
     `¡Listo${nombre ? `, ${nombre}` : ''}! Tu pago de ${formatearCentavos(venta.totalCentavos)} fue aprobado. ` +
     `${titular} te escribe por acá para coordinar la entrega.`

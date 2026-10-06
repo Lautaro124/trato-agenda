@@ -54,12 +54,13 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const consulta = String(args.consulta);
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const productos = await deps.busqueda.buscar(state.ownerUserId, consulta, { categoria });
-        return formatearResultados(consulta, productos);
+        return formatearResultados(consulta, productos, state.contexto.agent);
       }
       case 'ver_catalogo': {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         return formatearCatalogo(
           await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria),
+          state.contexto.agent,
         );
       }
       case 'consultar_stock': {

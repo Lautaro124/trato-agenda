@@ -5,7 +5,7 @@
  */
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { TIMEZONE } from '../../graph/agenda-rules.js';
-import { memoriaDelCliente, YA_TE_PRESENTASTE, yaSePresento } from '../../graph/saludo.js';
+import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../../graph/saludo.js';
 import type { AgentConUser } from '../../graph/state.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-historial.js';
 import type { Agent, Conversation } from '../../../generated/prisma/client.js';
@@ -35,10 +35,10 @@ export function contextoFijoVentas(
     ahora,
   );
   const base = `Fecha y hora actual: ${fecha} (zona horaria ${TIMEZONE}).`;
-  const presentacion = opciones.yaSePresento ? `\n\n${YA_TE_PRESENTASTE}` : '';
+  const presentacion = bloqueDeSaludo(agent, opciones.yaSePresento);
   const reglas =
     `${reglasDeVenta(agent, opciones.mpConectado)}\n\n${reglasDeAlcanceVentas(agent, esPropietario)}\n\n` +
-    `${reglasDeEstiloVentas()}${presentacion}`;
+    `${reglasDeEstiloVentas(agent)}${presentacion}`;
 
   if (esPropietario) {
     return (

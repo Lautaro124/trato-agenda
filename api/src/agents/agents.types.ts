@@ -24,6 +24,7 @@ import {
   type TipoUso,
 } from './agent-catalog.js';
 import { PRECIO_MAX } from './precio.js';
+import { leerMensajes, MODOS_MENSAJE, type MensajesAgente, type ModoMensaje } from './mensajes.rules.js';
 
 /** "HH:MM" en formato 24hs. */
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -102,6 +103,47 @@ export class ActualizarTiposEventoDto {
   tiposEvento!: TipoEventoDto[];
 }
 
+/** Un mensaje de /asistente. El largo fino (400 después de recortar) lo mira normalizarMensajes. */
+export class MensajeDto {
+  @IsIn(MODOS_MENSAJE)
+  modo!: ModoMensaje;
+
+  @IsString()
+  @MaxLength(1000)
+  texto!: string;
+}
+
+/**
+ * Body de `PUT /agents/me/mensajes`: los mensajes que el dueño escribió a mano.
+ * Una propiedad por clave de CLAVES_MENSAJE; la que no viene no se toca.
+ */
+export class ActualizarMensajesDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MensajeDto)
+  saludo?: MensajeDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MensajeDto)
+  linkPago?: MensajeDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MensajeDto)
+  sinProductos?: MensajeDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MensajeDto)
+  pagoAprobado?: MensajeDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MensajeDto)
+  horarioOcupado?: MensajeDto;
+}
+
 /** Vista pública del agente: nunca incluye el systemPrompt (config interna del bot). */
 export type AgentPublico = Pick<
   Agent,
@@ -116,7 +158,7 @@ export type AgentPublico = Pick<
   | 'allowedActions'
   | 'createdAt'
   | 'updatedAt'
-> & { tiposEvento: TipoEvento[]; tipoAsistente: TipoAsistente };
+> & { tiposEvento: TipoEvento[]; tipoAsistente: TipoAsistente; mensajes: MensajesAgente };
 
 export function aAgentPublico(agent: Agent): AgentPublico {
   return {
@@ -130,6 +172,7 @@ export function aAgentPublico(agent: Agent): AgentPublico {
     horaDesde: agent.horaDesde,
     horaHasta: agent.horaHasta,
     tiposEvento: leerTiposEvento(agent),
+    mensajes: leerMensajes(agent),
     allowedActions: agent.allowedActions,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,

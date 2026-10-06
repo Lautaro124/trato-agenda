@@ -121,6 +121,15 @@ describe('mensajePagoAprobado', () => {
     );
   });
 
+  it('con el mensaje propio del dueño completa sus datos', () => {
+    expect(
+      mensajePagoAprobado({ nombreCliente: 'Juan Pérez', totalCentavos: 1_600_000 }, 'Mates del Sur', {
+        plantilla: '¡Gracias, {nombre}! Llegó tu pago de {total} por {detalle}. {negocio}',
+        detalle: '2 × Mate',
+      }),
+    ).toBe('¡Gracias, Juan! Llegó tu pago de $ 16.000 por 2 × Mate. Mates del Sur');
+  });
+
   it('sin nombre del cliente ni del negocio igual se entiende', () => {
     expect(mensajePagoAprobado({ nombreCliente: null, totalCentavos: 50 }, null)).toBe(
       '¡Listo! Tu pago de $ 0,50 fue aprobado. El negocio te escribe por acá para coordinar la entrega.',

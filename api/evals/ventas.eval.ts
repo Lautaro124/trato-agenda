@@ -17,6 +17,7 @@ import { MemorySaver } from '@langchain/langgraph';
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AgentsService } from '../src/agents/agents.service.js';
+import type { MensajesAgente } from '../src/agents/mensajes.rules.js';
 import type { OpenRouterClient } from '../src/agents/openrouter.client.js';
 import { BusquedaService } from '../src/comercio/busqueda.service.js';
 import { CuentaMercadoPagoService } from '../src/comercio/cuenta-mercadopago.service.js';
@@ -61,6 +62,8 @@ type VentaConItems = Venta & { items: ItemVenta[] };
 type Caso = {
   id: string;
   mensajes: string[];
+  /** Mensajes propios del dueño (/asistente) sólo para este caso; los demás corren en automático. */
+  mensajesDelDueno?: MensajesAgente;
   check: (ventas: VentaConItems[], respuestas: string[], herramientas: string[]) => Record<string, boolean>;
 };
 
@@ -161,6 +164,27 @@ const CASOS: Caso[] = [
     check: (ventas, [respuesta]) => ({
       noCreaPedido: sinPedidos(ventas),
       contestaLaYerba: respuesta.includes('6.500'),
+    }),
+  },
+  {
+    id: 'saludo-propio',
+    mensajesDelDueno: { saludo: { modo: 'propio', texto: '¡Buenas! Te atiende {asistente}, de {negocio}.' } },
+    mensajes: ['hola, cuánto sale el termo de 1 litro?'],
+    check: (ventas, [respuesta]) => ({
+      noCreaPedido: sinPedidos(ventas),
+      usaElSaludoDelDueno: normalizar(respuesta).includes('te atiende sol, de mates del sur'),
+      igualContesta: respuesta.includes('45.000'),
+    }),
+  },
+  {
+    id: 'sin-productos-propio',
+    mensajesDelDueno: {
+      sinProductos: { modo: 'propio', texto: 'Uy, {busqueda} no me queda, pero tengo mates, termos y bombillas.' },
+    },
+    mensajes: ['tenés mate de madera de algarrobo?'],
+    check: (ventas, [respuesta]) => ({
+      noCreaPedido: sinPedidos(ventas),
+      usaElTextoDelDueno: normalizar(respuesta).includes('no me queda, pero tengo mates, termos y bombillas'),
     }),
   },
   {
@@ -274,6 +298,7 @@ describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () 
         let herramientas: string[] = [];
 
         try {
+          await prisma.agent.update({ where: { userId: dueno.id }, data: { mensajes: caso.mensajesDelDueno ?? {} } });
           for (const texto of caso.mensajes) {
             const inicio = performance.now();
             respuestas.push(await conversaciones.handleIncoming(dueno.id, remoteJid, texto));
