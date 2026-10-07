@@ -43,7 +43,10 @@ test.describe('catálogo de un comercio', () => {
 
     // Edición rápida del precio, sin abrir el editor: queda pendiente hasta Guardar.
     const precio = page.getByLabel('Precio de Mate de calabaza');
-    const tarjetaMate = lista.getByRole('listitem').filter({ hasText: 'MATE-1' });
+    // La tarjeta, no la fila de su variante: las dos son listitem y las dos muestran "SKU MATE-1".
+    const tarjetaMate = lista
+      .getByRole('listitem')
+      .filter({ has: page.getByRole('button', { name: 'Editar Mate de calabaza' }) });
     await precio.fill('9500');
     await expect(tarjetaMate).toContainText('Cambios sin guardar');
     await precio.blur();
