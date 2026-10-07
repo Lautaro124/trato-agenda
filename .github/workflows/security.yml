@@ -168,6 +168,11 @@ jobs:
           load: true
           tags: trato-${{ matrix.servicio }}:scan
           cache-from: type=gha,scope=${{ matrix.servicio }}
+          # La etapa prod hace `apk upgrade`, y el cache la reusaba mientras no
+          # cambiara la imagen base: se escaneaban paquetes del sistema viejos
+          # (zlib 1.3.2-r0 con el arreglo ya publicado). Se rehace siempre; las
+          # dependencias y el build siguen saliendo del cache.
+          no-cache-filters: prod
 
       - name: Escanear con Grype
         id: grype

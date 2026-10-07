@@ -10,19 +10,27 @@ export async function crearAgenteVentasPorApi(request: APIRequestContext): Promi
   return { nombreTitular };
 }
 
-export type VarianteE2E = { id: string; precioCentavos: number; stock: number | null; disponible: boolean };
+export type VarianteE2E = { id: string; nombre: string; precioCentavos: number; stock: number | null; disponible: boolean };
 export type ProductoE2E = { id: string; codigo: string; nombre: string; variantes: VarianteE2E[] };
 
 /** Un producto de variante única, cargado por API. */
 export async function crearProductoPorApi(
   request: APIRequestContext,
-  datos: { codigo: string; nombre: string; descripcion?: string; precioCentavos: number; stock?: number | null },
+  datos: {
+    codigo: string;
+    nombre: string;
+    descripcion?: string;
+    categoria?: string;
+    precioCentavos: number;
+    stock?: number | null;
+  },
 ): Promise<ProductoE2E> {
   const res = await request.post(`${API_URL}/productos`, {
     data: {
       codigo: datos.codigo,
       nombre: datos.nombre,
       descripcion: datos.descripcion ?? '',
+      ...(datos.categoria ? { categoria: datos.categoria } : {}),
       variantes: [{ precioCentavos: datos.precioCentavos, stock: datos.stock ?? null }],
     },
   });

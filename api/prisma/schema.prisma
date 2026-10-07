@@ -118,6 +118,11 @@ model Agent {
   /// Subconjunto de agent-catalog.ts que el agente tiene habilitado.
   allowedActions String[]
 
+  /// Mensajes que el dueño escribió a mano en /asistente:
+  /// { [clave]: { modo: "auto" | "propio", texto: string } }. Las claves y sus
+  /// datos están en src/agents/mensajes.rules.ts; lo que falta queda en "auto".
+  mensajes Json @default("{}")
+
   /// Modelo de OpenRouter usado para generar esta config. Null si se generó
   /// con la plantilla determinista (ver `templateVersion`); se conserva tal
   /// cual en los agentes generados por IA antes de este campo existir.

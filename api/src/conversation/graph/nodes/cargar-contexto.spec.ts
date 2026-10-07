@@ -37,6 +37,14 @@ describe('reglasDeAgenda', () => {
   it('deja afuera sábados y domingos', () => {
     expect(reglasDeAgenda(AGENT)).toContain('de lunes a viernes');
   });
+
+  it('agenda, mueve o cancela sin pedir confirmación', () => {
+    const reglas = reglasDeAgenda(AGENT);
+
+    expect(reglas).toContain('No pidas confirmación');
+    expect(reglas).toContain('llamá crear_turno en ese mismo mensaje');
+    expect(reglasDeEstilo()).not.toContain('Confirmá un turno');
+  });
 });
 
 describe('reglasDeEstilo', () => {
@@ -50,6 +58,10 @@ describe('reglasDeEstilo', () => {
     expect(estilo).toContain('más de 3 horarios');
     expect(estilo).toContain('¿preferís por la mañana o por la tarde?');
     expect(estilo).toContain('libre entero');
+  });
+
+  it('saluda y se presenta una sola vez por charla', () => {
+    expect(reglasDeEstilo()).toContain('Saludá y decí tu nombre sólo en tu primer mensaje');
   });
 });
 

@@ -8,6 +8,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ConfigService } from '@nestjs/config';
 import { POLITICA_DE_PROVEEDOR } from '../agents/openrouter.client.js';
 import type { Env } from '../config/env.js';
+import { fetchQueRechazaRespuestasVacias } from './respuesta-sin-choices.js';
 
 export const LLM_CONVERSACION = 'LLM_CONVERSACION';
 
@@ -42,6 +43,9 @@ export const llmProvider = {
       configuration: {
         // Configurable para que los E2E hablen con un OpenRouter falso y determinista.
         baseURL: config.get('OPENROUTER_BASE_URL', { infer: true }),
+        // Un 200 sin `choices` (el proveedor bloqueó o falló) pasa a ser un error
+        // HTTP con su código, en vez del TypeError de LangChain que pierde el motivo.
+        fetch: fetchQueRechazaRespuestasVacias(),
         defaultHeaders: {
           'HTTP-Referer': 'https://github.com/trato-agenda',
           'X-Title': 'Trato Agenda',

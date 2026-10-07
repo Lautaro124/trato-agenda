@@ -5,12 +5,14 @@ import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { BusquedaService } from './busqueda.service.js';
 import { ConciliacionService } from './conciliacion.service.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
+import { DecisionesClient } from './decisiones.client.js';
 import { HistoricoVentasService } from './historico.service.js';
 import { EmbeddingsClient } from './embeddings.client.js';
 import { IndexadorService } from './indexador.service.js';
 import { ProductosController } from './productos.controller.js';
 import { MercadoPagoController } from './mercadopago.controller.js';
 import { ProductosService } from './productos.service.js';
+import { SugerenciasService } from './sugerencias.service.js';
 import { VentasController } from './ventas.controller.js';
 import { VentasService } from './ventas.service.js';
 
@@ -33,7 +35,9 @@ import { VentasService } from './ventas.service.js';
     CuentaMercadoPagoService,
     ConciliacionService,
     HistoricoVentasService,
+    DecisionesClient,
+    SugerenciasService,
   ],
-  exports: [BusquedaService, ProductosService, VentasService, CuentaMercadoPagoService, HistoricoVentasService],
+  exports: [BusquedaService, SugerenciasService, ProductosService, VentasService, CuentaMercadoPagoService, HistoricoVentasService],
 })
 export class ComercioModule {}

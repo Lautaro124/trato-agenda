@@ -6,9 +6,10 @@ import { ACCIONES_VENTAS_IDS } from '../../agents/agent-catalog.js';
 import { construirConfiguracionVentas } from '../../agents/agent-template-ventas.js';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService, ProductoEncontrado } from '../../comercio/busqueda.service.js';
+import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
-import { LIMITE_RECURSION } from '../graph/graph.factory.js';
-import { construirGrafoVentas } from './grafo-ventas.factory.js';
+import { MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
+import { LIMITE_RECURSION_VENTAS, construirGrafoVentas } from './grafo-ventas.factory.js';
 import { MENSAJE_CATALOGO_CAIDO } from './nodes/catalogo.node.js';
 import { YA_TE_PRESENTASTE } from './reglas-ventas.js';
 import { PedidoRechazadoError } from '../../comercio/ventas.service.js';
@@ -46,9 +47,11 @@ const MATE: ProductoEncontrado = {
   ],
 };
 
-function crearPrisma(opciones: { totalProductos?: number; mpConectado?: boolean; pedidos?: unknown[] } = {}) {
+function crearPrisma(
+  opciones: { totalProductos?: number; mpConectado?: boolean; pedidos?: unknown[]; agent?: Record<string, unknown> } = {},
+) {
   return {
-    agent: { findUnique: vi.fn().mockResolvedValue(AGENT) },
+    agent: { findUnique: vi.fn().mockResolvedValue(opciones.agent ?? AGENT) },
     conversation: { findUniqueOrThrow: vi.fn().mockResolvedValue(CONVERSATION) },
     producto: {
       groupBy: vi.fn().mockResolvedValue([{ categoria: 'Mates', _count: { _all: 12 } }]),
@@ -119,8 +122,16 @@ function crearModelo(respuestas: BaseMessage[]) {
   return modelo as unknown as BaseChatModel & { invoke: typeof invoke; bindTools: typeof bindTools };
 }
 
-function llamada(name: string, args: Record<string, unknown>) {
-  return new AIMessage({ content: '', tool_calls: [{ id: 'call-1', name, args }] });
+function llamada(name: string, args: Record<string, unknown>, id = 'call-1') {
+  return new AIMessage({ content: '', tool_calls: [{ id, name, args }] });
+}
+
+/** El pedido sólo acepta variantes que salieron de una búsqueda: primero se busca el mate. */
+const BUSCAR_MATE = llamada('buscar_productos', { consulta: 'mate' }, 'call-busqueda');
+const buscaMate = () => ({ buscar: vi.fn().mockResolvedValue([MATE]) });
+
+function resultadoDe(mensajes: BaseMessage[], nombre: string): ToolMessage {
+  return toolMessages(mensajes).filter((mensaje) => mensaje.name === nombre).at(-1) as ToolMessage;
 }
 
 function correr(
@@ -128,6 +139,7 @@ function correr(
     prisma: PrismaService;
     llm: BaseChatModel;
     busqueda: Pick<BusquedaService, 'buscar'>;
+    sugerencias?: Pick<SugerenciasService, 'verCatalogo'>;
     ventas?: ReturnType<typeof crearVentas>;
     notificaciones?: ReturnType<typeof crearNotificaciones>;
     historico?: ReturnType<typeof crearHistorico>;
@@ -136,6 +148,7 @@ function correr(
 ) {
   const grafo = construirGrafoVentas({
     ...deps,
+    sugerencias: deps.sugerencias ?? { verCatalogo: vi.fn() },
     ventas: deps.ventas ?? crearVentas(),
     notificaciones: deps.notificaciones ?? crearNotificaciones(),
     historico: deps.historico ?? crearHistorico(),
@@ -144,7 +157,7 @@ function correr(
   });
   return grafo.invoke(
     { messages: [new HumanMessage('¿tenés mates?')], ownerUserId: 'user-1', remoteJid: CONVERSATION.remoteJid, esPropietario },
-    { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION },
+    { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION_VENTAS },
   );
 }
 
@@ -176,13 +189,14 @@ describe('grafo de ventas', () => {
       prisma: crearPrisma(),
       llm,
       busqueda: { buscar: vi.fn() },
+      sugerencias: { verCatalogo: vi.fn() },
       ventas: crearVentas(),
       notificaciones: crearNotificaciones(),
       historico: crearHistorico(),
       openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
       checkpointer: new MemorySaver(),
     });
-    const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION };
+    const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION_VENTAS };
     const entrada = (texto: string) => ({
       messages: [new HumanMessage(texto)],
       ownerUserId: 'user-1',
@@ -195,7 +209,11 @@ describe('grafo de ventas', () => {
 
     const sistemas = (llm.invoke.mock.calls as unknown as Array<[BaseMessage[]]>).map(([mensajes]) => String(mensajes[0].content));
     expect(sistemas[0]).not.toContain(YA_TE_PRESENTASTE);
+    expect(sistemas[0]).toContain('Primera vez que te escribe este número');
     expect(sistemas[1]).toContain(YA_TE_PRESENTASTE);
+    // Todavía no hay resumen (se calcula cada 6 mensajes): el contexto no puede
+    // seguir diciendo que es la primera vez, porque eso lo hacía saludar de nuevo.
+    expect(sistemas[1]).not.toContain('Primera vez que te escribe este número');
   });
 
   it('cierra la venta preguntando si quiere algo más, sin pedir confirmación', async () => {
@@ -236,6 +254,86 @@ describe('grafo de ventas', () => {
     expect(resultado.messages.at(-1)?.content).toBe('Tengo el mate a $ 8.000.');
     // Humano, tool call, tool result y respuesta final.
     expect(prisma.message.create).toHaveBeenCalledTimes(4);
+  });
+
+  describe('ver_catalogo', () => {
+    const PRODUCTOS = [
+      { productoId: 'p-1', nombre: 'Mate de calabaza', categoria: 'Mates', descripcion: '', precioDesdeCentavos: 800_000, variosPrecios: false },
+      { productoId: 'p-2', nombre: 'Termo 1 L', categoria: 'Termos', descripcion: '', precioDesdeCentavos: 4_500_000, variosPrecios: true },
+    ];
+
+    it('con pocos productos le pasa al modelo la lista entera con precios', async () => {
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: PRODUCTOS, categoria: null, restantes: 0 });
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage('Tengo esto: ...')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      // A Jev le llega sólo lo que escribió el cliente.
+      expect(verCatalogo).toHaveBeenCalledWith('user-1', ['¿tenés mates?'], undefined);
+      const [tool] = toolMessages(resultado.messages);
+      expect(tool.content).toContain('- "Mate de calabaza": $ 8.000');
+      expect(tool.content).toContain('- "Termo 1 L": desde $ 45.000');
+      expect(tool.content).toContain('mostrale la lista entera');
+    });
+
+    it('con muchos le pasa las categorías sugeridas y que hay otras', async () => {
+      const verCatalogo = vi.fn().mockResolvedValue({
+        tipo: 'categorias',
+        categorias: [
+          { nombre: 'Termos', cantidad: 4 },
+          { nombre: 'Mates', cantidad: 12 },
+        ],
+        restantes: 3,
+        totalProductos: 40,
+      });
+      const llm = crearModelo([llamada('ver_catalogo', { categoria: '  ' }), new AIMessage('¿Qué te interesa?')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      // Una categoría vacía es lo mismo que no mandarla.
+      expect(verCatalogo).toHaveBeenCalledWith('user-1', ['¿tenés mates?'], undefined);
+      const contenido = String(toolMessages(resultado.messages)[0].content);
+      expect(contenido).toContain('40 productos con stock');
+      expect(contenido.indexOf('"Termos" (4 productos)')).toBeLessThan(contenido.indexOf('"Mates" (12 productos)'));
+      expect(contenido).toContain('Hay 3 categorías más');
+    });
+
+    it('con una categoría la pasa recortada', async () => {
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: PRODUCTOS.slice(0, 1), categoria: 'Mates', restantes: 0 });
+      const llm = crearModelo([llamada('ver_catalogo', { categoria: ' mates ' }), new AIMessage('.')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(verCatalogo).toHaveBeenCalledWith('user-1', ['¿tenés mates?'], 'mates');
+      expect(toolMessages(resultado.messages)[0].content).toContain('Productos con stock de "Mates"');
+    });
+
+    it('un agente creado antes de ver_catalogo la tiene igual, sin regenerarlo', async () => {
+      const viejo = { ...AGENT, allowedActions: ACCIONES_VENTAS_IDS.filter((id) => id !== 'ver_catalogo') };
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'vacio' });
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage('.')]);
+
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: viejo }),
+        llm,
+        busqueda: { buscar: vi.fn() },
+        sugerencias: { verCatalogo },
+      });
+
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('ver_catalogo');
+      expect(verCatalogo).toHaveBeenCalled();
+      expect(toolMessages(resultado.messages)[0].content).toContain('no hay ningún producto con stock');
+    });
+
+    it('el prompt le dice que use ver_catalogo y le permite la lista sólo ahí', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
+      const sistema = sistemaDe(llm);
+      expect(sistema).toContain('llamá ver_catalogo en vez de preguntarle qué busca');
+      expect(sistema).toContain('La única excepción es lo que devuelve ver_catalogo');
+      expect(sistema).not.toContain('preguntá qué busca antes de listar');
+    });
   });
 
   it('rechaza herramientas de la agenda sin tocar el catálogo', async () => {
@@ -300,11 +398,12 @@ describe('grafo de ventas', () => {
       const ventas = crearVentas();
       ventas.crearPedido.mockResolvedValue(VENTA);
       const llm = crearModelo([
+        BUSCAR_MATE,
         llamada('crear_pedido', { nombreCliente: ' Juan ', items: itemsPedido }),
         new AIMessage('Listo, te paso el link.'),
       ]);
 
-      const resultado = await correr({ prisma: crearPrisma({ mpConectado: true }), llm, busqueda: { buscar: vi.fn() }, ventas });
+      const resultado = await correr({ prisma: crearPrisma({ mpConectado: true }), llm, busqueda: buscaMate(), ventas });
 
       expect(ventas.crearPedido).toHaveBeenCalledWith({
         userId: 'user-1',
@@ -316,7 +415,7 @@ describe('grafo de ventas', () => {
         medioPago: 'mercadopago',
         dePrueba: false,
       });
-      const [tool] = toolMessages(resultado.messages);
+      const tool = resultadoDe(resultado.messages, 'crear_pedido');
       expect(tool.content).toContain('Pedido creado para "Juan": 2 × Mate de calabaza ($ 16.000). Total $ 16.000.');
       expect(tool.content).toContain('https://mp/pagar/venta-1');
       expect(sistemaDe(llm)).toContain('Cobro: con link de pago de Mercado Pago');
@@ -326,14 +425,15 @@ describe('grafo de ventas', () => {
       const ventas = crearVentas();
       ventas.crearPedido.mockResolvedValue({ ...VENTA, linkPago: null, medioPago: 'manual' });
       const llm = crearModelo([
+        BUSCAR_MATE,
         llamada('crear_pedido', { nombreCliente: 'Juan', items: [{ varianteId: 'v-1', cantidad: 2 }] }),
         new AIMessage('Anotado.'),
       ]);
 
-      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, ventas }, true);
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), ventas }, true);
 
       expect(ventas.crearPedido).toHaveBeenCalledWith(expect.objectContaining({ medioPago: 'manual', dePrueba: true }));
-      expect(toolMessages(resultado.messages)[0].content).toContain('Mates del Sur se va a comunicar por este chat');
+      expect(resultadoDe(resultado.messages, 'crear_pedido').content).toContain('Mates del Sur se va a comunicar por este chat');
       expect(sistemaDe(llm)).toContain('no cobra con link por ahora');
     });
 
@@ -365,11 +465,11 @@ describe('grafo de ventas', () => {
       ventas.crearPedido.mockRejectedValue(new PedidoRechazadoError('No hay stock suficiente de "Mate" para 2 unidades: queda 1 unidad.'));
       const resultado = await correr({
         prisma: crearPrisma(),
-        llm: crearModelo([llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido }), new AIMessage('Perdón.')]),
-        busqueda: { buscar: vi.fn() },
+        llm: crearModelo([BUSCAR_MATE, llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido }), new AIMessage('Perdón.')]),
+        busqueda: buscaMate(),
         ventas,
       });
-      expect(toolMessages(resultado.messages)[0].content).toBe(
+      expect(resultadoDe(resultado.messages, 'crear_pedido').content).toBe(
         'No se pudo crear el pedido: No hay stock suficiente de "Mate" para 2 unidades: queda 1 unidad.',
       );
     });
@@ -494,4 +594,76 @@ describe('grafo de ventas', () => {
       expect(historico.resumen).not.toHaveBeenCalled();
     });
   });
+
+  describe('no inventa precios ni productos', () => {
+    it('una respuesta con un precio que no salió del catálogo se descarta y el modelo la corrige', async () => {
+      const prisma = crearPrisma();
+      const busqueda = { buscar: vi.fn().mockResolvedValue([]) };
+      const llm = crearModelo([
+        new AIMessage('¡Sí! El termo está $ 25.000.'),
+        llamada('buscar_productos', { consulta: 'termo' }, 'call-termo'),
+        new AIMessage('No tengo termos. ¿Buscás otra cosa?'),
+      ]);
+
+      const resultado = await correr({ prisma, llm, busqueda });
+
+      expect(resultado.messages.at(-1)?.content).toBe('No tengo termos. ¿Buscás otra cosa?');
+      expect(resultado.messages.some((mensaje) => String(mensaje.content).includes('$ 25.000'))).toBe(false);
+      // La segunda llamada al modelo lleva la corrección en el prompt.
+      const [segunda] = llm.invoke.mock.calls[1] as unknown as [BaseMessage[]];
+      expect(String(segunda[0].content)).toContain('Corrección: tu respuesta anterior mencionaba $ 25.000');
+      // La respuesta inventada no llega a la tabla Message.
+      const guardados = (prisma.message.create as ReturnType<typeof vi.fn>).mock.calls.map(([{ data }]) => JSON.stringify(data));
+      expect(guardados.some((fila) => fila.includes('25.000'))).toBe(false);
+    });
+
+    it('si insiste con un precio inventado, contesta una pregunta fija en vez de mandarlo', async () => {
+      const llm = crearModelo([new AIMessage('El termo está $ 25.000.'), new AIMessage('Sale $ 25.000, te lo guardo.')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
+
+      expect(resultado.messages.at(-1)?.content).toBe(MENSAJE_PRECIO_SIN_VERIFICAR);
+      expect(llm.invoke).toHaveBeenCalledTimes(2);
+    });
+
+    it('un precio que sí devolvió la búsqueda pasa sin tocar', async () => {
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo el mate de calabaza a $ 8.000; los 2 te quedan $ 16.000.')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate() });
+
+      expect(resultado.messages.at(-1)?.content).toContain('$ 16.000');
+      expect(llm.invoke).toHaveBeenCalledTimes(2);
+    });
+
+    it('no deja buscar más de 3 veces por mensaje: a la cuarta le dice que no lo tiene', async () => {
+      const busqueda = { buscar: vi.fn().mockResolvedValue([]) };
+      const llm = crearModelo([
+        llamada('buscar_productos', { consulta: 'termo' }, 'b1'),
+        llamada('buscar_productos', { consulta: 'termo acero' }, 'b2'),
+        llamada('buscar_productos', { consulta: 'termolar' }, 'b3'),
+        llamada('buscar_productos', { consulta: 'botella térmica' }, 'b4'),
+        new AIMessage('No tengo termos, perdón.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda });
+
+      expect(busqueda.buscar).toHaveBeenCalledTimes(3);
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain('Ya buscaste 3 veces');
+      expect(resultado.messages.at(-1)?.content).toBe('No tengo termos, perdón.');
+    });
+
+    it('crear_pedido con una variante que no salió de ninguna búsqueda no llega a crear nada', async () => {
+      const ventas = crearVentas();
+      const llm = crearModelo([
+        llamada('crear_pedido', { nombreCliente: 'Juan', items: [{ varianteId: 'v-inventada', cantidad: 1 }] }),
+        new AIMessage('Perdón, ¿qué producto querías?'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, ventas });
+
+      expect(resultadoDe(resultado.messages, 'crear_pedido').content).toContain('no salieron de ninguna búsqueda');
+      expect(ventas.crearPedido).not.toHaveBeenCalled();
+    });
+  });
 });
+

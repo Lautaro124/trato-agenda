@@ -5,6 +5,7 @@
  * sola vez por mensaje, sin volver a pegarle a Google.
  */
 import type { PeriodoOcupado } from '../../calendar/calendar.service.js';
+import { completarPlantilla, instruccionMandarTalCual } from '../../agents/mensajes.rules.js';
 import type { Agent } from '../../generated/prisma/client.js';
 
 export const TIMEZONE = 'America/Argentina/Buenos_Aires';
@@ -329,15 +330,29 @@ export function detalleSugerencias(sugerencias: Sugerencia[]): string {
  * texto y no tenga que inventar el horario alternativo por su cuenta.
  */
 export function mensajeOcupado(
-  agent: AgentFranja,
+  agent: AgentFranja & Partial<Pick<Agent, 'nombreTitular'>>,
   ocupados: PeriodoOcupado[],
   choques: PeriodoOcupado[],
   inicio: Date,
   fin: Date,
   desde: Date,
   hasta: Date,
+  plantilla?: string | null,
 ): string {
   const alternativas = detalleSugerencias(horariosCercanos(agent, ocupados, inicio, fin, desde, hasta));
+  if (plantilla && alternativas) {
+    // El "horario ocupado" que escribió el dueño (/asistente). Sin alternativas no hay con qué
+    // completar {sugerencia}: ahí queda el texto de siempre, que le pide al modelo otra fecha.
+    const mensaje = completarPlantilla(plantilla, {
+      horario_pedido: formatearFecha(inicio),
+      sugerencia: alternativas,
+      titular: agent.nombreTitular?.trim() ?? '',
+    });
+    return (
+      `Ese horario está ocupado o queda a menos de ${MARGEN_MINIMO_MIN} minutos de otro turno ` +
+      `(${detalleOcupados(choques)}). ${instruccionMandarTalCual(mensaje)}`
+    );
+  }
   const cierre = alternativas
     ? `Lo más cercano que tengo libre es ${alternativas}. Ofrecéselo al cliente.`
     : 'No me queda ningún hueco de esa duración en los próximos días; pedile otra fecha.';

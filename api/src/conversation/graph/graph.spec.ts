@@ -8,6 +8,8 @@ import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { CalendarService, PeriodoOcupado } from '../../calendar/calendar.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { LIMITE_RECURSION, construirGrafo } from './graph.factory.js';
+import { YA_TE_PRESENTASTE } from './saludo.js';
+import { conMarcaDeLlegada, recibidoEn } from './ventana-historial.js';
 
 /** Los tests trabajan en -03:00, la zona fija del proyecto. */
 function hora(iso: string, dia = '2026-09-01'): string {
@@ -150,6 +152,33 @@ describe('grafo conversacional', () => {
     expect(sistema).toContain('existís sólo para la agenda de Tienda Centro');
     expect(sistema).toContain('Cualquier otro tema queda afuera');
     expect(sistema).toContain('mezclado con algo del turno');
+  });
+
+  it('se presenta sólo en el primer mensaje de la charla', async () => {
+    const llm = crearModelo([new AIMessage('Hola, soy Tati. ¿Qué día te queda bien?')]);
+    const grafo = construirGrafo({
+      prisma: crearPrisma(),
+      calendarService: crearCalendar(),
+      llm,
+      openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
+      checkpointer: new MemorySaver(),
+    });
+    const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION };
+    const entrada = (texto: string) => ({
+      messages: [new HumanMessage(texto)],
+      ownerUserId: 'user-1',
+      remoteJid: CONVERSATION.remoteJid,
+      esPropietario: false,
+    });
+
+    await grafo.invoke(entrada('hola'), config);
+    await grafo.invoke(entrada('quiero un turno'), config);
+
+    const sistemas = (llm.invoke.mock.calls as unknown as Array<[BaseMessage[]]>).map(([mensajes]) => String(mensajes[0].content));
+    expect(sistemas[0]).not.toContain(YA_TE_PRESENTASTE);
+    expect(sistemas[0]).toContain('Primera vez que te escribe este número');
+    expect(sistemas[1]).toContain(YA_TE_PRESENTASTE);
+    expect(sistemas[1]).not.toContain('Primera vez que te escribe este número');
   });
 
   it('lee la agenda una sola vez por mensaje entrante', async () => {
@@ -517,3 +546,97 @@ describe('grafo conversacional con un Agent generado por la plantilla determinis
     expect(rechazo).toBeUndefined();
   });
 });
+
+describe('ventana de historial que ve el modelo', () => {
+  const DIA = 24 * 60 * 60_000;
+  const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION };
+
+  function grafoCon(llm: BaseChatModel, opciones: { prisma?: PrismaService; ventanaHistorialMs?: number } = {}) {
+    return construirGrafo({
+      prisma: opciones.prisma ?? crearPrisma(),
+      calendarService: crearCalendar(),
+      llm,
+      openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
+      checkpointer: new MemorySaver(),
+      ventanaHistorialMs: opciones.ventanaHistorialMs,
+    });
+  }
+
+  /** Un mensaje del cliente que llegó hace `haceMs`. */
+  function humanoDeHace(texto: string, haceMs: number) {
+    return conMarcaDeLlegada(new HumanMessage(texto), new Date(Date.now() - haceMs));
+  }
+
+  function entrada(messages: BaseMessage[]) {
+    return { messages, ownerUserId: 'user-1', remoteJid: CONVERSATION.remoteJid, esPropietario: false };
+  }
+
+  function loQueVioElModelo(llm: { invoke: ReturnType<typeof vi.fn> }): BaseMessage[] {
+    const [mensajes] = llm.invoke.mock.calls.at(-1) as unknown as [BaseMessage[]];
+    return mensajes.slice(1);
+  }
+
+  it('un hilo que quedó cortado (tool call sin respuesta) no hace fallar los mensajes siguientes', async () => {
+    const llm = crearModelo([new AIMessage('¿Qué día te queda bien?')]);
+
+    await grafoCon(llm).invoke(
+      entrada([
+        humanoDeHace('quiero un turno', 60 * 60_000),
+        new AIMessage({ content: '', tool_calls: [{ id: 'cortada', name: 'consultar_turno', args: {} }] }),
+        new HumanMessage('¿hola?'),
+      ]),
+      config,
+    );
+
+    const vistos = loQueVioElModelo(llm);
+    expect(vistos.map((mensaje) => mensaje.content)).toEqual(['quiero un turno', '¿hola?']);
+    expect(vistos.some((mensaje) => ((mensaje as AIMessage).tool_calls ?? []).length > 0)).toBe(false);
+  });
+
+  it('lo que quedó fuera de la ventana no llega al modelo, y el resumen tampoco', async () => {
+    const prisma = crearPrisma();
+    (prisma.conversation.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...CONVERSATION,
+      resumen: 'Se cortó el pelo en agosto.',
+      nombreCliente: 'Juan',
+    });
+    const llm = crearModelo([new AIMessage('¡Hola, Juan! ¿Qué día te queda bien?')]);
+
+    await grafoCon(llm, { prisma }).invoke(
+      entrada([humanoDeHace('turno para el lunes', 20 * DIA), new AIMessage('Listo, quedó el lunes.'), new HumanMessage('hola')]),
+      config,
+    );
+
+    expect(loQueVioElModelo(llm).map((mensaje) => mensaje.content)).toEqual(['hola']);
+    const [mensajes] = llm.invoke.mock.calls[0] as unknown as [BaseMessage[]];
+    const sistema = String(mensajes[0].content);
+    expect(sistema).not.toContain('Se cortó el pelo en agosto.');
+    // El nombre se conserva: no se lo vuelve a preguntar.
+    expect(sistema).toContain('Ya sabés que se llama Juan');
+  });
+
+  it('la ventana es configurable: con 2 horas, lo de hace 3 horas ya no se ve', async () => {
+    const historial = () => [humanoDeHace('quiero un turno', 3 * 60 * 60_000), new AIMessage('¿Para qué día?'), new HumanMessage('el lunes')];
+
+    const conDosHoras = crearModelo([new AIMessage('ok')]);
+    await grafoCon(conDosHoras, { ventanaHistorialMs: 2 * 60 * 60_000 }).invoke(entrada(historial()), config);
+    expect(loQueVioElModelo(conDosHoras)).toHaveLength(1);
+
+    const porDefecto = crearModelo([new AIMessage('ok')]);
+    await grafoCon(porDefecto).invoke(entrada(historial()), config);
+    expect(loQueVioElModelo(porDefecto)).toHaveLength(3);
+  });
+
+  it('el mensaje que llega queda marcado con su hora en el checkpoint, y la marca no viaja como texto', async () => {
+    const llm = crearModelo([new AIMessage('Hola, soy Tati.')]);
+    const grafo = grafoCon(llm);
+
+    await grafo.invoke(entrada([new HumanMessage('hola')]), config);
+
+    const estado = await grafo.getState(config);
+    const [humano] = estado.values.messages as BaseMessage[];
+    expect(recibidoEn(humano)).toEqual(new Date(hora('08:00')));
+    expect(humano.content).toBe('hola');
+  });
+});
+

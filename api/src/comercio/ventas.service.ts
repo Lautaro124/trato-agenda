@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { mensajePropio } from '../agents/mensajes.rules.js';
 import type { Env } from '../config/env.js';
 import type { ItemVenta, Prisma, Venta } from '../generated/prisma/client.js';
 import { avisoMercadoPagoDesconectado, avisoPedidoManual, avisoStock, avisoVentaPagada } from '../notificaciones/avisos.js';
@@ -16,6 +17,7 @@ import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import { reservadasPorVariante } from './reservas.js';
 import {
   agruparItems,
+  detalleDeRenglones,
   MAX_PEDIDOS_PENDIENTES,
   mensajePagoAprobado,
   pagoSaldaVenta,
@@ -396,13 +398,22 @@ export class VentasService {
     try {
       const [conversation, agent] = await Promise.all([
         this.prisma.conversation.findUnique({ where: { id: venta.conversationId }, select: { remoteJid: true } }),
-        this.prisma.agent.findUnique({ where: { userId: venta.userId }, select: { nombreTitular: true } }),
+        this.prisma.agent.findUnique({ where: { userId: venta.userId }, select: { nombreTitular: true, mensajes: true } }),
       ]);
       if (!conversation) return;
+      const plantilla = agent ? mensajePropio(agent, 'pagoAprobado') : null;
+      const propio = plantilla
+        ? {
+            plantilla,
+            detalle: /\{detalle\}/.test(plantilla)
+              ? detalleDeRenglones(await this.prisma.itemVenta.findMany({ where: { ventaId: venta.id }, orderBy: { id: 'asc' } }))
+              : '',
+          }
+        : null;
       const enviado = await this.notificaciones.avisarAlCliente(
         venta.userId,
         conversation.remoteJid,
-        mensajePagoAprobado(venta, agent?.nombreTitular ?? null),
+        mensajePagoAprobado(venta, agent?.nombreTitular ?? null, propio),
       );
       if (!enviado) this.logger.warn(`No se le pudo avisar al cliente el pago de la venta ${venta.id}.`);
     } catch (error) {

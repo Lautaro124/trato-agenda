@@ -20,6 +20,14 @@ export type Env = {
    * y dar vectores de 1536 dimensiones (la columna Producto.embedding).
    */
   OPENROUTER_EMBEDDINGS_MODEL: string;
+  /**
+   * Modelo de decisiones (no de chat) con el que el asistente de ventas elige
+   * qué categorías o productos sugerir: Jev, de TypeSafe. Tiene que tener
+   * endpoint ZDR, igual que los otros dos.
+   */
+  OPENROUTER_DECISIONS_MODEL: string;
+  /** La Decisions API de OpenRouter no cuelga de /api/v1. Los E2E la apuntan al stub. */
+  OPENROUTER_DECISIONS_URL: string;
   /** Contraseña del login de desarrollo. Vacía = login dev apagado. Prohibida en producción. */
   DEV_LOGIN_PASSWORD: string;
   MERCADOPAGO_ACCESS_TOKEN: string;
@@ -41,6 +49,12 @@ export type Env = {
    */
   API_PUBLIC_URL: string;
   SUSCRIPCION_PRECIO_ARS: number;
+  /**
+   * Hasta cuánto para atrás ve el modelo el historial de un chat
+   * (HISTORIAL_IA_VENTANA, "14d", "1d", "2h", "30m"). Lo más viejo sigue en
+   * la base; sólo deja de mandarse al modelo.
+   */
+  HISTORIAL_IA_VENTANA_MS: number;
 };
 
 const REQUIRED = [
@@ -59,7 +73,32 @@ const REQUIRED = [
 // intentar suscribirse, o (las de OAuth) al conectar Mercado Pago para vender.
 
 export const OPENROUTER_BASE_URL_POR_DEFECTO = 'https://openrouter.ai/api/v1';
+export const OPENROUTER_DECISIONS_URL_POR_DEFECTO = 'https://openrouter.ai/api/alpha/decisions';
 export const MERCADOPAGO_BASE_URL_POR_DEFECTO = 'https://api.mercadopago.com';
+
+export const HISTORIAL_IA_VENTANA_POR_DEFECTO = '14d';
+
+const MS_POR_UNIDAD = { m: 60_000, h: 60 * 60_000, d: 24 * 60 * 60_000 } as const;
+
+/** Más de diez años no es una ventana, es un error de tipeo (y saca la fecha de rango). */
+const DURACION_MAXIMA_MS = 3650 * MS_POR_UNIDAD.d;
+
+/** "14d" → milisegundos. Minutos, horas o días enteros, mayores a cero y hasta diez años; si no, null. */
+export function parsearDuracion(texto: string): number | null {
+  const coincidencia = /^(\d+)\s*([mhd])$/i.exec(texto.trim());
+  if (!coincidencia) return null;
+  const cantidad = Number(coincidencia[1]);
+  if (!Number.isSafeInteger(cantidad) || cantidad <= 0) return null;
+  const ms = cantidad * MS_POR_UNIDAD[coincidencia[2].toLowerCase() as keyof typeof MS_POR_UNIDAD];
+  return ms <= DURACION_MAXIMA_MS ? ms : null;
+}
+
+/** Saca las barras finales de una URL. Sin regex: `/\/+$/` hace backtracking cuadrático. */
+function sinBarrasFinales(url: string): string {
+  let fin = url.length;
+  while (fin > 0 && url[fin - 1] === '/') fin--;
+  return url.slice(0, fin);
+}
 
 function origenDe(url: string): string {
   try {
@@ -100,6 +139,14 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     throw new Error('DEV_LOGIN_PASSWORD no puede estar definida en producción. Borrala de las variables del deploy.');
   }
 
+  const ventanaHistorial = String(raw.HISTORIAL_IA_VENTANA || HISTORIAL_IA_VENTANA_POR_DEFECTO);
+  const ventanaHistorialMs = parsearDuracion(ventanaHistorial);
+  if (ventanaHistorialMs === null) {
+    throw new Error(
+      `HISTORIAL_IA_VENTANA tiene que ser un número entero seguido de m, h o d (por ejemplo 14d, 1d o 2h); vino "${ventanaHistorial}".`,
+    );
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: Number(raw.PORT ?? 4000),
@@ -114,16 +161,19 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     SESSION_COOKIE_NAME: String(raw.SESSION_COOKIE_NAME ?? 'trato_session'),
     OPENROUTER_API_KEY: String(raw.OPENROUTER_API_KEY ?? ''),
     OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'google/gemma-4-31b-it'),
-    OPENROUTER_BASE_URL: String(raw.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_POR_DEFECTO).replace(/\/+$/, ''),
+    OPENROUTER_BASE_URL: sinBarrasFinales(String(raw.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_POR_DEFECTO)),
     OPENROUTER_EMBEDDINGS_MODEL: String(raw.OPENROUTER_EMBEDDINGS_MODEL || 'openai/text-embedding-3-small'),
+    OPENROUTER_DECISIONS_MODEL: String(raw.OPENROUTER_DECISIONS_MODEL || 'typesafe/jev-1.13'),
+    OPENROUTER_DECISIONS_URL: sinBarrasFinales(String(raw.OPENROUTER_DECISIONS_URL || OPENROUTER_DECISIONS_URL_POR_DEFECTO)),
     DEV_LOGIN_PASSWORD: devLoginPassword,
     MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),
     MERCADOPAGO_WEBHOOK_SECRET: String(raw.MERCADOPAGO_WEBHOOK_SECRET ?? ''),
     MERCADOPAGO_CLIENT_ID: String(raw.MERCADOPAGO_CLIENT_ID ?? ''),
     MERCADOPAGO_CLIENT_SECRET: String(raw.MERCADOPAGO_CLIENT_SECRET ?? ''),
-    MERCADOPAGO_BASE_URL: String(raw.MERCADOPAGO_BASE_URL || MERCADOPAGO_BASE_URL_POR_DEFECTO).replace(/\/+$/, ''),
-    MERCADOPAGO_AUTH_URL: String(raw.MERCADOPAGO_AUTH_URL || 'https://auth.mercadopago.com').replace(/\/+$/, ''),
-    API_PUBLIC_URL: String(raw.API_PUBLIC_URL || origenDe(String(raw.GOOGLE_CALLBACK_URL))).replace(/\/+$/, ''),
+    MERCADOPAGO_BASE_URL: sinBarrasFinales(String(raw.MERCADOPAGO_BASE_URL || MERCADOPAGO_BASE_URL_POR_DEFECTO)),
+    MERCADOPAGO_AUTH_URL: sinBarrasFinales(String(raw.MERCADOPAGO_AUTH_URL || 'https://auth.mercadopago.com')),
+    API_PUBLIC_URL: sinBarrasFinales(String(raw.API_PUBLIC_URL || origenDe(String(raw.GOOGLE_CALLBACK_URL)))),
     SUSCRIPCION_PRECIO_ARS: Number(raw.SUSCRIPCION_PRECIO_ARS ?? 20000),
+    HISTORIAL_IA_VENTANA_MS: ventanaHistorialMs,
   };
 }
