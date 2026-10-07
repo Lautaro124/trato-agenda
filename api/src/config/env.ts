@@ -93,6 +93,13 @@ export function parsearDuracion(texto: string): number | null {
   return ms <= DURACION_MAXIMA_MS ? ms : null;
 }
 
+/** Saca las barras finales de una URL. Sin regex: `/\/+$/` hace backtracking cuadrático. */
+function sinBarrasFinales(url: string): string {
+  let fin = url.length;
+  while (fin > 0 && url[fin - 1] === '/') fin--;
+  return url.slice(0, fin);
+}
+
 function origenDe(url: string): string {
   try {
     return new URL(url).origin;
@@ -154,18 +161,18 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     SESSION_COOKIE_NAME: String(raw.SESSION_COOKIE_NAME ?? 'trato_session'),
     OPENROUTER_API_KEY: String(raw.OPENROUTER_API_KEY ?? ''),
     OPENROUTER_MODEL: String(raw.OPENROUTER_MODEL ?? 'google/gemma-4-31b-it'),
-    OPENROUTER_BASE_URL: String(raw.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_POR_DEFECTO).replace(/\/+$/, ''),
+    OPENROUTER_BASE_URL: sinBarrasFinales(String(raw.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL_POR_DEFECTO)),
     OPENROUTER_EMBEDDINGS_MODEL: String(raw.OPENROUTER_EMBEDDINGS_MODEL || 'openai/text-embedding-3-small'),
     OPENROUTER_DECISIONS_MODEL: String(raw.OPENROUTER_DECISIONS_MODEL || 'typesafe/jev-1.13'),
-    OPENROUTER_DECISIONS_URL: String(raw.OPENROUTER_DECISIONS_URL || OPENROUTER_DECISIONS_URL_POR_DEFECTO).replace(/\/+$/, ''),
+    OPENROUTER_DECISIONS_URL: sinBarrasFinales(String(raw.OPENROUTER_DECISIONS_URL || OPENROUTER_DECISIONS_URL_POR_DEFECTO)),
     DEV_LOGIN_PASSWORD: devLoginPassword,
     MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),
     MERCADOPAGO_WEBHOOK_SECRET: String(raw.MERCADOPAGO_WEBHOOK_SECRET ?? ''),
     MERCADOPAGO_CLIENT_ID: String(raw.MERCADOPAGO_CLIENT_ID ?? ''),
     MERCADOPAGO_CLIENT_SECRET: String(raw.MERCADOPAGO_CLIENT_SECRET ?? ''),
-    MERCADOPAGO_BASE_URL: String(raw.MERCADOPAGO_BASE_URL || MERCADOPAGO_BASE_URL_POR_DEFECTO).replace(/\/+$/, ''),
-    MERCADOPAGO_AUTH_URL: String(raw.MERCADOPAGO_AUTH_URL || 'https://auth.mercadopago.com').replace(/\/+$/, ''),
-    API_PUBLIC_URL: String(raw.API_PUBLIC_URL || origenDe(String(raw.GOOGLE_CALLBACK_URL))).replace(/\/+$/, ''),
+    MERCADOPAGO_BASE_URL: sinBarrasFinales(String(raw.MERCADOPAGO_BASE_URL || MERCADOPAGO_BASE_URL_POR_DEFECTO)),
+    MERCADOPAGO_AUTH_URL: sinBarrasFinales(String(raw.MERCADOPAGO_AUTH_URL || 'https://auth.mercadopago.com')),
+    API_PUBLIC_URL: sinBarrasFinales(String(raw.API_PUBLIC_URL || origenDe(String(raw.GOOGLE_CALLBACK_URL)))),
     SUSCRIPCION_PRECIO_ARS: Number(raw.SUSCRIPCION_PRECIO_ARS ?? 20000),
     HISTORIAL_IA_VENTANA_MS: ventanaHistorialMs,
   };

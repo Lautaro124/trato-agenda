@@ -150,7 +150,7 @@ function diaBA(fecha: Date | null): string {
  * confirmo?"), no un "te confirmo que quedó agendado".
  */
 const noPideConfirmar = (respuesta: string) =>
-  !/[^.!?]*(confirm|te parece bien|lo agendo|lo reservo|lo cancelo|lo muevo)[^.!?]*\?/.test(normalizar(respuesta));
+  !/(confirm|te parece bien|lo agendo|lo reservo|lo cancelo|lo muevo)[^.!?]*\?/.test(normalizar(respuesta));
 
 const CASOS: Caso[] = [
   {

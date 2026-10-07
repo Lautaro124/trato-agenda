@@ -43,7 +43,7 @@ export function fuentesDeMontos(state: Pick<EstadoVentasValue, 'messages' | 'ini
 export function crearNodoVerificarRespuesta() {
   const logger = new Logger('VerificarRespuestaNode');
 
-  return async (state: EstadoVentasValue): Promise<EstadoVentasUpdate> => {
+  return (state: EstadoVentasValue): EstadoVentasUpdate => {
     const ultimo = state.messages.at(-1);
     if (!ultimo || ultimo.getType() !== 'ai' || !ultimo.id) return {};
 

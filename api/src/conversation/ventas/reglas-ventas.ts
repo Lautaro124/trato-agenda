@@ -49,7 +49,7 @@ export function preguntaDeCierre(mpConectado: boolean): string {
 /** Los montos "$ …" de un texto, en centavos: "$ 8.000" → 800000, "$1.500,50" → 150050. */
 export function montosEnTexto(texto: string): number[] {
   return [...texto.matchAll(/\$\s?(\d[\d.]*)(?:,(\d{1,2}))?/g)].map(
-    ([, enteros, decimales]) => Number(enteros.replace(/\./g, '')) * 100 + Number((decimales ?? '0').padEnd(2, '0')),
+    ([, enteros, decimales]) => Number(enteros.replaceAll('.', '')) * 100 + Number((decimales ?? '0').padEnd(2, '0')),
   );
 }
 
@@ -321,7 +321,7 @@ export function formatearResultados(
   if (coinciden.length > 0) {
     partes.push(
       `Resultados de ${JSON.stringify(consulta)}, del más al menos relevante (precios y stock exactos; si ninguno ` +
-        `es lo que pidió, decile que no lo tenés):\n${coinciden.map(formatear).join('\n')}`,
+        `es lo que pidió, decile que no lo tenés):\n${coinciden.map((producto, indice) => formatear(producto, indice)).join('\n')}`,
     );
   }
   if (parecidos.length > 0) {

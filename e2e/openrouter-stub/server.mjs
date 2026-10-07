@@ -171,7 +171,7 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (/\bque (productos )?(tenes|ofreces|vendes)\b/.test(ultimoUsuario) || ultimoUsuario.includes('lista de productos')) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', {}));
   }
-  const categoria = textoDe(mensajes[indiceUsuario]).match(/mostrame (?:los |las )?(.+?)[?.!]*$/i)?.[1];
+  const categoria = textoDe(mensajes[indiceUsuario]).match(/mostrame (?:los |las )?([^?.!]+)/i)?.[1]?.trim();
   if (categoria) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', { categoria }));
   }
@@ -304,11 +304,12 @@ function embeddings(body, res) {
 function decisiones(body, res) {
   const estado = normalizar(typeof body.state === 'string' ? body.state : JSON.stringify(body.state ?? ''));
   const palabras = new Set(estado.split(/[^a-z0-9ñ]+/).filter((palabra) => palabra.length >= 3));
-  const respuestas = {};
-  const opciones = {};
+  // Maps y no objetos: los ids de las preguntas y opciones llegan en el pedido.
+  const respuestas = new Map();
+  const opciones = new Map();
   for (const [id, pregunta] of Object.entries(body.questions ?? {})) {
     const ids = Object.keys(pregunta.criteria ?? {}).filter((opcion) => opcion !== 'none');
-    opciones[id] = ids;
+    opciones.set(id, ids);
     const puntajes = ids.map((opcion, indice) => {
       const texto = normalizar(String(pregunta.criteria[opcion]));
       const coincidencias = [...palabras].filter((palabra) => texto.includes(palabra.replace(/s$/, ''))).length;
@@ -317,14 +318,14 @@ function decisiones(body, res) {
     const total = puntajes.reduce((suma, puntaje) => suma + puntaje, 0) || 1;
     const probabilidades = Object.fromEntries(ids.map((opcion, indice) => [opcion, puntajes[indice] / total]));
     const ganadora = ids[puntajes.indexOf(Math.max(...puntajes))] ?? 'none';
-    respuestas[id] = { type: 'choice', choice: ganadora, probabilities: { ...probabilidades, none: 0 }, confidence: 0.9 };
+    respuestas.set(id, { type: 'choice', choice: ganadora, probabilities: { ...probabilidades, none: 0 }, confidence: 0.9 });
   }
-  llamadas.push({ tipo: 'decision', model: body.model, provider: body.provider ?? null, estado, opciones });
+  llamadas.push({ tipo: 'decision', model: body.model, provider: body.provider ?? null, estado, opciones: Object.fromEntries(opciones) });
   return responder(res, 200, {
     id: `gen-dec-stub-${Date.now()}`,
     model: body.model,
     provider: 'TypeSafe',
-    answers: respuestas,
+    answers: Object.fromEntries(respuestas),
     usage: { input_tokens: estado.length, output_tokens: 0, cost: 0 },
   });
 }
