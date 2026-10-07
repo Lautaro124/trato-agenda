@@ -33,6 +33,8 @@ controles que corren solos están en `.github/workflows/security.yml` y
 | 10 | Info | Sin CSP completa en la web (sólo `frame-ancestors`). | **Pendiente**: una CSP con nonces en Next 16 necesita `proxy.ts`; ver la doc de Next en `web/node_modules/next/dist/docs/` antes de encararlo. |
 | 11 | Info | `npx tsc --noEmit -p tsconfig.json` en `api/` falla en dos specs (`turnos-del-dueno.spec.ts`, `test/app.e2e-spec.ts`). No afecta al build (`tsconfig.build.json`) ni a vitest. | **Pendiente**: CI chequea tipos con `tsconfig.build.json`. |
 | 12 | Media | Sentry v11 junta por defecto bodies, cookies, query strings, variables locales de cada frame y las entradas/salidas de los modelos: con la configuración por defecto, un error del grafo habría mandado la conversación del cliente a un tercero. | **Arreglado al integrarlo**: `dataCollection` todo apagado, integraciones de IA fuera (`api/src/instrument.ts`) y `limpiarEvento`/`limpiarSpan`/`limpiarBreadcrumb` (`api/src/observabilidad/scrubbing.ts`, con tests) como segunda barrera. Revisar esto en cada major del SDK. |
+| 13 | Alta | `brace-expansion` (2026-10-05, GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p): DoS por expansión cuadrática y recursión. En la API llega a producción vía `@sentry/nestjs` → `glob` → `minimatch`, y por eso también lo marcaba Grype en la imagen. | **Arreglado**: `npm audit fix --package-lock-only` en `api/` (5.0.12) y `web/` (1.1.21 / 5.0.12), sin tocar dependencias directas. |
+| 14 | Alta (dev) | `braces` (2026-10-05, GHSA-vfj7-8cjw-p6xm): stack exhaustion con patrones muy anidados, en **todas** las versiones. En la web llega sólo por el lint (`eslint-config-next` → `@next/eslint-plugin-next` → `fast-glob` → `micromatch`), sobre archivos propios, y no viaja en la imagen (Grype web pasa). | **Exceptuado hasta el parche**: entrada en `.github/npm-audit-excepciones.json` (revisar el 2026-11-05). `npm audit fix --force` no sirve: baja `eslint-config-next` a 14. La excepción vence sola cuando npm puede arreglarlo, y ahí alcanza con `npm audit fix --package-lock-only` en `web/` y borrar la entrada. |
 
 Lo que se revisó y está bien: el CSRF por `Origin` más cookies `httpOnly`/`secure`;
 la validación de entorno que rechaza `DEV_LOGIN_PASSWORD` en producción; el
@@ -211,7 +213,12 @@ de compose con un `api/.env` de mentira generado en el momento.
 **`security.yml`** (PRs, `main` y los lunes):
 
 - `npm audit` por paquete: falla desde *moderate* en producción y desde *high*
-  en desarrollo; más `npm audit signatures` sobre lo instalado.
+  en desarrollo; más `npm audit signatures` sobre lo instalado. El paso de
+  desarrollo pasa por `.github/scripts/npm-audit-con-excepciones.mjs`, que admite
+  las excepciones de `.github/npm-audit-excepciones.json`: cada una cubre un solo
+  GHSA de un paquete, en las carpetas que lista (`en`), sólo mientras no haya parche y hasta su fecha `revisar`;
+  pasado cualquiera de los dos, el job vuelve a fallar. El paso de producción no
+  admite excepciones.
 - CodeQL (`security-extended`) sobre TypeScript y sobre los propios workflows.
 - TruffleHog sobre los commits nuevos (y todo el historial en el cron).
 - Dependency Review en PRs: frena dependencias nuevas vulnerables o con

@@ -112,21 +112,34 @@ export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
 
 /**
  * Cómo se escribe, no qué se dice. Esto es WhatsApp: un mensaje largo con la
- * agenda entera enumerada se lee peor que dos líneas con tres horarios. Vive en
- * código, igual que las otras reglas, así que aplica también a los agentes ya
- * generados. El nodo de validación empuja para el mismo lado: para un día suelto
- * le devuelve al modelo un puñado chico de horarios, no la lista completa.
+ * agenda entera enumerada se lee peor que unas pocas líneas con tres horarios,
+ * una por renglón. Se pide el formato propio de WhatsApp (negrita con un solo
+ * asterisco, listas con "* ") y no markdown, que ahí se ve crudo; los emojis
+ * van acotados para que marquen la línea y no la llenen. Vive en código, igual
+ * que las otras reglas, así que aplica también a los agentes ya generados. El
+ * nodo de validación empuja para el mismo lado: para un día suelto le devuelve
+ * al modelo un puñado chico de horarios, no la lista completa.
  */
 export function reglasDeEstilo(agent?: Pick<Agent, 'mensajes'>): string {
   return (
     'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
-    '- Contestá en una o dos frases cortas. Nada de markdown, viñetas, títulos ni listas numeradas.\n' +
+    '- Mensajes cortos: de 1 a 4 líneas. Nada de párrafos largos.\n' +
+    '- Usá el formato de WhatsApp, nunca markdown: negrita con un solo asterisco (*así*), sin "**", sin "#", sin tablas.\n' +
+    '- Cuando pases opciones (horarios, tipos de turno), poné una por línea empezando con "* ".\n' +
+    '- Podés usar emojis para que se lea más rápido, como mucho 2 por mensaje y al principio de la línea: ' +
+    '👋 saludo, 📅 día, 🕒 horario, ✅ confirmado, 🔁 reprogramado, ❌ cancelado. Nunca un emoji por palabra.\n' +
     `- Nunca pases más de ${MAX_OPCIONES_DIA} horarios en un mismo mensaje, aunque tengas muchos libres.\n` +
-    '- Si el día está libre entero, decilo como rango ("el martes tengo de 09:00 a 18:00") en vez de enumerar horas.\n' +
-    `- Si ese día ya tiene turnos, preguntá primero "¿preferís por la mañana o por la tarde?" y recién ahí pasá hasta ${MAX_OPCIONES_DIA} horarios.\n` +
+    '- Si el día está libre entero, decilo como rango ("📅 El martes tengo libre de 09:00 a 18:00") en vez de enumerar horas.\n' +
+    `- Si ese día ya tiene turnos, preguntá primero "¿preferís por la mañana o por la tarde?" y recién ahí pasá hasta ${MAX_OPCIONES_DIA} horarios, uno por línea:\n` +
+    '  * 10:00\n' +
+    '  * 11:30\n' +
+    '  * 15:00\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.\n' +
     '- Saludá y decí tu nombre sólo en tu primer mensaje de la conversación; después seguí la charla directo, sin "hola" ni volver a presentarte.\n' +
-    '- Cuando agendás, avisá que quedó agendado en una línea: día, horario y nombre, sin resumir toda la charla.' +
+    '- Recién cuando crear_turno salió bien (nunca antes), confirmá el turno en este formato, sin resumir toda la charla:\n' +
+    '  ✅ Listo, {nombre}. Te agendé:\n' +
+    '  📅 {día}\n' +
+    '  🕒 {horario}' +
     (agent ? reglaDeMensajesPropios(agent) : '')
   );
 }

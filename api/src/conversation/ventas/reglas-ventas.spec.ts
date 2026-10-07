@@ -9,8 +9,10 @@ import {
   formatearResultados,
   formatearStockDueno,
   MAX_CATEGORIAS_EN_PROMPT,
+  MAX_PRODUCTOS_POR_MENSAJE,
   montosEnTexto,
   preciosSinRespaldo,
+  reglasDeEstiloVentas,
   reglasDeVenta,
   variantesMostradas,
 } from './reglas-ventas.js';
@@ -134,6 +136,18 @@ describe('reglasDeVenta', () => {
     const reglas = reglasDeVenta(agent, false);
     expect(reglas).toContain('"¿Querés algo más o te lo anoto así?"');
     expect(reglas).not.toContain('antes de que te pase el link de pago');
+  });
+});
+
+describe('reglasDeEstiloVentas', () => {
+  it('pide el formato de WhatsApp, productos de a uno por línea y emojis acotados', () => {
+    const estilo = reglasDeEstiloVentas();
+
+    expect(estilo).toContain('formato de WhatsApp, nunca markdown');
+    expect(estilo).toContain('uno por línea empezando con "* "');
+    expect(estilo).toContain(`más de ${MAX_PRODUCTOS_POR_MENSAJE} productos`);
+    expect(estilo).toContain('como mucho 2 por mensaje');
+    expect(estilo).not.toContain('Nada de markdown, viñetas');
   });
 });
 

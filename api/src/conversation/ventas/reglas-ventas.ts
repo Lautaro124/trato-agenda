@@ -239,15 +239,21 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
   );
 }
 
+/** Mismo criterio que `reglasDeEstilo` de la agenda: formato de WhatsApp, no markdown, y emojis acotados. */
 export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
   return (
     'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
-    '- Contestá en una o dos frases cortas. Nada de markdown, viñetas, títulos ni listas numeradas.\n' +
+    '- Mensajes cortos: de 1 a 5 líneas. Nada de párrafos largos.\n' +
+    '- Usá el formato de WhatsApp, nunca markdown: negrita con un solo asterisco (*así*), sin "**", sin "#", sin tablas.\n' +
+    '- Cuando muestres productos, uno por línea empezando con "* ": nombre, variante y precio tal cual los devolvió la búsqueda. El formato es:\n' +
+    '  * *{producto}* {variante} · {precio}\n' +
+    '  * *{producto}* {variante} · {precio} (sin stock)\n' +
     `- Nunca muestres más de ${MAX_PRODUCTOS_POR_MENSAJE} productos en un mismo mensaje, aunque la búsqueda ` +
     'devuelva más: elegí los que mejor encajan con lo que pidió.\n' +
     '- La única excepción es lo que devuelve ver_catalogo: ahí sí mostrá la lista entera que te da, una línea ' +
-    'por producto o categoría empezando con un guion, sin negritas ni numerar, y una frase corta antes y otra ' +
-    'después.\n' +
+    'por producto o categoría empezando con "* ", sin numerar, y una frase corta antes y otra después.\n' +
+    '- Podés usar emojis para que se lea más rápido, como mucho 2 por mensaje: 👋 saludo, 🛍️ productos, ' +
+    '🛒 lo que lleva anotado, 💳 link de pago, ✅ pago aprobado. Nunca un emoji por palabra.\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
     (agent ? reglaDeMensajesPropios(agent) : '')
   );
