@@ -103,12 +103,9 @@ export default function PrivacidadPage() {
             </Punto>
             <Punto>
               <Scope>https://www.googleapis.com/auth/calendar.events</Scope>: crear, mover y cancelar
-              los turnos que el asistente acuerda con tus clientes, y listarte tus eventos en tu propio
-              panel.
-            </Punto>
-            <Punto>
-              <Scope>https://www.googleapis.com/auth/calendar.freebusy</Scope>: leer los bloques
-              ocupado/libre de tu calendario para saber cuándo podés atender.
+              los turnos que el asistente acuerda con tus clientes, listarte tus eventos en tu propio
+              panel y leer el horario de tus eventos (sólo inicio, fin y si te ocupan) para saber
+              cuándo podés atender.
             </Punto>
           </Lista>
           <p>

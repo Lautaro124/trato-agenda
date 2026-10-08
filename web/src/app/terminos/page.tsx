@@ -107,15 +107,11 @@ export default function TerminosPage() {
 
         <Seccion titulo="Tu cuenta de Google">
           <p>
-            Conectar Google es opcional. Si lo hacés, nos das dos permisos sobre tu calendario, y sólo esos:{" "}
+            Conectar Google es opcional. Si lo hacés, nos das un único permiso sobre tu calendario, y sólo ese:{" "}
             <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
               calendar.events
             </code>{" "}
-            para crear, mover, cancelar y listar eventos, y{" "}
-            <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
-              calendar.freebusy
-            </code>{" "}
-            para ver qué horarios tenés ocupados. Se usan únicamente para el funcionamiento del
+            para crear, mover, cancelar y listar eventos, y para ver qué horarios tenés ocupados. Se usa únicamente para el funcionamiento del
             asistente.
           </p>
           <p>

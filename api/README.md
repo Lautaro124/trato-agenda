@@ -19,8 +19,9 @@ En [Google Cloud Console](https://console.cloud.google.com/):
    - Authorized redirect URI: `http://localhost:4000/auth/google/callback`
 
 Los scopes que pide la app son los de `GOOGLE_SCOPES`
-(`src/auth/google.strategy.ts`): `openid`, `profile`, `email`,
-`calendar.events` y `calendar.freebusy`. Son el mínimo que se usa de verdad y
+(`src/auth/google.strategy.ts`): `openid`, `profile`, `email` y
+`calendar.events`, que cubre también la lectura de disponibilidad vía
+`events.list` (`calendar.freebusy` ya no se pide). Son el mínimo que se usa de verdad y
 están justificados uno por uno en el documento de verificación: ampliarlos obliga
 a todos los usuarios a consentir de nuevo.
 

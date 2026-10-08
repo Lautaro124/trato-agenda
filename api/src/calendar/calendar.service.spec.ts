@@ -7,9 +7,8 @@ import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { prismaConEventosEnMemoria } from './eventos-en-memoria.fake.js';
 
-const { freebusyQuery, eventsInsert, eventsDelete, eventsPatch, eventsList, oauth2SetCredentials } =
+const { eventsInsert, eventsDelete, eventsPatch, eventsList, oauth2SetCredentials } =
   vi.hoisted(() => ({
-    freebusyQuery: vi.fn(),
     eventsInsert: vi.fn(),
     eventsDelete: vi.fn(),
     eventsPatch: vi.fn(),
@@ -25,7 +24,6 @@ vi.mock('googleapis', () => ({
       }),
     },
     calendar: vi.fn(() => ({
-      freebusy: { query: freebusyQuery },
       events: { insert: eventsInsert, delete: eventsDelete, patch: eventsPatch, list: eventsList },
     })),
   },
@@ -72,7 +70,6 @@ function crearPrisma(turnos: unknown[] = []): PrismaService {
 
 describe('CalendarService', () => {
   beforeEach(() => {
-    freebusyQuery.mockReset();
     eventsInsert.mockReset();
     eventsDelete.mockReset();
     eventsPatch.mockReset();
@@ -85,7 +82,7 @@ describe('CalendarService', () => {
     await expect(
       service.freeBusy({ id: 'user-1', calendario: 'google', googleRefreshToken: null }, new Date(), new Date()),
     ).rejects.toThrow(CalendarUnavailableError);
-    expect(freebusyQuery).not.toHaveBeenCalled();
+    expect(eventsList).not.toHaveBeenCalled();
   });
 
   describe('usuario con agenda local', () => {
@@ -109,7 +106,6 @@ describe('CalendarService', () => {
       await service.cancelarEvento(USUARIO_LOCAL, id);
       expect(await service.listarProximos(USUARIO_LOCAL, ...dia)).toEqual([]);
 
-      expect(freebusyQuery).not.toHaveBeenCalled();
       expect(eventsInsert).not.toHaveBeenCalled();
       expect(eventsPatch).not.toHaveBeenCalled();
       expect(eventsDelete).not.toHaveBeenCalled();
@@ -149,21 +145,102 @@ describe('CalendarService', () => {
     });
   });
 
-  it('freeBusy mapea los períodos ocupados de la respuesta', async () => {
-    freebusyQuery.mockResolvedValue({
-      data: {
-        calendars: {
-          primary: { busy: [{ start: '2026-09-01T10:00:00Z', end: '2026-09-01T11:00:00Z' }] },
+  describe('freeBusy contra Google (events.list, sin el scope calendar.freebusy)', () => {
+    const desde = new Date('2026-09-14T00:00:00-03:00');
+    const hasta = new Date('2026-09-28T00:00:00-03:00');
+
+    it('pide events.list sobre primary con las instancias expandidas y sólo los campos necesarios', async () => {
+      eventsList.mockResolvedValue({
+        data: {
+          timeZone: 'America/Argentina/Buenos_Aires',
+          items: [{ status: 'confirmed', start: { dateTime: '2026-09-14T10:00:00-03:00' }, end: { dateTime: '2026-09-14T11:00:00-03:00' } }],
         },
-      },
+      });
+      const service = new CalendarService(crearConfig(), crearPrisma());
+
+      const ocupados = await service.freeBusy(usuarioConToken(), desde, hasta);
+
+      expect(ocupados).toEqual([
+        { inicio: new Date('2026-09-14T13:00:00Z'), fin: new Date('2026-09-14T14:00:00Z') },
+      ]);
+      expect(eventsList).toHaveBeenCalledTimes(1);
+      const pedido = eventsList.mock.calls[0][0];
+      expect(pedido).toMatchObject({
+        calendarId: 'primary',
+        timeMin: desde.toISOString(),
+        timeMax: hasta.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime',
+      });
+      expect(pedido.pageToken).toBeUndefined();
+      // Minimización: nunca se pide el título, la descripción ni los emails de invitados.
+      expect(pedido.fields).not.toMatch(/summary|description|email|location/);
     });
-    const service = new CalendarService(crearConfig(), crearPrisma());
 
-    const ocupados = await service.freeBusy(usuarioConToken(), new Date(), new Date());
+    it('sigue nextPageToken y une las páginas', async () => {
+      eventsList
+        .mockResolvedValueOnce({
+          data: {
+            timeZone: 'America/Argentina/Buenos_Aires',
+            nextPageToken: 'pagina-2',
+            items: [{ start: { dateTime: '2026-09-14T10:00:00-03:00' }, end: { dateTime: '2026-09-14T11:00:00-03:00' } }],
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            items: [{ start: { dateTime: '2026-09-15T10:00:00-03:00' }, end: { dateTime: '2026-09-15T11:00:00-03:00' } }],
+          },
+        });
+      const service = new CalendarService(crearConfig(), crearPrisma());
 
-    expect(ocupados).toEqual([
-      { inicio: new Date('2026-09-01T10:00:00Z'), fin: new Date('2026-09-01T11:00:00Z') },
-    ]);
+      const ocupados = await service.freeBusy(usuarioConToken(), desde, hasta);
+
+      expect(eventsList).toHaveBeenCalledTimes(2);
+      expect(eventsList.mock.calls[1][0]).toMatchObject({ pageToken: 'pagina-2', calendarId: 'primary' });
+      expect(ocupados.map((periodo) => periodo.inicio)).toEqual([
+        new Date('2026-09-14T13:00:00Z'),
+        new Date('2026-09-15T13:00:00Z'),
+      ]);
+    });
+
+    it('filtra cancelados, "Disponible" y rechazados, y usa la zona del calendario para el día completo', async () => {
+      eventsList.mockResolvedValue({
+        data: {
+          timeZone: 'Europe/Madrid',
+          items: [
+            { status: 'cancelled', start: { dateTime: '2026-09-14T09:00:00+02:00' }, end: { dateTime: '2026-09-14T10:00:00+02:00' } },
+            { transparency: 'transparent', start: { dateTime: '2026-09-14T11:00:00+02:00' }, end: { dateTime: '2026-09-14T12:00:00+02:00' } },
+            {
+              attendees: [{ self: true, responseStatus: 'declined' }],
+              start: { dateTime: '2026-09-14T13:00:00+02:00' },
+              end: { dateTime: '2026-09-14T14:00:00+02:00' },
+            },
+            { start: { date: '2026-09-16' }, end: { date: '2026-09-17' } },
+          ],
+        },
+      });
+      const service = new CalendarService(crearConfig(), crearPrisma());
+
+      const ocupados = await service.freeBusy(usuarioConToken(), desde, hasta);
+
+      expect(ocupados).toEqual([
+        { inicio: new Date('2026-09-15T22:00:00Z'), fin: new Date('2026-09-16T22:00:00Z') },
+      ]);
+    });
+
+    it('si Google nunca deja de paginar, falla en vez de devolver ocupados a medias', async () => {
+      eventsList.mockResolvedValue({ data: { nextPageToken: 'otra', items: [] } });
+      const service = new CalendarService(crearConfig(), crearPrisma());
+
+      await expect(service.freeBusy(usuarioConToken(), desde, hasta)).rejects.toThrow(CalendarUnavailableError);
+    });
+
+    it('traduce un error de la API a CalendarUnavailableError', async () => {
+      eventsList.mockRejectedValue(new Error('503 backend error'));
+      const service = new CalendarService(crearConfig(), crearPrisma());
+
+      await expect(service.freeBusy(usuarioConToken(), desde, hasta)).rejects.toThrow(CalendarUnavailableError);
+    });
   });
 
   it('crearEvento devuelve el id del evento creado', async () => {

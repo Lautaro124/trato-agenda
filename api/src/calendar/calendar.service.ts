@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { calendar_v3 } from 'googleapis';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -9,6 +10,7 @@ import {
   GoogleReconsentimientoError,
   getCalendarClient,
 } from './google-calendar.client.js';
+import { CAMPOS_OCUPADOS, ocupadosDeEventos } from './ocupados-google.js';
 
 /** Zona horaria fija — el proyecto no soporta todavía timezone por usuario. */
 const TIMEZONE = 'America/Argentina/Buenos_Aires';
@@ -48,6 +50,48 @@ function necesitaReconsentimiento(error: unknown): boolean {
   return (codigo === 403 || codigo === 401) && /insufficient/i.test(mensaje);
 }
 
+/**
+ * Tope de páginas de `events.list` por consulta de ocupados. Con 2500 eventos
+ * por página nunca debería pasar de una; el tope sólo evita un bucle infinito
+ * si Google devolviera siempre un `nextPageToken`. Si se alcanza, falla en vez
+ * de devolver ocupados a medias: una agenda incompleta ofrecería horarios
+ * tomados.
+ */
+const MAX_PAGINAS_OCUPADOS = 20;
+
+/**
+ * Los ocupados de un calendario: `events.list` paginado sobre el rango, con
+ * las instancias de los recurrentes expandidas. Si algún día se consultan
+ * varios calendarios, es una llamada a esto por calendario en `Promise.all`.
+ */
+async function ocupadosDeCalendario(
+  calendar: calendar_v3.Calendar,
+  calendarId: string,
+  desde: Date,
+  hasta: Date,
+): Promise<PeriodoOcupado[]> {
+  const eventos: calendar_v3.Schema$Event[] = [];
+  let zona: string | null | undefined;
+  let pageToken: string | undefined;
+  for (let pagina = 0; pagina < MAX_PAGINAS_OCUPADOS; pagina++) {
+    const res = await calendar.events.list({
+      calendarId,
+      timeMin: desde.toISOString(),
+      timeMax: hasta.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 2500,
+      fields: CAMPOS_OCUPADOS,
+      ...(pageToken ? { pageToken } : {}),
+    });
+    zona ??= res.data.timeZone;
+    eventos.push(...(res.data.items ?? []));
+    pageToken = res.data.nextPageToken ?? undefined;
+    if (!pageToken) return ocupadosDeEventos(eventos, zona, TIMEZONE);
+  }
+  throw new CalendarUnavailableError('Google Calendar devolvió más páginas de eventos que las esperadas.');
+}
+
 function traducirError(error: unknown): CalendarUnavailableError {
   if (error instanceof CalendarUnavailableError) return error;
   if (necesitaReconsentimiento(error)) {
@@ -85,22 +129,19 @@ export class CalendarService {
     return user.calendario === CALENDARIO_LOCAL;
   }
 
+  /**
+   * Los períodos ocupados del titular en un rango. Conserva el nombre por
+   * contrato con el grafo, pero ya no usa `freebusy.query`: eso pedía el scope
+   * `calendar.freebusy`, que Google no tiene aprobado para esta app. Lee los
+   * eventos con `events.list` (scope `calendar.events`) y decide en
+   * `ocupadosDeEventos` cuáles bloquean, con los mismos criterios.
+   */
   async freeBusy(user: UsuarioCalendario, desde: Date, hasta: Date): Promise<PeriodoOcupado[]> {
     if (this.usaCalendarioLocal(user)) return this.local.freeBusy(user.id, desde, hasta);
 
     const calendar = getCalendarClient(user, this.config);
     try {
-      const res = await calendar.freebusy.query({
-        requestBody: {
-          timeMin: desde.toISOString(),
-          timeMax: hasta.toISOString(),
-          items: [{ id: CALENDAR_ID }],
-        },
-      });
-      const ocupado = res.data.calendars?.[CALENDAR_ID]?.busy ?? [];
-      return ocupado
-        .filter((periodo) => periodo.start && periodo.end)
-        .map((periodo) => ({ inicio: new Date(periodo.start!), fin: new Date(periodo.end!) }));
+      return await ocupadosDeCalendario(calendar, CALENDAR_ID, desde, hasta);
     } catch (error) {
       throw traducirError(error);
     }
