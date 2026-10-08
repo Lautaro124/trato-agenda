@@ -26,8 +26,13 @@ export type Venta = {
     nombreProducto: string;
     nombreVariante: string;
     cantidad: number;
+    /** Lo que se cobró por unidad, ya con el descuento. */
     precioUnitarioCentavos: number;
     subtotalCentavos: number;
+    /** Precio de lista por unidad; null en ventas anteriores a los descuentos. */
+    precioListaCentavos: number | null;
+    descuentoCentavos: number;
+    descuentoEtiqueta: string | null;
   }>;
 };
 
