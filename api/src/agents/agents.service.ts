@@ -4,8 +4,15 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PLANTILLA_VERSION, construirConfiguracion } from './agent-template.js';
 import { PLANTILLA_VENTAS_VERSION, construirConfiguracionVentas } from './agent-template-ventas.js';
 import { tipoAsistenteDe, type TipoAsistente, type TipoTitular, type TipoUso } from './agent-catalog.js';
-import type { ActualizarMensajesDto, GenerarAgenteVentasDto, GenerateAgentDto, TipoEventoDto } from './agents.types.js';
+import type {
+  ActualizarMensajesDto,
+  GenerarAgenteVentasDto,
+  GenerateAgentDto,
+  LocalPresencialDto,
+  TipoEventoDto,
+} from './agents.types.js';
 import { CLAVES_MENSAJE, leerMensajes, normalizarMensajes } from './mensajes.rules.js';
+import { normalizarLocal, type LocalPresencial } from './local.js';
 
 function listarTiposEvento(dto: GenerateAgentDto): string {
   return dto.tiposEvento
@@ -91,6 +98,8 @@ export class AgentsService {
    * decide el grafo es `tipoAsistente`.
    */
   async generarVentas(userId: string, dto: GenerarAgenteVentasDto): Promise<Agent> {
+    // Antes que exigirMismoTipo: un local inválido es un 400 aunque la cuenta sea de agenda.
+    const local = dto.local ? this.validarLocal(dto.local) : undefined;
     await this.exigirMismoTipo(userId, 'ventas');
     const nombreTitular = dto.nombreTitular.trim();
     const nombreBot = dto.nombreBot.trim();
@@ -108,6 +117,8 @@ export class AgentsService {
       allowedActions: config.allowedActions,
       model: null,
       templateVersion: PLANTILLA_VENTAS_VERSION,
+      // Sin el paso "Tu local" no se pisa lo que ya estaba guardado.
+      ...(local ? { local: local as unknown as Prisma.InputJsonValue } : {}),
     };
 
     return this.prisma.agent.upsert({
@@ -172,6 +183,30 @@ export class AgentsService {
         model: null,
         templateVersion: PLANTILLA_VERSION,
       },
+    });
+  }
+
+  private validarLocal(dto: LocalPresencialDto): LocalPresencial {
+    const resultado = normalizarLocal(dto);
+    if ('error' in resultado) throw new BadRequestException(resultado.error);
+    return resultado.local;
+  }
+
+  /**
+   * Reemplaza los datos del local. No toca el system prompt: el grafo de
+   * ventas arma el bloque del local en cada mensaje (reglas-ventas.ts), así que
+   * el asistente lo usa desde la charla siguiente.
+   */
+  async actualizarLocal(userId: string, dto: LocalPresencialDto): Promise<Agent> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+    if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
+    if (tipoAsistenteDe(agent) !== 'ventas') {
+      throw new ConflictException('Tu asistente agenda turnos: no tiene un local para configurar.');
+    }
+    const local = this.validarLocal(dto);
+    return this.prisma.agent.update({
+      where: { userId },
+      data: { local: local as unknown as Prisma.InputJsonValue },
     });
   }
 

@@ -123,6 +123,12 @@ model Agent {
   /// datos están en src/agents/mensajes.rules.ts; lo que falta queda en "auto".
   mensajes Json @default("{}")
 
+  /// Sólo ventas: el local a la calle del comercio, si tiene.
+  /// { tieneLocal, direccion?, enlaceUbicacion?, horarios: [{ dia, desde, hasta }], retiroEnLocal }.
+  /// Null = nunca lo cargó (el asistente deriva esas consultas al dueño). La
+  /// forma y sus reglas están en src/agents/local.ts.
+  local Json?
+
   /// Modelo de OpenRouter usado para generar esta config. Null si se generó
   /// con la plantilla determinista (ver `templateVersion`); se conserva tal
   /// cual en los agentes generados por IA antes de este campo existir.

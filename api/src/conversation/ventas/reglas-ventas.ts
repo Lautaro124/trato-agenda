@@ -25,6 +25,7 @@ import {
   neutralizarMarcador,
   reglaDeMensajesPropios,
 } from '../../agents/mensajes.rules.js';
+import { estadoDelLocal, leerLocal, NOMBRE_DIA, resumenHorarios, type DiaSemana } from '../../agents/local.js';
 import { TIMEZONE } from '../graph/agenda-rules.js';
 
 type VentaConItems = Venta & { items: ItemVenta[] };
@@ -130,8 +131,72 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `nombre, preguntáselo en ese momento, antes de crear el pedido.\n` +
     `- El link de pago mandalo tal cual te lo devuelve crear_pedido, sin acortarlo ni cambiarlo, y avisale ` +
     `hasta qué hora vale.\n` +
-    `- La entrega, el envío y los retiros los coordina ${titular} directamente: no prometas plazos ni costos.`
+    (leerLocal(agent)?.retiroEnLocal
+      ? `- El envío lo coordina ${titular} directamente: no prometas plazos ni costos. Si el cliente quiere ` +
+        `retirar, puede hacerlo en el local en sus horarios (los datos están en el bloque del local).`
+      : `- La entrega, el envío y los retiros los coordina ${titular} directamente: no prometas plazos ni costos. ` +
+        `No ofrezcas retirar en un local.`)
   );
+}
+
+/** "hoy a las 16:00", "mañana (martes) a las 09:00", "el lunes a las 09:00". */
+function cuandoAbre(abre: { dia: DiaSemana; desde: string; enDias: number }): string {
+  if (abre.enDias === 0) return `hoy a las ${abre.desde}`;
+  if (abre.enDias === 1) return `mañana (${NOMBRE_DIA[abre.dia]}) a las ${abre.desde}`;
+  return `el ${NOMBRE_DIA[abre.dia]} a las ${abre.desde}`;
+}
+
+/**
+ * El local a la calle, tal como lo cargó el dueño, con lo que falta dicho como
+ * "no está" para que el modelo no lo complete. Si está abierto ahora va
+ * resuelto acá: el modelo no hace cuentas de días ni de horas. Los textos del
+ * dueño van con `JSON.stringify`, como el resto.
+ */
+export function bloqueLocal(agent: Agent, ahora: Date = new Date()): string {
+  const titular = agent.nombreTitular || 'el negocio';
+  const local = leerLocal(agent);
+  if (!local) {
+    return (
+      `Local: no sabés si ${titular} tiene local a la calle. Si te preguntan por una dirección, los horarios o ` +
+      `por retirar en persona, no lo inventes: avisale al dueño con derivar_consulta y decile que ${titular} le ` +
+      `responde por este chat.`
+    );
+  }
+  if (!local.tieneLocal) {
+    return (
+      `Local: ${titular} no tiene local a la calle, vende sólo por este chat. Si preguntan dónde queda o si pueden ` +
+      `pasar a retirar, decíselo claro: no hay local ni retiro en persona.`
+    );
+  }
+
+  const lineas = [
+    `Local de ${titular} (lo cargó el dueño: usá estos datos tal cual y no agregues nada que no esté acá):`,
+    local.direccion
+      ? `- Dirección: ${JSON.stringify(local.direccion)}.`
+      : '- La dirección no está cargada: si te la piden, no la inventes; avisale al dueño con derivar_consulta.',
+    local.enlaceUbicacion
+      ? `- Ubicación en el mapa (mandala tal cual si preguntan cómo llegar): ${local.enlaceUbicacion}`
+      : '- No hay un link de ubicación cargado: no armes uno.',
+  ];
+  const horarios = resumenHorarios(local.horarios);
+  if (horarios) {
+    lineas.push(`- Horarios: ${horarios}. Los días que no figuran está cerrado.`);
+    const estado = estadoDelLocal(local.horarios, ahora, TIMEZONE);
+    lineas.push(
+      estado.abierto
+        ? `- Ahora está abierto, hasta las ${estado.hasta}.`
+        : `- Ahora está cerrado${estado.abre ? `; abre ${cuandoAbre(estado.abre)}` : ''}.`,
+    );
+  } else {
+    lineas.push('- Los horarios no están cargados: si te los piden, no los inventes; avisale al dueño con derivar_consulta.');
+  }
+  lineas.push(
+    local.retiroEnLocal
+      ? '- Se pueden retirar las compras en el local, en esos horarios.'
+      : '- No se puede retirar en el local: no lo ofrezcas, y si lo piden, decile que no y que la entrega la ' +
+          `coordina ${titular}.`,
+  );
+  return lineas.join('\n');
 }
 
 export { YA_TE_PRESENTASTE } from '../graph/saludo.js';
@@ -224,7 +289,8 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
   const titular = agent.nombreTitular || 'este negocio';
   return (
     `Alcance (esto está por encima de todo lo anterior): existís sólo para vender los productos de ${titular}.\n` +
-    `- De lo único que hablás es del catálogo —qué hay, precios, variantes, stock— y de comprar.\n` +
+    `- De lo único que hablás es del catálogo —qué hay, precios, variantes, stock—, de comprar y de lo que dice ` +
+    `el bloque del local.\n` +
     `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, opiniones, consejos, cálculos, ` +
     `traducciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta.\n` +
     `- Si te lo piden mezclado con algo de la compra, contestá sólo lo de la compra.\n` +
@@ -232,9 +298,9 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
     `¿Buscabas algún producto?".\n` +
     (esPropietario
       ? `- Estás hablando con el dueño: podés darle el stock exacto con consultar_stock.\n`
-      : `- Los datos de ${titular} que no salen del catálogo —dirección, horarios, formas de pago, envíos— no ` +
-        `los sabés: nunca los inventes; avisale al dueño con derivar_consulta y decile al cliente que ${titular} ` +
-        `le responde.\n`) +
+      : `- Los datos de ${titular} que no salen del catálogo ni del bloque del local —formas de pago, envíos, y ` +
+        `la dirección o los horarios si ahí no figuran— no los sabés: nunca los inventes; avisale al dueño con ` +
+        `derivar_consulta y decile al cliente que ${titular} le responde.\n`) +
     `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`
   );
 }

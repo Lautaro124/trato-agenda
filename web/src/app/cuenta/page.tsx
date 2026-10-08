@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { SeccionLocal } from "@/components/cuenta/SeccionLocal";
 import { AVISOS_MP, SeccionMercadoPago } from "@/components/cuenta/SeccionMercadoPago";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
@@ -120,6 +121,8 @@ function CuentaContenido() {
           )}
 
           {esVentas && <SeccionMercadoPago />}
+
+          {esVentas && <SeccionLocal />}
 
           {!conGoogle && !esVentas && (
             <section className="rounded-lg border border-line bg-card p-5">
