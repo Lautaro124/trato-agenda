@@ -131,9 +131,8 @@ export class CalendarService {
 
   /**
    * Los períodos ocupados del titular en un rango. Conserva el nombre por
-   * contrato con el grafo, pero ya no usa `freebusy.query`: eso pedía el scope
-   * `calendar.freebusy`, que Google no tiene aprobado para esta app. Lee los
-   * eventos con `events.list` (scope `calendar.events`) y decide en
+   * contrato con el grafo, pero ya no usa `freebusy.query`: lee los eventos
+   * con `events.list` y un `fields` acotado a horarios y estado, y decide en
    * `ocupadosDeEventos` cuáles bloquean, con los mismos criterios.
    */
   async freeBusy(user: UsuarioCalendario, desde: Date, hasta: Date): Promise<PeriodoOcupado[]> {

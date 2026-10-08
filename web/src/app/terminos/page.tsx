@@ -109,10 +109,11 @@ export default function TerminosPage() {
           <p>
             Conectar Google es opcional. Si lo hacés, nos das un único permiso sobre tu calendario, y sólo ese:{" "}
             <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
-              calendar.events
-            </code>{" "}
-            para crear, mover, cancelar y listar eventos, y para ver qué horarios tenés ocupados. Se usa únicamente para el funcionamiento del
-            asistente.
+              https://www.googleapis.com/auth/calendar
+            </code>
+            . Lo usamos sólo sobre los eventos de tu calendario principal, para crear, mover, cancelar y
+            listar eventos, y para ver qué horarios tenés ocupados. Se usa únicamente para el
+            funcionamiento del asistente.
           </p>
           <p>
             Podés revocar ese permiso en cualquier momento desde{" "}
