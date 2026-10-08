@@ -38,6 +38,8 @@ const MATE: ProductoEncontrado = {
       sku: 'MATE-01',
       nombre: '',
       precioCentavos: 800_000,
+      precioFinalCentavos: 800_000,
+      descuento: null,
       hayStock: true,
       stock: 'quedan 2 unidades',
       unidades: 2,

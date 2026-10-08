@@ -6,6 +6,8 @@ import { BusquedaService } from './busqueda.service.js';
 import { ConciliacionService } from './conciliacion.service.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import { DecisionesClient } from './decisiones.client.js';
+import { DescuentosController } from './descuentos.controller.js';
+import { DescuentosService } from './descuentos.service.js';
 import { HistoricoVentasService } from './historico.service.js';
 import { EmbeddingsClient } from './embeddings.client.js';
 import { IndexadorService } from './indexador.service.js';
@@ -25,9 +27,10 @@ import { VentasService } from './ventas.service.js';
 @Module({
   // JwtAuthGuard necesita AuthModuleOptions de PassportModule en el árbol de DI.
   imports: [PassportModule.register({ session: false }), SubscriptionModule, NotificacionesModule],
-  controllers: [ProductosController, VentasController, MercadoPagoController],
+  controllers: [ProductosController, DescuentosController, VentasController, MercadoPagoController],
   providers: [
     ProductosService,
+    DescuentosService,
     BusquedaService,
     EmbeddingsClient,
     IndexadorService,
