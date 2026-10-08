@@ -8,13 +8,14 @@ import {
   activarPromocion,
   eliminarPromocion,
   guardarPromocion,
+  leerValorDescuento,
   listarPromociones,
   problemaDeDescuento,
   vigenciaDe,
   type Descuento,
   type TipoDescuento,
 } from "@/lib/descuentos";
-import { centavosParaInput, ErrorDeApi, leerCentavos, type Categoria } from "@/lib/productos";
+import { centavosParaInput, ErrorDeApi, type Categoria } from "@/lib/productos";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2 text-[14px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
@@ -50,7 +51,7 @@ function borradorDe(promo: Descuento): Borrador {
  * El descuento propio de cada producto va en su formulario. `onCambio` avisa
  * para que el listado vuelva a pedir los precios finales.
  */
-export function Promociones({ categorias, onCambio }: { categorias: Categoria[]; onCambio: () => void }) {
+export function Promociones({ categorias, onCambio }: Readonly<{ categorias: Categoria[]; onCambio: () => void }>) {
   const [promos, setPromos] = useState<Descuento[] | null>(null);
   const [editando, setEditando] = useState<Descuento | "nueva" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +117,7 @@ export function Promociones({ categorias, onCambio }: { categorias: Categoria[];
         />
       )}
 
-      {promos && promos.length === 0 && editando === null && (
+      {promos?.length === 0 && editando === null && (
         <p className="text-[13px] text-muted">Todavía no tenés promociones.</p>
       )}
       {promos && promos.length > 0 && (
@@ -160,12 +161,12 @@ function FormularioPromocion({
   categorias,
   onCancelar,
   onGuardada,
-}: {
+}: Readonly<{
   promo: Descuento | null;
   categorias: Categoria[];
   onCancelar: () => void;
   onGuardada: () => void;
-}) {
+}>) {
   const id = useId();
   const [borrador, setBorrador] = useState<Borrador>(() => (promo ? borradorDe(promo) : VACIO));
   const [guardando, setGuardando] = useState(false);
@@ -182,12 +183,7 @@ function FormularioPromocion({
       setError("Poné un nombre para la promoción.");
       return;
     }
-    const valor =
-      borrador.tipo === "monto"
-        ? leerCentavos(borrador.valor)
-        : /^\d{1,3}$/.test(borrador.valor.trim())
-          ? Number(borrador.valor.trim())
-          : null;
+    const valor = leerValorDescuento(borrador.tipo, borrador.valor);
     const problema = problemaDeDescuento({ tipo: borrador.tipo, valor, desde: borrador.desde, hasta: borrador.hasta });
     if (problema || valor === null) {
       setError(problema ?? "Revisá el descuento.");

@@ -95,12 +95,12 @@ export function aplicaA(
 /** Centavos que descuenta por unidad, o 0 si no aplica a ese precio. */
 export function montoDeDescuento(descuento: Pick<DescuentoParaAplicar, 'tipo' | 'valor'>, precioCentavos: number): number {
   if (precioCentavos <= 0 || descuento.valor <= 0) return 0;
-  const monto =
-    descuento.tipo === 'porcentaje'
-      ? Math.round((precioCentavos * Math.min(descuento.valor, PORCENTAJE_MAX)) / 100)
-      : descuento.tipo === 'monto'
-        ? descuento.valor
-        : 0;
+  let monto = 0;
+  if (descuento.tipo === 'porcentaje') {
+    monto = Math.round((precioCentavos * Math.min(descuento.valor, PORCENTAJE_MAX)) / 100);
+  } else if (descuento.tipo === 'monto') {
+    monto = descuento.valor;
+  }
   return monto > 0 && monto < precioCentavos ? monto : 0;
 }
 

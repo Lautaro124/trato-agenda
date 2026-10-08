@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { problemaDeDescuento, vistaPrevia, type DescuentoAGuardar, type TipoDescuento } from "@/lib/descuentos";
+import {
+  leerValorDescuento,
+  problemaDeDescuento,
+  vistaPrevia,
+  type DescuentoAGuardar,
+  type TipoDescuento,
+} from "@/lib/descuentos";
 import {
   centavosParaInput,
   ErrorDeApi,
@@ -77,10 +83,28 @@ function descuentoDesdeProducto(producto: Producto | null): DescuentoEnEdicion {
   };
 }
 
-/** El valor tipeado: porcentaje entero o monto en centavos. null si no se entiende. */
-function leerValorDescuento(descuento: DescuentoEnEdicion): number | null {
-  if (descuento.tipo === "monto") return leerCentavos(descuento.valor);
-  return /^\d{1,3}$/.test(descuento.valor.trim()) ? Number(descuento.valor.trim()) : null;
+/**
+ * La sección Descuento → lo que se manda, null si no tiene, o el texto del
+ * error. Mismas reglas que la API, para no gastar un viaje en un error obvio.
+ */
+function armarDescuento(
+  descuento: DescuentoEnEdicion,
+  variantes: ProductoAGuardar["variantes"],
+): DescuentoAGuardar | null | string {
+  if (!descuento.tiene) return null;
+  const valor = leerValorDescuento(descuento.tipo, descuento.valor);
+  const problema = problemaDeDescuento({ tipo: descuento.tipo, valor, desde: descuento.desde, hasta: descuento.hasta });
+  if (problema || valor === null) return problema ?? "Revisá el descuento.";
+  if (descuento.tipo === "monto" && variantes.every((v) => valor >= v.precioCentavos)) {
+    return "El descuento no puede ser igual o mayor que el precio.";
+  }
+  return {
+    tipo: descuento.tipo,
+    valor,
+    activo: descuento.activo,
+    desde: descuento.desde || null,
+    hasta: descuento.hasta || null,
+  };
 }
 
 function entero(texto: string): number | null | "invalido" {
@@ -166,22 +190,8 @@ export function EditorProducto({
         disponible: variante.disponible,
       });
     }
-    let descuentoArmado: DescuentoAGuardar | null = null;
-    if (descuento.tiene) {
-      const valor = leerValorDescuento(descuento);
-      const problema = problemaDeDescuento({ tipo: descuento.tipo, valor, desde: descuento.desde, hasta: descuento.hasta });
-      if (problema || valor === null) return problema ?? "Revisá el descuento.";
-      if (descuento.tipo === "monto" && armadas.every((v) => valor >= v.precioCentavos)) {
-        return "El descuento no puede ser igual o mayor que el precio.";
-      }
-      descuentoArmado = {
-        tipo: descuento.tipo,
-        valor,
-        activo: descuento.activo,
-        desde: descuento.desde || null,
-        hasta: descuento.hasta || null,
-      };
-    }
+    const descuentoArmado = armarDescuento(descuento, armadas);
+    if (typeof descuentoArmado === "string") return descuentoArmado;
     return {
       codigo: codigo.trim(),
       nombre: nombre.trim(),
@@ -282,7 +292,7 @@ export function EditorProducto({
 
               <SeccionDescuento
                 descuento={descuento}
-                precios={variantes.map((v) => ({ nombre: v.nombre.trim(), centavos: leerCentavos(v.precio) }))}
+                precios={variantes.map((v) => ({ clave: v.clave, nombre: v.nombre.trim(), centavos: leerCentavos(v.precio) }))}
                 onCambio={(cambios) => setDescuento((actual) => ({ ...actual, ...cambios }))}
               />
             </div>
@@ -413,19 +423,19 @@ function SeccionDescuento({
   descuento,
   precios,
   onCambio,
-}: {
+}: Readonly<{
   descuento: DescuentoEnEdicion;
-  precios: Array<{ nombre: string; centavos: number | null }>;
+  precios: Array<{ clave: string; nombre: string; centavos: number | null }>;
   onCambio: (cambios: Partial<DescuentoEnEdicion>) => void;
-}) {
-  const valor = leerValorDescuento(descuento);
+}>) {
+  const valor = leerValorDescuento(descuento.tipo, descuento.valor);
   const previas =
     valor === null
       ? []
       : precios
           .flatMap((precio) => {
             const vista = precio.centavos === null ? null : vistaPrevia({ tipo: descuento.tipo, valor }, precio.centavos);
-            return vista ? [{ ...vista, nombre: precio.nombre }] : [];
+            return vista ? [{ ...vista, clave: precio.clave, nombre: precio.nombre }] : [];
           })
           .slice(0, 3);
 
@@ -444,7 +454,7 @@ function SeccionDescuento({
           onChange={(e) => onCambio({ tiene: e.target.checked })}
           className="size-4 accent-[var(--color-semantic-primary-default)]"
         />
-        Este producto tiene descuento
+        <span>Este producto tiene descuento</span>
       </label>
 
       {descuento.tiene && (
@@ -526,7 +536,7 @@ function SeccionDescuento({
           </div>
 
           <label className="flex items-center justify-between gap-3 text-[14px] font-semibold text-ink">
-            Activo
+            <span>Activo</span>
             <input
               type="checkbox"
               role="switch"
@@ -541,8 +551,8 @@ function SeccionDescuento({
             <div className="rounded-md bg-card px-3 py-2.5">
               <p className="text-[11.5px] font-bold tracking-[0.04em] text-muted uppercase">Así lo va a cobrar el asistente</p>
               <ul className="mt-1 flex flex-col gap-0.5 text-[14px] text-ink">
-                {previas.map((previa, indice) => (
-                  <li key={indice}>
+                {previas.map((previa) => (
+                  <li key={previa.clave}>
                     {previa.nombre && <span className="text-ink-secondary">{previa.nombre}: </span>}
                     <span className="text-muted line-through">{previa.lista}</span> →{" "}
                     <strong className="text-[var(--color-primitive-coral-700)]">{previa.final}</strong>

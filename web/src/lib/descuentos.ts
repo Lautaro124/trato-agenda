@@ -1,5 +1,5 @@
 import { apiFetch } from "./api";
-import { ErrorDeApi, formatearCentavos } from "./productos";
+import { ErrorDeApi, formatearCentavos, leerCentavos } from "./productos";
 
 export type TipoDescuento = "porcentaje" | "monto";
 export type AlcanceDescuento = "producto" | "categoria" | "catalogo";
@@ -116,6 +116,13 @@ export function montoDeDescuento(descuento: Pick<DescuentoAGuardar, "tipo" | "va
       ? Math.round((precioCentavos * Math.min(descuento.valor, PORCENTAJE_MAX)) / 100)
       : descuento.valor;
   return monto > 0 && monto < precioCentavos ? monto : 0;
+}
+
+/** Lo tipeado en el campo del descuento: porcentaje entero o monto en centavos. null si no se entiende. */
+export function leerValorDescuento(tipo: TipoDescuento, texto: string): number | null {
+  if (tipo === "monto") return leerCentavos(texto);
+  const limpio = texto.trim();
+  return /^\d{1,3}$/.test(limpio) ? Number(limpio) : null;
 }
 
 /** "$ 10.000 → $ 8.000" o null si con ese precio no descuenta nada. */

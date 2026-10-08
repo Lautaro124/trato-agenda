@@ -429,8 +429,9 @@ export function precioParaElModelo(variante: Pick<ProductoEncontrado['variantes'
 
 function lineaDeProducto(producto: ProductoPanorama): string {
   const precio = formatearCentavos(producto.precioDesdeCentavos);
+  const desde = producto.variosPrecios ? `desde ${precio}` : precio;
   return (
-    `- ${JSON.stringify(producto.nombre)}: ${producto.variosPrecios ? `desde ${precio}` : precio}` +
+    `- ${JSON.stringify(producto.nombre)}: ${desde}` +
     (producto.descuento ? ` (con ${producto.descuento})` : '')
   );
 }
