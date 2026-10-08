@@ -28,8 +28,12 @@ Nada de acá es una afirmación de marketing: cada punto tiene su archivo.
 | Scope | Para qué |
 | ----- | -------- |
 | `openid`, `profile`, `email` | Crear la cuenta, reconocer al usuario, mostrar nombre y avatar. |
-| `https://www.googleapis.com/auth/calendar.events` | `events.insert`, `events.patch`, `events.delete`, `events.list` sobre el calendario `primary`. |
-| `https://www.googleapis.com/auth/calendar.freebusy` | `freebusy.query`, la única lectura del calendario en el flujo con clientes. |
+| `https://www.googleapis.com/auth/calendar.events` | `events.insert`, `events.patch`, `events.delete`, `events.list` sobre el calendario `primary`. `events.list` es también la lectura de disponibilidad del flujo con clientes. |
+
+`calendar.freebusy` **ya no se pide**: no estaba aprobado en la consola y su
+sola presencia mostraba la pantalla roja de "app no verificada". La
+disponibilidad se calcula con `events.list` (`CalendarService.freeBusy`, reglas
+en `api/src/calendar/ocupados-google.ts`), que `calendar.events` ya cubre.
 
 El envío anterior pedía `https://www.googleapis.com/auth/calendar` completo
 (lectura y escritura de todos los calendarios, ACLs y settings). Se recortó para
@@ -45,22 +49,23 @@ Todas contra `calendarId: 'primary'`, en `api/src/calendar/calendar.service.ts`:
 
 | Método | Qué se lee de la respuesta |
 | ------ | -------------------------- |
-| `freebusy.query` | Sólo `busy[].start` y `busy[].end`. |
+| `events.list` (disponibilidad) | Sólo `start`, `end`, `status`, `transparency`, `eventType` y `attendees[].self` / `attendees[].responseStatus` — se piden con `fields`, así que Google no manda nada más. Sirven para descartar cancelados, eventos "Disponible", ubicaciones de trabajo e invitaciones rechazadas. |
 | `events.insert` | Sólo `id`. |
 | `events.patch` | Nada. |
 | `events.delete` | Nada. |
-| `events.list` | `id`, `summary`, `start.dateTime`, `end.dateTime`. |
+| `events.list` (vista `/calendario`) | `id`, `summary`, `start.dateTime`, `end.dateTime`. |
 
-`description`, `attendees`, `location`, `organizer` y `creator` **no se leen en
-ninguna parte del código**. No se llama a `calendarList`, `acl`, `settings`,
+`description`, `location`, `organizer`, `creator` y los emails o nombres de
+`attendees` **no se leen en ninguna parte del código** (de `attendees` sólo se
+pide `self` y `responseStatus`). No se llama a `calendarList`, `acl`, `settings`,
 `oauth2.userinfo` ni a ninguna otra API de Google (nada de Gmail, Drive o
 People).
 
 ### Qué llega al modelo de lenguaje
 
 - En el flujo con clientes de WhatsApp, **ningún contenido de eventos de Google
-  llega al modelo**. La única lectura es `freebusy.query`, que se reduce a
-  `{inicio, fin}` (`calendar.service.ts`) y después se invierte a **huecos
+  llega al modelo**. La única lectura es `events.list` con `fields`
+  acotado a horarios y estado, que se reduce a `{inicio, fin}` (`calendar.service.ts`) y después se invierte a **huecos
   libres** en `api/src/conversation/graph/agenda-rules.ts`
   (`resumirDisponibilidad`). Al prompt entran líneas como
   `lunes 8/9: 09:00-12:05, 13:30-18:00`.
@@ -171,17 +176,20 @@ antes de mandarlo.
 >   list the appointments the assistant agrees with the owner's clients.
 >   `calendar.app.created` is insufficient because availability must also account
 >   for events the owner created by hand, which that scope does not expose.
-> - `https://www.googleapis.com/auth/calendar.freebusy` — read busy/free
->   intervals to compute availability.
+>   The same `events.list` call is how we compute availability: we read only
+>   each event's start/end, status, transparency, event type and the owner's
+>   own RSVP, to derive busy intervals.
 >
 > For this resubmission we **narrowed** the request: the previous submission
 > asked for `https://www.googleapis.com/auth/calendar`, and we removed it.
 >
 > **Exactly what Calendar data we read**
 >
-> Only `busy[].start` and `busy[].end` from `freebusy.query`, and `id`,
+> For availability, `events.list` with a `fields` mask limited to `start`,
+> `end`, `status`, `transparency`, `eventType` and the owner's own
+> `attendees[].self` / `responseStatus`. For the owner's calendar view, `id`,
 > `summary`, `start` and `end` from `events.list`. We never read event
-> descriptions, attendees, attendee emails, locations, organizers or creators —
+> descriptions, attendee emails or names, locations, organizers or creators —
 > there is no code path that does.
 >
 > **AI/ML disclosure**
@@ -308,16 +316,16 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
 
 ## Cómo probar el recorte de scopes
 
-Los scopes nuevos hay que ejercitarlos contra Google de verdad, porque la
-documentación no lista de forma concluyente qué scope autoriza `freebusy.query`:
-puede que `calendar.events` ya lo cubra y `calendar.freebusy` sea redundante, o
-que sea al revés.
+Los scopes nuevos hay que ejercitarlos contra Google de verdad. Ya no se usa
+`freebusy.query` (ni se pide `calendar.freebusy`): toda lectura es
+`events.list`, que `calendar.events` cubre, así que un 403 en la disponibilidad
+apunta a un token viejo, no a un scope que falte.
 
 1. Revocar el acceso de Trato Agenda en
    `https://myaccount.google.com/permissions`.
 2. Entrar de nuevo (el consentimiento tiene que mostrar los scopes nuevos).
 3. Ejercitar las cinco llamadas: pedir disponibilidad desde el chat de prueba
-   (`freebusy.query`), agendar (`events.insert`), reprogramar (`events.patch`),
+   (`events.list` con `fields` acotado), agendar (`events.insert`), reprogramar (`events.patch`),
    cancelar (`events.delete`) y abrir `/calendario` (`events.list`).
 4. Cualquier `403` con `insufficient permissions` identifica el scope que falta.
    El código ya lo distingue: se traduce a `GoogleReconsentimientoError`

@@ -19,12 +19,14 @@ export type ResultadoConexionGoogle = 'conectado' | 'google_en_uso';
  * Los scopes son el mínimo que la app usa de verdad, y eso es deliberado: la
  * verificación de Google rechaza pedir más de lo que se puede justificar.
  *
- * - `calendar.events` cubre las cuatro llamadas de eventos que hacemos
- *   (insert, patch, delete, list). `calendar.app.created` no alcanza: la
- *   disponibilidad tiene que contar también los eventos que el titular cargó
- *   a mano, que esa variante no deja ver.
- * - `calendar.freebusy` es lo único que necesita `freebusy.query`, que es la
- *   única lectura del calendario en el flujo de clientes.
+ * - `calendar.events` cubre todas las llamadas que hacemos (insert, patch,
+ *   delete, list), incluida la lectura de disponibilidad: los ocupados salen
+ *   de `events.list` (`CalendarService.freeBusy`), no de `freebusy.query`.
+ *   `calendar.app.created` no alcanza: la disponibilidad tiene que contar
+ *   también los eventos que el titular cargó a mano, que esa variante no deja
+ *   ver.
+ * - `calendar.freebusy` no se pide: no está aprobado en la consola de Google y
+ *   su sola presencia mostraba la pantalla de "app no verificada".
  *
  * Antes se pedía `auth/calendar` entero (lectura y escritura de todos los
  * calendarios, ACLs y settings). No volver a ampliarlo sin justificarlo ante
@@ -35,7 +37,6 @@ export const GOOGLE_SCOPES = [
   'profile',
   'email',
   'https://www.googleapis.com/auth/calendar.events',
-  'https://www.googleapis.com/auth/calendar.freebusy',
 ];
 
 @Injectable()
