@@ -6,54 +6,82 @@ import { Button } from "@/components/ui/Button";
 import { EMAIL_SOPORTE } from "@/lib/contacto";
 
 export const metadata = {
-  title: "Trato Agenda — turnos por WhatsApp, agenda en Google Calendar",
+  title: "Trato Agenda — tu asistente de WhatsApp para turnos y ventas",
   description:
-    "Trato Agenda es un asistente de WhatsApp que coordina turnos con tus clientes y los agenda directo en tu Google Calendar.",
+    "Trato Agenda es un asistente de WhatsApp que atiende a tus clientes: agenda turnos en tu calendario o vende tus productos con link de pago de Mercado Pago.",
 };
 
 const PASOS = [
   {
     numero: 1,
-    titulo: "Entrás con Google",
-    texto: "Tomamos tu calendario tal como está, con los horarios que ya tenés ocupados.",
+    titulo: "Entrás como quieras",
+    texto: "Escaneás el QR con tu WhatsApp o entrás con Google. Seguís usando el mismo número de siempre.",
   },
   {
     numero: 2,
-    titulo: "Escaneás el QR",
-    texto: "Vinculás tu WhatsApp en una pasada. Seguís usando el mismo número de siempre.",
+    titulo: "Contás qué hacés",
+    texto: "Elegís si el asistente da turnos o vende productos y le pasás tus horarios o tu catálogo.",
   },
   {
     numero: 3,
-    titulo: "Se agenda solo",
-    texto: "El asistente, que funciona con un modelo de lenguaje, contesta, ofrece horarios libres, confirma y recuerda el turno.",
+    titulo: "Contesta solo",
+    texto: "El asistente, que funciona con un modelo de lenguaje, responde a tus clientes y cierra el turno o el pedido.",
   },
 ];
 
 const BENEFICIOS = [
   {
     titulo: "Menos ida y vuelta",
-    texto: "Nadie queda esperando respuesta a la noche ni el domingo. El horario se acuerda en el mismo chat, cuando el cliente escribe.",
+    texto: "Nadie queda esperando respuesta a la noche ni el domingo. El turno o la compra se arregla en el mismo chat, cuando el cliente escribe.",
     fondo: "bg-sunken",
     radio: "rounded-tl-[48px] rounded-tr-[20px] rounded-br-[48px] rounded-bl-[20px]",
   },
   {
-    titulo: "Sin turnos perdidos",
-    texto: "Recordatorio automático el día anterior y aviso si alguien cancela, así el lugar se vuelve a ofrecer.",
+    titulo: "Sin clientes perdidos",
+    texto: "Contesta al toque, sin importar la hora. Si alguien cancela, el horario queda libre para otro; si compra, el stock se reserva.",
     fondo: "bg-accent-subtle",
     radio: "rounded-tl-[20px] rounded-tr-[48px] rounded-br-[20px] rounded-bl-[48px]",
   },
   {
     titulo: "Un solo lugar",
-    texto: "Todo cae en tu Google Calendar. No hay otra agenda que mirar ni datos que pasar a mano.",
+    texto: "Los turnos caen en tu agenda y las ventas en tu panel. No hay otra planilla que mirar ni datos que pasar a mano.",
     fondo: "bg-sunken",
     radio: "rounded-tl-[48px] rounded-tr-[20px] rounded-br-[48px] rounded-bl-[20px]",
   },
 ];
 
+// Los dos asistentes que se eligen en /contanos; el tipo no se cambia después.
+const ASISTENTES = [
+  {
+    etiqueta: "Agendar turnos",
+    titulo: "Para consultorios, estudios y profesionales",
+    texto: "Ofrece horarios libres, confirma, mueve y cancela turnos sin que mires el celular.",
+    items: [
+      "Tus tipos de turno, con duración y precio",
+      "Nunca da dos turnos a la misma hora",
+      "Con tu Google Calendar o con la agenda de Trato",
+    ],
+    etiquetaColor: "bg-primary-subtle text-primary-active",
+    radio: "rounded-tl-[48px] rounded-tr-[20px] rounded-br-[48px] rounded-bl-[20px]",
+  },
+  {
+    etiqueta: "Vender productos",
+    titulo: "Para comercios y tiendas",
+    texto: "Responde qué tenés, arma el pedido y le pasa al cliente el link de pago.",
+    items: [
+      "Tu catálogo con precios y stock, o subido desde Excel",
+      "Cobros con tu propia cuenta de Mercado Pago",
+      "Te avisa cada venta y te muestra el historial",
+    ],
+    etiquetaColor: "bg-accent-subtle text-accent",
+    radio: "rounded-tl-[20px] rounded-tr-[48px] rounded-br-[20px] rounded-bl-[48px]",
+  },
+];
+
 const INCLUYE_PLAN = [
-  "Turnos ilimitados y sincronización con Google Calendar",
   "Tu número de WhatsApp con el asistente respondiendo",
-  "Recordatorios y avisos de cancelación, sin costo extra",
+  "Turnos ilimitados, en Google Calendar o en la agenda de Trato",
+  "O ventas con catálogo, stock y cobro por Mercado Pago",
 ];
 
 function Check({ children }: { children: ReactNode }) {
@@ -87,6 +115,9 @@ export default function Home() {
       <header className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b border-line bg-page px-5 py-3.5 md:px-10">
         <Wordmark />
         <nav className="flex items-center gap-4 text-sm md:gap-7">
+          <a href="#asistentes" className="hidden text-ink-secondary md:inline">
+            Turnos y ventas
+          </a>
           <a href="#como" className="hidden text-ink-secondary sm:inline">
             Cómo funciona
           </a>
@@ -111,15 +142,15 @@ export default function Home() {
               Un mes gratis, sin tarjeta
             </span>
             <h1 className="mt-4 mb-4 text-pretty font-display text-[34px] leading-[1.08] font-bold tracking-[-0.03em] text-ink md:text-[54px]">
-              Tu agenda contesta sola por <span className="text-primary">WhatsApp</span>
+              Tu negocio contesta solo por <span className="text-primary">WhatsApp</span>
             </h1>
             <p className="mb-7 max-w-[34ch] text-pretty text-[16px] leading-[1.6] text-ink-secondary md:text-[18px]">
-              Tus clientes escriben, el asistente propone horarios libres y confirma el turno. Vos lo
-              ves en tu Google Calendar, ya cargado.
+              Tus clientes escriben y el asistente les responde: agenda turnos o vende tus productos,
+              en el mismo chat de siempre.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Link href="/entrar">
-                <Button size="lg">Empezar con Google</Button>
+                <Button size="lg">Empezar gratis</Button>
               </Link>
               <a href="#como">
                 <Button size="lg" variant="secondary">
@@ -128,9 +159,9 @@ export default function Home() {
               </a>
             </div>
             <div className="mt-6 flex flex-wrap gap-x-5 gap-y-1.5 text-[13.5px] text-muted">
-              <span>Listo en 3 minutos</span>
+              <span>Entrás con WhatsApp o Google</span>
               <span>·</span>
-              <span>Sin instalar nada</span>
+              <span>Listo en 3 minutos</span>
               <span>·</span>
               <span>Cancelás cuando quieras</span>
             </div>
@@ -150,18 +181,49 @@ export default function Home() {
               <div className="flex flex-col gap-3 pt-4">
                 <ChatBubble>Hola, ¿tenés lugar el jueves a la tarde?</ChatBubble>
                 <ChatBubble propio>Sí. Jueves 16:00 o 17:30. ¿Cuál te viene mejor?</ChatBubble>
-                <ChatBubble>17:30 mejor</ChatBubble>
-                <ChatBubble propio>
-                  Listo, te esperamos el jueves 17:30. Te mando un recordatorio el día anterior.
-                </ChatBubble>
+                <ChatBubble>17:30 mejor. Soy Laura</ChatBubble>
+                <ChatBubble propio>Listo, Laura. Te esperamos el jueves a las 17:30.</ChatBubble>
               </div>
               <div className="mt-4 flex items-center gap-2.5 rounded-lg border border-line bg-sunken p-3">
                 <span className="size-2 flex-none rounded-full bg-accent" />
                 <span className="text-[12.5px] leading-[1.45] text-ink-secondary">
-                  Turno cargado en tu calendario · jue 17:30
+                  Turno cargado en tu agenda · jue 17:30
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Los dos asistentes */}
+      <section id="asistentes" className="px-5 pb-14 md:px-10 md:pb-20">
+        <div className="mx-auto max-w-[1180px]">
+          <h2 className="mb-3 font-display text-[28px] leading-[1.12] font-bold tracking-[-0.03em] text-ink md:text-[38px]">
+            Turnos o ventas, vos elegís
+          </h2>
+          <p className="mb-9 max-w-[48ch] text-[16px] leading-[1.6] text-ink-secondary md:mb-11">
+            Al crear tu cuenta elegís para qué querés el asistente. Los dos atienden por tu WhatsApp, a
+            cualquier hora.
+          </p>
+          <div className="grid gap-5 md:grid-cols-2">
+            {ASISTENTES.map((a) => (
+              <div key={a.etiqueta} className={`min-w-0 border border-line bg-card p-7 md:p-9 ${a.radio}`}>
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-[12.5px] font-semibold ${a.etiquetaColor}`}
+                >
+                  {a.etiqueta}
+                </span>
+                <h3 className="mt-4 mb-2.5 text-pretty font-display text-[22px] leading-[1.16] font-bold tracking-[-0.02em] text-ink md:text-[26px]">
+                  {a.titulo}
+                </h3>
+                <p className="text-pretty text-[15px] leading-[1.6] text-ink-secondary">{a.texto}</p>
+                <div className="mt-5 flex flex-col gap-2.5 border-t border-line pt-5">
+                  {a.items.map((texto) => (
+                    <Check key={texto}>{texto}</Check>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -173,8 +235,8 @@ export default function Home() {
             Tres pasos y ya está andando
           </h2>
           <p className="mb-9 max-w-[46ch] text-[16px] leading-[1.6] text-ink-secondary md:mb-11">
-            No hay configuración larga ni plantillas que armar. Entrás con Google, escaneás el QR y el
-            asistente arranca.
+            No hay configuración larga ni plantillas que armar. Entrás, contás qué hacés y el asistente
+            arranca.
           </p>
           <div className="grid gap-5 sm:grid-cols-3">
             {PASOS.map((paso) => (
@@ -248,15 +310,15 @@ export default function Home() {
         <div className="mx-auto grid max-w-[1180px] items-center gap-7 rounded-tl-[48px] rounded-tr-3xl rounded-br-[48px] rounded-bl-3xl bg-[var(--color-primitive-neutral-900)] p-8 md:grid-cols-2 md:p-14">
           <div className="min-w-0">
             <h2 className="mb-3 text-pretty font-display text-[28px] leading-[1.08] font-bold tracking-[-0.03em] text-white md:text-[40px]">
-              Que tu agenda trabaje mientras vos atendés
+              Que tu WhatsApp trabaje mientras vos atendés
             </h2>
             <p className="max-w-[40ch] text-pretty text-[16px] leading-[1.6] text-white/85">
-              Entrás con Google, escaneás el QR y esta misma semana los turnos se cargan solos.
+              Creás tu cuenta, escaneás el QR y esta misma semana el asistente ya está respondiendo.
             </p>
           </div>
           <div className="flex min-w-0 flex-wrap gap-3">
             <Link href="/entrar">
-              <Button size="lg">Empezar con Google</Button>
+              <Button size="lg">Empezar gratis</Button>
             </Link>
             <a
               href="#como"
