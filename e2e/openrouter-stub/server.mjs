@@ -98,6 +98,10 @@ function llamadaATool(model, name, args) {
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
 //   - "envío" / "envían" → derivar_consulta (el asistente no sabe de envíos);
+//   - "dónde queda" / "dirección" / "retirar" / "el local" → contesta con lo
+//     que dice el bloque del local del system prompt (bloqueLocal): la
+//     dirección y si se retira, que no hay local, o derivar_consulta si el
+//     local nunca se cargó;
 //   - "qué tenés" / "qué productos" / "qué ofrecés" → ver_catalogo; "mostrame
 //     <categoría>" → ver_catalogo con esa categoría;
 //   - sólo con las herramientas del dueño (banco de pruebas del Home):
@@ -122,6 +126,21 @@ function varianteDeLaUltimaBusqueda(mensajes) {
     if (id) return id;
   }
   return null;
+}
+
+/** Lo que contesta el asistente sobre el local, leído del bloque que arma bloqueLocal. */
+function respuestaDelLocal(body, sistema, pregunta) {
+  if (sistema.includes('no tiene local a la calle')) {
+    return completion(body.model, { content: 'No tenemos local a la calle: vendemos sólo por acá.' });
+  }
+  const direccion = sistema.match(/- Dirección: "((?:[^"\\]|\\.)*)"\./)?.[1];
+  if (!sistema.includes('Local de ') || !direccion) {
+    return llamadaATool(body.model, 'derivar_consulta', { resumen: pregunta });
+  }
+  const retiro = sistema.includes('Se pueden retirar las compras en el local')
+    ? 'Podés retirar tu compra ahí.'
+    : 'No hacemos retiro en el local.';
+  return completion(body.model, { content: `Estamos en ${direccion}. ${retiro}` });
 }
 
 function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUsuario, resultadoTool }) {
@@ -157,6 +176,9 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   }
   if (ultimoUsuario.includes('cancel')) {
     return responder(res, 200, llamadaATool(body.model, 'cancelar_pedido', {}));
+  }
+  if (/\b(donde queda|direccion|retir|el local)/.test(ultimoUsuario)) {
+    return responder(res, 200, respuestaDelLocal(body, sistema, textoDe(mensajes[indiceUsuario])));
   }
   if (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian')) {
     return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: textoDe(mensajes[indiceUsuario]) }));

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import type { Onboarding } from "@/app/contanos/useOnboarding";
 import { cn } from "@/lib/cn";
+import { horariosDe } from "@/lib/local";
 
 function DelAsistente({ children }: { children: ReactNode }) {
   return (
@@ -49,6 +50,19 @@ function EjemploDelTipo({ ventas }: { ventas: boolean }) {
   );
 }
 
+/** Lo que contestaría el asistente si le preguntan por el local, con lo cargado hasta ahora. */
+function respuestaDelLocal(ob: Onboarding): string {
+  const { local } = ob;
+  if (!local.tieneLocal) return "No tenemos local a la calle: vendemos sólo por acá.";
+  const donde = local.direccion.trim() ? `Estamos en ${local.direccion.trim()}.` : "";
+  const dias = horariosDe(local.semana);
+  const horario = dias.length > 0 ? ` Abrimos desde las ${dias[0].desde}.` : "";
+  const retiro = local.retiroEnLocal
+    ? " Sí, podés retirarlo en el local."
+    : " El retiro no está disponible, pero coordinamos la entrega con vos.";
+  return `${donde}${horario}${retiro}`.trim();
+}
+
 /**
  * El chat de ejemplo del wizard: cómo respondería el asistente con lo que se
  * viene cargando. Lo que muestra depende del tipo y del paso, así cada dato
@@ -83,6 +97,12 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
             <DelAsistente>
               {ob.presentacion} Sí, tengo el mate de calabaza curado a $ 8.000. ¿Te lo reservo?
             </DelAsistente>
+            {(paso === "local" || paso === "asistente") && (
+              <>
+                <DelCliente>¿Puedo pasar a buscarlo?</DelCliente>
+                <DelAsistente>{respuestaDelLocal(ob)}</DelAsistente>
+              </>
+            )}
           </>
         ) : (
           <>

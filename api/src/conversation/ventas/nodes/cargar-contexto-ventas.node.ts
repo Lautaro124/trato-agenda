@@ -11,6 +11,7 @@ import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-h
 import type { Agent, Conversation } from '../../../generated/prisma/client.js';
 import {
   bloqueCatalogo,
+  bloqueLocal,
   bloquePedidos,
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
@@ -99,7 +100,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       mpConectado,
       bloqueSistema:
         `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, { mpConectado, yaSePresento: yaSePresento(historial.visibles) })}\n\n` +
-        `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloquePedidos(agent, mpConectado, pedidos)}`,
+        `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n${bloquePedidos(agent, mpConectado, pedidos)}`,
     };
 
     return {
