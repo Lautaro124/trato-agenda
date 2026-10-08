@@ -20,10 +20,11 @@ En [Google Cloud Console](https://console.cloud.google.com/):
 
 Los scopes que pide la app son los de `GOOGLE_SCOPES`
 (`src/auth/google.strategy.ts`): `openid`, `profile`, `email` y
-`calendar.events`, que cubre también la lectura de disponibilidad vía
-`events.list` (`calendar.freebusy` ya no se pide). Son el mínimo que se usa de verdad y
-están justificados uno por uno en el documento de verificación: ampliarlos obliga
-a todos los usuarios a consentir de nuevo.
+`https://www.googleapis.com/auth/calendar`, que cubre también la lectura de
+disponibilidad vía `events.list`. Tienen que coincidir exactamente con los
+cargados en la pantalla de consentimiento de Google Cloud (si no, Google marca la
+app como no verificada) y están justificados en el documento de verificación:
+cambiarlos obliga a todos los usuarios a consentir de nuevo.
 
 ## 2. Variables de entorno
 

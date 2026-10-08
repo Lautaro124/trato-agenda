@@ -1,9 +1,8 @@
 /**
  * De los eventos de Google Calendar a períodos ocupados, en funciones puras.
- * Reemplaza a `freebusy.query`, que necesitaba el scope `calendar.freebusy`:
- * ahora la disponibilidad sale de `events.list` (cubierto por
- * `calendar.events`), y lo que freebusy decidía del lado de Google — qué
- * evento bloquea y cuál no — se decide acá.
+ * Reemplaza a `freebusy.query`: la disponibilidad sale de `events.list`, con
+ * el mismo scope `auth/calendar` que las escrituras, y lo que freebusy
+ * decidía del lado de Google — qué evento bloquea y cuál no — se decide acá.
  */
 import type { calendar_v3 } from 'googleapis';
 import type { PeriodoOcupado } from './calendar.service.js';

@@ -28,16 +28,22 @@ Nada de acá es una afirmación de marketing: cada punto tiene su archivo.
 | Scope | Para qué |
 | ----- | -------- |
 | `openid`, `profile`, `email` | Crear la cuenta, reconocer al usuario, mostrar nombre y avatar. |
-| `https://www.googleapis.com/auth/calendar.events` | `events.insert`, `events.patch`, `events.delete`, `events.list` sobre el calendario `primary`. `events.list` es también la lectura de disponibilidad del flujo con clientes. |
+| `https://www.googleapis.com/auth/calendar` | `events.insert`, `events.patch`, `events.delete`, `events.list` sobre el calendario `primary`. `events.list` es también la lectura de disponibilidad del flujo con clientes. |
 
-`calendar.freebusy` **ya no se pide**: no estaba aprobado en la consola y su
-sola presencia mostraba la pantalla roja de "app no verificada". La
-disponibilidad se calcula con `events.list` (`CalendarService.freeBusy`, reglas
-en `api/src/calendar/ocupados-google.ts`), que `calendar.events` ya cubre.
+Es el único scope sensible cargado en la pantalla de consentimiento de Google
+Cloud, y el código tiene que pedir **exactamente** lo que figura ahí: cuando
+`GOOGLE_SCOPES` pedía `calendar.events` y `calendar.freebusy`, que no estaban
+cargados, Google mostraba la app como no verificada y el login fallaba.
 
-El envío anterior pedía `https://www.googleapis.com/auth/calendar` completo
-(lectura y escritura de todos los calendarios, ACLs y settings). Se recortó para
-este reenvío.
+La app no usa nada más allá de los eventos de `primary`: ni ACLs, ni settings,
+ni `calendarList`, ni otros calendarios. La disponibilidad se calcula con
+`events.list` (`CalendarService.freeBusy`, reglas en
+`api/src/calendar/ocupados-google.ts`), no con `freebusy.query`.
+
+**Ojo para la verificación:** técnicamente `calendar.events` alcanza para todo
+lo anterior, y Google suele preguntar por qué no se usa el scope más acotado.
+Si lo objeta, la salida es cargar `calendar.events` en la consola y volver a
+pedir ése en `GOOGLE_SCOPES`, las dos cosas a la vez.
 
 `calendar.app.created` **no** alcanza como alternativa: la disponibilidad tiene
 que contar también los eventos que el titular cargó a mano, y ese scope sólo deja
@@ -172,16 +178,20 @@ antes de mandarlo.
 >
 > - `openid`, `email`, `profile` — account creation and identification, and
 >   showing the signed-in user their own name and avatar.
-> - `https://www.googleapis.com/auth/calendar.events` — create, move, cancel and
->   list the appointments the assistant agrees with the owner's clients.
+> - `https://www.googleapis.com/auth/calendar` — create, move, cancel and
+>   list the appointments the assistant agrees with the owner's clients, on the
+>   owner's `primary` calendar only.
 >   `calendar.app.created` is insufficient because availability must also account
 >   for events the owner created by hand, which that scope does not expose.
 >   The same `events.list` call is how we compute availability: we read only
 >   each event's start/end, status, transparency, event type and the owner's
 >   own RSVP, to derive busy intervals.
 >
-> For this resubmission we **narrowed** the request: the previous submission
-> asked for `https://www.googleapis.com/auth/calendar`, and we removed it.
+> We only call `events.insert`, `events.patch`, `events.delete` and
+> `events.list` on the `primary` calendar. We do not access ACLs, calendar
+> settings, the calendar list or any other calendar. If you consider
+> `https://www.googleapis.com/auth/calendar.events` sufficient for this usage,
+> we can switch to it.
 >
 > **Exactly what Calendar data we read**
 >
@@ -268,11 +278,11 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
 6. Desde otro teléfono, escribirle al asistente y pedir un turno: que ofrezca
    horarios y confirme.
 7. Abrir el Google Calendar del titular en otra pestaña y mostrar el evento
-   creado — uso de `calendar.events`.
+   creado — uso de `auth/calendar` (`events.insert`).
 8. Pedir por WhatsApp que lo mueva y mostrar el evento movido; pedir que lo
    cancele y mostrar que desapareció.
 9. `/calendario` en la app, listando los eventos del titular — el otro uso de
-   `calendar.events`.
+   `auth/calendar` (`events.list`).
 10. `/cuenta` → escribir `ELIMINAR` → **Eliminar mi cuenta y mis datos**. Después
     abrir `https://myaccount.google.com/permissions` y mostrar que Trato Agenda
     **ya no figura**. Es la prueba en video de que la revocación funciona, y es
@@ -306,7 +316,7 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
       [`modelo-y-zdr.md`](modelo-y-zdr.md) — **decisión pendiente**. Poner el
       modelo que se elija en el borrador de respuesta de arriba, donde dice
       `<MODELO>`.
-- [ ] **Probar los scopes recortados de punta a punta** (ver abajo).
+- [ ] **Probar los scopes de punta a punta** (ver abajo).
 - [ ] **Grabar y subir el video** como *unlisted* en YouTube.
 - [ ] **Verificar que el nombre del responsable coincida con la consola.** La
       política y los términos declaran a **Raúl Gonzalez, CUIT 20-22390119-1**
@@ -314,12 +324,12 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
       contact* y el titular del proyecto Cloud tienen que ser la misma persona,
       o Google pregunta.
 
-## Cómo probar el recorte de scopes
+## Cómo probar los scopes
 
 Los scopes nuevos hay que ejercitarlos contra Google de verdad. Ya no se usa
-`freebusy.query` (ni se pide `calendar.freebusy`): toda lectura es
-`events.list`, que `calendar.events` cubre, así que un 403 en la disponibilidad
-apunta a un token viejo, no a un scope que falte.
+`freebusy.query`: toda lectura es `events.list`, que `auth/calendar` cubre, así
+que un 403 en la disponibilidad apunta a un token viejo, no a un scope que
+falte.
 
 1. Revocar el acceso de Trato Agenda en
    `https://myaccount.google.com/permissions`.
@@ -334,6 +344,7 @@ apunta a un token viejo, no a un scope que falte.
    opaco.
 
 Ojo con las cuentas ya existentes: el refresh token viejo sigue valiendo para los
-scopes viejos, así que **todo usuario que consintió antes tiene que volver a
-entrar**. Al momento de este cambio había un único usuario de prueba, así que no
-hubo que avisar a nadie.
+scopes que se consintieron. Un token con `calendar.events` sigue alcanzando para
+todo lo que hace la app, así que el paso a `auth/calendar` no deja a nadie sin
+servicio; si algún día se pide un scope que el token no cubre, **todo usuario
+que consintió antes tiene que volver a entrar**.
