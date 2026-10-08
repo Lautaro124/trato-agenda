@@ -111,9 +111,9 @@ export default function TerminosPage() {
             <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
               https://www.googleapis.com/auth/calendar
             </code>
-            . Lo usamos sólo sobre los eventos de tu calendario principal, para crear, mover, cancelar y
-            listar eventos, y para ver qué horarios tenés ocupados. Se usa únicamente para el
-            funcionamiento del asistente.
+            {". Lo usamos sólo sobre los eventos de tu calendario principal, para crear, mover, cancelar y " +
+              "listar eventos, y para ver qué horarios tenés ocupados. Se usa únicamente para el " +
+              "funcionamiento del asistente."}
           </p>
           <p>
             Podés revocar ese permiso en cualquier momento desde{" "}
