@@ -13,6 +13,7 @@ import { MENSAJE_DISCULPA_GENERICO, MENSAJE_FUERA_DE_ALCANCE } from '../../mensa
 import { clasificarFalloDelModelo } from '../../respuesta-sin-choices.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO, type EsquemaHerramienta } from '../../conversation-tools.js';
 import type { EstadoComun } from '../state.js';
+import { mensajesVisibles } from '../ventana-historial.js';
 
 export type DepsConversacion = {
   llm: BaseChatModel;
@@ -47,10 +48,13 @@ export function crearNodoConversacion(deps: DepsConversacion) {
         ? deps.llm.bindTools(herramientas)
         : deps.llm;
 
+    // Sólo la parte del hilo dentro de la ventana, y sin pares tool call/resultado
+    // cortados: un hilo que quedó roto ya no hace fallar cada mensaje siguiente.
+    const sistema = state.correccion ? `${contexto.bloqueSistema}\n\n${state.correccion}` : contexto.bloqueSistema;
     try {
       const respuesta = await modelo.invoke([
-        new SystemMessage(contexto.bloqueSistema),
-        ...state.messages,
+        new SystemMessage(sistema),
+        ...mensajesVisibles(state.messages, state.inicioVisible ?? 0),
       ]);
       return { messages: [respuesta] };
     } catch (error) {

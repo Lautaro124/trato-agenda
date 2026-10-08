@@ -60,6 +60,12 @@ export type ProductoEncontrado = {
   categoria: string | null;
   descripcion: string;
   variantes: VarianteEncontrada[];
+  /**
+   * true si sólo lo trajo la búsqueda por significado (embeddings): ninguna
+   * palabra de la consulta aparece en el producto. Es "algo parecido", no lo
+   * que se pidió, y así se le presenta al modelo.
+   */
+  soloParecido?: boolean;
 };
 
 export type OpcionesBusqueda = {
@@ -113,7 +119,11 @@ export class BusquedaService {
       { ids: vectoriales },
     ];
     const ids = fusionarRankings(rankings, opciones.limite ?? RESULTADOS_POR_BUSQUEDA);
-    return this.cargar(userId, ids, opciones.reservadas);
+    const porTexto = new Set([...exactos, ...fullText, ...trigramas]);
+    const productos = await this.cargar(userId, ids, opciones.reservadas);
+    return productos.map((producto) =>
+      porTexto.has(producto.productoId) ? producto : { ...producto, soloParecido: true },
+    );
   }
 
   private async exactos(userId: string, texto: string): Promise<string[]> {

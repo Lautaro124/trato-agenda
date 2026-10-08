@@ -3,6 +3,8 @@
  * (agenda y ventas), así que vive aparte y sin dependencias.
  */
 import type { BaseMessage } from '@langchain/core/messages';
+import { completarPlantilla, mensajePropio } from '../../agents/mensajes.rules.js';
+import type { Agent } from '../../generated/prisma/client.js';
 
 /**
  * Si el asistente ya contestó en este hilo. El último mensaje es el que acaba
@@ -18,6 +20,30 @@ export function yaSePresento(messages: BaseMessage[]): boolean {
  */
 export const YA_TE_PRESENTASTE =
   'Ya te presentaste en esta conversación: no saludes de nuevo ni digas tu nombre, contestá directo lo que te pide.';
+
+/**
+ * Lo que se suma al contexto sobre el saludo: YA_TE_PRESENTASTE si ya saludó,
+ * o el saludo que escribió el dueño (en /asistente) si es el primer mensaje.
+ * El texto del dueño va con `JSON.stringify` para que se lea como dato.
+ */
+export function bloqueDeSaludo(
+  agent: Pick<Agent, 'mensajes' | 'nombreBot' | 'nombreTitular'>,
+  yaSePresento: boolean,
+): string {
+  if (yaSePresento) return `\n\n${YA_TE_PRESENTASTE}`;
+  const propio = mensajePropio(agent, 'saludo');
+  if (!propio) return '';
+  const titular = agent.nombreTitular.trim();
+  const saludo = completarPlantilla(propio, {
+    asistente: agent.nombreBot.trim(),
+    titular,
+    negocio: titular,
+  });
+  return (
+    `\n\nTu primer mensaje de esta conversación empieza con este saludo, tal cual: ${JSON.stringify(saludo)}. ` +
+    'Si el cliente ya preguntó algo, contestáselo en el mismo mensaje, después del saludo.'
+  );
+}
 
 /**
  * Lo que el contexto dice de este cliente. No alcanza con mirar

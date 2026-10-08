@@ -15,6 +15,9 @@ function crearPrisma(agent: unknown = { id: 'agent-1' }, filas: unknown[] = []) 
   } as unknown as PrismaService;
 }
 
+const VENTANA_MS = 14 * 24 * 60 * 60_000;
+const CONFIG = { get: vi.fn(() => VENTANA_MS) } as never;
+
 function crearGrafo(respuesta: unknown, mensajesEnCheckpoint: unknown[] = []) {
   const invoke =
     respuesta instanceof Error
@@ -31,7 +34,7 @@ describe('ConversationService.handleIncoming', () => {
   it('sin Agent configurado, no invoca el grafo ni crea la conversación', async () => {
     const prisma = crearPrisma(null);
     const grafo = crearGrafo('irrelevante');
-    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never, CONFIG);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
 
@@ -43,7 +46,7 @@ describe('ConversationService.handleIncoming', () => {
   it('devuelve el texto del último mensaje del grafo y usa la conversación como hilo', async () => {
     const prisma = crearPrisma();
     const grafo = crearGrafo('Hola, soy Tati.');
-    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never, CONFIG);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
 
@@ -57,7 +60,7 @@ describe('ConversationService.handleIncoming', () => {
   it('marca esPropietario cuando el mensaje viene del banco de pruebas del Home', async () => {
     const prisma = crearPrisma();
     const grafo = crearGrafo('Hola, dueño.');
-    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never, CONFIG);
 
     await service.handleIncoming('user-1', jidDePrueba('user-1'), 'hola');
 
@@ -69,11 +72,11 @@ describe('ConversationService.handleIncoming', () => {
 
   it('siembra el historial de la tabla Message cuando el hilo no tiene checkpoint', async () => {
     const prisma = crearPrisma({ id: 'agent-1' }, [
-      { role: 'assistant', content: { content: '¿En qué te ayudo?' } },
-      { role: 'user', content: { content: 'hola' } },
+      { role: 'assistant', content: { content: '¿En qué te ayudo?' }, createdAt: new Date() },
+      { role: 'user', content: { content: 'hola' }, createdAt: new Date() },
     ]);
     const grafo = crearGrafo('Dale.');
-    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never, CONFIG);
 
     await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'quiero un turno');
 
@@ -82,10 +85,29 @@ describe('ConversationService.handleIncoming', () => {
     expect(entrada.messages).toHaveLength(3);
   });
 
+  it('al sembrar sólo trae los mensajes de dentro de la ventana que ve el modelo', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-06T12:00:00Z'));
+    try {
+      const prisma = crearPrisma();
+      const service = new ConversationService(prisma, crearGrafo('Dale.'), crearGrafo('no es de ventas') as never, CONFIG);
+
+      await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'quiero un turno');
+
+      expect(prisma.message.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { conversationId: 'conv-1', createdAt: { gte: new Date(Date.now() - VENTANA_MS) } },
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('con el hilo ya en el checkpointer no relee la tabla Message', async () => {
     const prisma = crearPrisma({ id: 'agent-1' }, [{ role: 'user', content: { content: 'hola' } }]);
     const grafo = crearGrafo('Dale.', [new AIMessage('ya estaba')]);
-    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never, CONFIG);
 
     await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'quiero un turno');
 
@@ -97,7 +119,7 @@ describe('ConversationService.handleIncoming', () => {
   it('si el grafo se queda sin vueltas, responde que lo va a confirmar', async () => {
     const prisma = crearPrisma();
     const grafo = crearGrafo(new GraphRecursionError('sin vueltas'));
-    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never, CONFIG);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
 
@@ -107,7 +129,7 @@ describe('ConversationService.handleIncoming', () => {
   it('ante cualquier otra falla del grafo, responde la disculpa genérica', async () => {
     const prisma = crearPrisma();
     const grafo = crearGrafo(new Error('se cayó todo'));
-    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never);
+    const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never, CONFIG);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
 
@@ -118,7 +140,7 @@ describe('ConversationService.handleIncoming', () => {
     const prisma = crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' });
     const agenda = crearGrafo('soy la agenda');
     const ventas = crearGrafo('soy el de ventas');
-    const service = new ConversationService(prisma, agenda, ventas as never);
+    const service = new ConversationService(prisma, agenda, ventas as never, CONFIG);
 
     const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', '¿tenés mates?');
 
@@ -131,7 +153,7 @@ describe('ConversationService.handleIncoming', () => {
     const prisma = crearPrisma({ id: 'agent-1' });
     const agenda = crearGrafo('soy la agenda');
     const ventas = crearGrafo('soy el de ventas');
-    const service = new ConversationService(prisma, agenda, ventas as never);
+    const service = new ConversationService(prisma, agenda, ventas as never, CONFIG);
 
     expect(await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola')).toBe('soy la agenda');
     expect(ventas.invoke).not.toHaveBeenCalled();

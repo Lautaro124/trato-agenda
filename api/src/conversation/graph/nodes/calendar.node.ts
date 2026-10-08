@@ -8,6 +8,7 @@
  * resultado como ToolMessage y, si cambió la agenda, actualiza el snapshot en
  * memoria para que el resto de la misma vuelta no tenga que releer Google.
  */
+import { mensajePropio } from '../../../agents/mensajes.rules.js';
 import { ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import type { CalendarService, PeriodoOcupado } from '../../../calendar/calendar.service.js';
@@ -105,6 +106,7 @@ export function crearNodoCalendar(deps: DepsCalendar) {
         fin,
         actualizada.desde,
         actualizada.hasta,
+        mensajePropio(agent, 'horarioOcupado'),
       ),
       agenda: actualizada,
     };

@@ -10,8 +10,21 @@ import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
-import { detalleDeRenglones, estadoVisible, fechaYHora, MAX_PEDIDOS_PENDIENTES } from '../../comercio/ventas.rules.js';
+import {
+  detalleDeRenglones,
+  estadoVisible,
+  fechaYHora,
+  MAX_CANTIDAD_POR_ITEM,
+  MAX_PEDIDOS_PENDIENTES,
+} from '../../comercio/ventas.rules.js';
 import type { Agent, ItemVenta, Venta } from '../../generated/prisma/client.js';
+import {
+  completarPlantilla,
+  instruccionMandarTalCual,
+  mensajePropio,
+  neutralizarMarcador,
+  reglaDeMensajesPropios,
+} from '../../agents/mensajes.rules.js';
 import { TIMEZONE } from '../graph/agenda-rules.js';
 
 type VentaConItems = Venta & { items: ItemVenta[] };
@@ -22,9 +35,66 @@ export const MAX_PRODUCTOS_POR_MENSAJE = 3;
 /** Categorías que entran en el prompt; con más, el modelo busca sin filtrar. */
 export const MAX_CATEGORIAS_EN_PROMPT = 30;
 
+/**
+ * Búsquedas al catálogo por mensaje del cliente. Buscar una y otra vez algo
+ * que no está agotaba LIMITE_RECURSION y dejaba la vuelta cortada a la mitad.
+ */
+export const MAX_BUSQUEDAS_POR_MENSAJE = 3;
+
 /** La pregunta de cierre: después de que el cliente elige, antes de crear el pedido. */
 export function preguntaDeCierre(mpConectado: boolean): string {
   return mpConectado ? '¿Querés algo más antes de que te pase el link de pago?' : '¿Querés algo más o te lo anoto así?';
+}
+
+/** Los montos "$ …" de un texto, en centavos: "$ 8.000" → 800000, "$1.500,50" → 150050. */
+export function montosEnTexto(texto: string): number[] {
+  return [...texto.matchAll(/\$\s?(\d[\d.]*)(?:,(\d{1,2}))?/g)].map(
+    ([, enteros, decimales]) => Number(enteros.replaceAll('.', '')) * 100 + Number((decimales ?? '0').padEnd(2, '0')),
+  );
+}
+
+/**
+ * Los montos de una respuesta que no salen de ninguna fuente: ni de lo que
+ * devolvió el catálogo ni de los pedidos (`fuentes`), ni de lo que escribió el
+ * cliente (`delCliente`, sólo tal cual: repetirlo para decir que no, no es
+ * inventar). Un monto que es N veces un precio de las fuentes (N hasta el
+ * máximo de unidades por renglón) cuenta como respaldado: es "2 mates, $ 16.000".
+ * Lo del cliente no se multiplica: un "$1" suyo no respalda cualquier cifra.
+ */
+export function preciosSinRespaldo(respuesta: string, fuentes: string[], delCliente: string[] = []): number[] {
+  const conocidos = new Set(fuentes.flatMap(montosEnTexto));
+  const delClienteExactos = new Set(delCliente.flatMap(montosEnTexto));
+  return montosEnTexto(respuesta).filter(
+    (monto) =>
+      !conocidos.has(monto) &&
+      !delClienteExactos.has(monto) &&
+      ![...conocidos].some(
+        (precio) => precio > 0 && monto % precio === 0 && monto / precio <= MAX_CANTIDAD_POR_ITEM,
+      ),
+  );
+}
+
+/** La nota que vuelve al modelo cuando mencionó precios que no salen del catálogo. */
+export function correccionDePrecios(montos: number[]): string {
+  return (
+    `Corrección: tu respuesta anterior mencionaba ${montos.map(formatearCentavos).join(', ')}, y eso no sale de ` +
+    'ningún resultado del catálogo de esta charla. Nunca digas un precio ni que hay stock de algo que no te ' +
+    'devolvió buscar_productos (o ver_catalogo). Si el cliente pide un producto, buscalo con buscar_productos; si ' +
+    'no aparece, decile que no lo tenés. Escribí la respuesta de nuevo.'
+  );
+}
+
+/**
+ * Los ids de variante que aparecieron en resultados de búsqueda: sólo los de
+ * los renglones de variante de formatearResultados ("   - … [variante id]: $ …"),
+ * no cualquier "[variante …]" suelto, que podría venir de la consulta.
+ */
+export function variantesMostradas(resultados: string[]): Set<string> {
+  return new Set(
+    resultados.flatMap((texto) =>
+      [...texto.matchAll(/^ {3}- (?:"(?:[^"\\]|\\.)*" )?\[variante ([^\]\s]+)\]: /gm)].map(([, id]) => id),
+    ),
+  );
 }
 
 export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
@@ -46,7 +116,9 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `- Si una variante está "sin stock", decilo claro y ofrecé otra variante o producto con stock de los ` +
     `que devolvió la búsqueda. Nunca prometas cuándo vuelve a entrar.\n` +
     `- Si la búsqueda no encuentra lo que pide, decile que no lo tenés. No ofrezcas productos que no ` +
-    `aparecieron en los resultados.\n` +
+    `aparecieron en los resultados. Que un resultado comparta una palabra, un color o la categoría con lo que ` +
+    `pidió no quiere decir que sea eso: si no es exactamente lo que pidió, primero decile que eso no lo tenés y ` +
+    `recién después, si querés, ofrecé el parecido aclarando que es otra cosa.\n` +
     `- Si el cliente necesita algo del negocio que vos no sabés (un producto que no está, envíos, formas de ` +
     `pago, un reclamo), avisale al dueño con derivar_consulta y decile que ${titular} le responde por este chat.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
@@ -97,9 +169,21 @@ const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-dig
 export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
   const titular = agent.nombreTitular || 'el negocio';
   const base =
-    `Pedido creado para ${JSON.stringify(venta.nombreCliente ?? '')}: ${detalleDeRenglones(venta.items)}. ` +
+    `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items)}. ` +
     `Total ${formatearCentavos(venta.totalCentavos)}.`;
   if (venta.linkPago) {
+    const propio = mensajePropio(agent, 'linkPago');
+    if (propio) {
+      // El dueño escribió cómo se manda el link: el modelo lo copia, con los datos ya puestos.
+      const mensaje = completarPlantilla(propio, {
+        nombre: primerNombre(venta.nombreCliente),
+        detalle: detalleDeRenglones(venta.items),
+        total: formatearCentavos(venta.totalCentavos),
+        link: venta.linkPago,
+        vence: HORA.format(venta.reservaVenceAt),
+      });
+      return `${base} ${instruccionMandarTalCual(mensaje)}`;
+    }
     return (
       `${base} Link de pago (mandáselo tal cual): ${venta.linkPago} — vale hasta las ` +
       `${HORA.format(venta.reservaVenceAt)}; si no paga antes, el pedido se libera.`
@@ -155,16 +239,23 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
   );
 }
 
-export function reglasDeEstiloVentas(): string {
+/** Mismo criterio que `reglasDeEstilo` de la agenda: formato de WhatsApp, no markdown, y emojis acotados. */
+export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
   return (
     'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
-    '- Contestá en una o dos frases cortas. Nada de markdown, viñetas, títulos ni listas numeradas.\n' +
+    '- Mensajes cortos: de 1 a 5 líneas. Nada de párrafos largos.\n' +
+    '- Usá el formato de WhatsApp, nunca markdown: negrita con un solo asterisco (*así*), sin "**", sin "#", sin tablas.\n' +
+    '- Cuando muestres productos, uno por línea empezando con "* ": nombre, variante y precio tal cual los devolvió la búsqueda. El formato es:\n' +
+    '  * *{producto}* {variante} · {precio}\n' +
+    '  * *{producto}* {variante} · {precio} (sin stock)\n' +
     `- Nunca muestres más de ${MAX_PRODUCTOS_POR_MENSAJE} productos en un mismo mensaje, aunque la búsqueda ` +
     'devuelva más: elegí los que mejor encajan con lo que pidió.\n' +
     '- La única excepción es lo que devuelve ver_catalogo: ahí sí mostrá la lista entera que te da, una línea ' +
-    'por producto o categoría empezando con un guion, sin negritas ni numerar, y una frase corta antes y otra ' +
-    'después.\n' +
-    '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.'
+    'por producto o categoría empezando con "* ", sin numerar, y una frase corta antes y otra después.\n' +
+    '- Podés usar emojis para que se lea más rápido, como mucho 2 por mensaje: 👋 saludo, 🛍️ productos, ' +
+    '🛒 lo que lleva anotado, 💳 link de pago, ✅ pago aprobado. Nunca un emoji por palabra.\n' +
+    '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
+    (agent ? reglaDeMensajesPropios(agent) : '')
   );
 }
 
@@ -193,16 +284,24 @@ export function bloqueCatalogo(categorias: Array<{ nombre: string; cantidad: num
  * Resultados de una búsqueda tal como vuelven al modelo. Los textos del dueño
  * (nombre, descripción, variante) van con `JSON.stringify` para que se lean
  * como dato; los ids van entre corchetes, que el modelo usa para
- * `crear_pedido` y no le muestra al cliente.
+ * `crear_pedido` y no le muestra al cliente. Lo que sólo trajo la búsqueda por
+ * significado va aparte y dicho como "no es lo que pidió": tomarlo por el
+ * producto pedido era como el asistente terminaba inventando que lo tenía.
  */
-export function formatearResultados(consulta: string, productos: ProductoEncontrado[]): string {
+export function formatearResultados(
+  consulta: string,
+  productos: ProductoEncontrado[],
+  agent?: Pick<Agent, 'mensajes' | 'nombreTitular'>,
+): string {
   if (productos.length === 0) {
+    const propio = agent && sinProductosPropio(agent, consulta);
+    if (propio) return `No hay productos para ${JSON.stringify(neutralizarMarcador(consulta))} en el catálogo. ${propio}`;
     return (
       `No hay productos para ${JSON.stringify(consulta)} en el catálogo. Decile al cliente que no lo tenés ` +
-      '(sin inventar alternativas) y preguntale si busca otra cosa.'
+      '(sin inventar alternativas ni precios) y preguntale si busca otra cosa.'
     );
   }
-  const lineas = productos.map((producto, indice) => {
+  const formatear = (producto: ProductoEncontrado, indice: number) => {
     const cabecera =
       `${indice + 1}. ${JSON.stringify(producto.nombre)} (código ${producto.codigo}` +
       (producto.categoria ? `, categoría ${JSON.stringify(producto.categoria)}` : '') +
@@ -214,11 +313,31 @@ export function formatearResultados(consulta: string, productos: ProductoEncontr
         `${formatearCentavos(variante.precioCentavos)}, ${variante.stock}`,
     );
     return [cabecera, ...variantes].join('\n');
-  });
-  return (
-    `Resultados de ${JSON.stringify(consulta)}, del más al menos relevante (precios y stock exactos; si ninguno ` +
-    `es lo que pidió, decile que no lo tenés):\n${lineas.join('\n')}`
-  );
+  };
+  const coinciden = productos.filter((producto) => !producto.soloParecido);
+  const parecidos = productos.filter((producto) => producto.soloParecido);
+
+  const partes: string[] = [];
+  if (coinciden.length > 0) {
+    partes.push(
+      `Resultados de ${JSON.stringify(consulta)}, del más al menos relevante (precios y stock exactos; si ninguno ` +
+        `es lo que pidió, decile que no lo tenés):\n${coinciden.map((producto, indice) => formatear(producto, indice)).join('\n')}`,
+    );
+  }
+  if (parecidos.length > 0) {
+    const encabezado =
+      coinciden.length > 0
+        ? 'Otros que se le parecen por el tema pero no coinciden por nombre: no los presentes como si fueran lo ' +
+          'que pidió.'
+        : `Ningún producto se llama como ${JSON.stringify(consulta)}; estos se le parecen por el tema. Si pidió ` +
+          'algo puntual (un producto, una marca) y no es ninguno de estos, decile primero que eso no lo tenés y ' +
+          'recién después, si encajan, ofrecelos como otra opción. Si describió lo que necesita ("algo para…"), ' +
+          'podés ofrecerlos directamente.';
+    partes.push(
+      `${encabezado}\n${parecidos.map((producto, indice) => formatear(producto, coinciden.length + indice)).join('\n')}`,
+    );
+  }
+  return partes.join('\n');
 }
 
 function lineaDeProducto(producto: ProductoPanorama): string {
@@ -242,13 +361,20 @@ function otrasCategorias(restantes: number): string {
  * Resultado de ver_catalogo. Los nombres del dueño van con `JSON.stringify`
  * como en formatearResultados; el modelo los muestra sin las comillas.
  */
-export function formatearCatalogo(resultado: ResultadoCatalogo): string {
+export function formatearCatalogo(
+  resultado: ResultadoCatalogo,
+  agent?: Pick<Agent, 'mensajes' | 'nombreTitular'>,
+): string {
   switch (resultado.tipo) {
-    case 'vacio':
+    case 'vacio': {
+      // Sin búsqueda de por medio no hay con qué completar {busqueda}: ahí queda el texto de siempre.
+      const propio = agent && sinProductosPropio(agent, null);
+      if (propio) return `Ahora no hay ningún producto con stock para ofrecer. ${propio}`;
       return (
         'Ahora no hay ningún producto con stock para ofrecer. Decíselo al cliente en una frase y preguntale si ' +
         'busca algo puntual.'
       );
+    }
     case 'listado': {
       const de = resultado.categoria ? ` de ${JSON.stringify(resultado.categoria)}` : '';
       const resto =
@@ -268,12 +394,37 @@ export function formatearCatalogo(resultado: ResultadoCatalogo): string {
         `quiere ver:\n${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}\n` +
         'Cuando elija una, llamá ver_catalogo con esa categoría.'
       );
-    case 'categoria_sin_productos':
+    case 'categoria_sin_productos': {
+      const propio = agent && sinProductosPropio(agent, resultado.categoria);
+      if (propio) {
+        return (
+          `No hay productos con stock en la categoría ${JSON.stringify(resultado.categoria)}. ${propio} ` +
+          `Si después te pregunta qué otra cosa tenés, estas son las categorías, en este orden:\n` +
+          `${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}`
+        );
+      }
       return (
         `No hay productos con stock en la categoría ${JSON.stringify(resultado.categoria)}. Decíselo y sugerile ` +
         `estas, en este orden:\n${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}`
       );
+    }
   }
+}
+
+/**
+ * El "no hay más productos" del dueño, listo para el modelo. Con `busqueda`
+ * null (ver_catalogo sin nada en stock) no se usa si el texto pide {busqueda}.
+ */
+function sinProductosPropio(agent: Pick<Agent, 'mensajes' | 'nombreTitular'>, busqueda: string | null): string | null {
+  const propio = mensajePropio(agent, 'sinProductos');
+  if (!propio || (busqueda === null && /\{busqueda\}/.test(propio))) return null;
+  return instruccionMandarTalCual(
+    completarPlantilla(propio, { busqueda: busqueda ?? '', negocio: agent.nombreTitular.trim() }),
+  );
+}
+
+function primerNombre(nombre: string | null): string {
+  return nombre?.trim().split(/\s+/)[0] ?? '';
 }
 
 /** Versión para el dueño: con las unidades exactas, lo reservado y el mínimo. */

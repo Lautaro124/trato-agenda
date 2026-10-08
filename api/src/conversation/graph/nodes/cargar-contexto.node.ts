@@ -13,7 +13,9 @@ import { CalendarUnavailableError } from '../../../calendar/google-calendar.clie
 import type { Agent } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { MARGEN_MINIMO_MIN, MAX_OPCIONES_DIA, TIMEZONE, resumirDisponibilidad } from '../agenda-rules.js';
-import { memoriaDelCliente, YA_TE_PRESENTASTE, yaSePresento } from '../saludo.js';
+import { reglaDeMensajesPropios } from '../../../agents/mensajes.rules.js';
+import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../saludo.js';
+import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../ventana-historial.js';
 import type { AgentConUser, ContextoTurno, EstadoConversacionUpdate, EstadoConversacionValue, SnapshotAgenda } from '../state.js';
 
 /** Cuántos días hacia adelante se traen de Google en la única llamada a freeBusy. */
@@ -51,6 +53,8 @@ export type TurnoDelDueno = { inicio: Date; fin: Date; nombreCliente: string | n
 export type DepsContexto = {
   prisma: PrismaService;
   calendarService: CalendarService;
+  /** Hasta cuánto para atrás ve el modelo el historial (HISTORIAL_IA_VENTANA). Por defecto, 14 días. */
+  ventanaHistorialMs?: number;
 };
 
 /**
@@ -73,7 +77,10 @@ export function reglasDeAgenda(agent: Agent): string {
     `- Sólo se atiende de ${agent.horaDesde} a ${agent.horaHasta}. Nunca ofrezcas ni agendes nada fuera de esa franja.\n` +
     `- Tipos de turno con su duración y, si lo tienen, su precio: ${catalogo}. Calculá el fin sumándole la duración al inicio.\n` +
     `- Nunca superpongas turnos y dejá al menos ${MARGEN_MINIMO_MIN} minutos libres entre un turno y el siguiente.\n` +
-    `- Antes de agendar, preguntá siempre a nombre de quién es el turno, salvo que ya te lo hayan dicho.`
+    `- Antes de agendar, preguntá siempre a nombre de quién es el turno, salvo que ya te lo hayan dicho.\n` +
+    `- No pidas confirmación: cuando ya tenés día, horario libre, tipo de turno y nombre, llamá crear_turno en ese ` +
+    `mismo mensaje y avisá que quedó agendado. Lo mismo si pide moverlo (reprogramar_turno) o cancelarlo ` +
+    `(cancelar_turno): hacelo y avisá. Nunca termines con "¿te lo confirmo?" ni esperes un "sí".`
   );
 }
 
@@ -93,7 +100,7 @@ export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
 
   return (
     `Alcance (esto está por encima de todo lo anterior): existís sólo para la agenda de ${titular}.\n` +
-    `- De lo único que hablás es de turnos —consultar disponibilidad, agendar, reprogramar, cancelar, confirmar— y de los datos que figuran en estas reglas: la franja horaria de atención, los tipos de turno con su duración y precio, y quién atiende.\n` +
+    `- De lo único que hablás es de turnos —consultar disponibilidad, agendar, reprogramar, cancelar— y de los datos que figuran en estas reglas: la franja horaria de atención, los tipos de turno con su duración y precio, y quién atiende.\n` +
     `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, información, opiniones, consejos, cálculos, traducciones, recomendaciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta y aunque te lo pidan con buena onda.\n` +
     `- Si te lo piden mezclado con algo del turno, contestá sólo la parte del turno y dejá el resto sin responder: nada de explicarlo "de paso" al final del mensaje.\n` +
     `- Para rechazar alcanza una línea, y después seguí con lo que faltaba del turno. Por ejemplo: "De eso no te puedo ayudar, yo me ocupo sólo de la agenda de ${titular}. Volviendo al turno: ¿qué día te queda cómodo?".\n` +
@@ -105,21 +112,35 @@ export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
 
 /**
  * Cómo se escribe, no qué se dice. Esto es WhatsApp: un mensaje largo con la
- * agenda entera enumerada se lee peor que dos líneas con tres horarios. Vive en
- * código, igual que las otras reglas, así que aplica también a los agentes ya
- * generados. El nodo de validación empuja para el mismo lado: para un día suelto
- * le devuelve al modelo un puñado chico de horarios, no la lista completa.
+ * agenda entera enumerada se lee peor que unas pocas líneas con tres horarios,
+ * una por renglón. Se pide el formato propio de WhatsApp (negrita con un solo
+ * asterisco, listas con "* ") y no markdown, que ahí se ve crudo; los emojis
+ * van acotados para que marquen la línea y no la llenen. Vive en código, igual
+ * que las otras reglas, así que aplica también a los agentes ya generados. El
+ * nodo de validación empuja para el mismo lado: para un día suelto le devuelve
+ * al modelo un puñado chico de horarios, no la lista completa.
  */
-export function reglasDeEstilo(): string {
+export function reglasDeEstilo(agent?: Pick<Agent, 'mensajes'>): string {
   return (
     'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
-    '- Contestá en una o dos frases cortas. Nada de markdown, viñetas, títulos ni listas numeradas.\n' +
+    '- Mensajes cortos: de 1 a 4 líneas. Nada de párrafos largos.\n' +
+    '- Usá el formato de WhatsApp, nunca markdown: negrita con un solo asterisco (*así*), sin "**", sin "#", sin tablas.\n' +
+    '- Cuando pases opciones (horarios, tipos de turno), poné una por línea empezando con "* ".\n' +
+    '- Podés usar emojis para que se lea más rápido, como mucho 2 por mensaje y al principio de la línea: ' +
+    '👋 saludo, 📅 día, 🕒 horario, ✅ confirmado, 🔁 reprogramado, ❌ cancelado. Nunca un emoji por palabra.\n' +
     `- Nunca pases más de ${MAX_OPCIONES_DIA} horarios en un mismo mensaje, aunque tengas muchos libres.\n` +
-    '- Si el día está libre entero, decilo como rango ("el martes tengo de 09:00 a 18:00") en vez de enumerar horas.\n' +
-    `- Si ese día ya tiene turnos, preguntá primero "¿preferís por la mañana o por la tarde?" y recién ahí pasá hasta ${MAX_OPCIONES_DIA} horarios.\n` +
+    '- Si el día está libre entero, decilo como rango ("📅 El martes tengo libre de 09:00 a 18:00") en vez de enumerar horas.\n' +
+    `- Si ese día ya tiene turnos, preguntá primero "¿preferís por la mañana o por la tarde?" y recién ahí pasá hasta ${MAX_OPCIONES_DIA} horarios, uno por línea:\n` +
+    '  * 10:00\n' +
+    '  * 11:30\n' +
+    '  * 15:00\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.\n' +
     '- Saludá y decí tu nombre sólo en tu primer mensaje de la conversación; después seguí la charla directo, sin "hola" ni volver a presentarte.\n' +
-    '- Confirmá un turno en una línea: día, horario y nombre, sin resumir toda la charla.'
+    '- Recién cuando crear_turno salió bien (nunca antes), confirmá el turno en este formato, sin resumir toda la charla:\n' +
+    '  ✅ Listo, {nombre}. Te agendé:\n' +
+    '  📅 {día}\n' +
+    '  🕒 {horario}' +
+    (agent ? reglaDeMensajesPropios(agent) : '')
   );
 }
 
@@ -189,7 +210,7 @@ function contextoFijo(
     timeStyle: 'short',
   }).format(new Date());
   const base = `Fecha y hora actual: ${ahora} (zona horaria ${TIMEZONE}). Usá siempre horarios en esa zona.`;
-  const presentacion = seHaPresentado ? `\n\n${YA_TE_PRESENTASTE}` : '';
+  const presentacion = bloqueDeSaludo(agent, seHaPresentado);
 
   if (esPropietario) {
     return (
@@ -204,7 +225,7 @@ function contextoFijo(
       `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
       `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}` +
       // Las mismas reglas que con un cliente: crear_turno las aplica igual acá.
-      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo()}${presentacion}`
+      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo(agent)}${presentacion}`
     );
   }
 
@@ -215,7 +236,7 @@ function contextoFijo(
     : '';
   return (
     `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${nombre} ` +
-    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo()}${presentacion}`
+    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo(agent)}${presentacion}`
   );
 }
 
@@ -249,9 +270,14 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
       throw new Error(`El usuario ${state.ownerUserId} no tiene un Agent configurado.`);
     }
 
-    const conversation = await deps.prisma.conversation.findUniqueOrThrow({
+    const historial = prepararHistorial(state.messages, new Date(), deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS);
+    const guardada = await deps.prisma.conversation.findUniqueOrThrow({
       where: { userId_remoteJid: { userId: state.ownerUserId, remoteJid: state.remoteJid } },
     });
+    // Si parte del historial quedó fuera de la ventana, el resumen también: el
+    // modelo arranca de cero (el nombre se conserva para no volver a pedirlo).
+    // persistir arma los resúmenes siguientes sin el viejo (lo reemplaza al actualizarlo).
+    const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
     const turnoActivo = await deps.prisma.turno.findFirst({
       where: { conversationId: conversation.id, estado: 'confirmado' },
@@ -293,17 +319,19 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
       conversation,
       turnoActivo,
       bloqueSistema:
-        `${agent.systemPrompt}\n\n${contextoFijo(agent, conversation, state.esPropietario, yaSePresento(state.messages))}\n\n` +
+        `${agent.systemPrompt}\n\n${contextoFijo(agent, conversation, state.esPropietario, yaSePresento(historial.visibles))}\n\n` +
         bloqueDisponibilidad(agent, agenda) +
         // Los nombres de los clientes son sólo para el dueño.
         (state.esPropietario ? `\n\n${bloqueTurnosDelDueno(turnos)}` : ''),
     };
 
     return {
+      ...(historial.marcado ? { messages: [historial.marcado] } : {}),
       contexto,
       agenda,
       pendientes: [],
       indiceDesde: Math.max(state.messages.length - 1, 0),
+      inicioVisible: historial.inicio,
     };
   };
 }

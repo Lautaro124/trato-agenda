@@ -111,7 +111,7 @@ function Catalogo() {
               Tus productos
             </h1>
             <p className="text-sm leading-[1.6] text-ink-secondary">
-              Lo que tu asistente puede vender: precio y stock por variante. Los cambios valen desde el próximo mensaje.
+              Lo que tu asistente puede vender: precio y stock por variante. Editá lo que quieras y tocá “Guardar cambios”; valen desde el próximo mensaje.
             </p>
           </div>
           <div className="flex gap-2">

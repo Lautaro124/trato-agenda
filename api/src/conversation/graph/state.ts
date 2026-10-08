@@ -22,6 +22,14 @@ export type EstadoComun = {
   messages: BaseMessage[];
   esPropietario: boolean;
   indiceDesde: number;
+  /** Primer índice de `messages` que ve el modelo (ventana-historial.ts). */
+  inicioVisible: number;
+  /**
+   * Nota de sistema que se suma al prompt en la próxima llamada al modelo.
+   * La usa el grafo de ventas para pedirle que corrija una respuesta; vacía,
+   * no agrega nada.
+   */
+  correccion?: string;
   contexto: { agent: Agent; conversation: Conversation; bloqueSistema: string };
 };
 
@@ -67,6 +75,8 @@ export const EstadoConversacion = new StateSchema({
    * `persistir` espeja a la tabla Message sólo de acá en adelante.
    */
   indiceDesde: new UntrackedValue<number>(undefined, { guard: false }),
+  /** Primer índice de `messages` que ve el modelo en esta vuelta (ventana-historial.ts). */
+  inicioVisible: new UntrackedValue<number>(undefined, { guard: false }),
 });
 
 export type EstadoConversacionValue = typeof EstadoConversacion.State;

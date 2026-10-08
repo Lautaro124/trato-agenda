@@ -33,9 +33,10 @@ export type DepsCatalogo = {
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
 };
 
-/** Sólo lo que escribió el cliente, en texto: es lo único que se le pasa a Jev. */
-export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages'>): string[] {
+/** Sólo lo que escribió el cliente dentro de la ventana, en texto: es lo único que se le pasa a Jev. */
+export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages' | 'inicioVisible'>): string[] {
   return state.messages
+    .slice(state.inicioVisible ?? 0)
     .filter((mensaje) => mensaje.getType() === 'human' && typeof mensaje.content === 'string')
     .map((mensaje) => mensaje.content as string);
 }
@@ -53,12 +54,13 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const consulta = String(args.consulta);
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const productos = await deps.busqueda.buscar(state.ownerUserId, consulta, { categoria });
-        return formatearResultados(consulta, productos);
+        return formatearResultados(consulta, productos, state.contexto.agent);
       }
       case 'ver_catalogo': {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         return formatearCatalogo(
           await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria),
+          state.contexto.agent,
         );
       }
       case 'consultar_stock': {
