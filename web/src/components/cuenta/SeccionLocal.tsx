@@ -9,7 +9,7 @@ import type { LocalPresencial } from "@/lib/local";
 
 type AgentConLocal = { local: LocalPresencial | null };
 
-function EditorLocal({ inicial }: { inicial: LocalPresencial | null }) {
+function EditorLocal({ inicial }: Readonly<{ inicial: LocalPresencial | null }>) {
   const local = useLocal(inicial);
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ texto: string; tono: "ok" | "error" } | null>(null);
@@ -77,13 +77,11 @@ export function SeccionLocal() {
         Con esto tu asistente contesta dónde queda, a qué hora abrís y si se puede pasar a retirar. Lo que no
         cargues no lo inventa: te pasa la consulta.
       </p>
-      {agent === undefined ? (
-        <p className="text-[13px] text-muted">Cargando…</p>
-      ) : agent === null ? (
+      {agent === undefined && <p className="text-[13px] text-muted">Cargando…</p>}
+      {agent === null && (
         <p className="text-[13px] text-danger-text">No pudimos cargar los datos de tu asistente. Recargá la página.</p>
-      ) : (
-        <EditorLocal inicial={agent.local} />
       )}
+      {agent && <EditorLocal inicial={agent.local} />}
     </section>
   );
 }

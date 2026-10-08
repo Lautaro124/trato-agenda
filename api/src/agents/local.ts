@@ -81,6 +81,36 @@ function ordenar(franjas: FranjaLocal[]): FranjaLocal[] {
   );
 }
 
+/** Por qué la dirección o el enlace no se pueden guardar, o null. */
+function problemaDeTextos(direccion: string, enlace: string): string | null {
+  if (direccion && direccion.length < LARGO_MIN_DIRECCION) return 'La dirección es demasiado corta.';
+  if (direccion.length > LARGO_MAX_DIRECCION) return 'La dirección es demasiado larga.';
+  if (enlace && (!esHttps(enlace) || enlace.length > LARGO_MAX_ENLACE)) {
+    return 'El enlace de ubicación tiene que ser una dirección https.';
+  }
+  return null;
+}
+
+/** Por qué los horarios (ya ordenados) no se pueden guardar, o null. */
+function problemaDeHorarios(horarios: FranjaLocal[]): string | null {
+  if (horarios.length > MAX_FRANJAS) return 'Hay demasiados horarios cargados.';
+  for (const [indice, franja] of horarios.entries()) {
+    if (!esDia(franja.dia) || !HORA_HHMM.test(franja.desde) || !HORA_HHMM.test(franja.hasta)) {
+      return 'Hay un horario con un formato inválido.';
+    }
+    // Comparar "HH:MM" como strings alcanza: mismo largo y campos de ancho fijo.
+    if (franja.desde >= franja.hasta) return `El ${NOMBRE_DIA[franja.dia]} cierra antes de abrir.`;
+    const anterior = horarios[indice - 1];
+    if (anterior?.dia === franja.dia && anterior.hasta > franja.desde) {
+      return `Los horarios del ${NOMBRE_DIA[franja.dia]} se pisan.`;
+    }
+  }
+  const sobrecargado = DIAS_SEMANA.find(
+    (dia) => horarios.filter((franja) => franja.dia === dia).length > MAX_FRANJAS_POR_DIA,
+  );
+  return sobrecargado ? `El ${NOMBRE_DIA[sobrecargado]} tiene más de ${MAX_FRANJAS_POR_DIA} horarios.` : null;
+}
+
 /**
  * Valida y normaliza lo que manda la pantalla. Devuelve el motivo del rechazo
  * en castellano (va tal cual en el 400). Sin local no se guarda nada más: una
@@ -91,36 +121,11 @@ export function normalizarLocal(entrada: LocalEntrada): { local: LocalPresencial
   if (!entrada.tieneLocal) {
     return { local: { tieneLocal: false, horarios: [], retiroEnLocal: false } };
   }
-
   const direccion = enUnaLinea(entrada.direccion ?? '');
-  if (direccion && direccion.length < LARGO_MIN_DIRECCION) return { error: 'La dirección es demasiado corta.' };
-  if (direccion.length > LARGO_MAX_DIRECCION) return { error: 'La dirección es demasiado larga.' };
-
   const enlace = (entrada.enlaceUbicacion ?? '').trim();
-  if (enlace && (!esHttps(enlace) || enlace.length > LARGO_MAX_ENLACE)) {
-    return { error: 'El enlace de ubicación tiene que ser una dirección https.' };
-  }
-
   const horarios = ordenar(entrada.horarios ?? []);
-  if (horarios.length > MAX_FRANJAS) return { error: 'Hay demasiados horarios cargados.' };
-  for (const [indice, franja] of horarios.entries()) {
-    if (!esDia(franja.dia) || !HORA_HHMM.test(franja.desde) || !HORA_HHMM.test(franja.hasta)) {
-      return { error: 'Hay un horario con un formato inválido.' };
-    }
-    // Comparar "HH:MM" como strings alcanza: mismo largo y campos de ancho fijo.
-    if (franja.desde >= franja.hasta) {
-      return { error: `El ${NOMBRE_DIA[franja.dia]} cierra antes de abrir.` };
-    }
-    const anterior = horarios[indice - 1];
-    if (anterior?.dia === franja.dia && anterior.hasta > franja.desde) {
-      return { error: `Los horarios del ${NOMBRE_DIA[franja.dia]} se pisan.` };
-    }
-  }
-  for (const dia of DIAS_SEMANA) {
-    if (horarios.filter((franja) => franja.dia === dia).length > MAX_FRANJAS_POR_DIA) {
-      return { error: `El ${NOMBRE_DIA[dia]} tiene más de ${MAX_FRANJAS_POR_DIA} horarios.` };
-    }
-  }
+  const error = problemaDeTextos(direccion, enlace) ?? problemaDeHorarios(horarios);
+  if (error) return { error };
 
   return {
     local: {
@@ -185,17 +190,14 @@ export function resumenHorarios(horarios: FranjaLocal[]): string {
       grupos.push({ primero: dia, ultimo: dia, texto });
     }
   }
-  return grupos
-    .map((grupo) => {
-      const dias =
-        grupo.primero === grupo.ultimo
-          ? NOMBRE_DIA[grupo.primero]
-          : DIAS_SEMANA.indexOf(grupo.ultimo) - DIAS_SEMANA.indexOf(grupo.primero) === 1
-            ? `${NOMBRE_DIA[grupo.primero]} y ${NOMBRE_DIA[grupo.ultimo]}`
-            : `${NOMBRE_DIA[grupo.primero]} a ${NOMBRE_DIA[grupo.ultimo]}`;
-      return `${dias} ${grupo.texto}`;
-    })
-    .join('; ');
+  return grupos.map((grupo) => `${diasDelGrupo(grupo.primero, grupo.ultimo)} ${grupo.texto}`).join('; ');
+}
+
+/** "lunes", "sábado y domingo", "lunes a viernes". */
+function diasDelGrupo(primero: DiaSemana, ultimo: DiaSemana): string {
+  if (primero === ultimo) return NOMBRE_DIA[primero];
+  const seguidos = DIAS_SEMANA.indexOf(ultimo) - DIAS_SEMANA.indexOf(primero) === 1;
+  return `${NOMBRE_DIA[primero]} ${seguidos ? 'y' : 'a'} ${NOMBRE_DIA[ultimo]}`;
 }
 
 const DIA_EN_INGLES: Record<string, DiaSemana> = {

@@ -182,11 +182,12 @@ export function bloqueLocal(agent: Agent, ahora: Date = new Date()): string {
   if (horarios) {
     lineas.push(`- Horarios: ${horarios}. Los días que no figuran está cerrado.`);
     const estado = estadoDelLocal(local.horarios, ahora, TIMEZONE);
-    lineas.push(
-      estado.abierto
-        ? `- Ahora está abierto, hasta las ${estado.hasta}.`
-        : `- Ahora está cerrado${estado.abre ? `; abre ${cuandoAbre(estado.abre)}` : ''}.`,
-    );
+    if (estado.abierto) {
+      lineas.push(`- Ahora está abierto, hasta las ${estado.hasta}.`);
+    } else {
+      const abre = estado.abre ? `; abre ${cuandoAbre(estado.abre)}` : '';
+      lineas.push(`- Ahora está cerrado${abre}.`);
+    }
   } else {
     lineas.push('- Los horarios no están cargados: si te los piden, no los inventes; avisale al dueño con derivar_consulta.');
   }

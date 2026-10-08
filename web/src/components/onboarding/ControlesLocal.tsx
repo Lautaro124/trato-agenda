@@ -23,13 +23,15 @@ function SelectorHora({
   valor,
   onChange,
   etiqueta,
-}: {
+}: Readonly<{
   valor: string;
   onChange: (hora: string) => void;
   etiqueta: string;
-}) {
+}>) {
   // Una hora guardada que no está en la grilla (09:15 cargado por API) se sigue mostrando.
-  const opciones = HORAS_LOCAL.includes(valor) ? HORAS_LOCAL : [...HORAS_LOCAL, valor].sort();
+  const opciones = HORAS_LOCAL.includes(valor)
+    ? HORAS_LOCAL
+    : [...HORAS_LOCAL, valor].sort((a, b) => a.localeCompare(b));
   return (
     <select aria-label={etiqueta} value={valor} onChange={(e) => onChange(e.target.value)} className={SELECT_HORA}>
       {opciones.map((hora) => (
@@ -41,10 +43,14 @@ function SelectorHora({
   );
 }
 
-function FilaDia({ local, dia }: { local: LocalState; dia: DiaSemana }) {
+/** Cómo se nombra cada franja en las etiquetas: con corte, "(mañana)" y "(tarde)". */
+const PARTES_CON_CORTE = ["mañana", "tarde"];
+
+function FilaDia({ local, dia }: Readonly<{ local: LocalState; dia: DiaSemana }>) {
   const { abierto, franjas } = local.semana[dia];
   const nombre = NOMBRE_DIA[dia];
   const problema = local.problemas.dias[dia];
+  const partes = franjas.length > 1 ? PARTES_CON_CORTE : ["única"];
   return (
     <li className="flex flex-col gap-2 border-b border-sunken py-3 last:border-b-0 sm:flex-row sm:items-start sm:gap-4">
       <label className="flex min-h-10 w-[130px] flex-none cursor-pointer items-center gap-2.5 text-[14px] text-ink">
@@ -59,9 +65,10 @@ function FilaDia({ local, dia }: { local: LocalState; dia: DiaSemana }) {
       {abierto ? (
         <div className="flex flex-1 flex-col gap-2">
           {franjas.map((franja, indice) => {
-            const cual = franjas.length > 1 ? (indice === 0 ? " (mañana)" : " (tarde)") : "";
+            const parte = partes[indice];
+            const cual = franjas.length > 1 ? ` (${parte})` : "";
             return (
-              <div key={indice} className="flex flex-wrap items-center gap-2">
+              <div key={parte} className="flex flex-wrap items-center gap-2">
                 <SelectorHora
                   etiqueta={`${nombre}${cual}: abre`}
                   valor={franja.desde}
@@ -108,7 +115,7 @@ function FilaDia({ local, dia }: { local: LocalState; dia: DiaSemana }) {
   );
 }
 
-export function ControlesLocal({ local }: { local: LocalState }) {
+export function ControlesLocal({ local }: Readonly<{ local: LocalState }>) {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
@@ -201,20 +208,24 @@ export function ControlesLocal({ local }: { local: LocalState }) {
             </ul>
           </fieldset>
 
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-line bg-card px-3.5 py-3">
+          <div className="flex items-start gap-2.5 rounded-md border border-line bg-card px-3.5 py-3">
             <input
+              id="local-retiro"
               type="checkbox"
               checked={local.retiroEnLocal}
               onChange={(e) => local.setRetiroEnLocal(e.target.checked)}
-              className="mt-0.5 size-[18px] flex-none accent-[var(--color-semantic-primary-default)]"
+              aria-describedby="local-retiro-ayuda"
+              className="mt-0.5 size-[18px] flex-none cursor-pointer accent-[var(--color-semantic-primary-default)]"
             />
             <span className="flex flex-col gap-0.5">
-              <span className="text-[14px] font-semibold text-ink">Se pueden retirar las compras en el local</span>
-              <span className="text-[13px] leading-[1.5] text-ink-secondary">
+              <label htmlFor="local-retiro" className="cursor-pointer text-[14px] font-semibold text-ink">
+                Se pueden retirar las compras en el local
+              </label>
+              <span id="local-retiro-ayuda" className="text-[13px] leading-[1.5] text-ink-secondary">
                 Si no lo tildás, el asistente no ofrece retiro y la entrega la coordinás vos.
               </span>
             </span>
-          </label>
+          </div>
         </>
       )}
     </div>

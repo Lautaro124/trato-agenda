@@ -14,6 +14,14 @@ import {
   type SemanaEnPantalla,
 } from "@/lib/local";
 
+function laMasTarde(a: string, b: string): string {
+  return a.localeCompare(b) >= 0 ? a : b;
+}
+
+function laMasTemprana(a: string, b: string): string {
+  return a.localeCompare(b) <= 0 ? a : b;
+}
+
 /**
  * El local a la calle de un comercio. Lo usan el paso "Tu local" de /contanos
  * y la sección de /cuenta, que muestran los mismos controles sobre el mismo
@@ -46,8 +54,9 @@ export function useLocal(inicial: LocalPresencial | null = null) {
   const agregarCorte = useCallback((dia: DiaSemana) => {
     setSemana((previa) => {
       const [primera] = previa[dia].franjas;
-      const manana = { desde: primera.desde, hasta: primera.desde < "13:00" ? "13:00" : primera.desde };
-      const tarde = { desde: primera.hasta > "16:00" ? "16:00" : primera.hasta, hasta: primera.hasta };
+      // "HH:MM" se ordena bien como texto: la mañana cierra a las 13 y la tarde abre a las 16, dentro de la franja.
+      const manana = { desde: primera.desde, hasta: laMasTarde(primera.desde, "13:00") };
+      const tarde = { desde: laMasTemprana(primera.hasta, "16:00"), hasta: primera.hasta };
       return { ...previa, [dia]: { ...previa[dia], franjas: [manana, tarde] } };
     });
   }, []);
