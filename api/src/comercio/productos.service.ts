@@ -8,6 +8,8 @@ import {
   textoBusquedaDe,
   type VarianteImportada,
 } from './catalogo.rules.js';
+import { finDeVigencia, inicioDeVigencia, problemaDeDescuento, type TipoDescuento } from './descuentos.rules.js';
+import { descuentosActivos, type DescuentoProductoDto } from './descuentos.types.js';
 import { IndexadorService } from './indexador.service.js';
 import {
   aProductoPublico,
@@ -27,12 +29,22 @@ const LOTE_IMPORTACION = 100;
 /** Errores que vuelven en la vista previa; el resto sólo se cuenta. */
 const MAX_ERRORES_DEVUELTOS = 200;
 
+type DescuentoAGuardar = {
+  tipo: TipoDescuento;
+  valor: number;
+  activo: boolean;
+  desde: Date | null;
+  hasta: Date | null;
+};
+
 type ProductoAGuardar = {
   codigo: string;
   nombre: string;
   descripcion: string;
   categoria: string | null;
   variantes: VarianteImportada[];
+  /** null lo borra; undefined (la importación) no lo toca. */
+  descuento?: DescuentoAGuardar | null;
 };
 
 type Tx = Prisma.TransactionClient;
@@ -68,18 +80,25 @@ export class ProductosService {
       ...(consulta ? { textoBusqueda: { contains: consulta } } : {}),
     };
 
-    const [total, productos] = await Promise.all([
+    const [total, productos, promociones] = await Promise.all([
       this.prisma.producto.count({ where }),
       this.prisma.producto.findMany({
         where,
-        include: { variantes: { orderBy: { createdAt: 'asc' } } },
+        include: { variantes: { orderBy: { createdAt: 'asc' } }, descuento: true },
         orderBy: [{ nombre: 'asc' }, { codigo: 'asc' }],
         skip: (pagina - 1) * POR_PAGINA,
         take: POR_PAGINA,
       }),
+      descuentosActivos(this.prisma, userId, []),
     ]);
 
-    return { productos: productos.map(aProductoPublico), total, pagina, porPagina: POR_PAGINA };
+    const ahora = new Date();
+    return {
+      productos: productos.map((producto) => aProductoPublico(producto, promociones, ahora)),
+      total,
+      pagina,
+      porPagina: POR_PAGINA,
+    };
   }
 
   async categorias(userId: string): Promise<Array<{ nombre: string; cantidad: number }>> {
@@ -144,12 +163,15 @@ export class ProductosService {
   }
 
   async obtener(userId: string, id: string): Promise<ProductoPublico> {
-    const producto = await this.prisma.producto.findFirst({
-      where: { id, userId },
-      include: { variantes: { orderBy: { createdAt: 'asc' } } },
-    });
+    const [producto, promociones] = await Promise.all([
+      this.prisma.producto.findFirst({
+        where: { id, userId },
+        include: { variantes: { orderBy: { createdAt: 'asc' } }, descuento: true },
+      }),
+      descuentosActivos(this.prisma, userId, []),
+    ]);
     if (!producto) throw new NotFoundException('No existe ese producto.');
-    return aProductoPublico(producto);
+    return aProductoPublico(producto, promociones);
   }
 
   /**
@@ -247,6 +269,16 @@ export class ProductosService {
       where: { productoId: producto.id, sku: { notIn: datos.variantes.map((variante) => variante.sku) } },
       data: { activo: false },
     });
+
+    if (datos.descuento === null) {
+      await tx.descuento.deleteMany({ where: { productoId: producto.id, userId } });
+    } else if (datos.descuento) {
+      await tx.descuento.upsert({
+        where: { productoId: producto.id },
+        create: { userId, productoId: producto.id, ...datos.descuento },
+        update: datos.descuento,
+      });
+    }
     return producto.id;
   }
 
@@ -288,6 +320,20 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
     descripcion: (dto.descripcion ?? '').trim(),
     categoria: dto.categoria?.trim() || null,
     variantes,
+    descuento: dto.descuento === undefined ? undefined : dto.descuento && descuentoDesdeDto(dto.descuento),
+  };
+}
+
+/** El descuento del formulario (o de una promo) → lo que se guarda, con las fechas como instantes. */
+export function descuentoDesdeDto(dto: DescuentoProductoDto): DescuentoAGuardar {
+  const problema = problemaDeDescuento(dto);
+  if (problema) throw new BadRequestException(problema);
+  return {
+    tipo: dto.tipo,
+    valor: dto.valor,
+    activo: dto.activo ?? true,
+    desde: dto.desde ? inicioDeVigencia(dto.desde) : null,
+    hasta: dto.hasta ? finDeVigencia(dto.hasta) : null,
   };
 }
 

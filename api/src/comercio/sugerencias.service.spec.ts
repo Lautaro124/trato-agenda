@@ -23,6 +23,7 @@ function fila(id: string, categoria: string | null, variantes: Variante[] = [var
 function crear(filas: Fila[], opciones: { reservadas?: Array<{ varianteId: string; reservadas: number }>; orden?: (ids: string[]) => string[] | Error } = {}) {
   const prisma = {
     producto: { findMany: vi.fn().mockResolvedValue(filas) },
+    descuento: { findMany: vi.fn().mockResolvedValue([]) },
     $queryRaw: vi.fn().mockResolvedValue(opciones.reservadas ?? []),
   } as unknown as PrismaService;
   const ordenar = vi.fn(async ({ opciones: dadas }: { opciones: Record<string, string> }) => {

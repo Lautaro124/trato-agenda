@@ -3,10 +3,12 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  IsUrl,
   Matches,
   Max,
   MaxLength,
@@ -25,6 +27,16 @@ import {
 } from './agent-catalog.js';
 import { PRECIO_MAX } from './precio.js';
 import { leerMensajes, MODOS_MENSAJE, type MensajesAgente, type ModoMensaje } from './mensajes.rules.js';
+import {
+  DIAS_SEMANA,
+  LARGO_MAX_DIRECCION,
+  LARGO_MAX_ENLACE,
+  LARGO_MIN_DIRECCION,
+  leerLocal,
+  MAX_FRANJAS,
+  type DiaSemana,
+  type LocalPresencial,
+} from './local.js';
 
 /** "HH:MM" en formato 24hs. */
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -80,6 +92,49 @@ export class GenerateAgentDto {
   nombreBot!: string;
 }
 
+/** Una franja de atención del local: un día y su horario. */
+export class FranjaLocalDto {
+  @IsIn(DIAS_SEMANA)
+  dia!: DiaSemana;
+
+  @Matches(HORA_HHMM)
+  desde!: string;
+
+  @Matches(HORA_HHMM)
+  hasta!: string;
+}
+
+/**
+ * El local a la calle de un comercio. Que cierre después de abrir y que las
+ * franjas de un día no se pisen lo mira normalizarLocal (local.ts).
+ */
+export class LocalPresencialDto {
+  @IsBoolean()
+  tieneLocal!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(LARGO_MIN_DIRECCION)
+  @MaxLength(LARGO_MAX_DIRECCION)
+  direccion?: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(LARGO_MAX_ENLACE)
+  enlaceUbicacion?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_FRANJAS)
+  @ValidateNested({ each: true })
+  @Type(() => FranjaLocalDto)
+  horarios?: FranjaLocalDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  retiroEnLocal?: boolean;
+}
+
 /** Body de `POST /agents/generate-ventas`: el onboarding del asistente de ventas. */
 export class GenerarAgenteVentasDto {
   @IsString()
@@ -91,6 +146,19 @@ export class GenerarAgenteVentasDto {
   @MinLength(2)
   @MaxLength(40)
   nombreBot!: string;
+
+  /** El paso "Tu local". Sin él (un cliente viejo de la API) el local queda sin cargar. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LocalPresencialDto)
+  local?: LocalPresencialDto;
+}
+
+/** Body de `PUT /agents/me/local`: reemplaza los datos del local enteros. */
+export class ActualizarLocalDto {
+  @ValidateNested()
+  @Type(() => LocalPresencialDto)
+  local!: LocalPresencialDto;
 }
 
 /** Body de `PUT /agents/me/tipos-evento`: reemplaza la lista entera de tipos de turno. */
@@ -158,7 +226,12 @@ export type AgentPublico = Pick<
   | 'allowedActions'
   | 'createdAt'
   | 'updatedAt'
-> & { tiposEvento: TipoEvento[]; tipoAsistente: TipoAsistente; mensajes: MensajesAgente };
+> & {
+  tiposEvento: TipoEvento[];
+  tipoAsistente: TipoAsistente;
+  mensajes: MensajesAgente;
+  local: LocalPresencial | null;
+};
 
 export function aAgentPublico(agent: Agent): AgentPublico {
   return {
@@ -173,6 +246,7 @@ export function aAgentPublico(agent: Agent): AgentPublico {
     horaHasta: agent.horaHasta,
     tiposEvento: leerTiposEvento(agent),
     mensajes: leerMensajes(agent),
+    local: leerLocal(agent),
     allowedActions: agent.allowedActions,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,

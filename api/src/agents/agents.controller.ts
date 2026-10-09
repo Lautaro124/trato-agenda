@@ -5,6 +5,7 @@ import type { User } from '../generated/prisma/client.js';
 import { AgentsService } from './agents.service.js';
 import {
   aAgentPublico,
+  ActualizarLocalDto,
   ActualizarMensajesDto,
   ActualizarTiposEventoDto,
   GenerarAgenteVentasDto,
@@ -44,6 +45,13 @@ export class AgentsController {
     @Body() dto: ActualizarTiposEventoDto,
   ): Promise<AgentPublico> {
     const agent = await this.agentsService.actualizarTiposEvento(user.id, dto.tiposEvento);
+    return aAgentPublico(agent);
+  }
+
+  /** Los datos del local a la calle de un comercio (sólo asistente de ventas). */
+  @Put('me/local')
+  async actualizarLocal(@CurrentUser() user: User, @Body() dto: ActualizarLocalDto): Promise<AgentPublico> {
+    const agent = await this.agentsService.actualizarLocal(user.id, dto.local);
     return aAgentPublico(agent);
   }
 

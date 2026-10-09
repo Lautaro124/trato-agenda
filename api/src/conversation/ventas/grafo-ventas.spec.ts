@@ -38,6 +38,8 @@ const MATE: ProductoEncontrado = {
       sku: 'MATE-01',
       nombre: '',
       precioCentavos: 800_000,
+      precioFinalCentavos: 800_000,
+      descuento: null,
       hayStock: true,
       stock: 'quedan 2 unidades',
       unidades: 2,
@@ -181,6 +183,25 @@ describe('grafo de ventas', () => {
     expect(sistema).toContain('existís sólo para vender los productos de Mates del Sur');
     expect(sistema).toContain('Catálogo: 12 productos en estas categorías: "Mates" (12)');
     expect(sistema).not.toContain('lunes a viernes');
+    // Sin local cargado no afirma nada: la consulta se deriva.
+    expect(sistema).toContain('Local: no sabés si Mates del Sur tiene local a la calle');
+  });
+
+  it('con local cargado, el prompt trae su dirección, horarios y retiro', async () => {
+    const llm = crearModelo([new AIMessage('Estamos en Belgrano 100.')]);
+    const local = {
+      tieneLocal: true,
+      direccion: 'Belgrano 100',
+      horarios: [{ dia: 'sab', desde: '10:00', hasta: '13:00' }],
+      retiroEnLocal: true,
+    };
+    await correr({ prisma: crearPrisma({ agent: { ...AGENT, local } }), llm, busqueda: { buscar: vi.fn() } });
+
+    const sistema = sistemaDe(llm);
+    expect(sistema).toContain('Local de Mates del Sur');
+    expect(sistema).toContain('- Dirección: "Belgrano 100".');
+    expect(sistema).toContain('- Horarios: sábado de 10:00 a 13:00.');
+    expect(sistema).toContain('Se pueden retirar las compras en el local');
   });
 
   it('se presenta sólo en el primer mensaje: después el contexto le dice que ya lo hizo', async () => {

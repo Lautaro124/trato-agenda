@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
+import { descripcionDescuento, origenDescuento } from "@/lib/descuentos";
 import {
   actualizarVariante,
   centavosParaInput,
   etiquetaStock,
+  formatearCentavos,
   leerCentavos,
   type Producto,
   type Variante,
@@ -165,10 +167,15 @@ export function FilaProducto({
       .finally(() => setGuardando(false));
   };
 
+  // El descuento que hoy aplica (el mismo para todas las variantes, salvo un monto
+  // fijo que no entra en alguna): el de la primera variante que tenga.
+  const aplicado = producto.variantes.find((v) => v.descuento)?.descuento ?? null;
+  const propioInactivo = !aplicado && producto.descuento;
+
   return (
     <li
       className={cn(
-        "rounded-lg border bg-card p-4 transition-colors",
+        "@container flex min-w-0 flex-col rounded-lg border bg-card p-4 transition-colors",
         hayCambios ? "border-[var(--color-primitive-coral-200)]" : "border-line",
       )}
     >
@@ -194,10 +201,23 @@ export function FilaProducto({
         </div>
       </div>
 
+      {aplicado ? (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Badge tone="primary">{descripcionDescuento(aplicado)}</Badge>
+          <span className="text-[12px] text-muted">{origenDescuento(aplicado)}</span>
+        </div>
+      ) : (
+        propioInactivo && (
+          <div className="mt-2">
+            <Badge tone="neutral">Descuento {producto.descuento?.activo ? "fuera de fecha" : "pausado"}</Badge>
+          </div>
+        )
+      )}
+
       <form onSubmit={guardar} aria-label={`Precio y stock de ${producto.nombre}`}>
         <div
           aria-hidden="true"
-          className="mt-3 hidden grid-cols-[1fr_130px_110px_auto] gap-x-3 px-3 text-[11.5px] font-semibold text-muted sm:grid"
+          className="mt-3 hidden grid-cols-[1fr_120px_100px_auto] gap-x-3 px-3 text-[11.5px] font-semibold text-muted @md:grid"
         >
           <span>Variante</span>
           <span>Precio</span>
@@ -284,13 +304,15 @@ function FilaVariante({
   onCambio: (cambios: Partial<Borrador>) => void;
 }) {
   const etiqueta = unica ? nombreProducto : `${nombreProducto} ${variante.nombre}`;
+  // El final que muestra es el guardado: mientras se edita el precio no se sabe todavía.
+  const final = variante.descuento && !precioEditado ? variante.precioFinalCentavos : null;
   const borde = (editado: boolean) =>
     editado ? "border-primary ring-1 ring-[var(--color-semantic-border-focus)]" : "border-line";
 
   return (
     <li
       className={cn(
-        "grid grid-cols-2 items-center gap-x-3 gap-y-2 rounded-md px-3 py-2 sm:grid-cols-[1fr_130px_110px_auto]",
+        "grid grid-cols-2 items-center gap-x-3 gap-y-2 rounded-md px-3 py-2 @md:grid-cols-[1fr_120px_100px_auto]",
         editada ? "bg-[var(--color-primitive-coral-50)]" : "bg-sunken",
       )}
     >
@@ -304,8 +326,8 @@ function FilaVariante({
         <p className="truncate text-[11.5px] text-muted">SKU {variante.sku}</p>
       </div>
 
-      {/* En el celular: nombre y estado arriba, precio y stock abajo. */}
-      <label className="order-3 flex items-center gap-1 sm:order-2">
+      {/* En una tarjeta angosta: nombre y estado arriba, precio y stock abajo. */}
+      <label className="order-3 flex items-center gap-1 @md:order-2">
         <span className="text-[13px] text-muted">$</span>
         <input
           inputMode="decimal"
@@ -317,7 +339,7 @@ function FilaVariante({
         />
       </label>
 
-      <label className="order-4 flex items-center gap-1 sm:order-3">
+      <label className="order-4 flex items-center gap-1 @md:order-3">
         <input
           inputMode="numeric"
           value={borrador.stock}
@@ -327,10 +349,10 @@ function FilaVariante({
           aria-label={`Stock de ${etiqueta}`}
           className={cn(INPUT_CHICO, borde(stockEditado))}
         />
-        <span className="text-[12px] text-muted sm:hidden">u.</span>
+        <span className="text-[12px] text-muted @md:hidden">u.</span>
       </label>
 
-      <div className="order-2 flex items-center justify-end gap-2 sm:order-4">
+      <div className="order-2 flex items-center justify-end gap-2 @md:order-4">
         {sinControl ? (
           <button
             type="button"
@@ -346,6 +368,13 @@ function FilaVariante({
           <Badge tone={estado.tono}>{estado.texto}</Badge>
         )}
       </div>
+
+      {final !== null && (
+        <p className="order-5 col-span-2 text-[12.5px] font-bold text-[var(--color-primitive-coral-700)] @md:col-span-4">
+          Final {formatearCentavos(final)}{" "}
+          <span className="font-medium text-muted line-through">{formatearCentavos(variante.precioCentavos)}</span>
+        </p>
+      )}
     </li>
   );
 }

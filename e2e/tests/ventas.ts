@@ -3,9 +3,14 @@ import { API_URL, MP_STUB_URL } from '../entorno';
 import { expect, sufijo } from './fixtures';
 
 /** Atajo para los tests que necesitan un asistente de ventas y no prueban el onboarding. */
-export async function crearAgenteVentasPorApi(request: APIRequestContext): Promise<{ nombreTitular: string }> {
+export async function crearAgenteVentasPorApi(
+  request: APIRequestContext,
+  opciones: { local?: Record<string, unknown> } = {},
+): Promise<{ nombreTitular: string }> {
   const nombreTitular = `Mates E2E ${sufijo()}`;
-  const res = await request.post(`${API_URL}/agents/generate-ventas`, { data: { nombreTitular, nombreBot: 'Sol' } });
+  const res = await request.post(`${API_URL}/agents/generate-ventas`, {
+    data: { nombreTitular, nombreBot: 'Sol', ...(opciones.local ? { local: opciones.local } : {}) },
+  });
   expect(res.status(), await res.text()).toBe(201);
   return { nombreTitular };
 }

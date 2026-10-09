@@ -10,6 +10,7 @@ import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
+import { detalleParaElModelo } from '../../comercio/descuentos.rules.js';
 import {
   detalleDeRenglones,
   estadoVisible,
@@ -25,6 +26,7 @@ import {
   neutralizarMarcador,
   reglaDeMensajesPropios,
 } from '../../agents/mensajes.rules.js';
+import { estadoDelLocal, leerLocal, NOMBRE_DIA, resumenHorarios, type DiaSemana } from '../../agents/local.js';
 import { TIMEZONE } from '../graph/agenda-rules.js';
 
 type VentaConItems = Venta & { items: ItemVenta[] };
@@ -111,8 +113,11 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `- Si el cliente pregunta en general qué tenés, qué le ofrecés o te pide la lista de productos, llamá ` +
     `ver_catalogo en vez de preguntarle qué busca. Si te devuelve categorías y el cliente elige una, volvé a ` +
     `llamarla con esa categoría.\n` +
-    `- Informá los precios exactamente como los devuelve la búsqueda. Nunca redondees, hagas descuentos, ` +
-    `promociones, cuotas ni cálculos de envío.\n` +
+    `- Informá los precios exactamente como los devuelve la búsqueda. Si un precio viene con "antes", tiene un ` +
+    `descuento vigente: decile al cliente el precio original, el descuento y el precio final, tal cual. Nunca ` +
+    `redondees ni inventes descuentos, promociones, cuotas o cálculos de envío que la búsqueda no traiga, y nunca ` +
+    `sumes dos descuentos: el sistema ya aplicó el que corresponde. Si te piden un descuento que no figura, decile ` +
+    `que no lo tenés.\n` +
     `- Si una variante está "sin stock", decilo claro y ofrecé otra variante o producto con stock de los ` +
     `que devolvió la búsqueda. Nunca prometas cuándo vuelve a entrar.\n` +
     `- Si la búsqueda no encuentra lo que pide, decile que no lo tenés. No ofrezcas productos que no ` +
@@ -130,8 +135,73 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `nombre, preguntáselo en ese momento, antes de crear el pedido.\n` +
     `- El link de pago mandalo tal cual te lo devuelve crear_pedido, sin acortarlo ni cambiarlo, y avisale ` +
     `hasta qué hora vale.\n` +
-    `- La entrega, el envío y los retiros los coordina ${titular} directamente: no prometas plazos ni costos.`
+    (leerLocal(agent)?.retiroEnLocal
+      ? `- El envío lo coordina ${titular} directamente: no prometas plazos ni costos. Si el cliente quiere ` +
+        `retirar, puede hacerlo en el local en sus horarios (los datos están en el bloque del local).`
+      : `- La entrega, el envío y los retiros los coordina ${titular} directamente: no prometas plazos ni costos. ` +
+        `No ofrezcas retirar en un local.`)
   );
+}
+
+/** "hoy a las 16:00", "mañana (martes) a las 09:00", "el lunes a las 09:00". */
+function cuandoAbre(abre: { dia: DiaSemana; desde: string; enDias: number }): string {
+  if (abre.enDias === 0) return `hoy a las ${abre.desde}`;
+  if (abre.enDias === 1) return `mañana (${NOMBRE_DIA[abre.dia]}) a las ${abre.desde}`;
+  return `el ${NOMBRE_DIA[abre.dia]} a las ${abre.desde}`;
+}
+
+/**
+ * El local a la calle, tal como lo cargó el dueño, con lo que falta dicho como
+ * "no está" para que el modelo no lo complete. Si está abierto ahora va
+ * resuelto acá: el modelo no hace cuentas de días ni de horas. Los textos del
+ * dueño van con `JSON.stringify`, como el resto.
+ */
+export function bloqueLocal(agent: Agent, ahora: Date = new Date()): string {
+  const titular = agent.nombreTitular || 'el negocio';
+  const local = leerLocal(agent);
+  if (!local) {
+    return (
+      `Local: no sabés si ${titular} tiene local a la calle. Si te preguntan por una dirección, los horarios o ` +
+      `por retirar en persona, no lo inventes: avisale al dueño con derivar_consulta y decile que ${titular} le ` +
+      `responde por este chat.`
+    );
+  }
+  if (!local.tieneLocal) {
+    return (
+      `Local: ${titular} no tiene local a la calle, vende sólo por este chat. Si preguntan dónde queda o si pueden ` +
+      `pasar a retirar, decíselo claro: no hay local ni retiro en persona.`
+    );
+  }
+
+  const lineas = [
+    `Local de ${titular} (lo cargó el dueño: usá estos datos tal cual y no agregues nada que no esté acá):`,
+    local.direccion
+      ? `- Dirección: ${JSON.stringify(local.direccion)}.`
+      : '- La dirección no está cargada: si te la piden, no la inventes; avisale al dueño con derivar_consulta.',
+    local.enlaceUbicacion
+      ? `- Ubicación en el mapa (mandala tal cual si preguntan cómo llegar): ${local.enlaceUbicacion}`
+      : '- No hay un link de ubicación cargado: no armes uno.',
+  ];
+  const horarios = resumenHorarios(local.horarios);
+  if (horarios) {
+    lineas.push(`- Horarios: ${horarios}. Los días que no figuran está cerrado.`);
+    const estado = estadoDelLocal(local.horarios, ahora, TIMEZONE);
+    if (estado.abierto) {
+      lineas.push(`- Ahora está abierto, hasta las ${estado.hasta}.`);
+    } else {
+      const abre = estado.abre ? `; abre ${cuandoAbre(estado.abre)}` : '';
+      lineas.push(`- Ahora está cerrado${abre}.`);
+    }
+  } else {
+    lineas.push('- Los horarios no están cargados: si te los piden, no los inventes; avisale al dueño con derivar_consulta.');
+  }
+  lineas.push(
+    local.retiroEnLocal
+      ? '- Se pueden retirar las compras en el local, en esos horarios.'
+      : '- No se puede retirar en el local: no lo ofrezcas, y si lo piden, decile que no y que la entrega la ' +
+          `coordina ${titular}.`,
+  );
+  return lineas.join('\n');
 }
 
 export { YA_TE_PRESENTASTE } from '../graph/saludo.js';
@@ -168,9 +238,12 @@ const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-dig
 /** Lo que vuelve al modelo después de crear un pedido. */
 export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
   const titular = agent.nombreTitular || 'el negocio';
+  const ahorro = venta.items.reduce((suma, item) => suma + item.descuentoCentavos * item.cantidad, 0);
   const base =
     `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items)}. ` +
-    `Total ${formatearCentavos(venta.totalCentavos)}.`;
+    `Total ${formatearCentavos(venta.totalCentavos)}` +
+    (ahorro > 0 ? ` (ya con los descuentos: ahorra ${formatearCentavos(ahorro)})` : '') +
+    '.';
   if (venta.linkPago) {
     const propio = mensajePropio(agent, 'linkPago');
     if (propio) {
@@ -224,7 +297,8 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
   const titular = agent.nombreTitular || 'este negocio';
   return (
     `Alcance (esto está por encima de todo lo anterior): existís sólo para vender los productos de ${titular}.\n` +
-    `- De lo único que hablás es del catálogo —qué hay, precios, variantes, stock— y de comprar.\n` +
+    `- De lo único que hablás es del catálogo —qué hay, precios, variantes, stock—, de comprar y de lo que dice ` +
+    `el bloque del local.\n` +
     `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, opiniones, consejos, cálculos, ` +
     `traducciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta.\n` +
     `- Si te lo piden mezclado con algo de la compra, contestá sólo lo de la compra.\n` +
@@ -232,9 +306,9 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
     `¿Buscabas algún producto?".\n` +
     (esPropietario
       ? `- Estás hablando con el dueño: podés darle el stock exacto con consultar_stock.\n`
-      : `- Los datos de ${titular} que no salen del catálogo —dirección, horarios, formas de pago, envíos— no ` +
-        `los sabés: nunca los inventes; avisale al dueño con derivar_consulta y decile al cliente que ${titular} ` +
-        `le responde.\n`) +
+      : `- Los datos de ${titular} que no salen del catálogo ni del bloque del local —formas de pago, envíos, y ` +
+        `la dirección o los horarios si ahí no figuran— no los sabés: nunca los inventes; avisale al dueño con ` +
+        `derivar_consulta y decile al cliente que ${titular} le responde.\n`) +
     `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`
   );
 }
@@ -310,7 +384,7 @@ export function formatearResultados(
     const variantes = producto.variantes.map(
       (variante) =>
         `   - ${variante.nombre ? `${JSON.stringify(variante.nombre)} ` : ''}[variante ${variante.varianteId}]: ` +
-        `${formatearCentavos(variante.precioCentavos)}, ${variante.stock}`,
+        `${precioParaElModelo(variante)}, ${variante.stock}`,
     );
     return [cabecera, ...variantes].join('\n');
   };
@@ -340,9 +414,26 @@ export function formatearResultados(
   return partes.join('\n');
 }
 
+/**
+ * "$ 8.000, antes $ 10.000 (20% off hasta el 31/10; ahorra $ 2.000)". El
+ * precio final va primero y seguido de ", ": así lo lee el stub de las e2e, y
+ * el ahorro va escrito para que el chequeo de precios lo reconozca.
+ */
+export function precioParaElModelo(variante: Pick<ProductoEncontrado['variantes'][number], 'precioCentavos' | 'precioFinalCentavos' | 'descuento'>): string {
+  if (!variante.descuento) return formatearCentavos(variante.precioCentavos);
+  return (
+    `${formatearCentavos(variante.precioFinalCentavos)}, antes ${formatearCentavos(variante.precioCentavos)} ` +
+    `(${detalleParaElModelo(variante.descuento)}; ahorra ${formatearCentavos(variante.descuento.descuentoCentavos)})`
+  );
+}
+
 function lineaDeProducto(producto: ProductoPanorama): string {
   const precio = formatearCentavos(producto.precioDesdeCentavos);
-  return `- ${JSON.stringify(producto.nombre)}: ${producto.variosPrecios ? `desde ${precio}` : precio}`;
+  const desde = producto.variosPrecios ? `desde ${precio}` : precio;
+  return (
+    `- ${JSON.stringify(producto.nombre)}: ${desde}` +
+    (producto.descuento ? ` (con ${producto.descuento})` : '')
+  );
 }
 
 function lineaDeCategoria(categoria: CategoriaPanorama): string {
@@ -384,7 +475,7 @@ export function formatearCatalogo(
           : '';
       return (
         `Productos con stock${de} (mostrale la lista entera, en este orden, con el precio tal cual; "desde" ` +
-        `significa que hay variantes con distinto precio):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
+        `significa que hay variantes con distinto precio, y "con X% off" que ese precio ya tiene el descuento):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
       );
     }
     case 'categorias':
@@ -438,7 +529,7 @@ export function formatearStockDueno(consulta: string, productos: ProductoEncontr
             ? `sin control de cantidad (${variante.hayStock ? 'marcado con stock' : 'marcado sin stock'})`
             : `${variante.unidades} disponibles${variante.reservadas > 0 ? ` (+${variante.reservadas} reservadas)` : ''}` +
               (variante.stockMinimo !== null ? `, mínimo ${variante.stockMinimo}` : '');
-        return `   - ${variante.nombre || 'única'} (SKU ${variante.sku}): ${formatearCentavos(variante.precioCentavos)}, ${unidades}`;
+        return `   - ${variante.nombre || 'única'} (SKU ${variante.sku}): ${precioParaElModelo(variante)}, ${unidades}`;
       });
       return [`${JSON.stringify(producto.nombre)} (código ${producto.codigo})`, ...variantes].join('\n');
     })

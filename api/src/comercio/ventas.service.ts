@@ -14,6 +14,8 @@ import {
 } from '../subscription/mercadopago.client.js';
 import { describirStock, hayStock, stockBajo } from './catalogo.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
+import { mejorDescuento } from './descuentos.rules.js';
+import { descuentosActivos } from './descuentos.types.js';
 import { reservadasPorVariante } from './reservas.js';
 import {
   agruparItems,
@@ -73,6 +75,8 @@ type VarianteBloqueada = {
   activo: boolean;
   codigo: string;
   nombreProducto: string;
+  productoId: string;
+  categoria: string | null;
 };
 
 /** Ventas de Mercado Pago que la conciliación sigue mirando después de vencida la reserva. */
@@ -175,7 +179,7 @@ export class VentasService {
     // Orden fijo de bloqueo (por id): dos pedidos con las mismas variantes no se traban entre sí.
     const variantes = await tx.$queryRaw<VarianteBloqueada[]>`
       SELECT v."id", v."sku", v."nombre", v."precioCentavos", v."stock", v."disponible", v."activo",
-             p."codigo", p."nombre" AS "nombreProducto"
+             p."codigo", p."nombre" AS "nombreProducto", p."id" AS "productoId", p."categoria"
       FROM "Variante" v JOIN "Producto" p ON p."id" = v."productoId"
       WHERE v."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo" AND v."activo"
       ORDER BY v."id"
@@ -212,16 +216,34 @@ export class VentasService {
       }
     }
 
+    // El precio sale siempre de acá, con el descuento que esté vigente al
+    // reservar: el modelo sólo manda variantes y cantidades. Leídos en la misma
+    // transacción para que el total sea el que se le cobra.
+    const descuentos = await descuentosActivos(
+      tx,
+      input.userId,
+      variantes.map((variante) => variante.productoId),
+    );
     const renglones = items.map((item) => {
       const variante = porId.get(item.varianteId) as VarianteBloqueada;
+      const descuento = mejorDescuento(
+        descuentos,
+        { id: variante.productoId, categoria: variante.categoria },
+        variante.precioCentavos,
+        ahora,
+      );
+      const unitario = descuento?.precioFinalCentavos ?? variante.precioCentavos;
       return {
         varianteId: variante.id,
         codigo: variante.codigo,
         nombreProducto: variante.nombreProducto,
         nombreVariante: variante.nombre,
-        precioUnitarioCentavos: variante.precioCentavos,
+        precioUnitarioCentavos: unitario,
         cantidad: item.cantidad,
-        subtotalCentavos: variante.precioCentavos * item.cantidad,
+        subtotalCentavos: unitario * item.cantidad,
+        precioListaCentavos: variante.precioCentavos,
+        descuentoCentavos: descuento?.descuentoCentavos ?? 0,
+        descuentoEtiqueta: descuento ? [descuento.etiqueta, descuento.nombre].filter(Boolean).join(' · ') : null,
       };
     });
 
