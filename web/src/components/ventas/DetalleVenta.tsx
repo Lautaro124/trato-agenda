@@ -79,6 +79,13 @@ export function DetalleVenta({
                   {item.nombreVariante && <span className="text-ink-secondary"> ({item.nombreVariante})</span>}
                   <span className="block text-[11.5px] text-muted">
                     {item.codigo} · {formatearCentavos(item.precioUnitarioCentavos)} c/u
+                    {item.descuentoCentavos > 0 && item.precioListaCentavos !== null && (
+                      <>
+                        {" "}
+                        <span className="line-through">{formatearCentavos(item.precioListaCentavos)}</span>
+                        {item.descuentoEtiqueta && ` · ${item.descuentoEtiqueta}`}
+                      </>
+                    )}
                   </span>
                 </td>
                 <td className="py-2 text-right text-ink tabular-nums">{formatearCentavos(item.subtotalCentavos)}</td>

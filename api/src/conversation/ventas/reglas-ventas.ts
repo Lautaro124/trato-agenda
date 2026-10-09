@@ -10,6 +10,7 @@ import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
+import { detalleParaElModelo } from '../../comercio/descuentos.rules.js';
 import {
   detalleDeRenglones,
   estadoVisible,
@@ -112,8 +113,11 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `- Si el cliente pregunta en general qué tenés, qué le ofrecés o te pide la lista de productos, llamá ` +
     `ver_catalogo en vez de preguntarle qué busca. Si te devuelve categorías y el cliente elige una, volvé a ` +
     `llamarla con esa categoría.\n` +
-    `- Informá los precios exactamente como los devuelve la búsqueda. Nunca redondees, hagas descuentos, ` +
-    `promociones, cuotas ni cálculos de envío.\n` +
+    `- Informá los precios exactamente como los devuelve la búsqueda. Si un precio viene con "antes", tiene un ` +
+    `descuento vigente: decile al cliente el precio original, el descuento y el precio final, tal cual. Nunca ` +
+    `redondees ni inventes descuentos, promociones, cuotas o cálculos de envío que la búsqueda no traiga, y nunca ` +
+    `sumes dos descuentos: el sistema ya aplicó el que corresponde. Si te piden un descuento que no figura, decile ` +
+    `que no lo tenés.\n` +
     `- Si una variante está "sin stock", decilo claro y ofrecé otra variante o producto con stock de los ` +
     `que devolvió la búsqueda. Nunca prometas cuándo vuelve a entrar.\n` +
     `- Si la búsqueda no encuentra lo que pide, decile que no lo tenés. No ofrezcas productos que no ` +
@@ -234,9 +238,12 @@ const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-dig
 /** Lo que vuelve al modelo después de crear un pedido. */
 export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
   const titular = agent.nombreTitular || 'el negocio';
+  const ahorro = venta.items.reduce((suma, item) => suma + item.descuentoCentavos * item.cantidad, 0);
   const base =
     `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items)}. ` +
-    `Total ${formatearCentavos(venta.totalCentavos)}.`;
+    `Total ${formatearCentavos(venta.totalCentavos)}` +
+    (ahorro > 0 ? ` (ya con los descuentos: ahorra ${formatearCentavos(ahorro)})` : '') +
+    '.';
   if (venta.linkPago) {
     const propio = mensajePropio(agent, 'linkPago');
     if (propio) {
@@ -377,7 +384,7 @@ export function formatearResultados(
     const variantes = producto.variantes.map(
       (variante) =>
         `   - ${variante.nombre ? `${JSON.stringify(variante.nombre)} ` : ''}[variante ${variante.varianteId}]: ` +
-        `${formatearCentavos(variante.precioCentavos)}, ${variante.stock}`,
+        `${precioParaElModelo(variante)}, ${variante.stock}`,
     );
     return [cabecera, ...variantes].join('\n');
   };
@@ -407,9 +414,26 @@ export function formatearResultados(
   return partes.join('\n');
 }
 
+/**
+ * "$ 8.000, antes $ 10.000 (20% off hasta el 31/10; ahorra $ 2.000)". El
+ * precio final va primero y seguido de ", ": así lo lee el stub de las e2e, y
+ * el ahorro va escrito para que el chequeo de precios lo reconozca.
+ */
+export function precioParaElModelo(variante: Pick<ProductoEncontrado['variantes'][number], 'precioCentavos' | 'precioFinalCentavos' | 'descuento'>): string {
+  if (!variante.descuento) return formatearCentavos(variante.precioCentavos);
+  return (
+    `${formatearCentavos(variante.precioFinalCentavos)}, antes ${formatearCentavos(variante.precioCentavos)} ` +
+    `(${detalleParaElModelo(variante.descuento)}; ahorra ${formatearCentavos(variante.descuento.descuentoCentavos)})`
+  );
+}
+
 function lineaDeProducto(producto: ProductoPanorama): string {
   const precio = formatearCentavos(producto.precioDesdeCentavos);
-  return `- ${JSON.stringify(producto.nombre)}: ${producto.variosPrecios ? `desde ${precio}` : precio}`;
+  const desde = producto.variosPrecios ? `desde ${precio}` : precio;
+  return (
+    `- ${JSON.stringify(producto.nombre)}: ${desde}` +
+    (producto.descuento ? ` (con ${producto.descuento})` : '')
+  );
 }
 
 function lineaDeCategoria(categoria: CategoriaPanorama): string {
@@ -451,7 +475,7 @@ export function formatearCatalogo(
           : '';
       return (
         `Productos con stock${de} (mostrale la lista entera, en este orden, con el precio tal cual; "desde" ` +
-        `significa que hay variantes con distinto precio):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
+        `significa que hay variantes con distinto precio, y "con X% off" que ese precio ya tiene el descuento):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
       );
     }
     case 'categorias':
@@ -505,7 +529,7 @@ export function formatearStockDueno(consulta: string, productos: ProductoEncontr
             ? `sin control de cantidad (${variante.hayStock ? 'marcado con stock' : 'marcado sin stock'})`
             : `${variante.unidades} disponibles${variante.reservadas > 0 ? ` (+${variante.reservadas} reservadas)` : ''}` +
               (variante.stockMinimo !== null ? `, mínimo ${variante.stockMinimo}` : '');
-        return `   - ${variante.nombre || 'única'} (SKU ${variante.sku}): ${formatearCentavos(variante.precioCentavos)}, ${unidades}`;
+        return `   - ${variante.nombre || 'única'} (SKU ${variante.sku}): ${precioParaElModelo(variante)}, ${unidades}`;
       });
       return [`${JSON.stringify(producto.nombre)} (código ${producto.codigo})`, ...variantes].join('\n');
     })

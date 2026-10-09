@@ -30,7 +30,7 @@ export function ProbarBusqueda() {
     <section aria-label="Probar la búsqueda del asistente" className="rounded-lg border border-line bg-card p-5">
       <h2 className="font-display text-[18px] font-bold text-ink">Probá qué encuentra tu asistente</h2>
       <p className="mb-3 text-[13px] text-ink-secondary">
-        Escribí como te escribiría un cliente: “¿tenés algo para regalar?”, “remera negra talle M”.
+        Escribí como te escribiría un cliente: “¿tenés algo para regalar?”, “remera negra talle M”. Ves lo mismo que el asistente, con el precio final.
       </p>
       <form onSubmit={buscar} className="flex gap-2">
         <input
@@ -56,14 +56,25 @@ export function ProbarBusqueda() {
             <li key={producto.productoId} className="rounded-md bg-sunken px-3 py-2 text-[13.5px]">
               <span className="font-semibold text-ink">{producto.nombre}</span>
               <span className="text-muted"> · {producto.codigo}</span>
-              <span className="block text-[12.5px] text-ink-secondary">
-                {producto.variantes
-                  .map(
-                    (variante) =>
-                      `${variante.nombre ? `${variante.nombre}: ` : ""}${formatearCentavos(variante.precioCentavos)} (${variante.stock})`,
-                  )
-                  .join(" · ")}
-              </span>
+              <ul className="text-[12.5px] text-ink-secondary">
+                {producto.variantes.map((variante) => (
+                  <li key={variante.varianteId}>
+                    {variante.nombre ? `${variante.nombre}: ` : ""}
+                    {variante.descuento ? (
+                      <>
+                        <strong className="text-[var(--color-primitive-coral-700)]">
+                          {formatearCentavos(variante.precioFinalCentavos)}
+                        </strong>{" "}
+                        <span className="text-muted line-through">{formatearCentavos(variante.precioCentavos)}</span> ·{" "}
+                        {variante.descuento.etiqueta}
+                      </>
+                    ) : (
+                      formatearCentavos(variante.precioCentavos)
+                    )}{" "}
+                    ({variante.stock})
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ol>

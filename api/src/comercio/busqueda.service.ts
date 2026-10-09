@@ -9,6 +9,8 @@ import {
   unidadesDisponibles,
   type Ranking,
 } from './catalogo.rules.js';
+import { mejorDescuento, type DescuentoAplicado } from './descuentos.rules.js';
+import { descuentosActivos } from './descuentos.types.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
 import { reservadasPorVariante } from './reservas.js';
 
@@ -43,7 +45,11 @@ export type VarianteEncontrada = {
   varianteId: string;
   sku: string;
   nombre: string;
+  /** Precio de lista. */
   precioCentavos: number;
+  /** Lo que paga hoy el cliente: el de lista menos el mejor descuento vigente (descuentos.rules.ts). */
+  precioFinalCentavos: number;
+  descuento: DescuentoAplicado | null;
   hayStock: boolean;
   /** "disponible" | "quedan N unidades" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
   stock: string;
@@ -204,10 +210,14 @@ export class BusquedaService {
     reservadasDadas?: Map<string, number>,
   ): Promise<ProductoEncontrado[]> {
     if (ids.length === 0) return [];
-    const productos = await this.prisma.producto.findMany({
-      where: { id: { in: ids }, userId, activo: true },
-      include: { variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' } } },
-    });
+    const [productos, descuentos] = await Promise.all([
+      this.prisma.producto.findMany({
+        where: { id: { in: ids }, userId, activo: true },
+        include: { variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' } } },
+      }),
+      descuentosActivos(this.prisma, userId, ids),
+    ]);
+    const ahora = new Date();
     const porId = new Map(productos.map((producto) => [producto.id, producto]));
     const reservadas =
       reservadasDadas ??
@@ -228,11 +238,14 @@ export class BusquedaService {
           descripcion: producto.descripcion,
           variantes: producto.variantes.map((variante) => {
             const reservadasVariante = reservadas.get(variante.id) ?? 0;
+            const descuento = mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);
             return {
               varianteId: variante.id,
               sku: variante.sku,
               nombre: variante.nombre,
               precioCentavos: variante.precioCentavos,
+              precioFinalCentavos: descuento?.precioFinalCentavos ?? variante.precioCentavos,
+              descuento,
               hayStock: hayStock(variante, 1, reservadasVariante),
               stock: describirStock(variante, reservadasVariante),
               unidades: unidadesDisponibles(variante, reservadasVariante),
