@@ -24,7 +24,18 @@ export type VentaPublica = Pick<
   /** Si el pago vino por Mercado Pago, el número de operación (para buscarlo en su cuenta). */
   mpPaymentId: string | null;
   items: Array<
-    Pick<ItemVenta, 'codigo' | 'nombreProducto' | 'nombreVariante' | 'cantidad' | 'precioUnitarioCentavos' | 'subtotalCentavos'>
+    Pick<
+      ItemVenta,
+      | 'codigo'
+      | 'nombreProducto'
+      | 'nombreVariante'
+      | 'cantidad'
+      | 'precioUnitarioCentavos'
+      | 'subtotalCentavos'
+      | 'precioListaCentavos'
+      | 'descuentoCentavos'
+      | 'descuentoEtiqueta'
+    >
   >;
 };
 
@@ -52,6 +63,9 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
       cantidad: item.cantidad,
       precioUnitarioCentavos: item.precioUnitarioCentavos,
       subtotalCentavos: item.subtotalCentavos,
+      precioListaCentavos: item.precioListaCentavos,
+      descuentoCentavos: item.descuentoCentavos,
+      descuentoEtiqueta: item.descuentoEtiqueta,
     })),
   };
 }

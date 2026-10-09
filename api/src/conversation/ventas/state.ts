@@ -25,6 +25,13 @@ export const EstadoVentas = new StateSchema({
   contexto: new UntrackedValue<ContextoVentas>(undefined, { guard: false }),
   pendientes: new UntrackedValue<OperacionPendiente[]>(undefined, { guard: false }),
   indiceDesde: new UntrackedValue<number>(undefined, { guard: false }),
+  /** Primer índice de `messages` que ve el modelo en esta vuelta (ventana-historial.ts). */
+  inicioVisible: new UntrackedValue<number>(undefined, { guard: false }),
+  /**
+   * Lo que `verificar_respuesta` le pide al modelo que corrija (precios que no
+   * salen del catálogo). Vacía = la respuesta todavía no se rechazó en esta vuelta.
+   */
+  correccion: new UntrackedValue<string>(undefined, { guard: false }),
 });
 
 export type EstadoVentasValue = typeof EstadoVentas.State;

@@ -303,3 +303,119 @@ describe('construirDescripcion', () => {
     expect(descripcion).toContain('de 09:00 a 18:00');
   });
 });
+
+describe('AgentsService.actualizarMensajes', () => {
+  const ventas = { ...agenteGuardado, tipoAsistente: 'ventas', mensajes: { saludo: { modo: 'propio', texto: 'Hola' } } };
+
+  it('guarda los que vienen y conserva los demás, sin tocar el prompt', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(ventas);
+
+    await service.actualizarMensajes('user-1', {
+      linkPago: { modo: 'propio', texto: 'Pagá acá: {link}' },
+    });
+
+    const [{ data }] = update.mock.calls[0] as [{ data: Record<string, unknown> }];
+    expect(data).toEqual({
+      mensajes: {
+        saludo: { modo: 'propio', texto: 'Hola' },
+        linkPago: { modo: 'propio', texto: 'Pagá acá: {link}' },
+      },
+    });
+  });
+
+  it('da 400 si al link de pago le falta {link}', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(ventas);
+
+    await expect(
+      service.actualizarMensajes('user-1', { linkPago: { modo: 'propio', texto: 'Te paso el link' } }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('da 400 con un mensaje que no es de su tipo de asistente', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(agenteGuardado);
+
+    await expect(
+      service.actualizarMensajes('user-1', { pagoAprobado: { modo: 'auto', texto: '' } }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('da 404 si todavía no hay agente', async () => {
+    const { service, findUnique } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await expect(service.actualizarMensajes('user-1', {})).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('local del asistente de ventas', () => {
+  const local = {
+    tieneLocal: true,
+    direccion: '  Av. Corrientes 1234 ',
+    horarios: [{ dia: 'lun' as const, desde: '09:00', hasta: '18:00' }],
+    retiroEnLocal: true,
+  };
+
+  it('el alta de ventas guarda el local normalizado', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati', local });
+
+    const [{ create }] = upsert.mock.calls[0] as [{ create: Record<string, unknown> }];
+    expect(create.local).toEqual({ ...local, direccion: 'Av. Corrientes 1234' });
+  });
+
+  it('el alta sin el paso del local no pisa el que ya estaba', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas' });
+
+    await service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati' });
+
+    const [{ update }] = upsert.mock.calls[0] as [{ update: Record<string, unknown> }];
+    expect(update).not.toHaveProperty('local');
+  });
+
+  it('actualizarLocal reemplaza el local sin tocar el prompt', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas' });
+
+    await service.actualizarLocal('user-1', { tieneLocal: false, direccion: 'Calle 1', retiroEnLocal: true });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: { local: { tieneLocal: false, horarios: [], retiroEnLocal: false } },
+    });
+  });
+
+  it('da 400 con horarios que se pisan, sin escribir', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas' });
+
+    await expect(
+      service.actualizarLocal('user-1', {
+        tieneLocal: true,
+        horarios: [
+          { dia: 'lun', desde: '09:00', hasta: '14:00' },
+          { dia: 'lun', desde: '13:00', hasta: '18:00' },
+        ],
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('da 404 sin agente y 409 para un asistente de agenda', async () => {
+    const { service, findUnique, update } = crearServicio();
+
+    findUnique.mockResolvedValue(null);
+    await expect(service.actualizarLocal('user-1', { tieneLocal: false })).rejects.toMatchObject({ status: 404 });
+
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
+    await expect(service.actualizarLocal('user-1', { tieneLocal: false })).rejects.toMatchObject({ status: 409 });
+    expect(update).not.toHaveBeenCalled();
+  });
+});

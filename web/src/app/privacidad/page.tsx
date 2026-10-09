@@ -102,13 +102,12 @@ export default function PrivacidadPage() {
               reconocerte cuando volvés y mostrarte quién está conectado.
             </Punto>
             <Punto>
-              <Scope>https://www.googleapis.com/auth/calendar.events</Scope>: crear, mover y cancelar
-              los turnos que el asistente acuerda con tus clientes, y listarte tus eventos en tu propio
-              panel.
-            </Punto>
-            <Punto>
-              <Scope>https://www.googleapis.com/auth/calendar.freebusy</Scope>: leer los bloques
-              ocupado/libre de tu calendario para saber cuándo podés atender.
+              <Scope>https://www.googleapis.com/auth/calendar</Scope>: crear, mover y cancelar
+              los turnos que el asistente acuerda con tus clientes, listarte tus eventos en tu propio
+              panel y leer el horario de tus eventos (sólo inicio, fin y si te ocupan) para saber
+              cuándo podés atender. Google describe este permiso como acceso a todos tus calendarios,
+              pero sólo lo usamos sobre los eventos de tu calendario principal: no tocamos otros
+              calendarios, ni con quién los compartís, ni su configuración.
             </Punto>
           </Lista>
           <p>
@@ -146,8 +145,9 @@ export default function PrivacidadPage() {
           </p>
           <p>
             <Fuerte>De tu calendario leemos lo mínimo.</Fuerte> Para calcular tu disponibilidad
-            consultamos la API de free/busy de Google, que devuelve solamente rangos de horario
-            ocupado y libre. <Fuerte>No leemos los títulos, las descripciones, los invitados, los
+            leemos los eventos de tu calendario principal pidiéndole a Google sólo algunos campos: el
+            horario, si el evento está cancelado o marcado como disponible, su tipo y tu propia
+            respuesta si es una invitación. <Fuerte>No leemos los títulos, las descripciones, los invitados, los
             correos de los invitados ni las ubicaciones de tus eventos</Fuerte>, con una sola
             excepción: cuando vos, desde tu panel ya autenticado, pedís ver tu agenda, listamos tus
             eventos con su título y horario para mostrártelos.
@@ -250,8 +250,8 @@ export default function PrivacidadPage() {
               y su moneda.
             </Punto>
             <Punto>
-              Pedimos a Google el permiso más chico que alcanza para que el asistente funcione. Si un
-              permiso deja de ser necesario, lo sacamos.
+              Pedimos a Google un único permiso sobre tu calendario y lo usamos sólo sobre los eventos
+              de tu calendario principal. Si un permiso deja de ser necesario, lo sacamos.
             </Punto>
             <Punto>
               No registramos en nuestros logs el texto de los mensajes, el contenido de tus eventos ni

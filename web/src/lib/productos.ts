@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import type { Descuento, DescuentoAGuardar, DescuentoDeVariante } from "./descuentos";
 
 /** Espejo de `VariantePublica` en la API. Precio en centavos, como lo guarda la base. */
 export type Variante = {
@@ -11,6 +12,9 @@ export type Variante = {
   disponible: boolean;
   stockMinimo: number | null;
   activo: boolean;
+  /** Lo que paga hoy el cliente, con el mejor descuento vigente. */
+  precioFinalCentavos: number;
+  descuento: DescuentoDeVariante | null;
 };
 
 /** Espejo de `ProductoPublico` en la API. */
@@ -25,6 +29,8 @@ export type Producto = {
   /** true cuando el asistente ya lo encuentra también por significado. */
   indexado: boolean;
   variantes: Variante[];
+  /** El descuento propio del producto (vigente o no). */
+  descuento: Descuento | null;
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -52,6 +58,8 @@ export type ProductoEncontrado = {
     sku: string;
     nombre: string;
     precioCentavos: number;
+    precioFinalCentavos: number;
+    descuento: DescuentoDeVariante | null;
     hayStock: boolean;
     stock: string;
   }>;
@@ -71,6 +79,8 @@ export type ProductoAGuardar = {
     disponible: boolean;
     stockMinimo: number | null;
   }>;
+  /** null lo borra. */
+  descuento: DescuentoAGuardar | null;
 };
 
 /** Error de la API con el mensaje que ya viene en español (409, 400). */
@@ -171,7 +181,7 @@ export function unidades(cantidad: number): string {
   return cantidad === 1 ? "1 unidad" : `${cantidad} unidades`;
 }
 
-/** "Sin stock", "12 unidades" o "Hay" — para la tabla del dueño, que sí ve cantidades. */
+/** "Sin stock", "Stock bajo", "12 unidades" o "Hay" — para la tabla del dueño, que sí ve cantidades. */
 export function etiquetaStock(variante: Pick<Variante, "stock" | "disponible" | "stockMinimo">): {
   texto: string;
   tono: "success" | "warning" | "danger";
@@ -181,5 +191,5 @@ export function etiquetaStock(variante: Pick<Variante, "stock" | "disponible" | 
   }
   if (variante.stock === 0) return { texto: "Sin stock", tono: "danger" };
   const bajo = variante.stockMinimo !== null && variante.stock <= variante.stockMinimo;
-  return { texto: unidades(variante.stock), tono: bajo ? "warning" : "success" };
+  return bajo ? { texto: "Stock bajo", tono: "warning" } : { texto: unidades(variante.stock), tono: "success" };
 }

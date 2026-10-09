@@ -98,6 +98,10 @@ function llamadaATool(model, name, args) {
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
 //   - "envío" / "envían" → derivar_consulta (el asistente no sabe de envíos);
+//   - "dónde queda" / "dirección" / "retirar" / "el local" → contesta con lo
+//     que dice el bloque del local del system prompt (bloqueLocal): la
+//     dirección y si se retira, que no hay local, o derivar_consulta si el
+//     local nunca se cargó;
 //   - "qué tenés" / "qué productos" / "qué ofrecés" → ver_catalogo; "mostrame
 //     <categoría>" → ver_catalogo con esa categoría;
 //   - sólo con las herramientas del dueño (banco de pruebas del Home):
@@ -124,13 +128,29 @@ function varianteDeLaUltimaBusqueda(mensajes) {
   return null;
 }
 
+/** Lo que contesta el asistente sobre el local, leído del bloque que arma bloqueLocal. */
+function respuestaDelLocal(body, sistema, pregunta) {
+  if (sistema.includes('no tiene local a la calle')) {
+    return completion(body.model, { content: 'No tenemos local a la calle: vendemos sólo por acá.' });
+  }
+  const direccion = sistema.match(/- Dirección: "((?:[^"\\]|\\.)*)"\./)?.[1];
+  if (!sistema.includes('Local de ') || !direccion) {
+    return llamadaATool(body.model, 'derivar_consulta', { resumen: pregunta });
+  }
+  const retiro = sistema.includes('Se pueden retirar las compras en el local')
+    ? 'Podés retirar tu compra ahí.'
+    : 'No hacemos retiro en el local.';
+  return completion(body.model, { content: `Estamos en ${direccion}. ${retiro}` });
+}
+
 function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUsuario, resultadoTool }) {
   const titular = sistema.match(/Reglas de venta de (.*?) \(no las rompas\)/)?.[1]?.trim();
   llamadas.push({ tipo: 'ventas', titular, mensaje: ultimoUsuario, conResultado: Boolean(resultadoTool), ...resumenDelPedido(body) });
 
   if (resultadoTool) {
     const resultado = textoDe(resultadoTool);
-    if (resultado.startsWith('Resultados de')) {
+    // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
+    if (resultado.startsWith('Resultados de') || resultado.startsWith('Ningún producto se llama como')) {
       const primero = resultado.match(/1\. "(.+?)" \(código/)?.[1];
       const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
       return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.` }));
@@ -157,6 +177,9 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (ultimoUsuario.includes('cancel')) {
     return responder(res, 200, llamadaATool(body.model, 'cancelar_pedido', {}));
   }
+  if (/\b(donde queda|direccion|retir|el local)/.test(ultimoUsuario)) {
+    return responder(res, 200, respuestaDelLocal(body, sistema, textoDe(mensajes[indiceUsuario])));
+  }
   if (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian')) {
     return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: textoDe(mensajes[indiceUsuario]) }));
   }
@@ -170,7 +193,7 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (/\bque (productos )?(tenes|ofreces|vendes)\b/.test(ultimoUsuario) || ultimoUsuario.includes('lista de productos')) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', {}));
   }
-  const categoria = textoDe(mensajes[indiceUsuario]).match(/mostrame (?:los |las )?(.+?)[?.!]*$/i)?.[1];
+  const categoria = textoDe(mensajes[indiceUsuario]).match(/mostrame (?:los |las )?([^?.!]+)/i)?.[1]?.trim();
   if (categoria) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', { categoria }));
   }
@@ -303,11 +326,12 @@ function embeddings(body, res) {
 function decisiones(body, res) {
   const estado = normalizar(typeof body.state === 'string' ? body.state : JSON.stringify(body.state ?? ''));
   const palabras = new Set(estado.split(/[^a-z0-9ñ]+/).filter((palabra) => palabra.length >= 3));
-  const respuestas = {};
-  const opciones = {};
+  // Maps y no objetos: los ids de las preguntas y opciones llegan en el pedido.
+  const respuestas = new Map();
+  const opciones = new Map();
   for (const [id, pregunta] of Object.entries(body.questions ?? {})) {
     const ids = Object.keys(pregunta.criteria ?? {}).filter((opcion) => opcion !== 'none');
-    opciones[id] = ids;
+    opciones.set(id, ids);
     const puntajes = ids.map((opcion, indice) => {
       const texto = normalizar(String(pregunta.criteria[opcion]));
       const coincidencias = [...palabras].filter((palabra) => texto.includes(palabra.replace(/s$/, ''))).length;
@@ -316,14 +340,14 @@ function decisiones(body, res) {
     const total = puntajes.reduce((suma, puntaje) => suma + puntaje, 0) || 1;
     const probabilidades = Object.fromEntries(ids.map((opcion, indice) => [opcion, puntajes[indice] / total]));
     const ganadora = ids[puntajes.indexOf(Math.max(...puntajes))] ?? 'none';
-    respuestas[id] = { type: 'choice', choice: ganadora, probabilities: { ...probabilidades, none: 0 }, confidence: 0.9 };
+    respuestas.set(id, { type: 'choice', choice: ganadora, probabilities: { ...probabilidades, none: 0 }, confidence: 0.9 });
   }
-  llamadas.push({ tipo: 'decision', model: body.model, provider: body.provider ?? null, estado, opciones });
+  llamadas.push({ tipo: 'decision', model: body.model, provider: body.provider ?? null, estado, opciones: Object.fromEntries(opciones) });
   return responder(res, 200, {
     id: `gen-dec-stub-${Date.now()}`,
     model: body.model,
     provider: 'TypeSafe',
-    answers: respuestas,
+    answers: Object.fromEntries(respuestas),
     usage: { input_tokens: estado.length, output_tokens: 0, cost: 0 },
   });
 }

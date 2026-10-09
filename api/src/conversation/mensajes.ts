@@ -14,3 +14,7 @@ export const MENSAJE_CALENDAR_CAIDO =
 /** Sólo se ve en el banco de pruebas del Home: quien lee es el dueño, no un cliente. */
 export const MENSAJE_SUSCRIPCION_VENCIDA =
   'Se terminó tu mes de prueba, así que el asistente dejó de responder por WhatsApp. Activá el plan y vuelve a andar al toque.';
+
+/** Cuando el asistente de ventas insiste con un precio que no sale del catálogo: mejor preguntar que inventar. */
+export const MENSAJE_PRECIO_SIN_VERIFICAR =
+  'No quiero pasarte un dato equivocado. ¿Me decís de nuevo qué producto buscás así lo reviso en el catálogo?';

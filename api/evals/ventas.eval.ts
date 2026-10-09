@@ -17,6 +17,7 @@ import { MemorySaver } from '@langchain/langgraph';
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AgentsService } from '../src/agents/agents.service.js';
+import type { MensajesAgente } from '../src/agents/mensajes.rules.js';
 import type { OpenRouterClient } from '../src/agents/openrouter.client.js';
 import { BusquedaService } from '../src/comercio/busqueda.service.js';
 import { CuentaMercadoPagoService } from '../src/comercio/cuenta-mercadopago.service.js';
@@ -31,7 +32,9 @@ import { OPENROUTER_BASE_URL_POR_DEFECTO, OPENROUTER_DECISIONS_URL_POR_DEFECTO, 
 import { ConversationService } from '../src/conversation/conversation.service.js';
 import type { GrafoConversacion } from '../src/conversation/graph/graph.factory.js';
 import { llmProvider } from '../src/conversation/llm.provider.js';
+import { VENTANA_POR_DEFECTO_MS } from '../src/conversation/graph/ventana-historial.js';
 import { construirGrafoVentas, type GrafoVentas } from '../src/conversation/ventas/grafo-ventas.factory.js';
+import { montosEnTexto } from '../src/conversation/ventas/reglas-ventas.js';
 import type { ItemVenta, User, Venta } from '../src/generated/prisma/client.js';
 import { NotificacionesService } from '../src/notificaciones/notificaciones.service.js';
 import type { PrismaService } from '../src/prisma/prisma.service.js';
@@ -54,17 +57,13 @@ const CATALOGO = [
 ] as const;
 
 /** "$ 45.000", "$45000" o "$ 16.000,50" → centavos. */
-function montosEn(texto: string): number[] {
-  return [...texto.matchAll(/\$\s?(\d[\d.]*)(?:,(\d{1,2}))?/g)].map(
-    ([, enteros, decimales]) => Number(enteros.replace(/\./g, '')) * 100 + Number((decimales ?? '0').padEnd(2, '0')),
-  );
-}
-
 type VentaConItems = Venta & { items: ItemVenta[] };
 
 type Caso = {
   id: string;
   mensajes: string[];
+  /** Mensajes propios del dueño (/asistente) sólo para este caso; los demás corren en automático. */
+  mensajesDelDueno?: MensajesAgente;
   check: (ventas: VentaConItems[], respuestas: string[], herramientas: string[]) => Record<string, boolean>;
 };
 
@@ -168,6 +167,27 @@ const CASOS: Caso[] = [
     }),
   },
   {
+    id: 'saludo-propio',
+    mensajesDelDueno: { saludo: { modo: 'propio', texto: '¡Buenas! Te atiende {asistente}, de {negocio}.' } },
+    mensajes: ['hola, cuánto sale el termo de 1 litro?'],
+    check: (ventas, [respuesta]) => ({
+      noCreaPedido: sinPedidos(ventas),
+      usaElSaludoDelDueno: normalizar(respuesta).includes('te atiende sol, de mates del sur'),
+      igualContesta: respuesta.includes('45.000'),
+    }),
+  },
+  {
+    id: 'sin-productos-propio',
+    mensajesDelDueno: {
+      sinProductos: { modo: 'propio', texto: 'Uy, {busqueda} no me queda, pero tengo mates, termos y bombillas.' },
+    },
+    mensajes: ['tenés mate de madera de algarrobo?'],
+    check: (ventas, [respuesta]) => ({
+      noCreaPedido: sinPedidos(ventas),
+      usaElTextoDelDueno: normalizar(respuesta).includes('no me queda, pero tengo mates, termos y bombillas'),
+    }),
+  },
+  {
     id: 'compra-y-cancela',
     mensajes: ['quiero 1 yerba orgánica, soy Leo', NADA_MAS, 'uh no, mejor cancelalo'],
     check: (ventas) => ({
@@ -188,7 +208,8 @@ function configPara(modelo: string): ConfigService<Env, true> {
     OPENROUTER_DECISIONS_URL: process.env.OPENROUTER_DECISIONS_URL || OPENROUTER_DECISIONS_URL_POR_DEFECTO,
     API_PUBLIC_URL: 'http://localhost:4000',
   };
-  return { get: (clave: string) => valores[clave] } as unknown as ConfigService<Env, true>;
+  const numeros: Record<string, number> = { HISTORIAL_IA_VENTANA_MS: VENTANA_POR_DEFECTO_MS };
+  return { get: (clave: string) => numeros[clave] ?? valores[clave] } as unknown as ConfigService<Env, true>;
 }
 
 /**
@@ -200,9 +221,9 @@ function soloMontosConocidos(respuestas: string[], mensajes: string[], ventas: V
   const validos = new Set([
     ...CATALOGO.map((producto) => producto.precio * 100),
     ...ventas.flatMap((venta) => [venta.totalCentavos, ...venta.items.map((item) => item.subtotalCentavos)]),
-    ...montosEn(mensajes.join(' ')),
+    ...montosEnTexto(mensajes.join(' ')),
   ]);
-  return montosEn(respuestas.join(' ')).every((monto) => validos.has(monto));
+  return montosEnTexto(respuestas.join(' ')).every((monto) => validos.has(monto));
 }
 
 describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () => {
@@ -260,7 +281,7 @@ describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () 
           llm: llmProvider.useFactory(config),
           checkpointer: new MemorySaver(),
         });
-        const conversaciones = new ConversationService(prisma, {} as GrafoConversacion, grafo as GrafoVentas);
+        const conversaciones = new ConversationService(prisma, {} as GrafoConversacion, grafo as GrafoVentas, config);
         const remoteJid = `549110000${String(resultados.length).padStart(4, '0')}@s.whatsapp.net`;
 
         const resultado: Resultado = {
@@ -277,6 +298,7 @@ describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () 
         let herramientas: string[] = [];
 
         try {
+          await prisma.agent.update({ where: { userId: dueno.id }, data: { mensajes: caso.mensajesDelDueno ?? {} } });
           for (const texto of caso.mensajes) {
             const inicio = performance.now();
             respuestas.push(await conversaciones.handleIncoming(dueno.id, remoteJid, texto));

@@ -31,6 +31,8 @@ export type DepsGrafo = {
   openRouter: OpenRouterClient;
   llm: BaseChatModel;
   checkpointer?: BaseCheckpointSaver;
+  /** Hasta cuánto para atrás ve el modelo el historial de un chat (HISTORIAL_IA_VENTANA). Por defecto, 14 días. */
+  ventanaHistorialMs?: number;
 };
 
 /**

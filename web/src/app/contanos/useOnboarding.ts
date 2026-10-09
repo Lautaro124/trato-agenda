@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import type { LocalPresencial } from "@/lib/local";
 import { formatearPrecio } from "@/lib/precio";
+import { useLocal } from "./useLocal";
 
 export type TipoUsoId = "consultorio" | "otro";
 
@@ -79,11 +81,12 @@ export const LARGO_MIN_NOMBRE = 2;
  */
 export type TipoAsistente = "agenda" | "ventas";
 
-export type PasoId = "tipo" | "negocio" | "turnos" | "horarios" | "asistente";
+export type PasoId = "tipo" | "negocio" | "turnos" | "horarios" | "local" | "asistente";
 
 /**
  * Los pasos de cada asistente, en orden. Ventas no pide turnos ni franja: vende
  * las 24 horas y lo que ofrece sale del catálogo, que se carga en /productos.
+ * Sí pregunta por el local a la calle, para contestar dónde queda y si se retira.
  */
 export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> = {
   agenda: [
@@ -96,6 +99,7 @@ export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> 
   ventas: [
     { id: "tipo", label: "Qué va a hacer" },
     { id: "negocio", label: "Tu negocio" },
+    { id: "local", label: "Tu local" },
     { id: "asistente", label: "Tu asistente" },
   ],
 };
@@ -105,11 +109,12 @@ export const AYUDA_POR_PASO: Record<PasoId, string> = {
   negocio: "Con este nombre se presenta el asistente y firma los avisos.",
   turnos: "Sin precio, el asistente le dice al cliente que lo consulte con vos.",
   horarios: "Fuera de esta franja el asistente no ofrece horarios.",
+  local: "Lo que no cargues, el asistente no lo inventa: te pasa la consulta a vos.",
   asistente: "Así arranca cada conversación en WhatsApp.",
 };
 
 /** Body de POST /agents/generate-ventas. */
-export type DatosVentas = { nombreTitular: string; nombreBot: string };
+export type DatosVentas = { nombreTitular: string; nombreBot: string; local: LocalPresencial };
 
 export type Onboarding = ReturnType<typeof useOnboarding>;
 
@@ -240,6 +245,7 @@ export function useOnboarding() {
   const [nombreBot, setNombreBot] = useState("");
   const tipos = useTiposEvento(tipoUso);
   const { seleccionados, setElegidos } = tipos;
+  const local = useLocal();
 
   const elegirTipoUso = useCallback(
     (id: TipoUsoId) => {
@@ -269,6 +275,7 @@ export function useOnboarding() {
     negocio: nombreTitular.trim().length >= LARGO_MIN_NOMBRE,
     turnos: seleccionados.length > 0,
     horarios: rangoValido,
+    local: local.valido,
     asistente: nombreBot.trim().length >= LARGO_MIN_NOMBRE,
   };
 
@@ -278,6 +285,7 @@ export function useOnboarding() {
     negocio: nombreTitular.trim(),
     turnos: `${seleccionados.length} ${seleccionados.length === 1 ? "tipo" : "tipos"}`,
     horarios: `${horaDesde}–${horaHasta}`,
+    local: local.resumen,
     asistente: nombreBot.trim(),
   };
 
@@ -332,6 +340,7 @@ export function useOnboarding() {
     rangoValido,
     nombreBot,
     setNombreBot,
+    local,
     puedeAvanzar,
     presentacion,
     saludo,
@@ -341,6 +350,7 @@ export function useOnboarding() {
     payloadVentas: (): DatosVentas => ({
       nombreTitular: nombreTitular.trim(),
       nombreBot: nombreBot.trim(),
+      local: local.payload(),
     }),
     /** Body de POST /agents/generate. */
     payload: () => ({

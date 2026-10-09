@@ -75,8 +75,8 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
   crear_pedido: {
     name: 'crear_pedido',
     description:
-      'Crea el pedido: reserva el stock y devuelve el link de pago (o lo deja anotado para coordinar). Usala sólo ' +
-      'después de repetirle al cliente productos, cantidades y total, y de que confirme por texto. Los precios los ' +
+      'Crea el pedido: reserva el stock y devuelve el link de pago (o lo deja anotado para coordinar). Usala cuando ' +
+      'el cliente ya eligió y te dijo que no quiere nada más, con todo lo que eligió en esta charla. Los precios los ' +
       'pone el sistema: vos sólo mandás variantes y cantidades.',
     schema: esquemaCrearPedido,
   },

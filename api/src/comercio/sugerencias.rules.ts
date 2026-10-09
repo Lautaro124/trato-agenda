@@ -34,10 +34,12 @@ export type ProductoPanorama = {
   nombre: string;
   categoria: string | null;
   descripcion: string;
-  /** Precio de la variante más barata con stock. */
+  /** Precio final (con descuento, si hay) de la variante más barata con stock. */
   precioDesdeCentavos: number;
   /** true si las variantes con stock no cuestan todas lo mismo ("desde $X"). */
   variosPrecios: boolean;
+  /** "20% off", si esa variante más barata tiene un descuento vigente. */
+  descuento?: string | null;
 };
 
 export type CategoriaPanorama = { nombre: string; cantidad: number };

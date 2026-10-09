@@ -17,6 +17,7 @@ import {
   TextoRango,
   textoFinal,
 } from "./controles";
+import { ControlesLocal } from "./ControlesLocal";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
 import { VistaPreviaChat } from "./VistaPreviaChat";
 
@@ -281,6 +282,20 @@ function ContenidoDelPaso({
         </>
       );
 
+    case "local":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Tenés local a la calle?"
+            bajada="Con esto el asistente contesta dónde queda, a qué hora abrís y si se puede pasar a retirar. Si vendés sólo online, también se lo aclara a tus clientes."
+          />
+          <div className="max-w-[600px]">
+            <ControlesLocal local={ob.local} />
+          </div>
+        </>
+      );
+
     case "asistente":
       return (
         <>
@@ -317,7 +332,7 @@ function ContenidoDelPaso({
 
 /** El texto al lado del botón principal: cuánto falta, cuántos tipos, o que se puede cambiar. */
 function textoDelPie(ob: Onboarding): string | null {
-  if (ob.pasoId === "tipo") return ob.esVentas ? "3 pasos · menos de 1 minuto" : "5 pasos · unos 2 minutos";
+  if (ob.pasoId === "tipo") return ob.esVentas ? "4 pasos · cerca de 1 minuto" : "5 pasos · unos 2 minutos";
   if (ob.pasoId === "turnos") {
     const n = ob.seleccionados.length;
     return `${n} ${n === 1 ? "tipo elegido" : "tipos elegidos"}`;

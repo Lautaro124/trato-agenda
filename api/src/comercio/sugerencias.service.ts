@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { hayStock } from './catalogo.rules.js';
 import { DecisionesClient } from './decisiones.client.js';
+import { mejorDescuento } from './descuentos.rules.js';
+import { descuentosActivos } from './descuentos.types.js';
 import { reservadasPorVariante } from './reservas.js';
 import {
   agruparPorCategoria,
@@ -106,6 +108,12 @@ export class SugerenciasService {
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
+    const descuentos = await descuentosActivos(
+      this.prisma,
+      userId,
+      productos.map((producto) => producto.id),
+    );
+    const ahora = new Date();
     const reservadas = await reservadasPorVariante(
       this.prisma,
       productos.flatMap((producto) => producto.variantes.map((variante) => variante.id)),
@@ -113,9 +121,13 @@ export class SugerenciasService {
     return productos.flatMap((producto) => {
       const precios = producto.variantes
         .filter((variante) => hayStock(variante, 1, reservadas.get(variante.id) ?? 0))
-        .map((variante) => variante.precioCentavos);
+        .map((variante) => {
+          const descuento = mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);
+          return { final: descuento?.precioFinalCentavos ?? variante.precioCentavos, descuento };
+        })
+        .sort((a, b) => a.final - b.final);
       if (precios.length === 0) return [];
-      const desde = Math.min(...precios);
+      const desde = precios[0].final;
       return [
         {
           productoId: producto.id,
@@ -123,7 +135,8 @@ export class SugerenciasService {
           categoria: producto.categoria,
           descripcion: producto.descripcion,
           precioDesdeCentavos: desde,
-          variosPrecios: precios.some((precio) => precio !== desde),
+          variosPrecios: precios.some((precio) => precio.final !== desde),
+          descuento: precios[0].descuento?.etiqueta ?? null,
         },
       ];
     });

@@ -9,7 +9,17 @@ import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
 import { identificador, iniciales, useSession, type Usuario } from "@/lib/session";
 
-type Tab = "inicio" | "vinculacion" | "calendario" | "reuniones" | "productos" | "ventas" | "chat" | "plan" | "cuenta";
+type Tab =
+  | "inicio"
+  | "vinculacion"
+  | "calendario"
+  | "reuniones"
+  | "productos"
+  | "ventas"
+  | "chat"
+  | "plan"
+  | "cuenta"
+  | "asistente";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 
@@ -28,11 +38,13 @@ type Pestana = { tab: Tab; href: string; label: string };
 function pestanasDe(user: Usuario): Pestana[] {
   const inicio: Pestana = { tab: "inicio", href: "/inicio", label: "Inicio" };
   const plan: Pestana = { tab: "plan", href: "/plan", label: "Plan" };
+  const asistente: Pestana = { tab: "asistente", href: "/asistente", label: "Asistente" };
   if (user.tipoAsistente === "ventas") {
     return [
       inicio,
       { tab: "productos", href: "/productos", label: "Productos" },
       { tab: "ventas", href: "/ventas", label: "Ventas" },
+      asistente,
       plan,
     ];
   }
@@ -40,6 +52,7 @@ function pestanasDe(user: Usuario): Pestana[] {
     inicio,
     { tab: "calendario", href: "/calendario", label: "Calendario" },
     { tab: "reuniones", href: "/reuniones", label: "Reuniones" },
+    asistente,
     plan,
   ];
 }
@@ -186,6 +199,15 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
                 className={`block px-4 py-2 text-[13.5px] ${active === "vinculacion" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
               >
                 Vinculación
+              </Link>
+              {/* En el celular la barra de abajo no tiene lugar para "Asistente": se llega desde acá. */}
+              <Link
+                href="/asistente"
+                role="menuitem"
+                onClick={() => setMenuAbierto(false)}
+                className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "asistente" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
+              >
+                Mensajes del asistente
               </Link>
               <Link
                 href="/cuenta"

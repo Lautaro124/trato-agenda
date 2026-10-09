@@ -1,6 +1,6 @@
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
-import { memoriaDelCliente, yaSePresento } from './saludo.js';
+import { bloqueDeSaludo, memoriaDelCliente, YA_TE_PRESENTASTE, yaSePresento } from './saludo.js';
 
 describe('yaSePresento', () => {
   it('es falso con sólo el mensaje que acaba de llegar', () => {
@@ -32,5 +32,23 @@ describe('memoriaDelCliente', () => {
 
   it('con resumen lo incluye', () => {
     expect(memoriaDelCliente('Busca mates.', true)).toContain('Busca mates.');
+  });
+});
+
+describe('bloqueDeSaludo', () => {
+  const agent = (mensajes: unknown) => ({ nombreBot: 'Tati', nombreTitular: 'Almacén Lupe', mensajes }) as never;
+
+  it('si ya saludó, le pide no volver a presentarse aunque haya saludo propio', () => {
+    const propio = agent({ saludo: { modo: 'propio', texto: 'Hola, soy {asistente}' } });
+    expect(bloqueDeSaludo(propio, true)).toBe(`\n\n${YA_TE_PRESENTASTE}`);
+  });
+
+  it('en el primer mensaje usa el saludo del dueño, completado y delimitado', () => {
+    const propio = agent({ saludo: { modo: 'propio', texto: '¡Hola! Soy {asistente}, de {negocio}.' } });
+    expect(bloqueDeSaludo(propio, false)).toContain('tal cual: "¡Hola! Soy Tati, de Almacén Lupe."');
+  });
+
+  it('en automático no agrega nada', () => {
+    expect(bloqueDeSaludo(agent({}), false)).toBe('');
   });
 });
