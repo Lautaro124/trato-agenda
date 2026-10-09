@@ -176,7 +176,12 @@ export function centavosParaInput(centavos: number): string {
   return formatearCentavos(centavos).replace(/^\$ /, "");
 }
 
-/** "Sin stock", "Quedan 2", "12 u." o "Hay" — para la tabla del dueño, que sí ve cantidades. */
+/** "1 unidad", "12 unidades": el texto entero, sin abreviar. */
+export function unidades(cantidad: number): string {
+  return cantidad === 1 ? "1 unidad" : `${cantidad} unidades`;
+}
+
+/** "Sin stock", "Stock bajo", "12 unidades" o "Hay" — para la tabla del dueño, que sí ve cantidades. */
 export function etiquetaStock(variante: Pick<Variante, "stock" | "disponible" | "stockMinimo">): {
   texto: string;
   tono: "success" | "warning" | "danger";
@@ -186,5 +191,5 @@ export function etiquetaStock(variante: Pick<Variante, "stock" | "disponible" | 
   }
   if (variante.stock === 0) return { texto: "Sin stock", tono: "danger" };
   const bajo = variante.stockMinimo !== null && variante.stock <= variante.stockMinimo;
-  return { texto: `${variante.stock} u.`, tono: bajo ? "warning" : "success" };
+  return bajo ? { texto: "Stock bajo", tono: "warning" } : { texto: unidades(variante.stock), tono: "success" };
 }
