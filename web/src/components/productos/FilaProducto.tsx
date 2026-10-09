@@ -15,6 +15,7 @@ import {
   type Variante,
 } from "@/lib/productos";
 
+const ETIQUETA = "text-[11.5px] font-semibold text-muted";
 const INPUT_CHICO =
   "w-full rounded-sm border bg-card px-2 py-1.5 text-[13.5px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)] disabled:bg-sunken";
 
@@ -215,16 +216,7 @@ export function FilaProducto({
       )}
 
       <form onSubmit={guardar} aria-label={`Precio y stock de ${producto.nombre}`}>
-        <div
-          aria-hidden="true"
-          className="mt-3 hidden grid-cols-[1fr_120px_100px_auto] gap-x-3 px-3 text-[11.5px] font-semibold text-muted @md:grid"
-        >
-          <span>Variante</span>
-          <span>Precio</span>
-          <span>Stock</span>
-          <span className="w-16" />
-        </div>
-        <ul className="mt-1.5 flex flex-col gap-2">
+        <ul className="mt-3 flex flex-col gap-2">
           {analisis.map((a) => (
             <FilaVariante
               key={a.variante.id}
@@ -312,7 +304,7 @@ function FilaVariante({
   return (
     <li
       className={cn(
-        "grid grid-cols-2 items-center gap-x-3 gap-y-2 rounded-md px-3 py-2 @md:grid-cols-[1fr_120px_100px_auto]",
+        "grid grid-cols-2 items-end gap-x-3 gap-y-2 rounded-md px-3 py-2 @md:grid-cols-[1fr_120px_120px_76px]",
         editada ? "bg-[var(--color-primitive-coral-50)]" : "bg-sunken",
       )}
     >
@@ -326,20 +318,24 @@ function FilaVariante({
         <p className="truncate text-[11.5px] text-muted">SKU {variante.sku}</p>
       </div>
 
-      {/* En una tarjeta angosta: nombre y estado arriba, precio y stock abajo. */}
-      <label className="order-3 flex items-center gap-1 @md:order-2">
-        <span className="text-[13px] text-muted">$</span>
-        <input
-          inputMode="decimal"
-          value={borrador.precio}
-          disabled={deshabilitada}
-          onChange={(e) => onCambio({ precio: e.target.value })}
-          aria-label={`Precio de ${etiqueta}`}
-          className={cn(INPUT_CHICO, borde(precioEditado))}
-        />
+      {/* En una tarjeta angosta: nombre y estado arriba, precio y stock abajo, cada uno con su etiqueta. */}
+      <label className="order-3 flex flex-col gap-1 @md:order-2">
+        <span className={ETIQUETA}>Precio</span>
+        <span className="flex items-center gap-1">
+          <span className="text-[13px] text-muted">$</span>
+          <input
+            inputMode="decimal"
+            value={borrador.precio}
+            disabled={deshabilitada}
+            onChange={(e) => onCambio({ precio: e.target.value })}
+            aria-label={`Precio de ${etiqueta}`}
+            className={cn(INPUT_CHICO, borde(precioEditado))}
+          />
+        </span>
       </label>
 
-      <label className="order-4 flex items-center gap-1 @md:order-3">
+      <label className="order-4 flex flex-col gap-1 @md:order-3">
+        <span className={ETIQUETA}>Stock (unidades)</span>
         <input
           inputMode="numeric"
           value={borrador.stock}
@@ -349,10 +345,10 @@ function FilaVariante({
           aria-label={`Stock de ${etiqueta}`}
           className={cn(INPUT_CHICO, borde(stockEditado))}
         />
-        <span className="text-[12px] text-muted @md:hidden">u.</span>
       </label>
 
-      <div className="order-2 flex items-center justify-end gap-2 @md:order-4">
+      {/* La cantidad ya está en el campo: el badge sólo aparece cuando dice algo más (sin stock, stock bajo, o el "Hay" que se toca). */}
+      <div className="order-2 flex items-center justify-end gap-2 self-center @md:order-4 @md:min-h-[34px] @md:self-end">
         {sinControl ? (
           <button
             type="button"
@@ -365,7 +361,7 @@ function FilaVariante({
             <Badge tone={estado.tono}>{estado.texto}</Badge>
           </button>
         ) : (
-          <Badge tone={estado.tono}>{estado.texto}</Badge>
+          estado.tono !== "success" && <Badge tone={estado.tono}>{estado.texto}</Badge>
         )}
       </div>
 

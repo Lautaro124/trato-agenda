@@ -124,6 +124,7 @@ export function EditorProducto({
   onGuardado: (producto: Producto) => void;
 }) {
   const titulo = useId();
+  const idCampos = useId();
   const primerCampo = useRef<HTMLInputElement>(null);
   const [codigo, setCodigo] = useState(producto?.codigo ?? "");
   const [nombre, setNombre] = useState(producto?.nombre ?? "");
@@ -302,64 +303,92 @@ export function EditorProducto({
                 {variantes.length > 1 ? "Variantes (talle, color, sabor…)" : "Precio y stock"}
               </legend>
               {variantes.map((variante, indice) => {
-                const n = variantes.length > 1 ? ` de la variante ${indice + 1}` : "";
+                const id = (campo: string) => `${idCampos}-${variante.clave}-${campo}`;
                 return (
-                  <div key={variante.clave} className="grid gap-2 rounded-md bg-sunken p-3 sm:grid-cols-2">
+                  <div key={variante.clave} className="grid gap-3 rounded-md bg-sunken p-3 sm:grid-cols-2">
                     {variantes.length > 1 && (
-                      <input
-                        value={variante.nombre}
-                        placeholder='Variante, ej. "Talle M"'
-                        maxLength={60}
-                        aria-label={`Nombre${n}`}
-                        onChange={(e) => cambiarVariante(variante.clave, { nombre: e.target.value })}
-                        className={`${INPUT} sm:col-span-2`}
-                      />
-                    )}
-                    <label className="flex items-center gap-2">
-                      <span className="text-[13px] text-muted">$</span>
-                      <input
-                        inputMode="decimal"
-                        value={variante.precio}
-                        placeholder="Precio"
-                        aria-label={`Precio${n}`}
-                        onChange={(e) => cambiarVariante(variante.clave, { precio: e.target.value })}
-                        className={INPUT}
-                      />
-                    </label>
-                    <input
-                      value={variante.sku}
-                      placeholder="SKU (opcional)"
-                      maxLength={60}
-                      aria-label={`SKU${n}`}
-                      onChange={(e) => cambiarVariante(variante.clave, { sku: e.target.value })}
-                      className={INPUT}
-                    />
-                    <input
-                      inputMode="numeric"
-                      value={variante.stock}
-                      placeholder="Stock (vacío = sin control)"
-                      aria-label={`Stock${n}`}
-                      onChange={(e) => cambiarVariante(variante.clave, { stock: e.target.value })}
-                      className={INPUT}
-                    />
-                    {variante.stock.trim() === "" ? (
-                      <label className="flex items-center gap-2 text-[13.5px] text-ink">
+                      <div className="sm:col-span-2">
+                        <label htmlFor={id("nombre")} className={LABEL}>
+                          Nombre de la variante {indice + 1}
+                        </label>
                         <input
-                          type="checkbox"
-                          checked={variante.disponible}
-                          onChange={(e) => cambiarVariante(variante.clave, { disponible: e.target.checked })}
+                          id={id("nombre")}
+                          value={variante.nombre}
+                          placeholder='ej. "Talle M"'
+                          maxLength={60}
+                          onChange={(e) => cambiarVariante(variante.clave, { nombre: e.target.value })}
+                          className={INPUT}
                         />
-                        Hay stock
+                      </div>
+                    )}
+                    <div>
+                      <label htmlFor={id("precio")} className={LABEL}>
+                        Precio
                       </label>
-                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] text-muted">$</span>
+                        <input
+                          id={id("precio")}
+                          inputMode="decimal"
+                          value={variante.precio}
+                          placeholder="0"
+                          onChange={(e) => cambiarVariante(variante.clave, { precio: e.target.value })}
+                          className={INPUT}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor={id("sku")} className={LABEL}>
+                        Código interno (SKU) <span className="font-normal text-muted">(opcional)</span>
+                      </label>
                       <input
-                        inputMode="numeric"
-                        value={variante.stockMinimo}
-                        placeholder="Avisarme con menos de…"
-                        aria-label={`Stock mínimo${n}`}
-                        onChange={(e) => cambiarVariante(variante.clave, { stockMinimo: e.target.value })}
+                        id={id("sku")}
+                        value={variante.sku}
+                        maxLength={60}
+                        onChange={(e) => cambiarVariante(variante.clave, { sku: e.target.value })}
                         className={INPUT}
                       />
+                    </div>
+                    <div>
+                      <label htmlFor={id("stock")} className={LABEL}>
+                        Stock (unidades)
+                      </label>
+                      <input
+                        id={id("stock")}
+                        inputMode="numeric"
+                        value={variante.stock}
+                        placeholder="Vacío = sin control de stock"
+                        onChange={(e) => cambiarVariante(variante.clave, { stock: e.target.value })}
+                        className={INPUT}
+                      />
+                    </div>
+                    {variante.stock.trim() === "" ? (
+                      // Sin cantidad cargada, la disponibilidad se marca a mano.
+                      <div className="flex flex-col justify-end">
+                        <span className={LABEL}>¿Está disponible?</span>
+                        <label className="flex min-h-[44px] items-center gap-2 text-[14px] text-ink">
+                          <input
+                            type="checkbox"
+                            checked={variante.disponible}
+                            onChange={(e) => cambiarVariante(variante.clave, { disponible: e.target.checked })}
+                          />
+                          Hay stock
+                        </label>
+                      </div>
+                    ) : (
+                      <div>
+                        <label htmlFor={id("minimo")} className={LABEL}>
+                          Avisarme cuando queden menos de <span className="font-normal text-muted">(unidades)</span>
+                        </label>
+                        <input
+                          id={id("minimo")}
+                          inputMode="numeric"
+                          value={variante.stockMinimo}
+                          placeholder="Opcional"
+                          onChange={(e) => cambiarVariante(variante.clave, { stockMinimo: e.target.value })}
+                          className={INPUT}
+                        />
+                      </div>
                     )}
                     {variantes.length > 1 && (
                       <button

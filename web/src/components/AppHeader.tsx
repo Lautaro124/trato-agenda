@@ -57,6 +57,26 @@ function pestanasDe(user: Usuario): Pestana[] {
   ];
 }
 
+/** La flecha avisa que el bloque del usuario abre un menú; gira mientras está abierto. */
+function FlechaMenu({ abierto, size }: { abierto: boolean; size: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={`text-muted transition-transform ${abierto ? "rotate-180" : ""}`}
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
 /** Nav superior compartida por /inicio y /vincular (variantes 1e/3a del canvas). */
 export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
   const { signOut } = useSession();
@@ -142,20 +162,29 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
             aria-expanded={menuAbierto}
             className="flex cursor-pointer items-center gap-2"
           >
-            {user.avatarUrl ? (
-              <Image
-                src={user.avatarUrl}
-                alt=""
-                width={32}
-                height={32}
-                className="size-8 rounded-full object-cover"
-              />
-            ) : (
-              <span className="grid size-8 place-items-center rounded-full bg-primary-subtle text-[13px] font-bold text-primary-hover">
-                {iniciales(user)}
+            <span className="relative flex-none">
+              {user.avatarUrl ? (
+                <Image
+                  src={user.avatarUrl}
+                  alt=""
+                  width={32}
+                  height={32}
+                  className="size-8 rounded-full object-cover"
+                />
+              ) : (
+                <span className="grid size-8 place-items-center rounded-full bg-primary-subtle text-[13px] font-bold text-primary-hover">
+                  {iniciales(user)}
+                </span>
+              )}
+              {/* En el celular no entra al lado: va sobre la esquina del avatar. */}
+              <span className="absolute -bottom-1 -right-1 grid size-4 place-items-center rounded-full border border-line bg-card sm:hidden">
+                <FlechaMenu abierto={menuAbierto} size={10} />
               </span>
-            )}
+            </span>
             <span className="hidden text-sm text-ink-secondary sm:inline-block">{identificador(user)}</span>
+            <span className="hidden sm:inline-flex">
+              <FlechaMenu abierto={menuAbierto} size={14} />
+            </span>
           </button>
 
           {menuAbierto && (
