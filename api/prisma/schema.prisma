@@ -45,6 +45,7 @@ model User {
   codigosAcceso   CodigoAcceso[]
   productos       Producto[]
   descuentos      Descuento[]
+  imagenesProducto ImagenProducto[]
   ventas          Venta[]
   cuentaMercadoPago CuentaMercadoPago?
   notificaciones  Notificacion[]
@@ -316,6 +317,8 @@ model Producto {
   variantes Variante[]
   /// El descuento propio del producto (del formulario), si tiene.
   descuento Descuento?
+  /// La foto que el asistente le manda al cliente cuando la pide (una sola).
+  imagen    ImagenProducto?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -387,6 +390,30 @@ model Descuento {
   updatedAt DateTime @updatedAt
 
   @@index([userId, activo])
+}
+
+/// La foto de un producto, ya recomprimida por la API (comercio/imagenes.rules.ts):
+/// JPEG de hasta 800 px y 150 KB, sin metadatos. Tabla aparte para que los
+/// listados y la búsqueda nunca arrastren los bytes. Una por producto y hasta
+/// `MAX_IMAGENES_POR_CUENTA` por cuenta, para que la base no crezca sin techo.
+model ImagenProducto {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  productoId String   @unique
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  datos Bytes
+  /// Tamaño de `datos`, para el uso de la cuenta sin leer los bytes.
+  bytes Int
+  ancho Int
+  alto  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 /// Un pedido del asistente de ventas, desde que se reserva el stock hasta que

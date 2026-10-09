@@ -6,10 +6,13 @@ import { ACCIONES_VENTAS_IDS } from '../../agents/agent-catalog.js';
 import { construirConfiguracionVentas } from '../../agents/agent-template-ventas.js';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService, ProductoEncontrado } from '../../comercio/busqueda.service.js';
+import type { ImagenesService } from '../../comercio/imagenes.service.js';
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
 import { LIMITE_RECURSION_VENTAS, construirGrafoVentas } from './grafo-ventas.factory.js';
+import { MAX_IMAGENES_POR_MENSAJE } from '../../comercio/imagenes.rules.js';
+import { imagenesDeLaVuelta } from './imagenes-de-la-vuelta.js';
 import { MENSAJE_CATALOGO_CAIDO } from './nodes/catalogo.node.js';
 import { YA_TE_PRESENTASTE } from './reglas-ventas.js';
 import { PedidoRechazadoError } from '../../comercio/ventas.service.js';
@@ -32,6 +35,7 @@ const MATE: ProductoEncontrado = {
   nombre: 'Mate de calabaza',
   categoria: 'Mates',
   descripcion: 'Curado, con virola de alpaca',
+  tieneImagen: false,
   variantes: [
     {
       varianteId: 'v-1',
@@ -145,6 +149,7 @@ function correr(
     ventas?: ReturnType<typeof crearVentas>;
     notificaciones?: ReturnType<typeof crearNotificaciones>;
     historico?: ReturnType<typeof crearHistorico>;
+    imagenes?: Pick<ImagenesService, 'estadoDeFoto'>;
   },
   esPropietario = false,
 ) {
@@ -154,6 +159,7 @@ function correr(
     ventas: deps.ventas ?? crearVentas(),
     notificaciones: deps.notificaciones ?? crearNotificaciones(),
     historico: deps.historico ?? crearHistorico(),
+    imagenes: deps.imagenes ?? { estadoDeFoto: vi.fn() },
     openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
     checkpointer: new MemorySaver(),
   });
@@ -214,6 +220,7 @@ describe('grafo de ventas', () => {
       ventas: crearVentas(),
       notificaciones: crearNotificaciones(),
       historico: crearHistorico(),
+      imagenes: { estadoDeFoto: vi.fn() },
       openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
       checkpointer: new MemorySaver(),
     });
@@ -268,7 +275,7 @@ describe('grafo de ventas', () => {
 
     expect(buscar).toHaveBeenCalledWith('user-1', 'mates', { categoria: undefined });
     const [tool] = toolMessages(resultado.messages);
-    expect(tool.content).toContain('"Mate de calabaza" (código MATE-01');
+    expect(tool.content).toContain('"Mate de calabaza" [producto p-1] (código MATE-01');
     expect(tool.content).toContain('[variante v-1]: $ 8.000, quedan 2 unidades');
     // Al cliente nunca le llega el stock exacto del dueño.
     expect(tool.content).not.toContain('reservadas');
@@ -407,6 +414,126 @@ describe('grafo de ventas', () => {
 
     expect(toolMessages(resultado.messages)[0].content).toBe(MENSAJE_CATALOGO_CAIDO);
     expect(resultado.messages.at(-1)?.content).toBe('Perdón, probá en un rato.');
+  });
+
+  describe('enviar_imagen_producto', () => {
+    const MATE_CON_FOTO = { ...MATE, tieneImagen: true };
+    const conFoto = (estado: { nombre: string; tieneFoto: boolean } | null = { nombre: MATE.nombre, tieneFoto: true }) => ({
+      estadoDeFoto: vi.fn().mockResolvedValue(estado),
+    });
+
+    it('la búsqueda le dice al modelo el id de producto y si tiene foto', async () => {
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo el mate.')]);
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm,
+        busqueda: { buscar: vi.fn().mockResolvedValue([MATE_CON_FOTO]) },
+      });
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain(
+        '"Mate de calabaza" [producto p-1] (código MATE-01, categoría "Mates", tiene foto)',
+      );
+    });
+
+    it('aprueba la foto y la deja como artifact para la fachada, sin bytes', async () => {
+      const imagenes = conFoto();
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('enviar_imagen_producto', { productoId: ' p-1 ' }, 'call-foto'),
+        new AIMessage('Ahí va. ¿Es lo que buscabas?'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
+
+      expect(imagenes.estadoDeFoto).toHaveBeenCalledWith('user-1', 'p-1');
+      const tool = resultadoDe(resultado.messages, 'enviar_imagen_producto');
+      expect(tool.content).toContain('le llega al cliente junto con tu respuesta');
+      expect(tool.artifact).toEqual({ productoId: 'p-1', nombre: 'Mate de calabaza' });
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([{ productoId: 'p-1', nombre: 'Mate de calabaza' }]);
+    });
+
+    it('sin foto, o de un producto ajeno, no manda nada y le dice al modelo qué contestar', async () => {
+      for (const [estado, texto] of [
+        [{ nombre: MATE.nombre, tieneFoto: false }, 'no tiene foto'],
+        [null, 'no está en el catálogo'],
+      ] as const) {
+        const llm = crearModelo([llamada('enviar_imagen_producto', { productoId: 'p-1' }), new AIMessage('.')]);
+        const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes: conFoto(estado) });
+        const tool = resultadoDe(resultado.messages, 'enviar_imagen_producto');
+        expect(tool.content).toContain(texto);
+        expect(tool.artifact).toBeUndefined();
+        expect(imagenesDeLaVuelta(resultado.messages)).toEqual([]);
+      }
+    });
+
+    it(`no manda más de ${MAX_IMAGENES_POR_MENSAJE} fotos por respuesta ni repite una`, async () => {
+      const imagenes = { estadoDeFoto: vi.fn(async (_userId: string, id: string) => ({ nombre: `Producto ${id}`, tieneFoto: true })) };
+      const llm = crearModelo([
+        new AIMessage({
+          content: '',
+          tool_calls: [
+            { id: 'f1', name: 'enviar_imagen_producto', args: { productoId: 'p-1' } },
+            { id: 'f2', name: 'enviar_imagen_producto', args: { productoId: 'p-1' } },
+            { id: 'f3', name: 'enviar_imagen_producto', args: { productoId: 'p-2' } },
+          ],
+        }),
+        // En otra ida y vuelta de la misma respuesta: ya van dos.
+        llamada('enviar_imagen_producto', { productoId: 'p-3' }, 'f4'),
+        new AIMessage('Ahí van.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
+
+      expect(imagenes.estadoDeFoto).toHaveBeenCalledTimes(2);
+      expect(imagenesDeLaVuelta(resultado.messages).map((imagen) => imagen.productoId)).toEqual(['p-1', 'p-2']);
+      const rechazos = toolMessages(resultado.messages).filter((mensaje) => !mensaje.artifact);
+      expect(rechazos.map((mensaje) => mensaje.content)).toEqual([
+        expect.stringContaining('ya sale con esta respuesta'),
+        expect.stringContaining('que es el máximo'),
+      ]);
+    });
+
+    it('el tope es por mensaje del cliente: en el siguiente puede mandar otra', async () => {
+      const imagenes = conFoto();
+      const llm = crearModelo([
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f1'),
+        new AIMessage('Ahí va.'),
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f2'),
+        new AIMessage('Ahí va de nuevo.'),
+      ]);
+      const grafo = construirGrafoVentas({
+        prisma: crearPrisma(),
+        llm,
+        busqueda: buscaMate(),
+        sugerencias: { verCatalogo: vi.fn() },
+        ventas: crearVentas(),
+        notificaciones: crearNotificaciones(),
+        historico: crearHistorico(),
+        imagenes,
+        openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
+        checkpointer: new MemorySaver(),
+      });
+      const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION_VENTAS };
+      const entrada = (texto: string) => ({
+        messages: [new HumanMessage(texto)],
+        ownerUserId: 'user-1',
+        remoteJid: CONVERSATION.remoteJid,
+        esPropietario: false,
+      });
+
+      await grafo.invoke(entrada('mandame la foto'), config);
+      const segunda = await grafo.invoke(entrada('otra vez'), config);
+
+      // Lo del mensaje anterior no cuenta: la foto vuelve a salir.
+      expect(imagenesDeLaVuelta(segunda.messages)).toEqual([{ productoId: 'p-1', nombre: 'Mate de calabaza' }]);
+    });
+
+    it('un agente creado antes de las fotos tiene la herramienta igual, sin regenerarlo', async () => {
+      const viejo = { ...AGENT, allowedActions: ['buscar_productos', 'crear_pedido'] };
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ agent: viejo }), llm, busqueda: { buscar: vi.fn() } });
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('enviar_imagen_producto');
+    });
   });
 
   describe('pedidos', () => {

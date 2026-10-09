@@ -1,6 +1,7 @@
 import type { ConfigService } from '@nestjs/config';
 import { DisconnectReason } from '@whiskeysockets/baileys';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ImagenesService } from '../comercio/imagenes.service.js';
 import type { Env } from '../config/env.js';
 import type { ConversationService } from '../conversation/conversation.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -35,18 +36,19 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     get: (clave: string) => (clave === 'NODE_ENV' ? 'test' : 'clave-de-prueba'),
   } as unknown as ConfigService<Env, true>;
 
-  const conversationService = { handleIncoming: vi.fn() } as unknown as ConversationService;
+  const conversationService = { responder: vi.fn() } as unknown as ConversationService;
   const subscriptionService = {
     asistenteActivo: vi.fn().mockResolvedValue(true),
   } as unknown as SubscriptionService;
-  const service = new WhatsappService(prisma, config, conversationService, subscriptionService);
+  const imagenes = { paraEnviar: vi.fn() } as unknown as ImagenesService;
+  const service = new WhatsappService(prisma, config, conversationService, subscriptionService, imagenes);
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
 
   const eventos: LinkEvent[] = [];
   service.linkEvents$('user-1').subscribe((mensaje) => eventos.push(mensaje.data as LinkEvent));
 
-  return { service, prisma, connectSpy, eventos, conversationService, subscriptionService };
+  return { service, prisma, connectSpy, eventos, conversationService, subscriptionService, imagenes };
 }
 
 /** Atajo: dispara handleConnectionUpdate como si Baileys hubiera cerrado la conexión. */
@@ -126,13 +128,50 @@ describe('WhatsappService — el asistente calla si venció la suscripción', ()
 
   it('con la prueba vigente contesta como siempre', async () => {
     const { service, conversationService } = crearServicio();
-    vi.mocked(conversationService.handleIncoming).mockResolvedValue('¡Hola!');
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
     const sock = { sendMessage: vi.fn() };
 
     await recibirMensaje(service, sock);
 
-    expect(conversationService.handleIncoming).toHaveBeenCalledOnce();
+    expect(conversationService.responder).toHaveBeenCalledOnce();
     expect(sock.sendMessage).toHaveBeenCalledWith('5491111@s.whatsapp.net', { text: '¡Hola!' });
+  });
+
+  it('manda las fotos que eligió el asistente antes del texto', async () => {
+    const { service, conversationService, imagenes } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({
+      texto: '¿Es lo que buscabas?',
+      imagenes: [{ productoId: 'p-1', nombre: 'Mate' }],
+    });
+    const datos = Buffer.from([0xff, 0xd8, 0xff]);
+    vi.mocked(imagenes.paraEnviar).mockResolvedValue({ datos, nombre: 'Mate de calabaza' });
+    const sock = { sendMessage: vi.fn() };
+
+    await recibirMensaje(service, sock);
+
+    expect(imagenes.paraEnviar).toHaveBeenCalledWith('user-1', 'p-1');
+    expect(sock.sendMessage.mock.calls).toEqual([
+      ['5491111@s.whatsapp.net', { image: datos, mimetype: 'image/jpeg', caption: 'Mate de calabaza' }],
+      ['5491111@s.whatsapp.net', { text: '¿Es lo que buscabas?' }],
+    ]);
+  });
+
+  it('si una foto falla o ya no existe, el texto sale igual', async () => {
+    const { service, conversationService, imagenes } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({
+      texto: 'Ahí va.',
+      imagenes: [
+        { productoId: 'p-borrado', nombre: 'Viejo' },
+        { productoId: 'p-1', nombre: 'Mate' },
+      ],
+    });
+    vi.mocked(imagenes.paraEnviar).mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('se cayó la base'));
+    const sock = { sendMessage: vi.fn() };
+
+    await recibirMensaje(service, sock);
+
+    expect(sock.sendMessage).toHaveBeenCalledOnce();
+    expect(sock.sendMessage).toHaveBeenCalledWith('5491111@s.whatsapp.net', { text: 'Ahí va.' });
   });
 
   it('vencida: no invoca al grafo ni manda nada por WhatsApp', async () => {
@@ -142,7 +181,7 @@ describe('WhatsappService — el asistente calla si venció la suscripción', ()
 
     await recibirMensaje(service, sock);
 
-    expect(conversationService.handleIncoming).not.toHaveBeenCalled();
+    expect(conversationService.responder).not.toHaveBeenCalled();
     expect(sock.sendMessage).not.toHaveBeenCalled();
   });
 });

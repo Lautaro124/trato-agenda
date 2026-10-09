@@ -9,8 +9,10 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { Observable, ReplaySubject, map } from 'rxjs';
+import { ImagenesService } from '../comercio/imagenes.service.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
+import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
@@ -59,6 +61,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService<Env, true>,
     private readonly conversationService: ConversationService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly imagenes: ImagenesService,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
@@ -304,8 +307,26 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
-      const respuesta = await this.conversationService.handleIncoming(userId, remoteJid, texto);
-      await sock.sendMessage(remoteJid, { text: respuesta });
+      const respuesta = await this.conversationService.responder(userId, remoteJid, texto);
+      await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
+      await sock.sendMessage(remoteJid, { text: respuesta.texto });
+    }
+  }
+
+  /**
+   * Las fotos de productos que eligió el asistente de ventas, antes del texto
+   * que las acompaña. Una que falla no corta nada: el texto sale igual.
+   */
+  private async enviarFotos(userId: string, sock: WASocket, remoteJid: string, imagenes: ImagenAEnviar[]): Promise<void> {
+    for (const { productoId } of imagenes) {
+      try {
+        const foto = await this.imagenes.paraEnviar(userId, productoId);
+        if (!foto) continue;
+        await sock.sendMessage(remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: foto.nombre });
+      } catch (error) {
+        // Sin el JID ni el nombre del producto: sólo ids, como el resto de los logs de Baileys.
+        this.logger.error(`No se pudo mandar la foto del producto ${productoId} (cuenta ${userId}): ${(error as Error).message}`);
+      }
     }
   }
 

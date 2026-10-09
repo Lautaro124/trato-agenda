@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -10,12 +11,19 @@ import {
   Post,
   Put,
   Query,
+  StreamableFile,
+  UnprocessableEntityException,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import type { User } from '../generated/prisma/client.js';
 import { BusquedaService, type ProductoEncontrado } from './busqueda.service.js';
+import { MAX_BYTES_SUBIDA } from './imagenes.rules.js';
+import { ImagenesService, type ImagenGuardada, type UsoDeImagenes } from './imagenes.service.js';
 import { ProductosService, type ListadoProductos } from './productos.service.js';
 import {
   ActualizarVarianteDto,
@@ -33,6 +41,7 @@ export class ProductosController {
   constructor(
     private readonly productos: ProductosService,
     private readonly busqueda: BusquedaService,
+    private readonly imagenes: ImagenesService,
   ) {}
 
   @Get()
@@ -54,6 +63,12 @@ export class ProductosController {
     return this.busqueda.buscar(user.id, query.q ?? '', { categoria: query.categoria });
   }
 
+  /** Cuántos productos tienen foto y cuántos pueden tener. */
+  @Get('imagenes/uso')
+  usoDeImagenes(@CurrentUser() user: User): Promise<UsoDeImagenes> {
+    return this.imagenes.uso(user.id);
+  }
+
   @Post('importar')
   @HttpCode(HttpStatus.OK)
   importar(@CurrentUser() user: User, @Body() dto: ImportarProductosDto): Promise<ResumenImportacion> {
@@ -67,6 +82,39 @@ export class ProductosController {
     @Body() dto: ActualizarVarianteDto,
   ): Promise<ProductoPublico> {
     return this.productos.actualizarVariante(user.id, id, dto);
+  }
+
+  /**
+   * Sube (o reemplaza) la foto del producto. Multer la lee en memoria con su
+   * propio tope de peso; el formato se valida por contenido y se recomprime
+   * en ImagenesService, nunca se guarda el archivo tal como llegó.
+   */
+  @Put(':id/imagen')
+  @UseInterceptors(
+    FileInterceptor('imagen', { limits: { fileSize: MAX_BYTES_SUBIDA, files: 1, fields: 0, parts: 1 } }),
+  )
+  subirImagen(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @UploadedFile() archivo: { buffer: Buffer } | undefined,
+  ): Promise<ImagenGuardada> {
+    if (!archivo) throw new UnprocessableEntityException('Falta la foto.');
+    return this.imagenes.guardar(user.id, id, archivo.buffer);
+  }
+
+  /** La web le agrega `?v=<imagenActualizada>`, así que cachearla un rato no muestra una vieja. */
+  @Get(':id/imagen')
+  @Header('Cache-Control', 'private, max-age=300')
+  async imagen(@CurrentUser() user: User, @Param('id') id: string): Promise<StreamableFile> {
+    const datos = await this.imagenes.obtener(user.id, id);
+    // Siempre es un JPEG que generó la API: nunca se sirve lo que subió el dueño.
+    return new StreamableFile(datos, { type: 'image/jpeg', length: datos.length });
+  }
+
+  @Delete(':id/imagen')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  quitarImagen(@CurrentUser() user: User, @Param('id') id: string): Promise<void> {
+    return this.imagenes.borrar(user.id, id);
   }
 
   @Get(':id')

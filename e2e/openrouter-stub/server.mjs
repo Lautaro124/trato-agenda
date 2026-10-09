@@ -102,6 +102,8 @@ function llamadaATool(model, name, args) {
 //     que dice el bloque del local del system prompt (bloqueLocal): la
 //     dirección y si se retira, que no hay local, o derivar_consulta si el
 //     local nunca se cargó;
+//   - "foto" → enviar_imagen_producto con el producto de la última búsqueda
+//     ("[producto <id>]"), o "no tengo foto" si no buscó nada;
 //   - "qué tenés" / "qué productos" / "qué ofrecés" → ver_catalogo; "mostrame
 //     <categoría>" → ver_catalogo con esa categoría;
 //   - sólo con las herramientas del dueño (banco de pruebas del Home):
@@ -117,6 +119,15 @@ function diaDeBuenosAires(dias = 0) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(
     new Date(Date.now() + dias * 24 * 60 * 60 * 1000),
   );
+}
+
+function productoDeLaUltimaBusqueda(mensajes) {
+  for (const mensaje of [...mensajes].reverse()) {
+    if (mensaje.role !== 'tool') continue;
+    const id = textoDe(mensaje).match(/\[producto ([\w-]+)\]/)?.[1];
+    if (id) return id;
+  }
+  return null;
 }
 
 function varianteDeLaUltimaBusqueda(mensajes) {
@@ -151,9 +162,15 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const resultado = textoDe(resultadoTool);
     // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
     if (resultado.startsWith('Resultados de') || resultado.startsWith('Ningún producto se llama como')) {
-      const primero = resultado.match(/1\. "(.+?)" \(código/)?.[1];
+      const primero = resultado.match(/1\. "(.+?)" (?:\[producto [^\]]+\] )?\(código/)?.[1];
       const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
       return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.` }));
+    }
+    if (resultado.startsWith('Listo: la foto')) {
+      return responder(res, 200, completion(body.model, { content: 'Ahí te mandé la foto. ¿Es lo que buscabas?' }));
+    }
+    if (resultado.includes('no tiene foto')) {
+      return responder(res, 200, completion(body.model, { content: 'De ese no tengo foto, pero te cuento cómo es.' }));
     }
     if (resultado.startsWith('No hay productos')) {
       return responder(res, 200, completion(body.model, { content: 'No tengo eso, ¿buscás otra cosa?' }));
@@ -176,6 +193,11 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   }
   if (ultimoUsuario.includes('cancel')) {
     return responder(res, 200, llamadaATool(body.model, 'cancelar_pedido', {}));
+  }
+  if (ultimoUsuario.includes('foto')) {
+    const productoId = productoDeLaUltimaBusqueda(mensajes);
+    if (!productoId) return responder(res, 200, completion(body.model, { content: '¿De qué producto querés la foto?' }));
+    return responder(res, 200, llamadaATool(body.model, 'enviar_imagen_producto', { productoId }));
   }
   if (/\b(donde queda|direccion|retir|el local)/.test(ultimoUsuario)) {
     return responder(res, 200, respuestaDelLocal(body, sistema, textoDe(mensajes[indiceUsuario])));

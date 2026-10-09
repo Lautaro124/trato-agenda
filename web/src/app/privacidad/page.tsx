@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 29 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 9 de octubre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -123,7 +123,9 @@ export default function PrivacidadPage() {
           </p>
           <p>
             <Fuerte>Si usás el asistente de ventas.</Fuerte> Tu catálogo: nombre, descripción,
-            categoría, código, variantes, precio y stock de cada producto. De cada pedido: el nombre
+            categoría, código, variantes, precio y stock de cada producto, y la foto de los productos
+            a los que les subas una (la guardamos achicada y sin los datos que trae el archivo, como
+            el lugar donde se sacó; el asistente sólo se la manda a un cliente que la pide). De cada pedido: el nombre
             que da el cliente, su número de WhatsApp, los productos, el total, el estado y las fechas,
             y, si pagó con Mercado Pago, el número de operación. Los avisos que te mostramos en el
             panel (ventas, pedidos, stock, consultas) repiten algunos de esos datos.
@@ -328,7 +330,7 @@ export default function PrivacidadPage() {
             </Punto>
             <Punto>
               <Fuerte>Tu catálogo:</Fuerte> mientras tu cuenta exista. Un producto que borrás deja de
-              ofrecerse en el momento.
+              ofrecerse en el momento, y su foto se borra.
             </Punto>
             <Punto>
               <Fuerte>Un registro con WhatsApp que no se terminó</Fuerte> (se pidió el código QR pero

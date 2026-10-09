@@ -377,8 +377,9 @@ export function formatearResultados(
   }
   const formatear = (producto: ProductoEncontrado, indice: number) => {
     const cabecera =
-      `${indice + 1}. ${JSON.stringify(producto.nombre)} (código ${producto.codigo}` +
+      `${indice + 1}. ${JSON.stringify(producto.nombre)} [producto ${producto.productoId}] (código ${producto.codigo}` +
       (producto.categoria ? `, categoría ${JSON.stringify(producto.categoria)}` : '') +
+      (producto.tieneImagen ? ', tiene foto' : '') +
       ')' +
       (producto.descripcion ? `: ${JSON.stringify(producto.descripcion.slice(0, 200))}` : '');
     const variantes = producto.variantes.map(
