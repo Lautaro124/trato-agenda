@@ -31,6 +31,8 @@ export type Producto = {
   variantes: Variante[];
   /** El descuento propio del producto (vigente o no). */
   descuento: Descuento | null;
+  /** Cuándo se subió la foto; null = sin foto. */
+  imagenActualizada: string | null;
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };

@@ -185,6 +185,8 @@ export type ProductoPublico = Pick<
   descuento: DescuentoPublico | null;
   /** true cuando el embedding está al día: el asistente ya lo encuentra por significado. */
   indexado: boolean;
+  /** Cuándo se subió la foto (null = sin foto). La web la usa también para no mostrar una cacheada vieja. */
+  imagenActualizada: Date | null;
 };
 
 /**
@@ -193,7 +195,11 @@ export type ProductoPublico = Pick<
  * precio final de cada variante.
  */
 export function aProductoPublico(
-  producto: Producto & { variantes: Variante[]; descuento?: Descuento | null },
+  producto: Producto & {
+    variantes: Variante[];
+    descuento?: Descuento | null;
+    imagen?: { updatedAt: Date } | null;
+  },
   promociones: DescuentoParaAplicar[] = [],
   ahora: Date = new Date(),
 ): ProductoPublico {
@@ -211,6 +217,7 @@ export function aProductoPublico(
     updatedAt: producto.updatedAt,
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),
     descuento: producto.descuento ? aDescuentoPublico(producto.descuento) : null,
+    imagenActualizada: producto.imagen?.updatedAt ?? null,
     variantes: producto.variantes
       .filter((variante) => variante.activo)
       .map((variante) => {

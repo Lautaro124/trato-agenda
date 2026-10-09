@@ -9,6 +9,7 @@ import { DecisionesClient } from './decisiones.client.js';
 import { DescuentosController } from './descuentos.controller.js';
 import { DescuentosService } from './descuentos.service.js';
 import { HistoricoVentasService } from './historico.service.js';
+import { ImagenesService } from './imagenes.service.js';
 import { EmbeddingsClient } from './embeddings.client.js';
 import { IndexadorService } from './indexador.service.js';
 import { ProductosController } from './productos.controller.js';
@@ -21,7 +22,7 @@ import { VentasService } from './ventas.service.js';
 /**
  * Módulo comercio: el catálogo del asistente de ventas y su búsqueda (RAG),
  * los pedidos con su reserva de stock y los cobros con Mercado Pago a nombre
- * de cada comercio. Exporta búsqueda y ventas para el grafo de ventas
+ * de cada comercio, y las fotos de los productos. Exporta búsqueda y ventas para el grafo de ventas
  * (api/src/conversation).
  */
 @Module({
@@ -40,7 +41,16 @@ import { VentasService } from './ventas.service.js';
     HistoricoVentasService,
     DecisionesClient,
     SugerenciasService,
+    ImagenesService,
   ],
-  exports: [BusquedaService, SugerenciasService, ProductosService, VentasService, CuentaMercadoPagoService, HistoricoVentasService],
+  exports: [
+    BusquedaService,
+    SugerenciasService,
+    ProductosService,
+    VentasService,
+    CuentaMercadoPagoService,
+    HistoricoVentasService,
+    ImagenesService,
+  ],
 })
 export class ComercioModule {}

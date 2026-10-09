@@ -1,4 +1,4 @@
-import { AIMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
 import { GraphRecursionError } from '@langchain/langgraph';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -157,5 +157,44 @@ describe('ConversationService.handleIncoming', () => {
 
     expect(await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola')).toBe('soy la agenda');
     expect(ventas.invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('ConversationService.responder', () => {
+  const foto = (productoId: string, nombre: string, id: string) =>
+    new ToolMessage({ content: 'Listo', tool_call_id: id, name: 'enviar_imagen_producto', artifact: { productoId, nombre } });
+
+  it('junta las fotos de esta vuelta del asistente de ventas, no las de mensajes anteriores', async () => {
+    const prisma = crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' });
+    const ventas = crearGrafo('irrelevante');
+    ventas.invoke.mockResolvedValue({
+      messages: [
+        new HumanMessage('¿tenés mates?'),
+        foto('p-viejo', 'Mate viejo', 't0'),
+        new AIMessage('Ahí va.'),
+        new HumanMessage('mostrame el termo'),
+        foto('p-2', 'Termo', 't1'),
+        new AIMessage('¿Es lo que buscabas?'),
+      ],
+    });
+    const service = new ConversationService(prisma, crearGrafo('agenda'), ventas as never, CONFIG);
+
+    expect(await service.responder('user-1', '54911@s.whatsapp.net', 'mostrame el termo')).toEqual({
+      texto: '¿Es lo que buscabas?',
+      imagenes: [{ productoId: 'p-2', nombre: 'Termo' }],
+    });
+  });
+
+  it('la agenda y los errores contestan sólo texto', async () => {
+    const service = new ConversationService(crearPrisma(), crearGrafo('Hola.'), crearGrafo('ventas') as never, CONFIG);
+    expect(await service.responder('user-1', '54911@s.whatsapp.net', 'hola')).toEqual({ texto: 'Hola.', imagenes: [] });
+
+    const caido = new ConversationService(
+      crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' }),
+      crearGrafo('agenda'),
+      crearGrafo(new Error('boom')) as never,
+      CONFIG,
+    );
+    expect((await caido.responder('user-1', '54911@s.whatsapp.net', 'hola')).imagenes).toEqual([]);
   });
 });

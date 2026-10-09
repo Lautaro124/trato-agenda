@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { FotoProducto } from "@/components/productos/FotoProducto";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -118,10 +119,13 @@ export function EditorProducto({
   producto,
   onCerrar,
   onGuardado,
+  onFotoCambiada,
 }: {
   producto: Producto | null;
   onCerrar: () => void;
   onGuardado: (producto: Producto) => void;
+  /** La foto se guarda sola (no espera al "Guardar"): avisa para refrescar el listado. */
+  onFotoCambiada?: () => void;
 }) {
   const titulo = useId();
   const idCampos = useId();
@@ -290,6 +294,12 @@ export function EditorProducto({
                   className={INPUT}
                 />
               </div>
+
+              <FotoProducto
+                productoId={producto?.id ?? null}
+                imagenActualizada={producto?.imagenActualizada ?? null}
+                onCambio={() => onFotoCambiada?.()}
+              />
 
               <SeccionDescuento
                 descuento={descuento}

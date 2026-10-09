@@ -6,6 +6,7 @@ import { CalendarService } from '../calendar/calendar.service.js';
 import { BusquedaService } from '../comercio/busqueda.service.js';
 import type { Env } from '../config/env.js';
 import { HistoricoVentasService } from '../comercio/historico.service.js';
+import { ImagenesService } from '../comercio/imagenes.service.js';
 import { SugerenciasService } from '../comercio/sugerencias.service.js';
 import { VentasService } from '../comercio/ventas.service.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
@@ -52,6 +53,7 @@ export const grafoVentasProvider = {
     VentasService,
     NotificacionesService,
     HistoricoVentasService,
+    ImagenesService,
     OpenRouterClient,
     LLM_CONVERSACION,
     CheckpointerService,
@@ -64,6 +66,7 @@ export const grafoVentasProvider = {
     ventas: VentasService,
     notificaciones: NotificacionesService,
     historico: HistoricoVentasService,
+    imagenes: ImagenesService,
     openRouter: OpenRouterClient,
     llm: BaseChatModel,
     checkpointer: CheckpointerService,
@@ -76,6 +79,7 @@ export const grafoVentasProvider = {
       ventas,
       notificaciones,
       historico,
+      imagenes,
       openRouter,
       llm,
       checkpointer: checkpointer.saver,

@@ -72,6 +72,8 @@ export type ProductoEncontrado = {
    * que se pidió, y así se le presenta al modelo.
    */
   soloParecido?: boolean;
+  /** Si tiene foto para mandarle al cliente (enviar_imagen_producto). */
+  tieneImagen: boolean;
 };
 
 export type OpcionesBusqueda = {
@@ -213,7 +215,11 @@ export class BusquedaService {
     const [productos, descuentos] = await Promise.all([
       this.prisma.producto.findMany({
         where: { id: { in: ids }, userId, activo: true },
-        include: { variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' } } },
+        include: {
+          variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' } },
+          // Sólo si existe: los bytes nunca vienen en una búsqueda.
+          imagen: { select: { id: true } },
+        },
       }),
       descuentosActivos(this.prisma, userId, ids),
     ]);
@@ -236,6 +242,7 @@ export class BusquedaService {
           nombre: producto.nombre,
           categoria: producto.categoria,
           descripcion: producto.descripcion,
+          tieneImagen: producto.imagen !== null,
           variantes: producto.variantes.map((variante) => {
             const reservadasVariante = reservadas.get(variante.id) ?? 0;
             const descuento = mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);

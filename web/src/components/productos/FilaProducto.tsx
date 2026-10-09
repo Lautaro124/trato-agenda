@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { descripcionDescuento, origenDescuento } from "@/lib/descuentos";
+import { urlImagenProducto } from "@/lib/imagenes";
 import {
   actualizarVariante,
   centavosParaInput,
@@ -181,6 +182,15 @@ export function FilaProducto({
       )}
     >
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+        {producto.imagenActualizada && (
+          // eslint-disable-next-line @next/next/no-img-element -- viene de la API con la cookie de sesión; el optimizador de Next no la tiene
+          <img
+            src={urlImagenProducto(producto.id, producto.imagenActualizada)}
+            alt={`Foto de ${producto.nombre}`}
+            loading="lazy"
+            className="size-12 shrink-0 rounded-md bg-sunken object-cover"
+          />
+        )}
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-ink">{producto.nombre}</p>
           <p className="text-[12.5px] text-muted">

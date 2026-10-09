@@ -34,6 +34,7 @@ export const ACCIONES_VENTAS = {
   consultar_pedido: 'Contar el estado de los pedidos de esta conversación.',
   cancelar_pedido: 'Cancelar el pedido sin pagar de esta conversación y liberar su reserva.',
   derivar_consulta: 'Avisarle al dueño una consulta que el asistente no puede responder.',
+  enviar_imagen_producto: 'Mandarle al cliente la foto de un producto cuando la pide.',
 } as const;
 
 export type AccionVentasId = keyof typeof ACCIONES_VENTAS;

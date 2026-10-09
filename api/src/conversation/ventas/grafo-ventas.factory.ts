@@ -17,6 +17,7 @@ import { END, START, StateGraph } from '@langchain/langgraph';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService } from '../../comercio/busqueda.service.js';
 import type { HistoricoVentasService } from '../../comercio/historico.service.js';
+import type { ImagenesService } from '../../comercio/imagenes.service.js';
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { VentasService } from '../../comercio/ventas.service.js';
 import type { NotificacionesService } from '../../notificaciones/notificaciones.service.js';
@@ -38,6 +39,7 @@ export type DepsGrafoVentas = {
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
+  imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
   openRouter: OpenRouterClient;
   llm: BaseChatModel;
   checkpointer?: BaseCheckpointSaver;
