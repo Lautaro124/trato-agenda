@@ -8,6 +8,7 @@ import makeWASocket, {
   type WAMessageKey,
   type WASocket,
 } from '@whiskeysockets/baileys';
+import { randomInt } from 'node:crypto';
 import pino from 'pino';
 import { Observable, ReplaySubject, map } from 'rxjs';
 import { ImagenesService } from '../comercio/imagenes.service.js';
@@ -355,7 +356,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * no se demora el doble.
    */
   private async contestarRafaga(items: MensajeEntrante[]): Promise<void> {
-    const { userId, remoteJid, sock } = items[items.length - 1];
+    const { userId, remoteJid, sock } = items.at(-1)!;
     const texto = items.map((item) => item.texto).join('\n');
 
     // Lo cosmético (leído, "escribiendo…") nunca frena la respuesta.
@@ -369,7 +370,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       for (const [indice, parte] of partes.entries()) {
         if (indice > 0) escribiendo.renovar();
         const transcurrido = indice === 0 ? Date.now() - inicio : 0;
-        const espera = demoraRestante(demoraDeEscritura(parte, Math.random()), transcurrido);
+        // randomInt y no Math.random: es sólo jitter de tipeo, pero así no lo marca el análisis estático.
+        const espera = demoraRestante(demoraDeEscritura(parte, randomInt(0, 1001) / 1000), transcurrido);
         if (espera > 0) await esperar(espera);
         await sock.sendMessage(remoteJid, { text: parte });
       }
