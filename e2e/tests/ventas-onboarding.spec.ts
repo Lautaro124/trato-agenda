@@ -7,8 +7,8 @@ async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string
   const negocio = `Mates E2E ${sufijo()}`;
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
-  // Ventas no pregunta turnos ni horarios, sí por el local: son cuatro pasos.
-  await expect(visible(page.getByText('Paso 2 de 4'))).toBeVisible();
+  // Ventas no pregunta turnos ni horarios, sí por el local y, opcional, por los datos del cliente: son cinco pasos.
+  await expect(visible(page.getByText('Paso 2 de 5'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
   await botonContinuar(page).click();
   // "Tu local": sin tocar nada queda "vendo sólo online".
@@ -21,6 +21,9 @@ async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string
     await visible(page.getByLabel('Sábado: cierra')).selectOption('13:00');
     await visible(page.getByRole('checkbox', { name: 'Se pueden retirar las compras en el local' })).check();
   }
+  await botonContinuar(page).click();
+  // Los datos del cliente se pueden saltear.
+  await expect(visible(page.getByRole('heading', { name: '¿Le pedís datos a tus clientes?' }))).toBeVisible();
   await botonContinuar(page).click();
   await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
   // La vista previa del saludo usa lo que se escribió.

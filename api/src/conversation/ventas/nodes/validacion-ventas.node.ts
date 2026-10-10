@@ -6,6 +6,7 @@
  */
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
+import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
 import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
@@ -167,7 +168,16 @@ export function validarLlamadaVentas(
           'buscar_productos y usá los ids de variante que te devuelva.',
       };
     }
-    return { ok: true, operacion: { ...llamada, args: { ...args, nombreCliente, items: agruparItems(items) } } };
+    const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args);
+    if (!datos.ok) return { ok: false, motivo: datos.motivo };
+    return {
+      ok: true,
+      operacion: {
+        ...llamada,
+        // Lo que sigue al nodo catalogo es lo ya normalizado, no lo que mandó el modelo.
+        args: { ...args, nombreCliente, items: agruparItems(items), entrega: datos.entrega, datosCliente: datos.datos },
+      },
+    };
   }
 
   return { ok: true, operacion: { ...llamada, args } };

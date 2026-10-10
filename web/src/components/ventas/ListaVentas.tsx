@@ -47,6 +47,7 @@ export function ListaVentas({ ventas, onElegir }: { ventas: Venta[]; onElegir: (
               <span className="text-[12.5px] text-muted sm:order-1">{fechaCorta(venta.createdAt)}</span>
               <span className="flex flex-wrap gap-1 sm:order-3 sm:justify-end">
                 {venta.dePrueba && <Badge tone="info">Prueba</Badge>}
+                {venta.entrega === "envio" && <Badge tone="neutral">Envío</Badge>}
                 <Badge tone={TONO_ESTADO[venta.estado]}>{ETIQUETA_ESTADO[venta.estado]}</Badge>
                 {venta.sinStockAlPagar && <Badge tone="danger">Sin stock al pagar</Badge>}
               </span>

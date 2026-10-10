@@ -53,6 +53,11 @@ describe('CSV', () => {
           pagadaAt: null,
           mpPaymentId: null,
           dePrueba: false,
+          entrega: 'envio',
+          datosCliente: [
+            { etiqueta: 'Código postal', valor: '1414' },
+            { etiqueta: 'Dirección', valor: '=Corrientes 1234; 2B' },
+          ],
           items: [{ cantidad: 2, nombreProducto: 'Mate', nombreVariante: '' }],
         },
       ],
@@ -60,7 +65,13 @@ describe('CSV', () => {
     );
     const [encabezado, fila] = csv.replace(/^\uFEFF/, '').trim().split('\r\n');
     expect(csv.charCodeAt(0)).toBe(0xfeff);
-    expect(encabezado).toBe('fecha;estado;cliente;telefono;medio_de_pago;productos;total;pagada_el;operacion_mercado_pago;prueba');
-    expect(fila).toBe("sábado 26/9 a las 17:42;vencida;'=cmd;'+5491122334455;Mercado Pago;2 × Mate;$ 16.000,50;;;");
+    expect(encabezado).toBe(
+      'fecha;estado;cliente;telefono;medio_de_pago;productos;total;pagada_el;operacion_mercado_pago;prueba;entrega;datos_cliente',
+    );
+    // Los datos del cliente son texto suyo: pasan por celdaCsv (el ";" los entrecomilla).
+    expect(fila).toBe(
+      "sábado 26/9 a las 17:42;vencida;'=cmd;'+5491122334455;Mercado Pago;2 × Mate;$ 16.000,50;;;;envío;" +
+        '"Código postal: 1414 · Dirección: =Corrientes 1234; 2B"',
+    );
   });
 });

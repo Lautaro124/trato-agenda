@@ -5,11 +5,16 @@ import { expect, sufijo } from './fixtures';
 /** Atajo para los tests que necesitan un asistente de ventas y no prueban el onboarding. */
 export async function crearAgenteVentasPorApi(
   request: APIRequestContext,
-  opciones: { local?: Record<string, unknown> } = {},
+  opciones: {
+    local?: Record<string, unknown>;
+    haceEnvios?: boolean;
+    datosCliente?: Array<{ tipo: string; etiqueta?: string; obligatorio: boolean }>;
+  } = {},
 ): Promise<{ nombreTitular: string }> {
   const nombreTitular = `Mates E2E ${sufijo()}`;
+  const { local, ...datos } = opciones;
   const res = await request.post(`${API_URL}/agents/generate-ventas`, {
-    data: { nombreTitular, nombreBot: 'Sol', ...(opciones.local ? { local: opciones.local } : {}) },
+    data: { nombreTitular, nombreBot: 'Sol', ...(local ? { local } : {}), ...datos },
   });
   expect(res.status(), await res.text()).toBe(201);
   return { nombreTitular };

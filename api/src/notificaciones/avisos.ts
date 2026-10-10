@@ -38,8 +38,16 @@ type VentaAvisable = {
   reservaVenceAt: Date;
   sinStockAlPagar: boolean;
   dePrueba: boolean;
+  /** Sólo si se envía o se retira; la dirección no viaja en el aviso (está en Ventas). */
+  entrega?: string | null;
   items: RenglonVenta[];
 };
+
+function entrega(venta: Pick<VentaAvisable, 'entrega'>): string {
+  if (venta.entrega === 'envio') return ' Es con envío: los datos están en Ventas.';
+  if (venta.entrega === 'retiro') return ' Lo retira.';
+  return '';
+}
 
 function quien(venta: Pick<VentaAvisable, 'nombreCliente' | 'telefonoCliente'>): string {
   const nombre = venta.nombreCliente?.trim() || 'Un cliente';
@@ -59,7 +67,7 @@ export function avisoVentaPagada(venta: VentaAvisable): Aviso {
     titulo: `${prueba(venta)}Venta pagada: ${formatearCentavos(venta.totalCentavos)}`,
     cuerpo:
       `${quien(venta)} pagó ${detalleDeRenglones(venta.items)} por Mercado Pago. ` +
-      `Coordiná la entrega por WhatsApp.${alerta}`,
+      `Coordiná la entrega por WhatsApp.${entrega(venta)}${alerta}`,
     enlace: `/ventas?venta=${venta.id}`,
   };
 }
@@ -70,7 +78,7 @@ export function avisoPedidoManual(venta: VentaAvisable): Aviso {
     titulo: `${prueba(venta)}Pedido para cobrar: ${formatearCentavos(venta.totalCentavos)}`,
     cuerpo:
       `${quien(venta)} pidió ${detalleDeRenglones(venta.items)}. Queda reservado hasta el ` +
-      `${fechaYHora(venta.reservaVenceAt)}. Cobrale por WhatsApp y marcalo pagado en Ventas.`,
+      `${fechaYHora(venta.reservaVenceAt)}. Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}`,
     enlace: `/ventas?venta=${venta.id}`,
   };
 }

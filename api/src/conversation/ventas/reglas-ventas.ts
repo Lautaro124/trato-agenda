@@ -10,6 +10,7 @@ import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
+import { leerConfigDatosCliente, reglaDeDatosCliente } from '../../comercio/datos-cliente.rules.js';
 import { detalleParaElModelo } from '../../comercio/descuentos.rules.js';
 import {
   detalleDeRenglones,
@@ -103,6 +104,8 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
   const titular = agent.nombreTitular || 'este negocio';
   const cierre = preguntaDeCierre(mpConectado);
   const entrega = mpConectado ? 'mandale el link de pago' : 'decile que quedó anotado';
+  const datos = leerConfigDatosCliente(agent);
+  const reglaDatos = reglaDeDatosCliente(datos, titular);
   return (
     `Reglas de venta de ${titular} (no las rompas):\n` +
     `- Sos ${agent.nombreBot} y atendés las ventas por WhatsApp de ${titular}. Saludás y decís tu nombre sólo en tu ` +
@@ -124,8 +127,8 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `aparecieron en los resultados. Que un resultado comparta una palabra, un color o la categoría con lo que ` +
     `pidió no quiere decir que sea eso: si no es exactamente lo que pidió, primero decile que eso no lo tenés y ` +
     `recién después, si querés, ofrecé el parecido aclarando que es otra cosa.\n` +
-    `- Si el cliente necesita algo del negocio que vos no sabés (un producto que no está, envíos, formas de ` +
-    `pago, un reclamo), avisale al dueño con derivar_consulta y decile que ${titular} le responde por este chat.\n` +
+    `- Si el cliente necesita algo del negocio que vos no sabés (un producto que no está, ` +
+    `${datos.haceEnvios ? 'costos o plazos de envío' : 'envíos'}, formas de pago, un reclamo), avisale al dueño con derivar_consulta y decile que ${titular} le responde por este chat.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
     `- Para vender: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, variante, ` +
     `cantidad y precio) y preguntale "${cierre}". No le pidas que confirme el pedido ni le repitas el resumen ` +
@@ -135,6 +138,7 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `nombre, preguntáselo en ese momento, antes de crear el pedido.\n` +
     `- El link de pago mandalo tal cual te lo devuelve crear_pedido, sin acortarlo ni cambiarlo, y avisale ` +
     `hasta qué hora vale.\n` +
+    (reglaDatos ? `${reglaDatos}\n` : '') +
     (leerLocal(agent)?.retiroEnLocal
       ? `- El envío lo coordina ${titular} directamente: no prometas plazos ni costos. Si el cliente quiere ` +
         `retirar, puede hacerlo en el local en sus horarios (los datos están en el bloque del local).`
@@ -243,7 +247,12 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
     `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items)}. ` +
     `Total ${formatearCentavos(venta.totalCentavos)}` +
     (ahorro > 0 ? ` (ya con los descuentos: ahorra ${formatearCentavos(ahorro)})` : '') +
-    '.';
+    '.' +
+    (venta.entrega === 'envio'
+      ? ` Es con envío: el costo y el plazo los coordina ${titular}.`
+      : venta.entrega === 'retiro'
+        ? ` Lo retira en el local, en sus horarios.`
+        : '');
   if (venta.linkPago) {
     const propio = mensajePropio(agent, 'linkPago');
     if (propio) {
@@ -306,7 +315,8 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
     `productos de ${titular}. ¿Buscabas algo en particular?".\n` +
     (esPropietario
       ? `- Estás hablando con el dueño: podés darle el stock exacto con consultar_stock.\n`
-      : `- Los datos de ${titular} que no salen del catálogo ni del bloque del local —formas de pago, envíos, y ` +
+      : `- Los datos de ${titular} que no salen del catálogo ni del bloque del local —formas de pago, ` +
+        `${agent.haceEnvios ? 'costos y plazos de envío' : 'envíos'}, y ` +
         `la dirección o los horarios si ahí no figuran— no los sabés: nunca los inventes; avisale al dueño con ` +
         `derivar_consulta y decile al cliente que ${titular} le responde.\n`) +
     `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`

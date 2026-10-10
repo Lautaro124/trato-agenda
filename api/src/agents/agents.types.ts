@@ -14,6 +14,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import type { Agent } from '../generated/prisma/client.js';
@@ -26,6 +27,14 @@ import {
   type TipoUso,
 } from './agent-catalog.js';
 import { PRECIO_MAX } from './precio.js';
+import {
+  LARGO_MAX_ETIQUETA,
+  leerConfigDatosCliente,
+  MAX_CAMPOS,
+  TIPOS_CAMPO,
+  type CampoCliente,
+  type TipoCampo,
+} from '../comercio/datos-cliente.rules.js';
 import { leerMensajes, MODOS_MENSAJE, type MensajesAgente, type ModoMensaje } from './mensajes.rules.js';
 import {
   DIAS_SEMANA,
@@ -92,6 +101,24 @@ export class GenerateAgentDto {
   nombreBot!: string;
 }
 
+/** Un dato que el asistente de ventas le pide al cliente (datos-cliente.rules.ts). */
+export class CampoClienteDto {
+  @IsIn(TIPOS_CAMPO)
+  tipo!: TipoCampo;
+
+  /**
+   * Obligatoria sólo para los personalizados (la de los estándar es fija y se
+   * descarta), pero acotada siempre: nada grande cruza la validación.
+   */
+  @ValidateIf((campo: CampoClienteDto) => campo.tipo === 'personalizado' || campo.etiqueta !== undefined)
+  @IsString()
+  @MaxLength(LARGO_MAX_ETIQUETA)
+  etiqueta?: string;
+
+  @IsBoolean()
+  obligatorio!: boolean;
+}
+
 /** Una franja de atención del local: un día y su horario. */
 export class FranjaLocalDto {
   @IsIn(DIAS_SEMANA)
@@ -147,11 +174,35 @@ export class GenerarAgenteVentasDto {
   @MaxLength(40)
   nombreBot!: string;
 
+  /** Paso opcional del onboarding: sin esto el asistente sólo pide el nombre. */
+  @IsOptional()
+  @IsBoolean()
+  haceEnvios?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_CAMPOS)
+  @ValidateNested({ each: true })
+  @Type(() => CampoClienteDto)
+  datosCliente?: CampoClienteDto[];
+
   /** El paso "Tu local". Sin él (un cliente viejo de la API) el local queda sin cargar. */
   @IsOptional()
   @ValidateNested()
   @Type(() => LocalPresencialDto)
   local?: LocalPresencialDto;
+}
+
+/** Body de `PUT /agents/me/datos-cliente`: reemplaza la configuración entera. */
+export class ActualizarDatosClienteDto {
+  @IsBoolean()
+  haceEnvios!: boolean;
+
+  @IsArray()
+  @ArrayMaxSize(MAX_CAMPOS)
+  @ValidateNested({ each: true })
+  @Type(() => CampoClienteDto)
+  datosCliente!: CampoClienteDto[];
 }
 
 /** Body de `PUT /agents/me/local`: reemplaza los datos del local enteros. */
@@ -226,11 +277,13 @@ export type AgentPublico = Pick<
   | 'allowedActions'
   | 'createdAt'
   | 'updatedAt'
+  | 'haceEnvios'
 > & {
   tiposEvento: TipoEvento[];
   tipoAsistente: TipoAsistente;
   mensajes: MensajesAgente;
   local: LocalPresencial | null;
+  datosCliente: CampoCliente[];
 };
 
 export function aAgentPublico(agent: Agent): AgentPublico {
@@ -245,6 +298,8 @@ export function aAgentPublico(agent: Agent): AgentPublico {
     horaDesde: agent.horaDesde,
     horaHasta: agent.horaHasta,
     tiposEvento: leerTiposEvento(agent),
+    haceEnvios: agent.haceEnvios,
+    datosCliente: leerConfigDatosCliente(agent).campos,
     mensajes: leerMensajes(agent),
     local: leerLocal(agent),
     allowedActions: agent.allowedActions,

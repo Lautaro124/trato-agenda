@@ -5,6 +5,7 @@ import { PLANTILLA_VERSION, construirConfiguracion } from './agent-template.js';
 import { PLANTILLA_VENTAS_VERSION, construirConfiguracionVentas } from './agent-template-ventas.js';
 import { tipoAsistenteDe, type TipoAsistente, type TipoTitular, type TipoUso } from './agent-catalog.js';
 import type {
+  ActualizarDatosClienteDto,
   ActualizarMensajesDto,
   GenerarAgenteVentasDto,
   GenerateAgentDto,
@@ -13,6 +14,7 @@ import type {
 } from './agents.types.js';
 import { CLAVES_MENSAJE, leerMensajes, normalizarMensajes } from './mensajes.rules.js';
 import { normalizarLocal, type LocalPresencial } from './local.js';
+import { normalizarCampos } from '../comercio/datos-cliente.rules.js';
 
 function listarTiposEvento(dto: GenerateAgentDto): string {
   return dto.tiposEvento
@@ -119,6 +121,11 @@ export class AgentsService {
       templateVersion: PLANTILLA_VENTAS_VERSION,
       // Sin el paso "Tu local" no se pisa lo que ya estaba guardado.
       ...(local ? { local: local as unknown as Prisma.InputJsonValue } : {}),
+      // Lo mismo con el paso "Datos del cliente": sin él quedan los defaults o lo ya guardado.
+      ...(dto.haceEnvios !== undefined ? { haceEnvios: dto.haceEnvios } : {}),
+      ...(dto.datosCliente
+        ? { datosCliente: normalizarCampos(dto.datosCliente) as unknown as Prisma.InputJsonValue }
+        : {}),
     };
 
     return this.prisma.agent.upsert({
@@ -142,6 +149,26 @@ export class AgentsService {
           : 'Tu asistente ya está configurado para vender.',
       );
     }
+  }
+
+  /**
+   * Qué datos le pide el asistente de ventas al cliente. Sólo toca esas dos
+   * columnas: las reglas que los piden viven en código (reglas-ventas.ts) y
+   * se arman desde la fila en cada mensaje, así que no hay prompt que regenerar.
+   */
+  async actualizarDatosCliente(userId: string, dto: ActualizarDatosClienteDto): Promise<Agent> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+    if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
+    if (tipoAsistenteDe(agent) !== 'ventas') {
+      throw new ConflictException('Tu asistente agenda turnos: no toma pedidos.');
+    }
+    return this.prisma.agent.update({
+      where: { userId },
+      data: {
+        haceEnvios: dto.haceEnvios,
+        datosCliente: normalizarCampos(dto.datosCliente) as unknown as Prisma.InputJsonValue,
+      },
+    });
   }
 
   /**

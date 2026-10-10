@@ -94,8 +94,19 @@ Lo que agrega superficie nueva y cómo está cubierto:
   resto de las llamadas a OpenRouter.
 - **Autorización**: todo lo de `/productos`, `/ventas` y `/notificaciones`
   filtra por el `userId` de la sesión (un id ajeno da 404, no el dato).
-- **Retención y baja**: las ventas pierden nombre y teléfono del cliente a los
-  12 meses y los avisos se purgan (leídos a los 90 días, el resto a los 12
+- **Datos del cliente en el pedido** (`datos-cliente.rules.ts`, 2026-10-10):
+  el comercio elige qué pide (código postal, dirección, provincia, país, email,
+  DNI o hasta 5 campos propios). Las etiquetas propias son texto del dueño y
+  entran al prompt con `JSON.stringify`; lo que contesta el cliente se valida
+  contra esa configuración en el nodo `validacion` (lo que el comercio no pidió
+  se descarta, así el modelo no puede guardar otros datos), se recorta a 200
+  caracteres y queda en `Venta.datosCliente`. No viaja en los avisos (sólo
+  "con envío"/"lo retira"), no se loguea, y en el CSV pasa por `celdaCsv`.
+  Lo que el cliente escribió también queda en `Message` y en los checkpoints
+  (90 días de inactividad) y puede repetirse en `Conversation.resumen` (12
+  meses): las ventanas de retención de siempre, no una nueva.
+- **Retención y baja**: las ventas pierden nombre, teléfono y datos del cliente
+  (`Venta.datosCliente`) a los 12 meses y los avisos se purgan (leídos a los 90 días, el resto a los 12
   meses); la baja de cuenta se lleva catálogo, ventas, avisos y tokens de
   Mercado Pago por cascada (`cuenta.db.spec.ts`).
 

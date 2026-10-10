@@ -52,6 +52,19 @@ export const esquemaCrearPedido = z.object({
       '"mercadopago" manda un link de pago; "manual" deja el pedido anotado para que el negocio coordine el pago ' +
         '(transferencia, efectivo). Si no lo sabés, no lo mandes: se usa el que corresponde al negocio.',
     ),
+  entrega: z
+    .enum(['envio', 'retiro'])
+    .optional()
+    .describe('Sólo si las reglas de venta dicen que el negocio hace envíos: lo que eligió el cliente.'),
+  datosCliente: z
+    .array(
+      z.object({
+        campo: z.string().describe('El nombre del dato tal cual figura en las reglas de venta.'),
+        valor: z.string().describe('Lo que contestó el cliente, sin cambiarlo.'),
+      }),
+    )
+    .optional()
+    .describe('Sólo los datos que las reglas de venta te piden pedirle al cliente, con lo que te dio.'),
 });
 
 export const esquemaEnviarImagen = z.object({

@@ -562,11 +562,95 @@ describe('grafo de ventas', () => {
         items: [{ varianteId: 'v-1', cantidad: 2 }],
         medioPago: 'mercadopago',
         dePrueba: false,
+        // El comercio no pide datos: no hay entrega ni datos que guardar.
+        entrega: null,
+        datosCliente: [],
       });
       const tool = resultadoDe(resultado.messages, 'crear_pedido');
       expect(tool.content).toContain('Pedido creado para "Juan": 2 × Mate de calabaza ($ 16.000). Total $ 16.000.');
       expect(tool.content).toContain('https://mp/pagar/venta-1');
       expect(sistemaDe(llm)).toContain('Cobro: con link de pago de Mercado Pago');
+    });
+
+    describe('datos del cliente', () => {
+      const CON_ENVIOS = {
+        ...AGENT,
+        haceEnvios: true,
+        // Con retiro en el local, el cliente elige entre envío y retiro.
+        local: { tieneLocal: true, horarios: [], retiroEnLocal: true },
+        datosCliente: [
+          { tipo: 'codigoPostal', obligatorio: true },
+          { tipo: 'personalizado', etiqueta: 'Entre calles', obligatorio: false },
+        ],
+      };
+
+      it('las reglas le dicen qué pedir, y sin elegir envío o retiro no crea el pedido', async () => {
+        const ventas = crearVentas();
+        const llm = crearModelo([
+          BUSCAR_MATE,
+          llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido }),
+          new AIMessage('¿Lo querés con envío o lo retirás?'),
+        ]);
+
+        const resultado = await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), ventas });
+
+        expect(ventas.crearPedido).not.toHaveBeenCalled();
+        expect(toolMessages(resultado.messages)[1].content).toContain('si lo quiere con envío o si lo retira');
+        const sistema = sistemaDe(llm);
+        expect(sistema).toContain('Mates del Sur hace envíos');
+        expect(sistema).toContain('"Código postal" (obligatorio), "Entre calles" (opcional)');
+      });
+
+      it('con envío exige los obligatorios y guarda lo que contestó con la etiqueta del comercio', async () => {
+        const ventas = crearVentas();
+        ventas.crearPedido.mockResolvedValue({ ...VENTA, entrega: 'envio' });
+        const llm = crearModelo([
+          BUSCAR_MATE,
+          llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido, entrega: 'envio', datosCliente: [] }),
+          llamada('crear_pedido', {
+            nombreCliente: 'Juan',
+            items: itemsPedido,
+            entrega: 'envio',
+            datosCliente: [
+              { campo: 'codigo postal', valor: ' C1414 ' },
+              { campo: 'Entre calles', valor: 'Thames y Uriarte' },
+              // Lo que el comercio no pidió no se guarda.
+              { campo: 'Tarjeta', valor: '4111' },
+            ],
+          }),
+          new AIMessage('Listo.'),
+        ]);
+
+        const resultado = await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), ventas });
+
+        const [, rechazo, creado] = toolMessages(resultado.messages);
+        expect(rechazo.content).toContain('faltan "Código postal"');
+        expect(ventas.crearPedido).toHaveBeenCalledTimes(1);
+        expect(ventas.crearPedido).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entrega: 'envio',
+            datosCliente: [
+              { etiqueta: 'Código postal', valor: 'C1414' },
+              { etiqueta: 'Entre calles', valor: 'Thames y Uriarte' },
+            ],
+          }),
+        );
+        expect(creado.content).toContain('Es con envío');
+      });
+
+      it('si lo retira no le pide los datos de envío', async () => {
+        const ventas = crearVentas();
+        ventas.crearPedido.mockResolvedValue(VENTA);
+        const llm = crearModelo([
+          BUSCAR_MATE,
+          llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido, entrega: 'retiro' }),
+          new AIMessage('Listo.'),
+        ]);
+
+        await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), ventas });
+
+        expect(ventas.crearPedido).toHaveBeenCalledWith(expect.objectContaining({ entrega: 'retiro', datosCliente: [] }));
+      });
     });
 
     it('sin Mercado Pago el pedido queda para coordinar, y desde el banco de pruebas va marcado', async () => {

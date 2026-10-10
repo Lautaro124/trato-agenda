@@ -140,6 +140,14 @@ model Agent {
   /// esta config. Null en agentes generados por IA antes de este campo.
   templateVersion Int?
 
+  /// Sólo ventas: el comercio hace envíos. El asistente pregunta "¿envío o
+  /// retiro?" y pide los datos de `datosCliente` sólo si es con envío.
+  haceEnvios Boolean @default(false)
+
+  /// Sólo ventas: qué datos le pide el asistente al cliente antes de crear el
+  /// pedido. [{ tipo, etiqueta?, obligatorio }] (comercio/datos-cliente.rules.ts).
+  datosCliente Json @default("[]")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -434,6 +442,12 @@ model Venta {
   nombreCliente   String?
   /// Número de WhatsApp del cliente (sin '+'). Misma retención que el nombre.
   telefonoCliente String?
+
+  /// "envio" | "retiro"; null si el comercio no hace envíos.
+  entrega      String?
+  /// Lo que contestó el cliente: [{ etiqueta, valor }], foto de la etiqueta
+  /// al vender (como ItemVenta). Misma retención que el nombre.
+  datosCliente Json?
 
   /// "pendiente_pago" | "pagada" | "cancelada" | "vencida"
   estado    String @default("pendiente_pago")
