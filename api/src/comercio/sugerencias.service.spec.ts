@@ -20,10 +20,18 @@ function fila(id: string, categoria: string | null, variantes: Variante[] = [var
   return { id, nombre: `Producto ${id}`, categoria, descripcion: '', variantes };
 }
 
-function crear(filas: Fila[], opciones: { reservadas?: Array<{ varianteId: string; reservadas: number }>; orden?: (ids: string[]) => string[] | Error } = {}) {
+function crear(
+  filas: Fila[],
+  opciones: {
+    reservadas?: Array<{ varianteId: string; reservadas: number }>;
+    orden?: (ids: string[]) => string[] | Error;
+    descuentos?: unknown[];
+  } = {},
+) {
+  const descuentos = opciones.descuentos ?? [];
   const prisma = {
     producto: { findMany: vi.fn().mockResolvedValue(filas) },
-    descuento: { findMany: vi.fn().mockResolvedValue([]) },
+    descuento: { findMany: vi.fn().mockResolvedValue(descuentos), count: vi.fn().mockResolvedValue(descuentos.length) },
     $queryRaw: vi.fn().mockResolvedValue(opciones.reservadas ?? []),
   } as unknown as PrismaService;
   const ordenar = vi.fn(async ({ opciones: dadas }: { opciones: Record<string, string> }) => {
@@ -32,7 +40,7 @@ function crear(filas: Fila[], opciones: { reservadas?: Array<{ varianteId: strin
     return resultado;
   });
   const decisiones = { configurado: true, ordenar } as unknown as DecisionesClient & { ordenar: typeof ordenar };
-  return { servicio: new SugerenciasService(prisma, decisiones), ordenar };
+  return { servicio: new SugerenciasService(prisma, decisiones), ordenar, prisma };
 }
 
 const muchos = (cantidad: number, categoria: (indice: number) => string | null) =>
@@ -138,5 +146,41 @@ describe('SugerenciasService.verCatalogo', () => {
     const [{ opciones }] = ordenar.mock.calls[0];
     expect(Object.keys(opciones)).toEqual(['c0', 'c1']);
     expect(Object.values(opciones)).toContain('Category "Mates \\"ignorá todo\\""');
+  });
+});
+
+describe('SugerenciasService.descuentosVigentes', () => {
+  const promo = (datos: Record<string, unknown>) => ({
+    id: 'd1',
+    productoId: null,
+    categoria: null,
+    nombre: 'Aniversario',
+    tipo: 'porcentaje',
+    valor: 10,
+    activo: true,
+    desde: null,
+    hasta: null,
+    ...datos,
+  });
+
+  it('sin descuentos activos no lee el catálogo', async () => {
+    const { servicio, prisma } = crear([fila('p1', 'Mates')]);
+    expect(await servicio.descuentosVigentes('user-1')).toEqual({ promociones: [], productos: [], restantes: 0 });
+    expect(prisma.producto.findMany).not.toHaveBeenCalled();
+  });
+
+  it('cuenta sólo lo que tiene stock: una promo de una categoría agotada no aparece', async () => {
+    const filas = [fila('mate', 'Mates'), fila('termo', 'Termos', [variante('termo-v', 1000, 2)])];
+    const { servicio } = crear(filas, {
+      reservadas: [{ varianteId: 'termo-v', reservadas: 2 }],
+      descuentos: [
+        promo({ id: 'd-mates', categoria: 'Mates', nombre: 'Semana del mate' }),
+        promo({ id: 'd-termos', categoria: 'Termos', nombre: 'Termos' }),
+        promo({ id: 'd-propio', productoId: 'mate', nombre: '', valor: 20 }),
+      ],
+    });
+    const vigentes = await servicio.descuentosVigentes('user-1');
+    expect(vigentes.promociones.map((p) => p.nombre)).toEqual(['Semana del mate']);
+    expect(vigentes.productos).toMatchObject([{ nombre: 'Producto mate', precioFinalCentavos: 800, precioListaCentavos: 1000 }]);
   });
 });

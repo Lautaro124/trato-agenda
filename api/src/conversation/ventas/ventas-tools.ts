@@ -91,6 +91,14 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
       'cliente elige una categoría, llamala de nuevo con esa categoría.',
     schema: esquemaVerCatalogo,
   },
+  ver_descuentos: {
+    name: 'ver_descuentos',
+    description:
+      'Devuelve todos los descuentos y promociones vigentes del negocio: las promos de todo el catálogo o de una ' +
+      'categoría y los productos con descuento, con el precio final. Usala cuando el cliente pregunta por ' +
+      'descuentos, promos u ofertas, o te dice que sí cuando le ofreciste pasárselos.',
+    schema: z.object({}),
+  },
   crear_pedido: {
     name: 'crear_pedido',
     description:
@@ -170,11 +178,11 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
 };
 
 /** Acciones que llegaron después de los primeros asistentes y vienen con `buscar_productos`. */
-const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = ['ver_catalogo', 'enviar_imagen_producto'];
+const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = ['ver_catalogo', 'ver_descuentos', 'enviar_imagen_producto'];
 
 /**
- * Las acciones de ventas que tiene un agente. `ver_catalogo` y
- * `enviar_imagen_producto` llegaron después de que se crearan los primeros
+ * Las acciones de ventas que tiene un agente. `ver_catalogo`,
+ * `ver_descuentos` y `enviar_imagen_producto` llegaron después de que se crearan los primeros
  * asistentes, y su `allowedActions` está guardado sin ellas: las tiene todo
  * agente que puede buscar en el catálogo, sin migrar ni regenerar nada (lo
  * mismo que los bloques de reglas que viven en código).

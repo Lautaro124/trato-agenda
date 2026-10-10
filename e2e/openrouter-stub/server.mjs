@@ -109,13 +109,16 @@ function llamadaATool(model, name, args) {
 //     ("[producto <id>]"), o "no tengo foto" si no buscó nada;
 //   - "qué tenés" / "qué productos" / "qué ofrecés" → ver_catalogo; "mostrame
 //     <categoría>" → ver_catalogo con esa categoría;
+//   - "descuento" / "promo" / "oferta" → ver_descuentos;
 //   - sólo con las herramientas del dueño (banco de pruebas del Home):
 //     "cuánto vendí" → resumen_ventas de los últimos 7 días, "ventas de hoy" →
 //     listar_ventas de hoy;
 //   - un saludo → saludo; cualquier otra cosa → buscar_productos con el texto.
 // Con el resultado de la herramienta contesta: el primer producto encontrado,
-// la lista de ver_catalogo sin comillas, o el texto de la herramienta tal cual
-// (así el link de pago llega al cliente).
+// la lista de ver_catalogo o de ver_descuentos sin comillas, o el texto de la
+// herramienta tal cual (así el link de pago llega al cliente). Si el resultado
+// trae la oferta de descuentos (conOfertaDeDescuentos), suma la línea
+// "Además tenemos algunos descuentos, si querés te los paso.".
 
 /** "YYYY-MM-DD" en Buenos Aires, corrido `dias` días. */
 function diaDeBuenosAires(dias = 0) {
@@ -163,11 +166,14 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
 
   if (resultadoTool) {
     const resultado = textoDe(resultadoTool);
+    const oferta = resultado.includes('Hay descuentos vigentes en el negocio.')
+      ? '\nAdemás tenemos algunos descuentos, si querés te los paso.'
+      : '';
     // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
     if (resultado.startsWith('Resultados de') || resultado.startsWith('Ningún producto se llama como')) {
       const primero = resultado.match(/1\. "(.+?)" (?:\[producto [^\]]+\] )?\(código/)?.[1];
       const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
-      return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.` }));
+      return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.${oferta}` }));
     }
     if (resultado.startsWith('Listo: la foto')) {
       return responder(res, 200, completion(body.model, { content: 'Ahí te mandé la foto. ¿Es lo que buscabas?' }));
@@ -182,11 +188,17 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const lineas = resultado.split('\n').filter((linea) => linea.startsWith('- ')).map((linea) => linea.replaceAll('"', ''));
     if (resultado.startsWith('Productos con stock')) {
       const mas = resultado.includes('Decile que tenés más') ? '\nTengo más, si ninguno te interesa contame qué buscás.' : '';
-      return responder(res, 200, completion(body.model, { content: `Esto es lo que tengo:\n${lineas.join('\n')}${mas}` }));
+      return responder(res, 200, completion(body.model, { content: `Esto es lo que tengo:\n${lineas.join('\n')}${mas}${oferta}` }));
     }
     if (resultado.startsWith('El catálogo tiene')) {
       const otras = resultado.includes('categorías más') || resultado.includes('categoría más') ? '\nY tengo otras más.' : '';
-      return responder(res, 200, completion(body.model, { content: `Tengo estas categorías:\n${lineas.join('\n')}${otras}\n¿Cuál querés ver?` }));
+      return responder(res, 200, completion(body.model, { content: `Tengo estas categorías:\n${lineas.join('\n')}${otras}\n¿Cuál querés ver?${oferta}` }));
+    }
+    if (resultado.startsWith('Descuentos vigentes')) {
+      return responder(res, 200, completion(body.model, { content: `Estos son los descuentos que tenemos:\n${lineas.join('\n')}` }));
+    }
+    if (resultado.startsWith('No hay descuentos vigentes')) {
+      return responder(res, 200, completion(body.model, { content: 'Ahora no tenemos descuentos. ¿Buscás algo puntual?' }));
     }
     return responder(res, 200, completion(body.model, { content: `Listo: ${resultado}` }));
   }
@@ -216,6 +228,9 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   }
   if (delDueno && ultimoUsuario.includes('ventas de hoy')) {
     return responder(res, 200, llamadaATool(body.model, 'listar_ventas', { desde: diaDeBuenosAires(), hasta: diaDeBuenosAires() }));
+  }
+  if (/\b(descuento|promo|oferta)/.test(ultimoUsuario)) {
+    return responder(res, 200, llamadaATool(body.model, 'ver_descuentos', {}));
   }
   if (/\bque (productos )?(tenes|ofreces|vendes)\b/.test(ultimoUsuario) || ultimoUsuario.includes('lista de productos')) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', {}));

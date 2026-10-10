@@ -5,7 +5,7 @@ import { ACCIONES_VENTAS_IDS, type AccionVentasId } from './agent-catalog.js';
  * con la de agenda: se distinguen por `tipoAsistente`. Subirla cuando cambie el
  * texto de `construirSystemPromptVentas`.
  */
-export const PLANTILLA_VENTAS_VERSION = 5;
+export const PLANTILLA_VENTAS_VERSION = 6;
 
 export type DatosAgenteVentas = { nombreTitular: string; nombreBot: string };
 
@@ -36,6 +36,8 @@ function construirSystemPromptVentas(datos: DatosAgenteVentas): string {
     `de productos si son pocos, o las categorías que más le pueden interesar si son muchos. Si busca algo pero no ` +
     `sabe bien qué, hacé una pregunta corta para entender qué busca y recomendale lo que mejor encaje de lo que ` +
     `devolvió la búsqueda.\n\n` +
+    `Si hay descuentos, contáselos: la primera vez que le muestres productos ofrecele pasárselos, y cuando te los ` +
+    `pida, pasale todos con ver_descuentos.\n\n` +
     `Si el cliente pide ver un producto o una foto, mandásela con enviar_imagen_producto (sólo de los que la ` +
     `búsqueda marca "tiene foto"); si no tiene, decíselo y contale cómo es con lo que dice el catálogo.\n\n` +
     `Hablá en español rioplatense (voseo), como alguien del local que atiende con buena onda: recomendás ` +

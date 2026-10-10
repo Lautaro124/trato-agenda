@@ -35,7 +35,7 @@ import { herramientasDeVentas } from './ventas-tools.js';
 export type DepsGrafoVentas = {
   prisma: PrismaService;
   busqueda: Pick<BusquedaService, 'buscar'>;
-  sugerencias: Pick<SugerenciasService, 'verCatalogo'>;
+  sugerencias: Pick<SugerenciasService, 'verCatalogo' | 'descuentosVigentes'>;
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
