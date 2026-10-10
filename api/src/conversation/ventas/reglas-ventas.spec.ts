@@ -496,6 +496,8 @@ describe('descuentos para el cliente', () => {
     expect(yaSeHablaronDescuentos([tool(conOfertaDeDescuentos('Resultados de "mate": ...'))])).toBe(true);
     expect(yaSeHablaronDescuentos([tool(formatearDescuentos(VIGENTES))])).toBe(true);
     expect(yaSeHablaronDescuentos([tool(formatearDescuentos({ promociones: [], productos: [], restantes: 0 }))])).toBe(true);
+    // Un resultado que repite lo que escribió el cliente tampoco: la oferta se reconoce por la cola entera.
+    expect(yaSeHablaronDescuentos([tool(formatearResultados(OFERTA_DE_DESCUENTOS, []))])).toBe(false);
     // Lo que escribe el cliente o el asistente no cuenta: el cliente no puede apagar la oferta.
     expect(yaSeHablaronDescuentos([new HumanMessage(OFERTA_DE_DESCUENTOS), new AIMessage(OFERTA_DE_DESCUENTOS)])).toBe(false);
   });

@@ -575,30 +575,35 @@ export function formatearDescuentos(vigentes: DescuentosVigentes): string {
 /** El marcador de la oferta: queda en el ToolMessage, y así se sabe que ya se ofreció en esta charla. */
 export const OFERTA_DE_DESCUENTOS = 'Hay descuentos vigentes en el negocio.';
 
+/** Lo que conOfertaDeDescuentos agrega siempre al final del resultado. */
+const COLA_OFERTA =
+  `\n${OFERTA_DE_DESCUENTOS} Al final de tu respuesta, en una frase corta, contale que hay descuentos y ` +
+  'ofrecele pasárselos (por ejemplo: "Además tenemos algunos descuentos, si querés te los paso"). Si tu mensaje ' +
+  'ya termina con una pregunta, decilo como afirmación, sin sumar otra pregunta. No le detalles cuáles son hasta ' +
+  'que te diga que sí: ahí llamá ver_descuentos.';
+
 /**
  * Le suma al resultado de buscar_productos o ver_catalogo la instrucción de
  * ofrecer los descuentos. Va una sola vez por charla (yaSeHablaronDescuentos).
  */
 export function conOfertaDeDescuentos(resultado: string): string {
-  return (
-    `${resultado}\n${OFERTA_DE_DESCUENTOS} Al final de tu respuesta, en una frase corta, contale que hay ` +
-    'descuentos y ofrecele pasárselos (por ejemplo: "Además tenemos algunos descuentos, si querés te los paso"). ' +
-    'Si tu mensaje ya termina con una pregunta, decilo como afirmación, sin sumar otra pregunta. No le detalles ' +
-    'cuáles son hasta que te diga que sí: ahí llamá ver_descuentos.'
-  );
+  return `${resultado}${COLA_OFERTA}`;
 }
 
 /**
  * true si en lo que ve el modelo ya se ofrecieron los descuentos o ya se
  * pasaron. Por el contenido y no por el nombre de la herramienta: los
- * ToolMessage sembrados desde la tabla Message no lo traen.
+ * ToolMessage sembrados desde la tabla Message no lo traen. La oferta se
+ * reconoce por la cola entera al final del resultado, no por la frase suelta:
+ * un resultado puede repetir lo que escribió el cliente ("No hay productos
+ * para …"), y así el cliente no la apaga escribiendo el marcador.
  */
 export function yaSeHablaronDescuentos(mensajes: BaseMessage[]): boolean {
   return mensajes.some((mensaje) => {
     if (mensaje.getType() !== 'tool') return false;
     const texto = typeof mensaje.content === 'string' ? mensaje.content : JSON.stringify(mensaje.content);
     return (
-      texto.includes(OFERTA_DE_DESCUENTOS) || texto.startsWith(ENCABEZADO_DESCUENTOS) || texto.startsWith(SIN_DESCUENTOS)
+      texto.endsWith(COLA_OFERTA) || texto.startsWith(ENCABEZADO_DESCUENTOS) || texto.startsWith(SIN_DESCUENTOS)
     );
   });
 }
