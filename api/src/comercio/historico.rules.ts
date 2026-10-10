@@ -4,6 +4,7 @@
  */
 import { claveDia, fechaEnDia } from '../conversation/graph/agenda-rules.js';
 import { formatearCentavos } from './catalogo.rules.js';
+import { leerDatosDeVenta, resumenDeDatos } from './datos-cliente.rules.js';
 import { estadoVisible, fechaYHora, type EstadoVenta } from './ventas.rules.js';
 
 /** Días que muestra el histórico si no se pide otro rango. */
@@ -90,7 +91,11 @@ export const ENCABEZADOS_CSV = [
   'pagada_el',
   'operacion_mercado_pago',
   'prueba',
+  'entrega',
+  'datos_cliente',
 ] as const;
+
+const ETIQUETA_ENTREGA: Record<string, string> = { envio: 'envío', retiro: 'retira' };
 
 const ETIQUETA_ESTADO: Record<EstadoVenta, string> = {
   pendiente_pago: 'pendiente de pago',
@@ -110,6 +115,8 @@ export type VentaParaCsv = {
   pagadaAt: Date | null;
   mpPaymentId: string | null;
   dePrueba: boolean;
+  entrega: string | null;
+  datosCliente: unknown;
   items: Array<{ cantidad: number; nombreProducto: string; nombreVariante: string }>;
 };
 
@@ -129,6 +136,9 @@ export function ventasACsv(ventas: VentaParaCsv[], ahora: Date = new Date()): st
       venta.pagadaAt ? fechaYHora(venta.pagadaAt) : '',
       venta.mpPaymentId,
       venta.dePrueba ? 'sí' : '',
+      venta.entrega ? ETIQUETA_ENTREGA[venta.entrega] : '',
+      // Texto del cliente: pasa por celdaCsv como el resto.
+      resumenDeDatos(leerDatosDeVenta(venta.datosCliente)),
     ]
       .map(celdaCsv)
       .join(';'),

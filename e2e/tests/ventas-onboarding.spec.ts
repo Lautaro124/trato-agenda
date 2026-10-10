@@ -7,9 +7,12 @@ async function armarAsistenteDeVentas(page: Page): Promise<string> {
   const negocio = `Mates E2E ${sufijo()}`;
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
-  // Ventas no pregunta turnos ni horarios: son tres pasos.
-  await expect(visible(page.getByText('Paso 2 de 3'))).toBeVisible();
+  // Ventas no pregunta turnos ni horarios: son cuatro pasos, uno de ellos opcional.
+  await expect(visible(page.getByText('Paso 2 de 4'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
+  await botonContinuar(page).click();
+  // Los datos del cliente se pueden saltear.
+  await expect(visible(page.getByRole('heading', { name: '¿Le pedís datos a tus clientes?' }))).toBeVisible();
   await botonContinuar(page).click();
   await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
   // La vista previa del saludo usa lo que se escribió.

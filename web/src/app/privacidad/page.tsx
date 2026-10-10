@@ -126,7 +126,10 @@ export default function PrivacidadPage() {
             <Fuerte>Si usás el asistente de ventas.</Fuerte> Tu catálogo: nombre, descripción,
             categoría, código, variantes, precio y stock de cada producto. De cada pedido: el nombre
             que da el cliente, su número de WhatsApp, los productos, el total, el estado y las fechas,
-            y, si pagó con Mercado Pago, el número de operación. Los avisos que te mostramos en el
+            y, si pagó con Mercado Pago, el número de operación. Si configurás que el asistente pida
+            datos para el envío o para el pedido (código postal, dirección, provincia, país, email, DNI
+            u otros que definas vos), también guardamos lo que el cliente conteste, sólo los datos que
+            vos elegiste pedir. Los avisos que te mostramos en el
             panel (ventas, pedidos, stock, consultas) repiten algunos de esos datos.
           </p>
           <p>
@@ -319,8 +322,9 @@ export default function PrivacidadPage() {
             </Punto>
             <Punto>
               <Fuerte>Ventas:</Fuerte> se conservan mientras tu cuenta exista, porque son tu histórico.
-              A los 12 meses de cada pedido se borran el nombre y el número de WhatsApp del cliente; los
-              productos, los montos y las fechas quedan.
+              A los 12 meses de cada pedido se borran el nombre, el número de WhatsApp y los demás datos
+              que dio el cliente (dirección, email, DNI y los que hayas pedido); los productos, los
+              montos y las fechas quedan.
             </Punto>
             <Punto>
               <Fuerte>Avisos del panel:</Fuerte> los leídos se borran a los 90 días; los que nunca

@@ -120,6 +120,22 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     expect(await ventas.reservadasPorVariante([termo])).toEqual(new Map([[termo, 3]]));
   });
 
+  it('guarda la entrega y los datos del cliente; sin datos la columna queda vacía', async () => {
+    const conDatos = await pedido([{ varianteId: sinControl, cantidad: 1 }], {
+      entrega: 'envio',
+      datosCliente: [{ etiqueta: 'Código postal', valor: '1414' }],
+    });
+    const sinDatos = await pedido([{ varianteId: sinControl, cantidad: 1 }]);
+    expect(await prisma.venta.findUniqueOrThrow({ where: { id: conDatos.id } })).toMatchObject({
+      entrega: 'envio',
+      datosCliente: [{ etiqueta: 'Código postal', valor: '1414' }],
+    });
+    expect(await prisma.venta.findUniqueOrThrow({ where: { id: sinDatos.id } })).toMatchObject({
+      entrega: null,
+      datosCliente: null,
+    });
+  });
+
   it('dos pedidos simultáneos por la última unidad: uno reserva y el otro se rechaza', async () => {
     const resultados = await Promise.allSettled([
       pedido([{ varianteId: mate, cantidad: 1 }]),

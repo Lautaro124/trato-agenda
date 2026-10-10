@@ -1,5 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CheckpointerService } from '../conversation/checkpointer.provider.js';
+import { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import {
@@ -120,15 +121,20 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
   /**
    * Las ventas quedan mientras exista la cuenta (montos, productos y fechas son
    * el histórico del comercio), pero pasado `DIAS_RETENCION_DATOS_CLIENTE`
-   * desde el pedido pierden el nombre y el teléfono de quien compró.
+   * desde el pedido pierden el nombre, el teléfono y los datos (dirección,
+   * DNI, email…) de quien compró.
    */
   private async anonimizarVentas(ahora: Date = new Date()): Promise<number> {
     const { count } = await this.prisma.venta.updateMany({
       where: {
         createdAt: { lt: fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora) },
-        OR: [{ nombreCliente: { not: null } }, { telefonoCliente: { not: null } }],
+        OR: [
+          { nombreCliente: { not: null } },
+          { telefonoCliente: { not: null } },
+          { datosCliente: { not: Prisma.DbNull } },
+        ],
       },
-      data: { nombreCliente: null, telefonoCliente: null },
+      data: { nombreCliente: null, telefonoCliente: null, datosCliente: Prisma.DbNull },
     });
     return count;
   }

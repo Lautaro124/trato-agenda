@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import type { ItemVenta, Venta } from '../generated/prisma/client.js';
+import { leerDatosDeVenta, leerEntrega, type DatoCliente, type Entrega } from './datos-cliente.rules.js';
 import { estadoVisible, ESTADOS_VENTA, type EstadoVenta } from './ventas.rules.js';
 
 /** Lo que ve el dueño de una venta. Nunca los ids de Mercado Pago de la preferencia. */
@@ -23,6 +24,10 @@ export type VentaPublica = Pick<
   estado: EstadoVenta;
   /** Si el pago vino por Mercado Pago, el número de operación (para buscarlo en su cuenta). */
   mpPaymentId: string | null;
+  /** null si el comercio no hace envíos. */
+  entrega: Entrega | null;
+  /** Lo que el cliente contestó (envío, DNI, campos propios). Vacío si no se pidió nada. */
+  datosCliente: DatoCliente[];
   items: Array<
     Pick<ItemVenta, 'codigo' | 'nombreProducto' | 'nombreVariante' | 'cantidad' | 'precioUnitarioCentavos' | 'subtotalCentavos'>
   >;
@@ -45,6 +50,8 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
     dePrueba: venta.dePrueba,
     createdAt: venta.createdAt,
     mpPaymentId: venta.mpPaymentId,
+    entrega: leerEntrega(venta.entrega),
+    datosCliente: leerDatosDeVenta(venta.datosCliente),
     items: venta.items.map((item) => ({
       codigo: item.codigo,
       nombreProducto: item.nombreProducto,

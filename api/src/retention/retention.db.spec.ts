@@ -24,6 +24,8 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
         userId: dueno.id,
         nombreCliente: 'Ana',
         telefonoCliente: '5491122334455',
+        entrega: 'envio',
+        datosCliente: [{ etiqueta: 'Dirección', valor: 'Corrientes 1234' }],
         estado: 'pagada',
         medioPago: 'manual',
         totalCentavos: 1_000_000,
@@ -56,7 +58,7 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     await prisma.$disconnect();
   });
 
-  it('a los 12 meses una venta pierde nombre y teléfono, pero conserva montos e ítems', async () => {
+  it('a los 12 meses una venta pierde nombre, teléfono y datos del cliente, pero conserva montos e ítems', async () => {
     const vieja = await venta(pasado(DIAS_RETENCION_DATOS_CLIENTE));
     const nueva = await venta(reciente(DIAS_RETENCION_DATOS_CLIENTE));
 
@@ -65,9 +67,20 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     const [trasVieja, trasNueva] = await Promise.all(
       [vieja.id, nueva.id].map((id) => prisma.venta.findUniqueOrThrow({ where: { id }, include: { items: true } })),
     );
-    expect(trasVieja).toMatchObject({ nombreCliente: null, telefonoCliente: null, totalCentavos: 1_000_000, estado: 'pagada' });
+    expect(trasVieja).toMatchObject({
+      nombreCliente: null,
+      telefonoCliente: null,
+      datosCliente: null,
+      entrega: 'envio',
+      totalCentavos: 1_000_000,
+      estado: 'pagada',
+    });
     expect(trasVieja.items).toHaveLength(1);
-    expect(trasNueva).toMatchObject({ nombreCliente: 'Ana', telefonoCliente: '5491122334455' });
+    expect(trasNueva).toMatchObject({
+      nombreCliente: 'Ana',
+      telefonoCliente: '5491122334455',
+      datosCliente: [{ etiqueta: 'Dirección', valor: 'Corrientes 1234' }],
+    });
   });
 
   it('borra los avisos leídos a los 90 días y los no leídos a los 12 meses', async () => {

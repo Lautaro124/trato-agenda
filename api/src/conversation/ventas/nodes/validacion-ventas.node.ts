@@ -6,6 +6,7 @@
  */
 import { ToolMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
+import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
 import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
@@ -81,7 +82,16 @@ export function validarLlamadaVentas(state: EstadoVentasValue, llamada: Operacio
     const items = (args.items ?? []) as ItemPedido[];
     const problema = problemaDeForma(items);
     if (problema) return { ok: false, motivo: problema };
-    return { ok: true, operacion: { ...llamada, args: { ...args, nombreCliente, items: agruparItems(items) } } };
+    const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args);
+    if (!datos.ok) return { ok: false, motivo: datos.motivo };
+    return {
+      ok: true,
+      operacion: {
+        ...llamada,
+        // Lo que sigue al nodo catalogo es lo ya normalizado, no lo que mandó el modelo.
+        args: { ...args, nombreCliente, items: agruparItems(items), entrega: datos.entrega, datosCliente: datos.datos },
+      },
+    };
   }
 
   return { ok: true, operacion: { ...llamada, args } };

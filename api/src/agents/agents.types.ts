@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -12,6 +13,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import type { Agent } from '../generated/prisma/client.js';
@@ -24,6 +26,15 @@ import {
   type TipoUso,
 } from './agent-catalog.js';
 import { PRECIO_MAX } from './precio.js';
+import {
+  LARGO_MAX_ETIQUETA,
+  LARGO_MIN_ETIQUETA,
+  leerConfigDatosCliente,
+  MAX_CAMPOS,
+  TIPOS_CAMPO,
+  type CampoCliente,
+  type TipoCampo,
+} from '../comercio/datos-cliente.rules.js';
 
 /** "HH:MM" en formato 24hs. */
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -79,6 +90,22 @@ export class GenerateAgentDto {
   nombreBot!: string;
 }
 
+/** Un dato que el asistente de ventas le pide al cliente (datos-cliente.rules.ts). */
+export class CampoClienteDto {
+  @IsIn(TIPOS_CAMPO)
+  tipo!: TipoCampo;
+
+  /** Sólo para los personalizados: la de los estándar es fija. */
+  @ValidateIf((campo: CampoClienteDto) => campo.tipo === 'personalizado')
+  @IsString()
+  @MinLength(LARGO_MIN_ETIQUETA)
+  @MaxLength(LARGO_MAX_ETIQUETA)
+  etiqueta?: string;
+
+  @IsBoolean()
+  obligatorio!: boolean;
+}
+
 /** Body de `POST /agents/generate-ventas`: el onboarding del asistente de ventas. */
 export class GenerarAgenteVentasDto {
   @IsString()
@@ -90,6 +117,30 @@ export class GenerarAgenteVentasDto {
   @MinLength(2)
   @MaxLength(40)
   nombreBot!: string;
+
+  /** Paso opcional del onboarding: sin esto el asistente sólo pide el nombre. */
+  @IsOptional()
+  @IsBoolean()
+  haceEnvios?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_CAMPOS)
+  @ValidateNested({ each: true })
+  @Type(() => CampoClienteDto)
+  datosCliente?: CampoClienteDto[];
+}
+
+/** Body de `PUT /agents/me/datos-cliente`: reemplaza la configuración entera. */
+export class ActualizarDatosClienteDto {
+  @IsBoolean()
+  haceEnvios!: boolean;
+
+  @IsArray()
+  @ArrayMaxSize(MAX_CAMPOS)
+  @ValidateNested({ each: true })
+  @Type(() => CampoClienteDto)
+  datosCliente!: CampoClienteDto[];
 }
 
 /** Body de `PUT /agents/me/tipos-evento`: reemplaza la lista entera de tipos de turno. */
@@ -116,7 +167,8 @@ export type AgentPublico = Pick<
   | 'allowedActions'
   | 'createdAt'
   | 'updatedAt'
-> & { tiposEvento: TipoEvento[]; tipoAsistente: TipoAsistente };
+  | 'haceEnvios'
+> & { tiposEvento: TipoEvento[]; tipoAsistente: TipoAsistente; datosCliente: CampoCliente[] };
 
 export function aAgentPublico(agent: Agent): AgentPublico {
   return {
@@ -130,6 +182,8 @@ export function aAgentPublico(agent: Agent): AgentPublico {
     horaDesde: agent.horaDesde,
     horaHasta: agent.horaHasta,
     tiposEvento: leerTiposEvento(agent),
+    haceEnvios: agent.haceEnvios,
+    datosCliente: leerConfigDatosCliente(agent).campos,
     allowedActions: agent.allowedActions,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,

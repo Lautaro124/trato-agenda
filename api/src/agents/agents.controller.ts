@@ -5,6 +5,7 @@ import type { User } from '../generated/prisma/client.js';
 import { AgentsService } from './agents.service.js';
 import {
   aAgentPublico,
+  ActualizarDatosClienteDto,
   ActualizarTiposEventoDto,
   GenerarAgenteVentasDto,
   GenerateAgentDto,
@@ -43,6 +44,16 @@ export class AgentsController {
     @Body() dto: ActualizarTiposEventoDto,
   ): Promise<AgentPublico> {
     const agent = await this.agentsService.actualizarTiposEvento(user.id, dto.tiposEvento);
+    return aAgentPublico(agent);
+  }
+
+  /** Qué datos le pide el asistente de ventas al cliente (envío, DNI, campos propios). */
+  @Put('me/datos-cliente')
+  async actualizarDatosCliente(
+    @CurrentUser() user: User,
+    @Body() dto: ActualizarDatosClienteDto,
+  ): Promise<AgentPublico> {
+    const agent = await this.agentsService.actualizarDatosCliente(user.id, dto);
     return aAgentPublico(agent);
   }
 }

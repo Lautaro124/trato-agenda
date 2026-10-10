@@ -12,6 +12,14 @@ import {
   type PagoMp,
 } from '../subscription/mercadopago.client.js';
 import { describirStock, hayStock, stockBajo } from './catalogo.rules.js';
+import {
+  LARGO_MAX_ETIQUETA,
+  LARGO_MAX_VALOR,
+  leerEntrega,
+  MAX_CAMPOS,
+  type DatoCliente,
+  type Entrega,
+} from './datos-cliente.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import { reservadasPorVariante } from './reservas.js';
 import {
@@ -26,6 +34,19 @@ import {
   type MedioDePago,
 } from './ventas.rules.js';
 
+/**
+ * La foto de los datos del cliente para `Venta.datosCliente`. Llegan ya
+ * validados por el grafo; los topes se vuelven a aplicar acá porque es lo
+ * último antes de la base. Sin datos, la columna queda en null.
+ */
+function datosParaGuardar(datos: DatoCliente[] | undefined): { datosCliente?: Prisma.InputJsonValue } {
+  const limpios = (datos ?? []).slice(0, MAX_CAMPOS).map((dato) => ({
+    etiqueta: dato.etiqueta.slice(0, LARGO_MAX_ETIQUETA),
+    valor: dato.valor.slice(0, LARGO_MAX_VALOR),
+  }));
+  return limpios.length > 0 ? { datosCliente: limpios } : {};
+}
+
 /** Un motivo de negocio para no crear el pedido, con el texto listo para el modelo o el panel. */
 export class PedidoRechazadoError extends Error {}
 
@@ -38,6 +59,10 @@ export type CrearPedidoInput = {
   nombreCliente: string;
   items: ItemPedido[];
   medioPago: MedioDePago;
+  /** null si el comercio no hace envíos. */
+  entrega?: Entrega | null;
+  /** Lo que el cliente contestó, ya validado contra lo que pide el comercio. */
+  datosCliente?: DatoCliente[];
   /** Pedido del banco de pruebas del Home: real, pero fuera del histórico. */
   dePrueba?: boolean;
   ahora?: Date;
@@ -234,6 +259,8 @@ export class VentasService {
         totalCentavos: renglones.reduce((suma, renglon) => suma + renglon.subtotalCentavos, 0),
         reservaVenceAt: vencimientoDeReserva(input.medioPago, ahora),
         dePrueba: input.dePrueba ?? false,
+        entrega: leerEntrega(input.entrega),
+        ...datosParaGuardar(input.datosCliente),
         items: { create: renglones },
       },
       include: { items: true },

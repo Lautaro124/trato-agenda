@@ -10,6 +10,7 @@ import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
+import { leerConfigDatosCliente, reglaDeDatosCliente } from '../../comercio/datos-cliente.rules.js';
 import { detalleDeRenglones, estadoVisible, fechaYHora, MAX_PEDIDOS_PENDIENTES } from '../../comercio/ventas.rules.js';
 import type { Agent, ItemVenta, Venta } from '../../generated/prisma/client.js';
 import { TIMEZONE } from '../graph/agenda-rules.js';
@@ -31,6 +32,8 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
   const titular = agent.nombreTitular || 'este negocio';
   const cierre = preguntaDeCierre(mpConectado);
   const entrega = mpConectado ? 'mandale el link de pago' : 'decile que quedó anotado';
+  const datos = leerConfigDatosCliente(agent);
+  const reglaDatos = reglaDeDatosCliente(datos, titular);
   return (
     `Reglas de venta de ${titular} (no las rompas):\n` +
     `- Sos ${agent.nombreBot}, el asistente de ventas de ${titular}. Saludás y decís tu nombre sólo en tu ` +
@@ -47,8 +50,8 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `que devolvió la búsqueda. Nunca prometas cuándo vuelve a entrar.\n` +
     `- Si la búsqueda no encuentra lo que pide, decile que no lo tenés. No ofrezcas productos que no ` +
     `aparecieron en los resultados.\n` +
-    `- Si el cliente necesita algo del negocio que vos no sabés (un producto que no está, envíos, formas de ` +
-    `pago, un reclamo), avisale al dueño con derivar_consulta y decile que ${titular} le responde por este chat.\n` +
+    `- Si el cliente necesita algo del negocio que vos no sabés (un producto que no está, ` +
+    `${datos.haceEnvios ? 'costos o plazos de envío' : 'envíos'}, formas de pago, un reclamo), avisale al dueño con derivar_consulta y decile que ${titular} le responde por este chat.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
     `- Para vender: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, variante, ` +
     `cantidad y precio) y preguntale "${cierre}". No le pidas que confirme el pedido ni le repitas el resumen ` +
@@ -58,6 +61,7 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `nombre, preguntáselo en ese momento, antes de crear el pedido.\n` +
     `- El link de pago mandalo tal cual te lo devuelve crear_pedido, sin acortarlo ni cambiarlo, y avisale ` +
     `hasta qué hora vale.\n` +
+    (reglaDatos ? `${reglaDatos}\n` : '') +
     `- La entrega, el envío y los retiros los coordina ${titular} directamente: no prometas plazos ni costos.`
   );
 }
@@ -98,7 +102,12 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
   const titular = agent.nombreTitular || 'el negocio';
   const base =
     `Pedido creado para ${JSON.stringify(venta.nombreCliente ?? '')}: ${detalleDeRenglones(venta.items)}. ` +
-    `Total ${formatearCentavos(venta.totalCentavos)}.`;
+    `Total ${formatearCentavos(venta.totalCentavos)}.` +
+    (venta.entrega === 'envio'
+      ? ` Es con envío: el costo y el plazo los coordina ${titular}.`
+      : venta.entrega === 'retiro'
+        ? ` Lo retira: ${titular} le confirma dónde y cuándo.`
+        : '');
   if (venta.linkPago) {
     return (
       `${base} Link de pago (mandáselo tal cual): ${venta.linkPago} — vale hasta las ` +
@@ -148,7 +157,8 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
     `¿Buscabas algún producto?".\n` +
     (esPropietario
       ? `- Estás hablando con el dueño: podés darle el stock exacto con consultar_stock.\n`
-      : `- Los datos de ${titular} que no salen del catálogo —dirección, horarios, formas de pago, envíos— no ` +
+      : `- Los datos de ${titular} que no salen del catálogo —dirección, horarios, formas de pago, ` +
+        `${agent.haceEnvios ? 'costos y plazos de envío' : 'envíos'}— no ` +
         `los sabés: nunca los inventes; avisale al dueño con derivar_consulta y decile al cliente que ${titular} ` +
         `le responde.\n`) +
     `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`

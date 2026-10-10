@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ErrorDeApi, formatearCentavos } from "@/lib/productos";
@@ -94,6 +94,19 @@ export function DetalleVenta({
         <dl className="mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
           <dt className="text-muted">Cobro</dt>
           <dd className="text-ink">{venta.medioPago === "mercadopago" ? "Link de Mercado Pago" : "A coordinar con vos"}</dd>
+          {venta.entrega && (
+            <>
+              <dt className="text-muted">Entrega</dt>
+              <dd className="text-ink">{venta.entrega === "envio" ? "Con envío" : "Lo retira"}</dd>
+            </>
+          )}
+          {/* `?? []`: una venta cacheada de antes de este campo no lo trae. */}
+          {(venta.datosCliente ?? []).map((dato, i) => (
+            <Fragment key={`${dato.etiqueta}-${i}`}>
+              <dt className="text-muted">{dato.etiqueta}</dt>
+              <dd className="break-words text-ink">{dato.valor}</dd>
+            </Fragment>
+          ))}
           {venta.telefonoCliente && (
             <>
               <dt className="text-muted">WhatsApp</dt>

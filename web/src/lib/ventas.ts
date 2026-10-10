@@ -21,6 +21,10 @@ export type Venta = {
   dePrueba: boolean;
   createdAt: string;
   mpPaymentId: string | null;
+  /** null si el comercio no hace envíos. */
+  entrega: "envio" | "retiro" | null;
+  /** Lo que el cliente contestó (envío, DNI, datos propios del comercio). */
+  datosCliente: Array<{ etiqueta: string; valor: string }>;
   items: Array<{
     codigo: string;
     nombreProducto: string;

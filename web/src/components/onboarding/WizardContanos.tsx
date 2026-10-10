@@ -17,6 +17,7 @@ import {
   TextoRango,
   textoFinal,
 } from "./controles";
+import { EditorDatosCliente } from "./DatosCliente";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
 import { VistaPreviaChat } from "./VistaPreviaChat";
 
@@ -281,6 +282,18 @@ function ContenidoDelPaso({
         </>
       );
 
+    case "datos":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Le pedís datos a tus clientes?"
+            bajada="Opcional. Si hacés envíos o necesitás algo más que el nombre (un email, el DNI), el asistente se lo pide antes de cerrar el pedido. Lo podés saltear y cambiar después desde Cuenta."
+          />
+          <EditorDatosCliente datos={ob.datosCliente} />
+        </>
+      );
+
     case "asistente":
       return (
         <>
@@ -317,7 +330,8 @@ function ContenidoDelPaso({
 
 /** El texto al lado del botón principal: cuánto falta, cuántos tipos, o que se puede cambiar. */
 function textoDelPie(ob: Onboarding): string | null {
-  if (ob.pasoId === "tipo") return ob.esVentas ? "3 pasos · menos de 1 minuto" : "5 pasos · unos 2 minutos";
+  if (ob.pasoId === "tipo") return ob.esVentas ? "4 pasos · menos de 1 minuto" : "5 pasos · unos 2 minutos";
+  if (ob.pasoId === "datos") return "Opcional";
   if (ob.pasoId === "turnos") {
     const n = ob.seleccionados.length;
     return `${n} ${n === 1 ? "tipo elegido" : "tipos elegidos"}`;

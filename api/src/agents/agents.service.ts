@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { PLANTILLA_VERSION, construirConfiguracion } from './agent-template.js';
 import { PLANTILLA_VENTAS_VERSION, construirConfiguracionVentas } from './agent-template-ventas.js';
 import { tipoAsistenteDe, type TipoAsistente, type TipoTitular, type TipoUso } from './agent-catalog.js';
-import type { GenerarAgenteVentasDto, GenerateAgentDto, TipoEventoDto } from './agents.types.js';
+import type { ActualizarDatosClienteDto, GenerarAgenteVentasDto, GenerateAgentDto, TipoEventoDto } from './agents.types.js';
+import { normalizarCampos } from '../comercio/datos-cliente.rules.js';
 
 function listarTiposEvento(dto: GenerateAgentDto): string {
   return dto.tiposEvento
@@ -103,6 +104,8 @@ export class AgentsService {
       nombreTitular,
       nombreBot,
       tiposEvento: [] as unknown as Prisma.InputJsonValue,
+      haceEnvios: dto.haceEnvios ?? false,
+      datosCliente: normalizarCampos(dto.datosCliente ?? []) as unknown as Prisma.InputJsonValue,
       systemPrompt: config.systemPrompt,
       allowedActions: config.allowedActions,
       model: null,
@@ -130,6 +133,26 @@ export class AgentsService {
           : 'Tu asistente ya está configurado para vender.',
       );
     }
+  }
+
+  /**
+   * Qué datos le pide el asistente de ventas al cliente. Sólo toca esas dos
+   * columnas: las reglas que los piden viven en código (reglas-ventas.ts) y
+   * se arman desde la fila en cada mensaje, así que no hay prompt que regenerar.
+   */
+  async actualizarDatosCliente(userId: string, dto: ActualizarDatosClienteDto): Promise<Agent> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+    if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
+    if (tipoAsistenteDe(agent) !== 'ventas') {
+      throw new ConflictException('Tu asistente agenda turnos: no toma pedidos.');
+    }
+    return this.prisma.agent.update({
+      where: { userId },
+      data: {
+        haceEnvios: dto.haceEnvios,
+        datosCliente: normalizarCampos(dto.datosCliente) as unknown as Prisma.InputJsonValue,
+      },
+    });
   }
 
   /**

@@ -96,8 +96,11 @@ function llamadaATool(model, name, args) {
 // del último mensaje del cliente:
 //   - "quiero …" / "lo compro" (con "soy <Nombre>") → crear_pedido con la
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
+//     si las reglas dicen que el negocio hace envíos, "con envío" / "lo retiro"
+//     van en `entrega`, y los pares "Etiqueta: valor" separados por ";" van en
+//     `datosCliente`;
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
-//   - "envío" / "envían" → derivar_consulta (el asistente no sabe de envíos);
+//   - "envío" / "envían" fuera de una compra → derivar_consulta;
 //   - "qué tenés" / "qué productos" / "qué ofrecés" → ver_catalogo; "mostrame
 //     <categoría>" → ver_catalogo con esa categoría;
 //   - sólo con las herramientas del dueño (banco de pruebas del Home):
@@ -157,7 +160,8 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (ultimoUsuario.includes('cancel')) {
     return responder(res, 200, llamadaATool(body.model, 'cancelar_pedido', {}));
   }
-  if (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian')) {
+  const esCompra = ultimoUsuario.includes('quiero') || ultimoUsuario.includes('lo compro');
+  if (!esCompra && (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian'))) {
     return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: textoDe(mensajes[indiceUsuario]) }));
   }
   const delDueno = (body.tools ?? []).some((tool) => tool.function?.name === 'resumen_ventas');
@@ -177,17 +181,24 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
     return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));
   }
-  if (ultimoUsuario.includes('quiero') || ultimoUsuario.includes('lo compro')) {
-    const nombre = textoDe(mensajes[indiceUsuario]).match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
+  if (esCompra) {
+    const texto = textoDe(mensajes[indiceUsuario]);
+    const nombre = texto.match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
     if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
     const varianteId = varianteDeLaUltimaBusqueda(mensajes);
     if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
     const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
-    return responder(
-      res,
-      200,
-      llamadaATool(body.model, 'crear_pedido', { nombreCliente: nombre, items: [{ varianteId, cantidad }] }),
-    );
+    const pedido = { nombreCliente: nombre, items: [{ varianteId, cantidad }] };
+    if (sistema.includes(' hace envíos.')) {
+      if (ultimoUsuario.includes('con envio')) pedido.entrega = 'envio';
+      else if (ultimoUsuario.includes('retiro')) pedido.entrega = 'retiro';
+    }
+    const datosCliente = [...texto.matchAll(/([^;:]+):\s*([^;]+)/g)].map(([, campo, valor]) => ({
+      campo: campo.trim(),
+      valor: valor.trim(),
+    }));
+    if (datosCliente.length > 0) pedido.datosCliente = datosCliente;
+    return responder(res, 200, llamadaATool(body.model, 'crear_pedido', pedido));
   }
   return responder(res, 200, llamadaATool(body.model, 'buscar_productos', { consulta: textoDe(mensajes[indiceUsuario]) }));
 }

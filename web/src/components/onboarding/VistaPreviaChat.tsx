@@ -49,6 +49,28 @@ function EjemploDelTipo({ ventas }: { ventas: boolean }) {
   );
 }
 
+/** Cómo pide el asistente la entrega y los datos que se tildaron en el paso "datos". */
+function PedidoDeDatos({ ob }: { ob: Onboarding }) {
+  const { haceEnvios, campos } = ob.datosCliente;
+  if (!haceEnvios && campos.length === 0) return null;
+  // "código postal", pero "DNI" sigue en mayúsculas.
+  const lista = campos
+    .map(({ etiqueta }) => (etiqueta === etiqueta.toUpperCase() ? etiqueta : etiqueta[0].toLowerCase() + etiqueta.slice(1)))
+    .join(", ");
+  return (
+    <>
+      <DelCliente>Dale, uno. Soy Martina</DelCliente>
+      {haceEnvios && (
+        <>
+          <DelAsistente>Perfecto, Martina. ¿Te lo envío o lo retirás?</DelAsistente>
+          <DelCliente>Enviámelo</DelCliente>
+        </>
+      )}
+      {campos.length > 0 && <DelAsistente>Para el pedido pasame: {lista}.</DelAsistente>}
+    </>
+  );
+}
+
 /**
  * El chat de ejemplo del wizard: cómo respondería el asistente con lo que se
  * viene cargando. Lo que muestra depende del tipo y del paso, así cada dato
@@ -83,6 +105,7 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
             <DelAsistente>
               {ob.presentacion} Sí, tengo el mate de calabaza curado a $ 8.000. ¿Te lo reservo?
             </DelAsistente>
+            {paso !== "negocio" && <PedidoDeDatos ob={ob} />}
           </>
         ) : (
           <>

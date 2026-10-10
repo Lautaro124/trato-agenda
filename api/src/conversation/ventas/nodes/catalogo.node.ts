@@ -7,6 +7,7 @@ import { Logger } from '@nestjs/common';
 import type { BusquedaService } from '../../../comercio/busqueda.service.js';
 import type { HistoricoVentasService } from '../../../comercio/historico.service.js';
 import { RangoInvalidoError } from '../../../comercio/historico.rules.js';
+import { leerDatosDeVenta, leerEntrega } from '../../../comercio/datos-cliente.rules.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
@@ -81,6 +82,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
             nombreCliente: String(args.nombreCliente),
             items: args.items as ItemPedido[],
             medioPago,
+            entrega: leerEntrega(args.entrega),
+            datosCliente: leerDatosDeVenta(args.datosCliente),
             // El banco de pruebas del Home (quien habla es el dueño): pedido real, fuera del histórico.
             dePrueba: state.esPropietario,
           });
