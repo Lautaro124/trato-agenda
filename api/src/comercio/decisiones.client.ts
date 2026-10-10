@@ -76,7 +76,7 @@ export class DecisionesClient {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://github.com/trato-agenda',
-          'X-Title': 'Trato Agenda',
+          'X-Title': 'Trato',
         },
         body: JSON.stringify({
           model: this.config.get('OPENROUTER_DECISIONS_MODEL', { infer: true }),

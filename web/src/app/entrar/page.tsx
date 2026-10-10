@@ -74,7 +74,7 @@ export default function EntrarPage() {
           </ul>
         </div>
 
-        <span className="text-xs text-white/75">Trato Agenda · 2026</span>
+        <span className="text-xs text-white/75">Trato · 2026</span>
       </section>
 
       {/* Panel de ingreso */}
@@ -113,7 +113,7 @@ export default function EntrarPage() {
 
           <div className="mt-6 rounded-md bg-sunken p-4">
             <p className="text-[12.5px] leading-[1.6] text-ink-secondary">
-              Con WhatsApp, tus turnos quedan en Trato Agenda. Con Google, van a tu Google
+              Con WhatsApp, tus turnos quedan en la agenda de Trato. Con Google, van a tu Google
               Calendar y después vinculás WhatsApp con un código QR.
             </p>
           </div>

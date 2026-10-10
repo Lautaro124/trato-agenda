@@ -52,24 +52,28 @@ export const ESQUEMAS_ACCIONES: Record<AccionId, EsquemaHerramienta> = {
     description:
       'Consulta si un rango horario está libre en el calendario antes de ofrecérselo al cliente. ' +
       'La disponibilidad de los próximos días ya te la paso en el contexto: usá esta herramienta ' +
-      'sólo para fechas más lejanas o para confirmar antes de agendar.',
+      'sólo para fechas más lejanas.',
     schema: esquemaDisponibilidad,
   },
   crear_turno: {
     name: 'crear_turno',
     description:
-      'Agenda un turno nuevo. Usar sólo después de confirmar disponibilidad, de saber el nombre ' +
-      'de la persona y de que el cliente confirmó el horario.',
+      'Agenda un turno nuevo. Usala apenas el cliente eligió un horario libre y sabés su nombre y el ' +
+      'tipo de turno, sin pedirle que confirme; después avisale que quedó agendado.',
     schema: esquemaCrearTurno,
   },
   cancelar_turno: {
     name: 'cancelar_turno',
-    description: 'Cancela el turno vigente de esta conversación. No recibe parámetros.',
+    description:
+      'Cancela el turno vigente de esta conversación apenas el cliente lo pide, sin pedirle que confirme. ' +
+      'No recibe parámetros.',
     schema: esquemaVacio,
   },
   reprogramar_turno: {
     name: 'reprogramar_turno',
-    description: 'Mueve el turno vigente de esta conversación a un nuevo horario.',
+    description:
+      'Mueve el turno vigente de esta conversación a un nuevo horario libre apenas el cliente lo elige, sin ' +
+      'pedirle que confirme.',
     schema: esquemaReprogramar,
   },
   consultar_turno: {

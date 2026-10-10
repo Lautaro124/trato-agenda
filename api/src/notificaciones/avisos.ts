@@ -123,7 +123,7 @@ export function avisoMercadoPagoDesconectado(): Aviso {
     tipo: 'mercadopago_desconectado',
     titulo: 'Mercado Pago se desconectó',
     cuerpo:
-      'Tu cuenta de Mercado Pago dejó de autorizar a Trato Agenda, así que el asistente ya no manda links de ' +
+      'Tu cuenta de Mercado Pago dejó de autorizar a Trato, así que el asistente ya no manda links de ' +
       'pago: los pedidos quedan para cobrar a mano. Volvé a conectarla desde Cuenta.',
     enlace: '/cuenta',
     clave: 'mercadopago',

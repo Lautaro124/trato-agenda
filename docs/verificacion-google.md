@@ -1,6 +1,6 @@
 # Verificación OAuth de Google
 
-Estado y material para (re)enviar la app **Trato Agenda** (proyecto Cloud
+Estado y material para (re)enviar la app **Trato** (proyecto Cloud
 `turnerowebtrato`) a la verificación de Google.
 
 Google rechazó el primer envío por tres cosas: la política de privacidad no
@@ -28,12 +28,22 @@ Nada de acá es una afirmación de marketing: cada punto tiene su archivo.
 | Scope | Para qué |
 | ----- | -------- |
 | `openid`, `profile`, `email` | Crear la cuenta, reconocer al usuario, mostrar nombre y avatar. |
-| `https://www.googleapis.com/auth/calendar.events` | `events.insert`, `events.patch`, `events.delete`, `events.list` sobre el calendario `primary`. |
-| `https://www.googleapis.com/auth/calendar.freebusy` | `freebusy.query`, la única lectura del calendario en el flujo con clientes. |
+| `https://www.googleapis.com/auth/calendar` | `events.insert`, `events.patch`, `events.delete`, `events.list` sobre el calendario `primary`. `events.list` es también la lectura de disponibilidad del flujo con clientes. |
 
-El envío anterior pedía `https://www.googleapis.com/auth/calendar` completo
-(lectura y escritura de todos los calendarios, ACLs y settings). Se recortó para
-este reenvío.
+Es el único scope sensible cargado en la pantalla de consentimiento de Google
+Cloud, y el código tiene que pedir **exactamente** lo que figura ahí: cuando
+`GOOGLE_SCOPES` pedía `calendar.events` y `calendar.freebusy`, que no estaban
+cargados, Google mostraba la app como no verificada y el login fallaba.
+
+La app no usa nada más allá de los eventos de `primary`: ni ACLs, ni settings,
+ni `calendarList`, ni otros calendarios. La disponibilidad se calcula con
+`events.list` (`CalendarService.freeBusy`, reglas en
+`api/src/calendar/ocupados-google.ts`), no con `freebusy.query`.
+
+**Ojo para la verificación:** técnicamente `calendar.events` alcanza para todo
+lo anterior, y Google suele preguntar por qué no se usa el scope más acotado.
+Si lo objeta, la salida es cargar `calendar.events` en la consola y volver a
+pedir ése en `GOOGLE_SCOPES`, las dos cosas a la vez.
 
 `calendar.app.created` **no** alcanza como alternativa: la disponibilidad tiene
 que contar también los eventos que el titular cargó a mano, y ese scope sólo deja
@@ -45,22 +55,23 @@ Todas contra `calendarId: 'primary'`, en `api/src/calendar/calendar.service.ts`:
 
 | Método | Qué se lee de la respuesta |
 | ------ | -------------------------- |
-| `freebusy.query` | Sólo `busy[].start` y `busy[].end`. |
+| `events.list` (disponibilidad) | Sólo `start`, `end`, `status`, `transparency`, `eventType` y `attendees[].self` / `attendees[].responseStatus` — se piden con `fields`, así que Google no manda nada más. Sirven para descartar cancelados, eventos "Disponible", ubicaciones de trabajo e invitaciones rechazadas. |
 | `events.insert` | Sólo `id`. |
 | `events.patch` | Nada. |
 | `events.delete` | Nada. |
-| `events.list` | `id`, `summary`, `start.dateTime`, `end.dateTime`. |
+| `events.list` (vista `/calendario`) | `id`, `summary`, `start.dateTime`, `end.dateTime`. |
 
-`description`, `attendees`, `location`, `organizer` y `creator` **no se leen en
-ninguna parte del código**. No se llama a `calendarList`, `acl`, `settings`,
+`description`, `location`, `organizer`, `creator` y los emails o nombres de
+`attendees` **no se leen en ninguna parte del código** (de `attendees` sólo se
+pide `self` y `responseStatus`). No se llama a `calendarList`, `acl`, `settings`,
 `oauth2.userinfo` ni a ninguna otra API de Google (nada de Gmail, Drive o
 People).
 
 ### Qué llega al modelo de lenguaje
 
 - En el flujo con clientes de WhatsApp, **ningún contenido de eventos de Google
-  llega al modelo**. La única lectura es `freebusy.query`, que se reduce a
-  `{inicio, fin}` (`calendar.service.ts`) y después se invierte a **huecos
+  llega al modelo**. La única lectura es `events.list` con `fields`
+  acotado a horarios y estado, que se reduce a `{inicio, fin}` (`calendar.service.ts`) y después se invierte a **huecos
   libres** en `api/src/conversation/graph/agenda-rules.ts`
   (`resumirDisponibilidad`). Al prompt entran líneas como
   `lunes 8/9: 09:00-12:05, 13:30-18:00`.
@@ -157,7 +168,7 @@ antes de mandarlo.
 
 > **What the app does**
 >
-> Trato Agenda is a WhatsApp assistant that books appointments into the account
+> Trato is a WhatsApp assistant that books appointments into the account
 > owner's own Google Calendar. The owner signs in with Google, links their
 > WhatsApp number, and from then on the assistant answers their clients'
 > messages, proposes free slots, and creates, moves or cancels the corresponding
@@ -167,21 +178,28 @@ antes de mandarlo.
 >
 > - `openid`, `email`, `profile` — account creation and identification, and
 >   showing the signed-in user their own name and avatar.
-> - `https://www.googleapis.com/auth/calendar.events` — create, move, cancel and
->   list the appointments the assistant agrees with the owner's clients.
+> - `https://www.googleapis.com/auth/calendar` — create, move, cancel and
+>   list the appointments the assistant agrees with the owner's clients, on the
+>   owner's `primary` calendar only.
 >   `calendar.app.created` is insufficient because availability must also account
 >   for events the owner created by hand, which that scope does not expose.
-> - `https://www.googleapis.com/auth/calendar.freebusy` — read busy/free
->   intervals to compute availability.
+>   The same `events.list` call is how we compute availability: we read only
+>   each event's start/end, status, transparency, event type and the owner's
+>   own RSVP, to derive busy intervals.
 >
-> For this resubmission we **narrowed** the request: the previous submission
-> asked for `https://www.googleapis.com/auth/calendar`, and we removed it.
+> We only call `events.insert`, `events.patch`, `events.delete` and
+> `events.list` on the `primary` calendar. We do not access ACLs, calendar
+> settings, the calendar list or any other calendar. If you consider
+> `https://www.googleapis.com/auth/calendar.events` sufficient for this usage,
+> we can switch to it.
 >
 > **Exactly what Calendar data we read**
 >
-> Only `busy[].start` and `busy[].end` from `freebusy.query`, and `id`,
+> For availability, `events.list` with a `fields` mask limited to `start`,
+> `end`, `status`, `transparency`, `eventType` and the owner's own
+> `attendees[].self` / `responseStatus`. For the owner's calendar view, `id`,
 > `summary`, `start` and `end` from `events.list`. We never read event
-> descriptions, attendees, attendee emails, locations, organizers or creators —
+> descriptions, attendee emails or names, locations, organizers or creators —
 > there is no code path that does.
 >
 > **AI/ML disclosure**
@@ -230,7 +248,7 @@ antes de mandarlo.
 >
 > **Limited Use**
 >
-> Trato Agenda's use of information received from Google APIs will adhere to the
+> Trato's use of information received from Google APIs will adhere to the
 > Google API Services User Data Policy, including the Limited Use requirements.
 > The use of raw or derived user data received from Workspace APIs will adhere to
 > the Google User Data Policy, including the Limited Use requirements.
@@ -260,17 +278,24 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
 6. Desde otro teléfono, escribirle al asistente y pedir un turno: que ofrezca
    horarios y confirme.
 7. Abrir el Google Calendar del titular en otra pestaña y mostrar el evento
-   creado — uso de `calendar.events`.
+   creado — uso de `auth/calendar` (`events.insert`).
 8. Pedir por WhatsApp que lo mueva y mostrar el evento movido; pedir que lo
    cancele y mostrar que desapareció.
 9. `/calendario` en la app, listando los eventos del titular — el otro uso de
-   `calendar.events`.
+   `auth/calendar` (`events.list`).
 10. `/cuenta` → escribir `ELIMINAR` → **Eliminar mi cuenta y mis datos**. Después
-    abrir `https://myaccount.google.com/permissions` y mostrar que Trato Agenda
+    abrir `https://myaccount.google.com/permissions` y mostrar que Trato
     **ya no figura**. Es la prueba en video de que la revocación funciona, y es
     lo que más peso tiene.
 
 ## Lo que falta hacer a mano
+
+- [ ] **Renombrar la app a "Trato" en la consola** (*Branding* de la pantalla
+      de consentimiento). Desde el 2026-10-10 la web, la política, los términos
+      y la declaración de Limited Use dicen "Trato" y no "Trato Agenda"; Google
+      compara ese nombre con el de la pantalla de consentimiento y con la
+      homepage, así que tienen que coincidir antes de reenviar. Cambiar el
+      nombre vuelve a pasar por la verificación de marca (unos días).
 
 - [ ] **Opcional, pero mejora la impresión: casilla en el dominio.** El
       contacto publicado en `/privacidad`, `/terminos`, la landing y `/cuenta`
@@ -298,7 +323,7 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
       [`modelo-y-zdr.md`](modelo-y-zdr.md) — **decisión pendiente**. Poner el
       modelo que se elija en el borrador de respuesta de arriba, donde dice
       `<MODELO>`.
-- [ ] **Probar los scopes recortados de punta a punta** (ver abajo).
+- [ ] **Probar los scopes de punta a punta** (ver abajo).
 - [ ] **Grabar y subir el video** como *unlisted* en YouTube.
 - [ ] **Verificar que el nombre del responsable coincida con la consola.** La
       política y los términos declaran a **Raúl Gonzalez, CUIT 20-22390119-1**
@@ -306,18 +331,18 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
       contact* y el titular del proyecto Cloud tienen que ser la misma persona,
       o Google pregunta.
 
-## Cómo probar el recorte de scopes
+## Cómo probar los scopes
 
-Los scopes nuevos hay que ejercitarlos contra Google de verdad, porque la
-documentación no lista de forma concluyente qué scope autoriza `freebusy.query`:
-puede que `calendar.events` ya lo cubra y `calendar.freebusy` sea redundante, o
-que sea al revés.
+Los scopes nuevos hay que ejercitarlos contra Google de verdad. Ya no se usa
+`freebusy.query`: toda lectura es `events.list`, que `auth/calendar` cubre, así
+que un 403 en la disponibilidad apunta a un token viejo, no a un scope que
+falte.
 
-1. Revocar el acceso de Trato Agenda en
+1. Revocar el acceso de Trato en
    `https://myaccount.google.com/permissions`.
 2. Entrar de nuevo (el consentimiento tiene que mostrar los scopes nuevos).
 3. Ejercitar las cinco llamadas: pedir disponibilidad desde el chat de prueba
-   (`freebusy.query`), agendar (`events.insert`), reprogramar (`events.patch`),
+   (`events.list` con `fields` acotado), agendar (`events.insert`), reprogramar (`events.patch`),
    cancelar (`events.delete`) y abrir `/calendario` (`events.list`).
 4. Cualquier `403` con `insufficient permissions` identifica el scope que falta.
    El código ya lo distingue: se traduce a `GoogleReconsentimientoError`
@@ -326,6 +351,7 @@ que sea al revés.
    opaco.
 
 Ojo con las cuentas ya existentes: el refresh token viejo sigue valiendo para los
-scopes viejos, así que **todo usuario que consintió antes tiene que volver a
-entrar**. Al momento de este cambio había un único usuario de prueba, así que no
-hubo que avisar a nadie.
+scopes que se consintieron. Un token con `calendar.events` sigue alcanzando para
+todo lo que hace la app, así que el paso a `auth/calendar` no deja a nadie sin
+servicio; si algún día se pide un scope que el token no cubre, **todo usuario
+que consintió antes tiene que volver a entrar**.

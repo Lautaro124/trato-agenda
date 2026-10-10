@@ -37,13 +37,24 @@ describe('reglasDeAgenda', () => {
   it('deja afuera sábados y domingos', () => {
     expect(reglasDeAgenda(AGENT)).toContain('de lunes a viernes');
   });
+
+  it('agenda, mueve o cancela sin pedir confirmación', () => {
+    const reglas = reglasDeAgenda(AGENT);
+
+    expect(reglas).toContain('No pidas confirmación');
+    expect(reglas).toContain('llamá crear_turno en ese mismo mensaje');
+    expect(reglasDeEstilo()).not.toContain('Confirmá un turno');
+  });
 });
 
 describe('reglasDeEstilo', () => {
-  it('pide mensajes cortos y un pool chico de horarios', () => {
+  it('pide el formato de WhatsApp, emojis acotados y un pool chico de horarios', () => {
     const estilo = reglasDeEstilo();
 
-    expect(estilo).toContain('una o dos frases cortas');
+    expect(estilo).toContain('formato de WhatsApp, nunca markdown');
+    expect(estilo).toContain('una por línea empezando con "* "');
+    expect(estilo).toContain('como mucho 2 por mensaje');
+    expect(estilo).not.toContain('Nada de markdown, viñetas');
     expect(estilo).toContain('más de 3 horarios');
     expect(estilo).toContain('¿preferís por la mañana o por la tarde?');
     expect(estilo).toContain('libre entero');
@@ -51,6 +62,14 @@ describe('reglasDeEstilo', () => {
 
   it('saluda y se presenta una sola vez por charla', () => {
     expect(reglasDeEstilo()).toContain('Saludá y decí tu nombre sólo en tu primer mensaje');
+  });
+
+  it('confirma en una frase natural, sin el formato fijo con un emoji por renglón', () => {
+    const estilo = reglasDeEstilo();
+
+    expect(estilo).not.toContain('Te agendé:');
+    expect(estilo).not.toContain('📅 {día}');
+    expect(estilo).toContain('variá las palabras');
   });
 });
 

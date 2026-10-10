@@ -48,7 +48,7 @@ export const llmProvider = {
         fetch: fetchQueRechazaRespuestasVacias(),
         defaultHeaders: {
           'HTTP-Referer': 'https://github.com/trato-agenda',
-          'X-Title': 'Trato Agenda',
+          'X-Title': 'Trato',
         },
       },
     }),

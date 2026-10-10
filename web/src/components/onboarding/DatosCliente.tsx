@@ -136,10 +136,21 @@ function FilaCampo({
   );
 }
 
-export function EditorDatosCliente({ datos }: { datos: DatosClienteState }) {
-  const explicacion = datos.haceEnvios
-    ? "Antes de cerrar el pedido, el asistente pregunta si lo quiere con envío o si lo retira. Los datos tildados los pide sólo si es con envío."
-    : "Si tildás algún dato, el asistente se lo pide al cliente en cada pedido, antes de cerrarlo.";
+/**
+ * `puedeRetirar`: lo que dice el paso "Tu local". Sin saberlo (en /cuenta, que
+ * edita el local en otra sección) la explicación cubre los dos casos.
+ */
+export function EditorDatosCliente({ datos, puedeRetirar }: { datos: DatosClienteState; puedeRetirar?: boolean }) {
+  const conRetiro =
+    "Si el cliente puede retirar en tu local, el asistente le pregunta primero si lo quiere con envío o si lo retira, y los datos tildados los pide sólo si es con envío.";
+  const sinRetiro = "Como no hay retiro en el local, todos los pedidos van con envío: el asistente pide los datos tildados siempre.";
+  const explicacion = !datos.haceEnvios
+    ? "Si tildás algún dato, el asistente se lo pide al cliente en cada pedido, antes de cerrarlo."
+    : puedeRetirar === undefined
+      ? `${conRetiro} Si no hay retiro, los pide siempre.`
+      : puedeRetirar
+        ? conRetiro
+        : sinRetiro;
   return (
     <div className="flex max-w-[560px] flex-col gap-5">
       <div>

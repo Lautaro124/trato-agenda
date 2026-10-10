@@ -1,11 +1,14 @@
 import { AIMessage, ToolMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
 import { mensajesDesdeFilas } from './historial.js';
+import { recibidoEn } from './ventana-historial.js';
+
+const GUARDADO = new Date('2026-09-30T12:00:00Z');
 
 describe('mensajesDesdeFilas', () => {
   it('convierte los tres roles guardados', () => {
     const mensajes = mensajesDesdeFilas([
-      { role: 'user', content: { content: 'hola' } },
+      { role: 'user', content: { content: 'hola' }, createdAt: GUARDADO },
       {
         role: 'assistant',
         content: {
@@ -22,6 +25,12 @@ describe('mensajesDesdeFilas', () => {
     expect(mensajes.map((mensaje) => mensaje.getType())).toEqual(['human', 'ai', 'tool', 'ai']);
     expect((mensajes[1] as AIMessage).tool_calls?.[0]?.name).toBe('consultar_turno');
     expect((mensajes[2] as ToolMessage).tool_call_id).toBe('call-1');
+  });
+
+  it('marca los mensajes del cliente con la hora en que se guardaron', () => {
+    const [mensaje] = mensajesDesdeFilas([{ role: 'user', content: { content: 'hola' }, createdAt: GUARDADO }] as never);
+
+    expect(recibidoEn(mensaje)).toEqual(GUARDADO);
   });
 
   it('descarta tool calls sin su resultado y resultados sin su tool call', () => {

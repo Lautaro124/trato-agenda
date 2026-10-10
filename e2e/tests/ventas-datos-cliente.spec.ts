@@ -23,6 +23,9 @@ test.describe('datos que el asistente de ventas le pide al cliente', () => {
     await elegirAsistente(page, 'ventas');
     await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(`Mates E2E ${sufijo()}`);
     await botonContinuar(page).click();
+    // "Tu local": sin local, todo pedido va con envío.
+    await expect(visible(page.getByRole('radio', { name: 'No, vendo sólo online' }))).toHaveAttribute('aria-checked', 'true');
+    await botonContinuar(page).click();
 
     await page.getByRole('radio', { name: 'Sí, hago envíos' }).click();
     await page.getByRole('button', { name: 'Código postal', exact: true }).click();
@@ -32,8 +35,9 @@ test.describe('datos que el asistente de ventas le pide al cliente', () => {
     await page.getByRole('button', { name: 'Provincia obligatorio' }).click();
     await page.getByLabel('Nuevo dato del cliente').fill('Entre calles');
     await page.getByRole('button', { name: 'Agregar', exact: true }).click();
-    // La vista previa muestra cómo los pide.
-    await expect(visible(page.getByText('¿Te lo envío o lo retirás?', { exact: false }))).toBeVisible();
+    // La vista previa muestra cómo los pide (sin retiro, no pregunta envío o retiro).
+    await expect(visible(page.getByText('Para el pedido pasame: código postal, dirección, provincia, entre calles.'))).toBeVisible();
+    await expect(page.getByText('¿Te lo envío o lo retirás?', { exact: false })).toHaveCount(0);
     await botonContinuar(page).click();
 
     await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
@@ -65,6 +69,8 @@ test.describe('datos que el asistente de ventas le pide al cliente', () => {
   test('con envío, el pedido guarda los datos y el dueño los ve en Ventas', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request, {
+      // Con retiro en el local, el cliente elige entre envío y retiro.
+      local: { tieneLocal: true, horarios: [], retiroEnLocal: true },
       haceEnvios: true,
       datosCliente: [
         { tipo: 'codigoPostal', obligatorio: true },

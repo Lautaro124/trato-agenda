@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { mensajePropio } from '../agents/mensajes.rules.js';
 import type { Env } from '../config/env.js';
 import type { ItemVenta, Prisma, Venta } from '../generated/prisma/client.js';
 import { avisoMercadoPagoDesconectado, avisoPedidoManual, avisoStock, avisoVentaPagada } from '../notificaciones/avisos.js';
@@ -21,9 +22,12 @@ import {
   type Entrega,
 } from './datos-cliente.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
+import { mejorDescuento } from './descuentos.rules.js';
+import { descuentosActivos } from './descuentos.types.js';
 import { reservadasPorVariante } from './reservas.js';
 import {
   agruparItems,
+  detalleDeRenglones,
   MAX_PEDIDOS_PENDIENTES,
   mensajePagoAprobado,
   pagoSaldaVenta,
@@ -96,6 +100,8 @@ type VarianteBloqueada = {
   activo: boolean;
   codigo: string;
   nombreProducto: string;
+  productoId: string;
+  categoria: string | null;
 };
 
 /** Ventas de Mercado Pago que la conciliación sigue mirando después de vencida la reserva. */
@@ -198,7 +204,7 @@ export class VentasService {
     // Orden fijo de bloqueo (por id): dos pedidos con las mismas variantes no se traban entre sí.
     const variantes = await tx.$queryRaw<VarianteBloqueada[]>`
       SELECT v."id", v."sku", v."nombre", v."precioCentavos", v."stock", v."disponible", v."activo",
-             p."codigo", p."nombre" AS "nombreProducto"
+             p."codigo", p."nombre" AS "nombreProducto", p."id" AS "productoId", p."categoria"
       FROM "Variante" v JOIN "Producto" p ON p."id" = v."productoId"
       WHERE v."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo" AND v."activo"
       ORDER BY v."id"
@@ -235,16 +241,34 @@ export class VentasService {
       }
     }
 
+    // El precio sale siempre de acá, con el descuento que esté vigente al
+    // reservar: el modelo sólo manda variantes y cantidades. Leídos en la misma
+    // transacción para que el total sea el que se le cobra.
+    const descuentos = await descuentosActivos(
+      tx,
+      input.userId,
+      variantes.map((variante) => variante.productoId),
+    );
     const renglones = items.map((item) => {
       const variante = porId.get(item.varianteId) as VarianteBloqueada;
+      const descuento = mejorDescuento(
+        descuentos,
+        { id: variante.productoId, categoria: variante.categoria },
+        variante.precioCentavos,
+        ahora,
+      );
+      const unitario = descuento?.precioFinalCentavos ?? variante.precioCentavos;
       return {
         varianteId: variante.id,
         codigo: variante.codigo,
         nombreProducto: variante.nombreProducto,
         nombreVariante: variante.nombre,
-        precioUnitarioCentavos: variante.precioCentavos,
+        precioUnitarioCentavos: unitario,
         cantidad: item.cantidad,
-        subtotalCentavos: variante.precioCentavos * item.cantidad,
+        subtotalCentavos: unitario * item.cantidad,
+        precioListaCentavos: variante.precioCentavos,
+        descuentoCentavos: descuento?.descuentoCentavos ?? 0,
+        descuentoEtiqueta: descuento ? [descuento.etiqueta, descuento.nombre].filter(Boolean).join(' · ') : null,
       };
     });
 
@@ -423,13 +447,22 @@ export class VentasService {
     try {
       const [conversation, agent] = await Promise.all([
         this.prisma.conversation.findUnique({ where: { id: venta.conversationId }, select: { remoteJid: true } }),
-        this.prisma.agent.findUnique({ where: { userId: venta.userId }, select: { nombreTitular: true } }),
+        this.prisma.agent.findUnique({ where: { userId: venta.userId }, select: { nombreTitular: true, mensajes: true } }),
       ]);
       if (!conversation) return;
+      const plantilla = agent ? mensajePropio(agent, 'pagoAprobado') : null;
+      const propio = plantilla
+        ? {
+            plantilla,
+            detalle: /\{detalle\}/.test(plantilla)
+              ? detalleDeRenglones(await this.prisma.itemVenta.findMany({ where: { ventaId: venta.id }, orderBy: { id: 'asc' } }))
+              : '',
+          }
+        : null;
       const enviado = await this.notificaciones.avisarAlCliente(
         venta.userId,
         conversation.remoteJid,
-        mensajePagoAprobado(venta, agent?.nombreTitular ?? null),
+        mensajePagoAprobado(venta, agent?.nombreTitular ?? null, propio),
       );
       if (!enviado) this.logger.warn(`No se le pudo avisar al cliente el pago de la venta ${venta.id}.`);
     } catch (error) {

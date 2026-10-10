@@ -1,9 +1,16 @@
-# Trato Agenda
+# Trato
 
-Bot de WhatsApp que gestiona turnos por chat, sobre una agenda propia o sobre
-Google Calendar. La cuenta se crea con Google o sólo escaneando el QR de WhatsApp.
+Atención al cliente por WhatsApp a cargo de un asistente de IA que escribe como
+una persona del negocio —espera a que el cliente termine de escribir, marca
+leído, muestra "escribiendo…", parte la respuesta en mensajes cortos y nunca
+niega ser automático si se lo preguntan— y se encarga de la gestión. Tiene dos
+módulos, y cada cuenta elige uno al crearse.
 
-Un comercio puede elegir, en cambio, un **asistente de ventas**: busca en su
+El de **turnos** revisa la agenda y da, mueve y cancela turnos, sobre una agenda
+propia o sobre Google Calendar. La cuenta se crea con Google o sólo escaneando
+el QR de WhatsApp.
+
+El de **ventas** es para un comercio: busca en su
 catálogo (búsqueda híbrida de texto + embeddings en pgvector), informa precio y
 stock, arma el pedido reservando el stock, manda un link de pago de Mercado Pago
 a nombre del comercio (con OAuth) o deja el cobro a coordinar, avisa al dueño en
@@ -90,6 +97,7 @@ Las tres primeras arman a la vez las credenciales del servicio `db` y la
 | `OPENROUTER_EMBEDDINGS_MODEL` | Opcional. Modelo de embeddings del catálogo del asistente de ventas. Por defecto `openai/text-embedding-3-small`, que tiene endpoint ZDR (Azure). Tiene que dar vectores de **1536** dimensiones (la columna `Producto.embedding`): otro tamaño es una migración, y otro modelo obliga a recalibrar `DISTANCIA_MAXIMA` en `busqueda.service.ts`. |
 | `OPENROUTER_DECISIONS_MODEL` | Opcional. Modelo de decisiones con el que el asistente de ventas ordena las categorías (o productos) que le sugiere al cliente cuando pregunta "¿qué tenés?". Por defecto `typesafe/jev-1.13` (Jev, de TypeSafe), que tiene endpoint ZDR. No es un modelo de chat: se llama por la Decisions API de OpenRouter. Si falla o no hay `OPENROUTER_API_KEY`, las sugerencias salen ordenadas por cantidad de productos. |
 | `OPENROUTER_DECISIONS_URL` | Opcional. Endpoint de esa Decisions API. Por defecto `https://openrouter.ai/api/alpha/decisions`; sólo el stack de E2E lo cambia. |
+| `HISTORIAL_IA_VENTANA` | Opcional. Hasta cuánto para atrás ve el modelo el historial de cada chat: un entero seguido de `m`, `h` o `d` (`14d`, `1d`, `2h`, `30m`). Por defecto `14d`. Lo más viejo **no se borra** (sigue en `Message` y en el checkpointer hasta la retención de siempre): sólo deja de mandarse al modelo, junto con el resumen del cliente. En develop conviene algo corto (`2h`, `1d`) para probar. Mal escrita, la API no arranca. |
 
 Sobre el modelo: **toda** llamada a OpenRouter viaja con
 `provider: { data_collection: 'deny', zdr: true }` (`POLITICA_DE_PROVEEDOR` en

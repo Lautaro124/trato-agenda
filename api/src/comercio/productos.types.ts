@@ -15,8 +15,16 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import type { Producto, Variante } from '../generated/prisma/client.js';
+import type { Descuento, Producto, Variante } from '../generated/prisma/client.js';
 import { hashTexto, LARGOS, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
+import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
+import {
+  aDescuentoDeVariante,
+  aDescuentoPublico,
+  DescuentoProductoDto,
+  type DescuentoDeVariante,
+  type DescuentoPublico,
+} from './descuentos.types.js';
 
 export class VarianteDto {
   /** Vacío = se deriva del código del producto y el nombre de la variante. */
@@ -84,6 +92,16 @@ export class GuardarProductoDto {
   @ValidateNested({ each: true })
   @Type(() => VarianteDto)
   variantes!: VarianteDto[];
+
+  /**
+   * El descuento propio del producto. null lo borra; ausente no lo toca (así
+   * un cliente viejo que no lo manda no se lo pisa).
+   */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @ValidateNested()
+  @Type(() => DescuentoProductoDto)
+  descuento?: DescuentoProductoDto | null;
 }
 
 /** Body de `PATCH /productos/variantes/:id`: la edición rápida desde la tabla. */
@@ -152,18 +170,43 @@ export class ListarProductosQuery {
 export type VariantePublica = Pick<
   Variante,
   'id' | 'sku' | 'nombre' | 'precioCentavos' | 'stock' | 'disponible' | 'stockMinimo' | 'activo'
->;
+> & {
+  /** Lo que paga hoy el cliente: `precioCentavos` menos el mejor descuento vigente. */
+  precioFinalCentavos: number;
+  descuento: DescuentoDeVariante | null;
+};
 
 export type ProductoPublico = Pick<
   Producto,
   'id' | 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'activo' | 'updatedAt'
 > & {
   variantes: VariantePublica[];
+  /** El descuento propio del producto (el del formulario), vigente o no. */
+  descuento: DescuentoPublico | null;
   /** true cuando el embedding está al día: el asistente ya lo encuentra por significado. */
   indexado: boolean;
+  /** Cuándo se subió la foto (null = sin foto). La web la usa también para no mostrar una cacheada vieja. */
+  imagenActualizada: Date | null;
 };
 
-export function aProductoPublico(producto: Producto & { variantes: Variante[] }): ProductoPublico {
+/**
+ * `promociones` son las promos de catálogo y de categoría de la cuenta (las
+ * de `descuentosActivos`): con ellas y el descuento propio se calcula el
+ * precio final de cada variante.
+ */
+export function aProductoPublico(
+  producto: Producto & {
+    variantes: Variante[];
+    descuento?: Descuento | null;
+    imagen?: { updatedAt: Date } | null;
+  },
+  promociones: DescuentoParaAplicar[] = [],
+  ahora: Date = new Date(),
+): ProductoPublico {
+  const candidatos = [
+    ...(producto.descuento ? [producto.descuento] : []),
+    ...promociones.filter((promocion) => promocion.productoId === null),
+  ];
   return {
     id: producto.id,
     codigo: producto.codigo,
@@ -173,18 +216,25 @@ export function aProductoPublico(producto: Producto & { variantes: Variante[] })
     activo: producto.activo,
     updatedAt: producto.updatedAt,
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),
+    descuento: producto.descuento ? aDescuentoPublico(producto.descuento) : null,
+    imagenActualizada: producto.imagen?.updatedAt ?? null,
     variantes: producto.variantes
       .filter((variante) => variante.activo)
-      .map((variante) => ({
-        id: variante.id,
-        sku: variante.sku,
-        nombre: variante.nombre,
-        precioCentavos: variante.precioCentavos,
-        stock: variante.stock,
-        disponible: variante.disponible,
-        stockMinimo: variante.stockMinimo,
-        activo: variante.activo,
-      })),
+      .map((variante) => {
+        const aplicado = mejorDescuento(candidatos, producto, variante.precioCentavos, ahora);
+        return {
+          id: variante.id,
+          sku: variante.sku,
+          nombre: variante.nombre,
+          precioCentavos: variante.precioCentavos,
+          stock: variante.stock,
+          disponible: variante.disponible,
+          stockMinimo: variante.stockMinimo,
+          activo: variante.activo,
+          precioFinalCentavos: aplicado?.precioFinalCentavos ?? variante.precioCentavos,
+          descuento: aDescuentoDeVariante(aplicado),
+        };
+      }),
   };
 }
 

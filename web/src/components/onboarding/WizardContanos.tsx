@@ -18,6 +18,7 @@ import {
   textoFinal,
 } from "./controles";
 import { EditorDatosCliente } from "./DatosCliente";
+import { ControlesLocal } from "./ControlesLocal";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
 import { VistaPreviaChat } from "./VistaPreviaChat";
 
@@ -282,6 +283,20 @@ function ContenidoDelPaso({
         </>
       );
 
+    case "local":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Tenés local a la calle?"
+            bajada="Con esto el asistente contesta dónde queda, a qué hora abrís y si se puede pasar a retirar. Si vendés sólo online, también se lo aclara a tus clientes."
+          />
+          <div className="max-w-[600px]">
+            <ControlesLocal local={ob.local} />
+          </div>
+        </>
+      );
+
     case "datos":
       return (
         <>
@@ -290,7 +305,7 @@ function ContenidoDelPaso({
             titulo="¿Le pedís datos a tus clientes?"
             bajada="Opcional. Si hacés envíos o necesitás algo más que el nombre (un email, el DNI), el asistente se lo pide antes de cerrar el pedido. Lo podés saltear y cambiar después desde Cuenta."
           />
-          <EditorDatosCliente datos={ob.datosCliente} />
+          <EditorDatosCliente datos={ob.datosCliente} puedeRetirar={ob.local.tieneLocal && ob.local.retiroEnLocal} />
         </>
       );
 
@@ -330,7 +345,7 @@ function ContenidoDelPaso({
 
 /** El texto al lado del botón principal: cuánto falta, cuántos tipos, o que se puede cambiar. */
 function textoDelPie(ob: Onboarding): string | null {
-  if (ob.pasoId === "tipo") return ob.esVentas ? "4 pasos · menos de 1 minuto" : "5 pasos · unos 2 minutos";
+  if (ob.pasoId === "tipo") return ob.esVentas ? "5 pasos · cerca de 2 minutos" : "5 pasos · unos 2 minutos";
   if (ob.pasoId === "datos") return "Opcional";
   if (ob.pasoId === "turnos") {
     const n = ob.seleccionados.length;

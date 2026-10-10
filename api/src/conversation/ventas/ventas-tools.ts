@@ -67,6 +67,12 @@ export const esquemaCrearPedido = z.object({
     .describe('Sólo los datos que las reglas de venta te piden pedirle al cliente, con lo que te dio.'),
 });
 
+export const esquemaEnviarImagen = z.object({
+  productoId: z
+    .string()
+    .describe('El id de producto entre corchetes de una búsqueda de esta charla, de uno que diga "tiene foto".'),
+});
+
 export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
   buscar_productos: {
     name: 'buscar_productos',
@@ -88,8 +94,8 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
   crear_pedido: {
     name: 'crear_pedido',
     description:
-      'Crea el pedido: reserva el stock y devuelve el link de pago (o lo deja anotado para coordinar). Usala sólo ' +
-      'después de repetirle al cliente productos, cantidades y total, y de que confirme por texto. Los precios los ' +
+      'Crea el pedido: reserva el stock y devuelve el link de pago (o lo deja anotado para coordinar). Usala cuando ' +
+      'el cliente ya eligió y te dijo que no quiere nada más, con todo lo que eligió en esta charla. Los precios los ' +
       'pone el sistema: vos sólo mandás variantes y cantidades.',
     schema: esquemaCrearPedido,
   },
@@ -112,6 +118,13 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
     name: 'cancelar_pedido',
     description: 'Cancela el pedido sin pagar más reciente de esta conversación. Usala sólo si el cliente lo pide explícitamente.',
     schema: z.object({}),
+  },
+  enviar_imagen_producto: {
+    name: 'enviar_imagen_producto',
+    description:
+      'Le manda al cliente la foto de un producto, junto con tu respuesta. Usala sólo cuando el cliente pide ver ' +
+      'el producto o una foto, y sólo con productos que la búsqueda marcó "tiene foto". Una llamada por producto.',
+    schema: esquemaEnviarImagen,
   },
 };
 
@@ -156,15 +169,21 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
   },
 };
 
+/** Acciones que llegaron después de los primeros asistentes y vienen con `buscar_productos`. */
+const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = ['ver_catalogo', 'enviar_imagen_producto'];
+
 /**
- * Las acciones de ventas que tiene un agente. `ver_catalogo` llegó después de
- * que se crearan los primeros asistentes, y su `allowedActions` está guardado
- * sin ella: la tiene todo agente que puede buscar en el catálogo, sin migrar
- * ni regenerar nada (lo mismo que los bloques de reglas que viven en código).
+ * Las acciones de ventas que tiene un agente. `ver_catalogo` y
+ * `enviar_imagen_producto` llegaron después de que se crearan los primeros
+ * asistentes, y su `allowedActions` está guardado sin ellas: las tiene todo
+ * agente que puede buscar en el catálogo, sin migrar ni regenerar nada (lo
+ * mismo que los bloques de reglas que viven en código).
  */
 export function accionesDeVentas(allowedActions: string[]): AccionVentasId[] {
   const acciones = allowedActions.filter(esAccionDeVentas);
-  if (acciones.includes('buscar_productos') && !acciones.includes('ver_catalogo')) acciones.push('ver_catalogo');
+  if (acciones.includes('buscar_productos')) {
+    for (const accion of ACCIONES_CON_LA_BUSQUEDA) if (!acciones.includes(accion)) acciones.push(accion);
+  }
   return acciones;
 }
 

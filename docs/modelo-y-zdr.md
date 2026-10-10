@@ -18,7 +18,7 @@ Fecha de los datos: 12 de septiembre de 2026.
 
 ## Contexto
 
-Trato Agenda es un asistente de WhatsApp que agenda turnos en el Google Calendar
+Trato es un asistente de WhatsApp que agenda turnos en el Google Calendar
 del titular. La conversación con el cliente y la generación de la configuración
 del agente corren contra un modelo de lenguaje vía OpenRouter.
 

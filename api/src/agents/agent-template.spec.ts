@@ -69,6 +69,14 @@ describe('construirConfiguracion', () => {
     expect(config.systemPrompt).toContain(JSON.stringify('Tienda Centro'));
   });
 
+  it('no le pide al cliente que confirme el turno: acordado el horario, agenda y avisa', () => {
+    const { systemPrompt } = construirConfiguracion(dto());
+
+    expect(systemPrompt).not.toMatch(/confirmación explícita/);
+    expect(systemPrompt).toContain('No le pidas que confirme');
+    expect(PLANTILLA_VERSION).toBeGreaterThanOrEqual(4);
+  });
+
   it('incluye la franja horaria de atención', () => {
     const config = construirConfiguracion(dto({ horaDesde: '08:30', horaHasta: '20:15' }));
 

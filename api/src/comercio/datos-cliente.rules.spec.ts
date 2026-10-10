@@ -14,14 +14,17 @@ import {
 
 const SIN_ENVIOS: ConfigDatosCliente = {
   haceEnvios: false,
+  puedeRetirar: false,
   campos: [
     { tipo: 'email', etiqueta: 'Email', obligatorio: true },
     { tipo: 'dni', etiqueta: 'DNI', obligatorio: false },
   ],
 };
 
+/** Hace envíos y también se puede retirar en el local: el cliente elige. */
 const CON_ENVIOS: ConfigDatosCliente = {
   haceEnvios: true,
+  puedeRetirar: true,
   campos: [
     { tipo: 'codigoPostal', etiqueta: 'Código postal', obligatorio: true },
     { tipo: 'direccion', etiqueta: 'Dirección', obligatorio: true },
@@ -59,8 +62,11 @@ describe('lectura de las columnas Json', () => {
       leerConfigDatosCliente({
         haceEnvios: true,
         datosCliente: [{ tipo: 'pais', obligatorio: false }, { tipo: 'dni' }, 'basura', null],
+        local: { tieneLocal: true, horarios: [], retiroEnLocal: true },
       }),
-    ).toEqual({ haceEnvios: true, campos: [{ tipo: 'pais', etiqueta: 'País', obligatorio: false }] });
+    ).toEqual({ haceEnvios: true, puedeRetirar: true, campos: [{ tipo: 'pais', etiqueta: 'País', obligatorio: false }] });
+    // Sin local cargado no hay retiro.
+    expect(leerConfigDatosCliente({ haceEnvios: true, datosCliente: [] }).puedeRetirar).toBe(false);
     expect(leerCamposCliente({ no: 'es una lista' })).toEqual([]);
   });
 
@@ -73,9 +79,10 @@ describe('lectura de las columnas Json', () => {
 });
 
 describe('camposAPedir', () => {
-  it('con envíos, sólo si es con envío; sin envíos, siempre', () => {
+  it('si elige entre envío y retiro, sólo con envío; si no elige, siempre', () => {
     expect(camposAPedir(CON_ENVIOS, 'retiro')).toEqual([]);
     expect(camposAPedir(CON_ENVIOS, 'envio')).toHaveLength(3);
+    expect(camposAPedir({ ...CON_ENVIOS, puedeRetirar: false }, null)).toHaveLength(3);
     expect(camposAPedir(SIN_ENVIOS, null)).toHaveLength(2);
   });
 });
@@ -83,13 +90,25 @@ describe('camposAPedir', () => {
 describe('validarDatosPedido', () => {
   it('sin nada configurado no pide ni guarda nada, aunque el modelo mande datos', () => {
     expect(
-      validarDatosPedido({ haceEnvios: false, campos: [] }, { entrega: 'envio', datosCliente: [{ campo: 'DNI', valor: '1' }] }),
+      validarDatosPedido({ haceEnvios: false, puedeRetirar: false, campos: [] }, { entrega: 'envio', datosCliente: [{ campo: 'DNI', valor: '1' }] }),
     ).toEqual({ ok: true, entrega: null, datos: [] });
   });
 
-  it('con envíos exige elegir envío o retiro', () => {
-    const resultado = validarDatosPedido(CON_ENVIOS, {});
-    expect(resultado.ok).toBe(false);
+  it('con envíos y retiro exige elegir; sin retiro, todo pedido es con envío', () => {
+    expect(validarDatosPedido(CON_ENVIOS, {}).ok).toBe(false);
+    const sinRetiro = { ...CON_ENVIOS, puedeRetirar: false };
+    expect(validarDatosPedido(sinRetiro, { entrega: 'retiro' })).toEqual({
+      ok: false,
+      motivo: expect.stringContaining('faltan "Código postal", "Dirección"'),
+    });
+    expect(
+      validarDatosPedido(sinRetiro, {
+        datosCliente: [
+          { campo: 'Código postal', valor: '1414' },
+          { campo: 'Dirección', valor: 'Corrientes 1234' },
+        ],
+      }),
+    ).toMatchObject({ ok: true, entrega: 'envio' });
   });
 
   it('lista los obligatorios que faltan y deja pasar los opcionales vacíos', () => {
@@ -140,7 +159,14 @@ describe('validarDatosPedido', () => {
 
 describe('reglaDeDatosCliente', () => {
   it('no agrega nada si el comercio no pide datos', () => {
-    expect(reglaDeDatosCliente({ haceEnvios: false, campos: [] }, 'Mates del Sur')).toBeNull();
+    expect(reglaDeDatosCliente({ haceEnvios: false, puedeRetirar: true, campos: [] }, 'Mates del Sur')).toBeNull();
+  });
+
+  it('con envíos y sin retiro no pregunta envío o retiro', () => {
+    const regla = reglaDeDatosCliente({ ...CON_ENVIOS, puedeRetirar: false }, 'Mates del Sur') as string;
+    expect(regla).toContain('todos los pedidos van con envío');
+    expect(regla).not.toContain('si lo quiere con envío o si lo retira');
+    expect(regla).toContain('"Código postal" (obligatorio)');
   });
 
   it('con envíos pregunta envío o retiro y lista los datos con la etiqueta del dueño como dato', () => {

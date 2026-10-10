@@ -201,8 +201,13 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(await nombres('tenes bombiya de acro')).toContain('Bombilla de acero');
     });
 
-    it('encuentra por significado lo que no aparece en ningún texto', async () => {
-      expect((await nombres('infusion'))[0]).toBe('Mate de calabaza');
+    it('encuentra por significado lo que no aparece en ningún texto, marcado como parecido', async () => {
+      const [primero] = await busqueda.buscar(dueno.id, 'infusion');
+      expect(primero.nombre).toBe('Mate de calabaza');
+      expect(primero.soloParecido).toBe(true);
+      // Lo que coincide por texto no lleva la marca.
+      const [porCodigo] = await busqueda.buscar(dueno.id, 'MATE-01');
+      expect(porCodigo.soloParecido).toBeUndefined();
     });
 
     it('filtra por categoría', async () => {
@@ -234,6 +239,48 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
 
     it('una consulta vacía no busca nada', async () => {
       expect(await busqueda.buscar(dueno.id, '  ¿? ')).toEqual([]);
+    });
+  });
+
+  describe('descuentos', () => {
+    it('el del formulario se guarda con el producto, la importación no lo pisa y null lo borra', async () => {
+      const dto = {
+        codigo: 'TAZA-DTO',
+        nombre: 'Taza con descuento',
+        variantes: [{ precioCentavos: 1_000_000 }],
+        descuento: { tipo: 'porcentaje' as const, valor: 20, desde: null, hasta: '2099-12-31' },
+      };
+      const creado = await productos.crear(dueno.id, dto);
+      expect(creado.descuento).toMatchObject({ alcance: 'producto', tipo: 'porcentaje', valor: 20, activo: true, hasta: '2099-12-31' });
+      expect(creado.variantes[0]).toMatchObject({ precioCentavos: 1_000_000, precioFinalCentavos: 800_000 });
+
+      await productos.importar(dueno.id, [{ codigo: 'TAZA-DTO', nombre: 'Taza con descuento', precio: '12.000' }], true);
+      const reimportado = await productos.obtener(dueno.id, creado.id);
+      expect(reimportado.variantes[0]).toMatchObject({ precioCentavos: 1_200_000, precioFinalCentavos: 960_000 });
+
+      const sinDescuento = await productos.actualizar(dueno.id, creado.id, { ...dto, descuento: null });
+      expect(sinDescuento.descuento).toBeNull();
+      expect(await prisma.descuento.count({ where: { productoId: creado.id } })).toBe(0);
+      await productos.eliminar(dueno.id, creado.id);
+    });
+
+    it('la búsqueda aplica la promo de la categoría y no la de otro comercio', async () => {
+      const promos = await prisma.descuento.createManyAndReturn({
+        data: [
+          { userId: dueno.id, categoria: 'mates', nombre: 'Semana del mate', tipo: 'porcentaje', valor: 10 },
+          { userId: otroDueno.id, nombre: 'De otro', tipo: 'porcentaje', valor: 50 },
+        ],
+      });
+      try {
+        const [mate] = await busqueda.buscar(dueno.id, 'MATE-01');
+        expect(mate.variantes[0]).toMatchObject({ precioCentavos: 800_000, precioFinalCentavos: 720_000 });
+        expect(mate.variantes[0].descuento).toMatchObject({ etiqueta: '10% off', nombre: 'Semana del mate', alcance: 'categoria' });
+
+        const [buzo] = await busqueda.buscar(dueno.id, 'BUZO-01');
+        expect(buzo.variantes[0]).toMatchObject({ precioFinalCentavos: buzo.variantes[0].precioCentavos, descuento: null });
+      } finally {
+        await prisma.descuento.deleteMany({ where: { id: { in: promos.map((promo) => promo.id) } } });
+      }
     });
   });
 });

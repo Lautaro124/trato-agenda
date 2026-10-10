@@ -2,7 +2,7 @@
   "name": "trato-agenda-e2e",
   "version": "0.0.1",
   "private": true,
-  "description": "Tests end to end de Trato Agenda con Playwright, contra el stack de docker compose.",
+  "description": "Tests end to end de Trato con Playwright, contra el stack de docker compose.",
   "scripts": {
     "e2e": "playwright test --project=escritorio --project=movil",
     "e2e:ui": "playwright test --ui --project=escritorio --project=movil",

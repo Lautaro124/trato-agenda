@@ -1,7 +1,9 @@
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { GraphRecursionError } from '@langchain/langgraph';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { tipoAsistenteDe } from '../agents/agent-catalog.js';
+import type { Env } from '../config/env.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   GRAFO_CONVERSACION,
@@ -11,6 +13,8 @@ import {
 } from './conversation.providers.js';
 import { LIMITE_RECURSION } from './graph/graph.factory.js';
 import { VENTANA_HISTORIAL, mensajesDesdeFilas } from './graph/historial.js';
+import { LIMITE_RECURSION_VENTAS } from './ventas/grafo-ventas.factory.js';
+import { imagenesDeLaVuelta, type ImagenAEnviar } from './ventas/imagenes-de-la-vuelta.js';
 import {
   MENSAJE_DISCULPA_GENERICO,
   MENSAJE_LOOP_AGOTADO,
@@ -50,6 +54,9 @@ type GrafoInvocable = {
   getState: (config: { configurable: { thread_id: string } }) => Promise<{ values?: { messages?: BaseMessage[] } }>;
 };
 
+/** Lo que se le contesta al cliente: el texto y, del asistente de ventas, las fotos a mandar antes. */
+export type RespuestaConversacion = { texto: string; imagenes: ImagenAEnviar[] };
+
 /**
  * Fachada del runtime conversacional. La lógica vive en los grafos de
  * LangGraph (graph/ para la agenda, ventas/ para el asistente de ventas): acá
@@ -65,12 +72,24 @@ export class ConversationService {
     private readonly prisma: PrismaService,
     @Inject(GRAFO_CONVERSACION) private readonly grafoAgenda: GrafoConversacion,
     @Inject(GRAFO_VENTAS) private readonly grafoVentas: GrafoVentas,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
+  /** Sólo el texto de la respuesta: para quien no manda fotos (los evals). */
   async handleIncoming(ownerUserId: string, remoteJid: string, texto: string): Promise<string> {
+    return (await this.responder(ownerUserId, remoteJid, texto)).texto;
+  }
+
+  /**
+   * La respuesta entera: el texto y las fotos de productos que el asistente
+   * de ventas decidió mandar en esta vuelta (sólo id y nombre; los bytes los
+   * busca quien las envía).
+   */
+  async responder(ownerUserId: string, remoteJid: string, texto: string): Promise<RespuestaConversacion> {
+    const soloTexto = (mensaje: string): RespuestaConversacion => ({ texto: mensaje, imagenes: [] });
     const agent = await this.prisma.agent.findUnique({ where: { userId: ownerUserId } });
     if (!agent) {
-      return MENSAJE_SIN_AGENTE;
+      return soloTexto(MENSAJE_SIN_AGENTE);
     }
 
     const conversation = await this.prisma.conversation.upsert({
@@ -79,12 +98,13 @@ export class ConversationService {
       update: {},
     });
 
+    const esVentas = tipoAsistenteDe(agent) === 'ventas';
     const config = {
       // El hilo del checkpointer es la conversación: único por (userId, remoteJid).
       configurable: { thread_id: conversation.id },
-      recursionLimit: LIMITE_RECURSION,
+      recursionLimit: esVentas ? LIMITE_RECURSION_VENTAS : LIMITE_RECURSION,
     };
-    const grafo = (tipoAsistenteDe(agent) === 'ventas' ? this.grafoVentas : this.grafoAgenda) as unknown as GrafoInvocable;
+    const grafo = (esVentas ? this.grafoVentas : this.grafoAgenda) as unknown as GrafoInvocable;
 
     try {
       const resultado = await grafo.invoke(
@@ -99,22 +119,25 @@ export class ConversationService {
 
       const ultimo = resultado.messages.at(-1);
       const contenido = typeof ultimo?.content === 'string' ? ultimo.content.trim() : '';
-      return contenido || MENSAJE_SIN_RESPUESTA;
+      return {
+        texto: contenido || MENSAJE_SIN_RESPUESTA,
+        imagenes: esVentas ? imagenesDeLaVuelta(resultado.messages) : [],
+      };
     } catch (error) {
       if (error instanceof GraphRecursionError) {
         this.logger.warn(`El grafo se quedó sin vueltas en la conversación ${conversation.id}`);
-        return MENSAJE_LOOP_AGOTADO;
+        return soloTexto(MENSAJE_LOOP_AGOTADO);
       }
       this.logger.error(`El grafo falló en la conversación ${conversation.id}`, error as Error);
-      return MENSAJE_DISCULPA_GENERICO;
+      return soloTexto(MENSAJE_DISCULPA_GENERICO);
     }
   }
 
   /**
    * Conversaciones que venían del runtime anterior no tienen checkpoint: la
    * primera vez que entran al grafo se siembra su historial desde la tabla
-   * `Message`. Después de esa vez el checkpointer ya tiene el hilo y esto
-   * devuelve vacío.
+   * `Message`, sólo con lo que cae dentro de la ventana que ve el modelo.
+   * Después de esa vez el checkpointer ya tiene el hilo y esto devuelve vacío.
    */
   private async historialSemilla(
     grafo: GrafoInvocable,
@@ -124,8 +147,9 @@ export class ConversationService {
     const estado = await grafo.getState(config);
     if ((estado.values?.messages ?? []).length > 0) return [];
 
+    const desde = new Date(Date.now() - this.config.get('HISTORIAL_IA_VENTANA_MS', { infer: true }));
     const filasDesc = await this.prisma.message.findMany({
-      where: { conversationId },
+      where: { conversationId, createdAt: { gte: desde } },
       orderBy: { createdAt: 'desc' },
       take: VENTANA_HISTORIAL,
     });

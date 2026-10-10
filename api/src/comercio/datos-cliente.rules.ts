@@ -8,7 +8,14 @@
  * dueño cambia o borra un campo después, el pedido viejo no se rompe.
  *
  * El nombre no está acá: se pide siempre y va en `Venta.nombreCliente`.
+ *
+ * "¿Envío o retiro?" sólo tiene sentido si se puede retirar: eso lo dice el
+ * local del comercio (`Agent.local.retiroEnLocal`, agents/local.ts). Si hace
+ * envíos y no hay retiro, todo pedido es con envío.
  */
+import { leerLocal } from '../agents/local.js';
+import type { Agent } from '../generated/prisma/client.js';
+
 
 export const TIPOS_CAMPO_ESTANDAR = ['codigoPostal', 'direccion', 'provincia', 'pais', 'email', 'dni'] as const;
 export type TipoCampoEstandar = (typeof TIPOS_CAMPO_ESTANDAR)[number];
@@ -44,7 +51,12 @@ export type CampoGuardado =
   | { tipo: TipoCampoEstandar; obligatorio: boolean }
   | { tipo: 'personalizado'; etiqueta: string; obligatorio: boolean };
 
-export type ConfigDatosCliente = { haceEnvios: boolean; campos: CampoCliente[] };
+export type ConfigDatosCliente = {
+  haceEnvios: boolean;
+  /** El cliente puede retirar en el local (`Agent.local.retiroEnLocal`). */
+  puedeRetirar: boolean;
+  campos: CampoCliente[];
+};
 
 /** Una respuesta del cliente tal como queda en la venta. */
 export type DatoCliente = { etiqueta: string; valor: string };
@@ -114,8 +126,19 @@ export function leerCamposCliente(json: unknown): CampoCliente[] {
   );
 }
 
-export function leerConfigDatosCliente(agent: { haceEnvios: boolean; datosCliente: unknown }): ConfigDatosCliente {
-  return { haceEnvios: agent.haceEnvios === true, campos: leerCamposCliente(agent.datosCliente) };
+export function leerConfigDatosCliente(
+  agent: { haceEnvios: boolean; datosCliente: unknown } & Partial<Pick<Agent, 'local'>>,
+): ConfigDatosCliente {
+  return {
+    haceEnvios: agent.haceEnvios === true,
+    puedeRetirar: leerLocal(agent)?.retiroEnLocal === true,
+    campos: leerCamposCliente(agent.datosCliente),
+  };
+}
+
+/** Hay que preguntar "¿envío o retiro?": hace envíos y también se puede retirar. */
+export function eligeEntrega(config: ConfigDatosCliente): boolean {
+  return config.haceEnvios && config.puedeRetirar;
 }
 
 /** `Venta.datosCliente`, leído con la misma tolerancia. */
@@ -139,11 +162,12 @@ export function pideDatos(config: ConfigDatosCliente): boolean {
 }
 
 /**
- * Qué campos corresponden a este pedido: si el comercio hace envíos, sólo
- * cuando es con envío (el que retira no da su dirección); si no hace, siempre.
+ * Qué campos corresponden a este pedido: si el cliente elige entre envío y
+ * retiro, sólo cuando es con envío (el que retira no da su dirección); si no
+ * elige (todo va con envío, o el comercio no hace envíos), siempre.
  */
 export function camposAPedir(config: ConfigDatosCliente, entrega: Entrega | null): CampoCliente[] {
-  if (config.haceEnvios && entrega !== 'envio') return [];
+  if (eligeEntrega(config) && entrega !== 'envio') return [];
   return config.campos;
 }
 
@@ -180,7 +204,10 @@ export function validarDatosPedido(
   if (!pideDatos(config)) return { ok: true, entrega: null, datos: [] };
 
   let entrega: Entrega | null = null;
-  if (config.haceEnvios) {
+  if (config.haceEnvios && !config.puedeRetirar) {
+    // Sin retiro, todo pedido es con envío: no hay nada que elegir.
+    entrega = 'envio';
+  } else if (eligeEntrega(config)) {
     entrega = leerEntrega(args.entrega);
     if (!entrega) {
       return {
@@ -254,7 +281,16 @@ export function reglaDeDatosCliente(config: ConfigDatosCliente, titular: string)
     'obligatorios no se puede crear el pedido; si no quiere dar uno opcional, seguí sin él. Si ya te los dio en ' +
     'esta charla no se los vuelvas a pedir, y no le pidas ningún dato que no esté en esta lista.';
   const lineas: string[] = [];
-  if (config.haceEnvios) {
+  const pedirTodo =
+    `- Cuando el cliente ya eligió todo, antes de crear el pedido pedile en un solo mensaje (puede ser la única ` +
+    `pregunta con varias cosas): ${listarCampos(config.campos)}. ${comoMandarlos}`;
+  if (config.haceEnvios && !config.puedeRetirar) {
+    lineas.push(
+      `- ${titular} hace envíos y no tiene retiro: todos los pedidos van con envío, así que no le preguntes si ` +
+        'lo retira. Mandá entrega "envio" en crear_pedido.',
+    );
+    if (config.campos.length > 0) lineas.push(pedirTodo);
+  } else if (config.haceEnvios) {
     lineas.push(
       `- ${titular} hace envíos. Cuando el cliente ya eligió todo, antes de crear el pedido preguntale si lo ` +
         'quiere con envío o si lo retira, y mandá la respuesta en "entrega" de crear_pedido ("envio" o "retiro").',
@@ -266,10 +302,7 @@ export function reglaDeDatosCliente(config: ConfigDatosCliente, titular: string)
       );
     }
   } else {
-    lineas.push(
-      `- Cuando el cliente ya eligió todo, antes de crear el pedido pedile en un solo mensaje (puede ser la única ` +
-        `pregunta con varias cosas): ${listarCampos(config.campos)}. ${comoMandarlos}`,
-    );
+    lineas.push(pedirTodo);
   }
   return lineas.join('\n');
 }

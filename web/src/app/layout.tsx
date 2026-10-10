@@ -17,9 +17,9 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Trato Agenda",
+  title: "Trato",
   description:
-    "Entrá con Google y tu asistente coordina los turnos por WhatsApp: los crea en tu Google Calendar, los mueve y te avisa.",
+    "La atención al cliente de tu negocio por WhatsApp: un asistente que suena como alguien de tu equipo y se ocupa de los turnos, el stock y los cobros.",
 };
 
 // viewport-fit=cover habilita env(safe-area-inset-*) para la barra inferior móvil.

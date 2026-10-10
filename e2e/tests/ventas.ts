@@ -5,15 +5,22 @@ import { expect, sufijo } from './fixtures';
 /** Atajo para los tests que necesitan un asistente de ventas y no prueban el onboarding. */
 export async function crearAgenteVentasPorApi(
   request: APIRequestContext,
-  extra: { haceEnvios?: boolean; datosCliente?: Array<{ tipo: string; etiqueta?: string; obligatorio: boolean }> } = {},
+  opciones: {
+    local?: Record<string, unknown>;
+    haceEnvios?: boolean;
+    datosCliente?: Array<{ tipo: string; etiqueta?: string; obligatorio: boolean }>;
+  } = {},
 ): Promise<{ nombreTitular: string }> {
   const nombreTitular = `Mates E2E ${sufijo()}`;
-  const res = await request.post(`${API_URL}/agents/generate-ventas`, { data: { nombreTitular, nombreBot: 'Sol', ...extra } });
+  const { local, ...datos } = opciones;
+  const res = await request.post(`${API_URL}/agents/generate-ventas`, {
+    data: { nombreTitular, nombreBot: 'Sol', ...(local ? { local } : {}), ...datos },
+  });
   expect(res.status(), await res.text()).toBe(201);
   return { nombreTitular };
 }
 
-export type VarianteE2E = { id: string; precioCentavos: number; stock: number | null; disponible: boolean };
+export type VarianteE2E = { id: string; nombre: string; precioCentavos: number; stock: number | null; disponible: boolean };
 export type ProductoE2E = { id: string; codigo: string; nombre: string; variantes: VarianteE2E[] };
 
 /** Un producto de variante única, cargado por API. */

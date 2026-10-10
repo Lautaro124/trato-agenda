@@ -91,6 +91,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   beforeEach(async () => {
     vi.resetAllMocks();
     await prisma.venta.deleteMany({ where: { userId: dueno.id } });
+    await prisma.descuento.deleteMany({ where: { userId: dueno.id } });
     await prisma.variante.update({ where: { id: mate }, data: { stock: 1 } });
     await prisma.variante.update({ where: { id: termo }, data: { stock: 5 } });
   });
@@ -134,6 +135,36 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       entrega: null,
       datosCliente: null,
     });
+  });
+
+  it('cobra con el mejor descuento vigente, sin sumarlos, y guarda la foto del precio de lista', async () => {
+    const productoTermo = (await prisma.variante.findUniqueOrThrow({ where: { id: termo } })).productoId;
+    await prisma.descuento.createMany({
+      data: [
+        // Termo: su 10% ($ 4.500,05) le gana a los $ 500 de todo el catálogo. La bombilla sólo tiene la promo.
+        { userId: dueno.id, productoId: productoTermo, tipo: 'porcentaje', valor: 10 },
+        { userId: dueno.id, nombre: 'Primera compra', tipo: 'monto', valor: 50_000 },
+        // Vencido: no cuenta aunque sea el mayor.
+        { userId: dueno.id, nombre: 'Vieja', tipo: 'porcentaje', valor: 50, hasta: new Date(Date.now() - 60_000) },
+      ],
+    });
+    const venta = await pedido([
+      { varianteId: termo, cantidad: 2 },
+      { varianteId: sinControl, cantidad: 1 },
+    ]);
+    expect(venta.items.find((item) => item.varianteId === termo)).toMatchObject({
+      precioListaCentavos: 4_500_050,
+      descuentoCentavos: 450_005,
+      precioUnitarioCentavos: 4_050_045,
+      subtotalCentavos: 2 * 4_050_045,
+      descuentoEtiqueta: '10% off',
+    });
+    expect(venta.items.find((item) => item.varianteId === sinControl)).toMatchObject({
+      precioListaCentavos: 350_000,
+      precioUnitarioCentavos: 300_000,
+      descuentoEtiqueta: '$ 500 off · Primera compra',
+    });
+    expect(venta.totalCentavos).toBe(2 * 4_050_045 + 300_000);
   });
 
   it('dos pedidos simultáneos por la última unidad: uno reserva y el otro se rechaza', async () => {

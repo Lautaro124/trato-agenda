@@ -1,4 +1,4 @@
-// Esquema de Trato Agenda.
+// Esquema de Trato.
 
 generator client {
   provider = "prisma-client"
@@ -44,6 +44,8 @@ model User {
   eventos         Evento[]
   codigosAcceso   CodigoAcceso[]
   productos       Producto[]
+  descuentos      Descuento[]
+  imagenesProducto ImagenProducto[]
   ventas          Venta[]
   cuentaMercadoPago CuentaMercadoPago?
   notificaciones  Notificacion[]
@@ -117,6 +119,17 @@ model Agent {
 
   /// Subconjunto de agent-catalog.ts que el agente tiene habilitado.
   allowedActions String[]
+
+  /// Mensajes que el dueño escribió a mano en /asistente:
+  /// { [clave]: { modo: "auto" | "propio", texto: string } }. Las claves y sus
+  /// datos están en src/agents/mensajes.rules.ts; lo que falta queda en "auto".
+  mensajes Json @default("{}")
+
+  /// Sólo ventas: el local a la calle del comercio, si tiene.
+  /// { tieneLocal, direccion?, enlaceUbicacion?, horarios: [{ dia, desde, hasta }], retiroEnLocal }.
+  /// Null = nunca lo cargó (el asistente deriva esas consultas al dueño). La
+  /// forma y sus reglas están en src/agents/local.ts.
+  local Json?
 
   /// Modelo de OpenRouter usado para generar esta config. Null si se generó
   /// con la plantilla determinista (ver `templateVersion`); se conserva tal
@@ -310,6 +323,10 @@ model Producto {
   embeddingHash String?
 
   variantes Variante[]
+  /// El descuento propio del producto (del formulario), si tiene.
+  descuento Descuento?
+  /// La foto que el asistente le manda al cliente cuando la pide (una sola).
+  imagen    ImagenProducto?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -349,6 +366,62 @@ model Variante {
   updatedAt DateTime @updatedAt
 
   @@unique([productoId, sku])
+}
+
+/// Un descuento del comercio. El alcance sale de los campos: con `productoId`
+/// es el del formulario de ese producto (uno por producto); con `categoria`,
+/// una promo de esa categoría; sin ninguno, una promo de todo el catálogo. Si
+/// a una variante le tocan varios, se aplica el que más le conviene al
+/// cliente y nunca se suman (comercio/descuentos.rules.ts).
+model Descuento {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  productoId String?   @unique
+  producto   Producto? @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  categoria  String?
+
+  /// Nombre de la promo para el dueño ("Semana del mate"). "" en los de producto.
+  nombre String @default("")
+  /// "porcentaje" | "monto"
+  tipo   String
+  /// Porcentaje (1 a 90) o centavos, según `tipo`.
+  valor  Int
+
+  activo Boolean   @default(true)
+  /// Vigencia [desde, hasta). Null = sin límite de ese lado.
+  desde  DateTime?
+  hasta  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, activo])
+}
+
+/// La foto de un producto, ya recomprimida por la API (comercio/imagenes.rules.ts):
+/// JPEG de hasta 800 px y 150 KB, sin metadatos. Tabla aparte para que los
+/// listados y la búsqueda nunca arrastren los bytes. Una por producto y hasta
+/// `MAX_IMAGENES_POR_CUENTA` por cuenta, para que la base no crezca sin techo.
+model ImagenProducto {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  productoId String   @unique
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  datos Bytes
+  /// Tamaño de `datos`, para el uso de la cuenta sin leer los bytes.
+  bytes Int
+  ancho Int
+  alto  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 /// Un pedido del asistente de ventas, desde que se reserva el stock hasta que
@@ -427,9 +500,17 @@ model ItemVenta {
   codigo                 String
   nombreProducto         String
   nombreVariante         String @default("")
+  /// El precio que se cobró por unidad: ya con el descuento, si hubo.
   precioUnitarioCentavos Int
   cantidad               Int
   subtotalCentavos       Int
+  /// Precio de lista por unidad al momento del pedido. Null en ventas
+  /// anteriores a los descuentos (ahí era igual a precioUnitarioCentavos).
+  precioListaCentavos    Int?
+  /// Cuánto se descontó por unidad (0 sin descuento).
+  descuentoCentavos      Int     @default(0)
+  /// Cómo se llamaba el descuento aplicado ("20% off", "Semana del mate").
+  descuentoEtiqueta      String?
 
   @@index([varianteId])
   @@index([ventaId])

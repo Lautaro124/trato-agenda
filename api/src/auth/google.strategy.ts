@@ -16,26 +16,26 @@ import { COOKIE_CONECTAR } from './cookies-de-paso.js';
 export type ResultadoConexionGoogle = 'conectado' | 'google_en_uso';
 
 /**
- * Los scopes son el mínimo que la app usa de verdad, y eso es deliberado: la
- * verificación de Google rechaza pedir más de lo que se puede justificar.
+ * Los scopes tienen que coincidir exactamente con los que figuran en la
+ * pantalla de consentimiento de Google Cloud: pedir uno que no está cargado
+ * ahí (pasó con `calendar.events` y `calendar.freebusy`) hace que Google
+ * muestre la app como no verificada y bloquee el login.
  *
- * - `calendar.events` cubre las cuatro llamadas de eventos que hacemos
- *   (insert, patch, delete, list). `calendar.app.created` no alcanza: la
- *   disponibilidad tiene que contar también los eventos que el titular cargó
- *   a mano, que esa variante no deja ver.
- * - `calendar.freebusy` es lo único que necesita `freebusy.query`, que es la
- *   única lectura del calendario en el flujo de clientes.
+ * - `auth/calendar` es el único scope sensible configurado en la consola.
+ *   Cubre todas las llamadas que hacemos (`events.insert`, `patch`, `delete`
+ *   y `list`), incluida la disponibilidad, que sale de `events.list`
+ *   (`CalendarService.freeBusy`) con un `fields` acotado a horarios y estado.
+ *   `calendar.app.created` no alcanza: la disponibilidad tiene que contar
+ *   también los eventos que el titular cargó a mano.
  *
- * Antes se pedía `auth/calendar` entero (lectura y escritura de todos los
- * calendarios, ACLs y settings). No volver a ampliarlo sin justificarlo ante
- * Google: cambiar esta lista obliga a todos los usuarios a consentir de nuevo.
+ * Cambiar esta lista obliga a cambiar la consola de Google en el mismo
+ * momento, y a todos los usuarios a consentir de nuevo.
  */
 export const GOOGLE_SCOPES = [
   'openid',
   'profile',
   'email',
-  'https://www.googleapis.com/auth/calendar.events',
-  'https://www.googleapis.com/auth/calendar.freebusy',
+  'https://www.googleapis.com/auth/calendar',
 ];
 
 @Injectable()

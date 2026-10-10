@@ -2,9 +2,30 @@
 
 import { useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { urlImagenProducto } from "@/lib/imagenes";
 import { useSession } from "@/lib/session";
 
-type Mensaje = { role: "agent" | "user"; text: string };
+/** La foto de un producto que mandó el asistente de ventas, como le llega al cliente: imagen con el nombre al pie. */
+type FotoProducto = { productoId: string; nombre: string; version: string };
+
+type Mensaje = { role: "agent" | "user"; text: string; foto?: FotoProducto };
+
+type Respuesta = { reply: string; imagenes?: Array<{ productoId: string; nombre: string }> };
+
+/**
+ * Copia a mano de `partirEnMensajes` (api/src/whatsapp/ritmo-humano.ts): por
+ * WhatsApp la respuesta sale en un mensaje por bloque separado con una línea
+ * en blanco, hasta tres. Acá se muestra igual para que el dueño vea lo mismo
+ * que va a ver su cliente.
+ */
+function partirEnMensajes(texto: string, maximo = 3): string[] {
+  const partes = texto
+    .split(/\n[ \t]*\n/)
+    .map((parte) => parte.trim())
+    .filter((parte) => parte.length > 0);
+  if (partes.length <= maximo) return partes;
+  return [...partes.slice(0, maximo - 1), partes.slice(maximo - 1).join("\n\n")];
+}
 
 /** Saludo y atajos del banco de pruebas, según qué hace el asistente. */
 const GUIONES = {
@@ -45,10 +66,19 @@ export function TestChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       });
-      const reply = res.ok
-        ? ((await res.json()) as { reply: string }).reply
-        : "Perdón, tuve un problema para responderte. Probá de nuevo en un rato.";
-      setMsgs((prev) => [...prev, { role: "agent", text: reply }]);
+      const respuesta: Respuesta = res.ok
+        ? ((await res.json()) as Respuesta)
+        : { reply: "Perdón, tuve un problema para responderte. Probá de nuevo en un rato." };
+      // Como en WhatsApp: primero las fotos, después el texto. La versión en la
+      // URL hace que una foto que el dueño acaba de cambiar no salga de la caché.
+      const version = crypto.randomUUID();
+      const fotos: Mensaje[] = (respuesta.imagenes ?? []).map((imagen) => ({
+        role: "agent",
+        text: imagen.nombre,
+        foto: { ...imagen, version },
+      }));
+      const textos: Mensaje[] = partirEnMensajes(respuesta.reply).map((text) => ({ role: "agent", text }));
+      setMsgs((prev) => [...prev, ...fotos, ...textos]);
     } catch {
       setMsgs((prev) => [
         ...prev,
@@ -102,7 +132,19 @@ export function TestChat() {
                 : "max-w-[86%] self-end rounded-tl-2xl rounded-bl-2xl rounded-br-md border border-[#C9E9D6] bg-accent-subtle px-3.5 py-2.5 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-ink"
             }
           >
-            {m.text}
+            {m.foto ? (
+              <figure className="flex flex-col gap-1.5">
+                {/* eslint-disable-next-line @next/next/no-img-element -- viene de la API con la cookie de sesión; el optimizador de Next no la tiene */}
+                <img
+                  src={urlImagenProducto(m.foto.productoId, m.foto.version)}
+                  alt={`Foto de ${m.foto.nombre}`}
+                  className="max-h-60 w-auto rounded-md object-contain"
+                />
+                <figcaption>{m.text}</figcaption>
+              </figure>
+            ) : (
+              m.text
+            )}
           </div>
         ))}
         {busy && (

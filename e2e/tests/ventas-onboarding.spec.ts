@@ -3,13 +3,24 @@ import { API_URL } from '../entorno';
 import { agenteActual, esperarRuta, expect, sufijo, test, visible } from './fixtures';
 import { botonContinuar, elegirAsistente, preguntaInicial } from './onboarding';
 
-async function armarAsistenteDeVentas(page: Page): Promise<string> {
+async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string } = {}): Promise<string> {
   const negocio = `Mates E2E ${sufijo()}`;
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
-  // Ventas no pregunta turnos ni horarios: son cuatro pasos, uno de ellos opcional.
-  await expect(visible(page.getByText('Paso 2 de 4'))).toBeVisible();
+  // Ventas no pregunta turnos ni horarios, sí por el local y, opcional, por los datos del cliente: son cinco pasos.
+  await expect(visible(page.getByText('Paso 2 de 5'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
+  await botonContinuar(page).click();
+  // "Tu local": sin tocar nada queda "vendo sólo online".
+  await expect(visible(page.getByRole('radio', { name: 'No, vendo sólo online' }))).toHaveAttribute('aria-checked', 'true');
+  if (opciones.direccion) {
+    await visible(page.getByRole('radio', { name: 'Sí, tengo local' })).click();
+    await visible(page.getByLabel('Dirección')).fill(opciones.direccion);
+    // Arranca de lunes a viernes; el sábado abre a la mañana.
+    await visible(page.getByRole('checkbox', { name: 'Sábado' })).check();
+    await visible(page.getByLabel('Sábado: cierra')).selectOption('13:00');
+    await visible(page.getByRole('checkbox', { name: 'Se pueden retirar las compras en el local' })).check();
+  }
   await botonContinuar(page).click();
   // Los datos del cliente se pueden saltear.
   await expect(visible(page.getByRole('heading', { name: '¿Le pedís datos a tus clientes?' }))).toBeVisible();
@@ -44,8 +55,13 @@ test.describe('onboarding de un comercio', () => {
     expect(usuarioDev.email).toBeTruthy();
     await armarAsistenteDeVentas(page);
 
-    const agente = (await agenteActual(context.request)) as unknown as { tipoAsistente: string; allowedActions: string[] };
+    const agente = (await agenteActual(context.request)) as unknown as {
+      tipoAsistente: string;
+      allowedActions: string[];
+      local: unknown;
+    };
     expect(agente.tipoAsistente).toBe('ventas');
+    expect(agente.local).toEqual({ tieneLocal: false, horarios: [], retiroEnLocal: false });
     expect(agente.allowedActions).toEqual(expect.arrayContaining(['buscar_productos', 'crear_pedido']));
 
     // La navegación de una cuenta de ventas: catálogo y ventas, sin calendario.
@@ -73,6 +89,22 @@ test.describe('onboarding de un comercio', () => {
       },
     });
     expect(res.status()).toBe(409);
+  });
+
+  test('carga su local en el alta y queda guardado con sus horarios', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await armarAsistenteDeVentas(page, { direccion: 'Av. Corrientes 1234' });
+
+    const agente = (await agenteActual(context.request)) as unknown as { local: unknown };
+    expect(agente.local).toEqual({
+      tieneLocal: true,
+      direccion: 'Av. Corrientes 1234',
+      horarios: [
+        ...['lun', 'mar', 'mie', 'jue', 'vie'].map((dia) => ({ dia, desde: '09:00', hasta: '18:00' })),
+        { dia: 'sab', desde: '09:00', hasta: '13:00' },
+      ],
+      retiroEnLocal: true,
+    });
   });
 
   test('@movil el mismo formulario, en el teléfono', async ({ page, usuarioDev }) => {

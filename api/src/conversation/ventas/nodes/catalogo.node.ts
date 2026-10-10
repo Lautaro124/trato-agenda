@@ -6,6 +6,7 @@ import { ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import type { BusquedaService } from '../../../comercio/busqueda.service.js';
 import type { HistoricoVentasService } from '../../../comercio/historico.service.js';
+import type { ImagenesService } from '../../../comercio/imagenes.service.js';
 import { RangoInvalidoError } from '../../../comercio/historico.rules.js';
 import { leerDatosDeVenta, leerEntrega } from '../../../comercio/datos-cliente.rules.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
@@ -15,6 +16,7 @@ import type { SugerenciasService } from '../../../comercio/sugerencias.service.j
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
+import type { ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import {
   formatearCatalogo,
   formatearListadoVentas,
@@ -32,11 +34,16 @@ export type DepsCatalogo = {
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
+  imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
 };
 
-/** Sólo lo que escribió el cliente, en texto: es lo único que se le pasa a Jev. */
-export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages'>): string[] {
+/** Lo que vuelve al modelo y, si es una foto aprobada, lo que la fachada le manda al cliente. */
+type Resultado = string | { texto: string; imagen: ImagenAEnviar };
+
+/** Sólo lo que escribió el cliente dentro de la ventana, en texto: es lo único que se le pasa a Jev. */
+export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages' | 'inicioVisible'>): string[] {
   return state.messages
+    .slice(state.inicioVisible ?? 0)
     .filter((mensaje) => mensaje.getType() === 'human' && typeof mensaje.content === 'string')
     .map((mensaje) => mensaje.content as string);
 }
@@ -47,19 +54,20 @@ export const MENSAJE_CATALOGO_CAIDO =
 export function crearNodoCatalogo(deps: DepsCatalogo) {
   const logger = new Logger('CatalogoNode');
 
-  async function ejecutar(state: EstadoVentasValue, operacion: OperacionPendiente): Promise<string> {
+  async function ejecutar(state: EstadoVentasValue, operacion: OperacionPendiente): Promise<Resultado> {
     const { args } = operacion;
     switch (operacion.nombre) {
       case 'buscar_productos': {
         const consulta = String(args.consulta);
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const productos = await deps.busqueda.buscar(state.ownerUserId, consulta, { categoria });
-        return formatearResultados(consulta, productos);
+        return formatearResultados(consulta, productos, state.contexto.agent);
       }
       case 'ver_catalogo': {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         return formatearCatalogo(
           await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria),
+          state.contexto.agent,
         );
       }
       case 'consultar_stock': {
@@ -133,6 +141,23 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
           throw error;
         }
       }
+      case 'enviar_imagen_producto': {
+        const productoId = String(args.productoId);
+        const foto = await deps.imagenes.estadoDeFoto(state.ownerUserId, productoId);
+        if (!foto) {
+          return 'Ese producto no está en el catálogo. Usá el id entre corchetes de una búsqueda de esta charla.';
+        }
+        const nombre = JSON.stringify(foto.nombre);
+        if (!foto.tieneFoto) {
+          return `${nombre} no tiene foto. Decíselo al cliente y contale cómo es con lo que dice el catálogo.`;
+        }
+        return {
+          texto:
+            `Listo: la foto de ${nombre} le llega al cliente junto con tu respuesta. No la describas ni pegues ` +
+            'links: seguí la charla (por ejemplo, preguntale si es lo que buscaba).',
+          imagen: { productoId, nombre: foto.nombre },
+        };
+      }
       case 'consultar_pedido':
         return formatearPedidos(await deps.ventas.pedidosDeConversacion(state.contexto.conversation.id));
       case 'cancelar_pedido': {
@@ -149,14 +174,16 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
   return async (state: EstadoVentasValue): Promise<EstadoVentasUpdate> => {
     const mensajes: ToolMessage[] = [];
     for (const operacion of state.pendientes) {
-      let texto: string;
+      let resultado: Resultado;
       try {
-        texto = await ejecutar(state, operacion);
+        resultado = await ejecutar(state, operacion);
       } catch (error) {
         logger.error(`Falló ${operacion.nombre} en la conversación ${state.contexto.conversation.id}: ${(error as Error).message}`);
-        texto = MENSAJE_CATALOGO_CAIDO;
+        resultado = MENSAJE_CATALOGO_CAIDO;
       }
-      mensajes.push(new ToolMessage({ content: texto, tool_call_id: operacion.id, name: operacion.nombre }));
+      const [texto, artifact] = typeof resultado === 'string' ? [resultado, undefined] : [resultado.texto, resultado.imagen];
+      // `artifact` no lo ve el modelo: lo levanta la fachada (imagenes-de-la-vuelta.ts).
+      mensajes.push(new ToolMessage({ content: texto, tool_call_id: operacion.id, name: operacion.nombre, artifact }));
     }
     return { messages: mensajes, pendientes: [] };
   };

@@ -3,9 +3,9 @@ import { FooterLegal } from "@/components/FooterLegal";
 import { CUIT, EMAIL_SOPORTE, RESPONSABLE } from "@/lib/contacto";
 
 export const metadata = {
-  title: "Términos de servicio — Trato Agenda",
+  title: "Términos de servicio — Trato",
   description:
-    "Condiciones de uso de Trato Agenda: el servicio, la prueba gratuita, la suscripción, el alcance del permiso sobre tu Google Calendar y cómo darte de baja.",
+    "Condiciones de uso de Trato: el servicio, la prueba gratuita, la suscripción, el alcance del permiso sobre tu Google Calendar y cómo darte de baja.",
 };
 
 function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
@@ -22,7 +22,7 @@ export default function TerminosPage() {
     <main className="min-h-dvh bg-page p-5 md:p-10">
       <div className="mx-auto w-full max-w-[680px] rounded-md border border-line bg-card p-6 shadow-md md:p-8">
         <Link href="/" className="text-[13px] text-link">
-          ← Trato Agenda
+          ← Trato
         </Link>
 
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
@@ -32,9 +32,9 @@ export default function TerminosPage() {
 
         <Seccion titulo="El servicio">
           <p>
-            Trato Agenda te da un asistente de WhatsApp que coordina turnos con tus clientes: consulta
+            Trato te da un asistente de WhatsApp que coordina turnos con tus clientes: consulta
             tu disponibilidad y crea, mueve o cancela eventos según lo que acuerde con la persona que te
-            escribe. Tu agenda puede vivir en Trato Agenda (si creaste la cuenta sólo con WhatsApp) o en
+            escribe. Tu agenda puede vivir en Trato (si creaste la cuenta sólo con WhatsApp) o en
             tu Google Calendar, si lo conectás.
           </p>
           <p>
@@ -69,7 +69,7 @@ export default function TerminosPage() {
 
         <Seccion titulo="Responsabilidad sobre las ventas">
           <p>
-            Trato Agenda no es parte de las ventas: la venta es entre vos y tu cliente. Sos responsable
+            Trato no es parte de las ventas: la venta es entre vos y tu cliente. Sos responsable
             de lo que ofrecés y de cómo lo vendés: que los precios, el stock y las descripciones de tu
             catálogo estén al día, la entrega, la facturación, los impuestos, los cambios y las
             devoluciones, y lo que te exija la ley de defensa del consumidor.
@@ -107,16 +107,13 @@ export default function TerminosPage() {
 
         <Seccion titulo="Tu cuenta de Google">
           <p>
-            Conectar Google es opcional. Si lo hacés, nos das dos permisos sobre tu calendario, y sólo esos:{" "}
+            Conectar Google es opcional. Si lo hacés, nos das un único permiso sobre tu calendario, y sólo ese:{" "}
             <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
-              calendar.events
-            </code>{" "}
-            para crear, mover, cancelar y listar eventos, y{" "}
-            <code className="rounded-[4px] bg-sunken px-1 py-0.5 text-[12px] break-all text-ink">
-              calendar.freebusy
-            </code>{" "}
-            para ver qué horarios tenés ocupados. Se usan únicamente para el funcionamiento del
-            asistente.
+              https://www.googleapis.com/auth/calendar
+            </code>
+            {". Lo usamos sólo sobre los eventos de tu calendario principal, para crear, mover, cancelar y " +
+              "listar eventos, y para ver qué horarios tenés ocupados. Se usa únicamente para el " +
+              "funcionamiento del asistente."}
           </p>
           <p>
             Podés revocar ese permiso en cualquier momento desde{" "}
@@ -156,7 +153,7 @@ export default function TerminosPage() {
 
         <Seccion titulo="Quién presta el servicio y ley aplicable">
           <p>
-            Trato Agenda lo presta{" "}
+            Trato lo presta{" "}
             <strong className="font-semibold text-ink">
               {RESPONSABLE}, CUIT {CUIT}
             </strong>

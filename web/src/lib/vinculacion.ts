@@ -92,6 +92,6 @@ export function useVinculacion(endpoints: Endpoints, habilitado: boolean) {
 export function textoDeError(motivo: MotivoError | null): string {
   if (motivo === "numero_en_uso") return "Ese WhatsApp ya es de otra cuenta";
   if (motivo === "limite") return "Demasiados intentos: esperá unos minutos";
-  if (motivo === "sin_api") return "No pudimos conectar con Trato Agenda";
+  if (motivo === "sin_api") return "No pudimos conectar con Trato";
   return "No pudimos vincular tu WhatsApp";
 }
