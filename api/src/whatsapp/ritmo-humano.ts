@@ -10,6 +10,15 @@
 export const ESPERA_RAFAGA_MS = 3_500;
 /** Tope de espera desde el primer mensaje de la ráfaga, para que alguien que escribe sin parar igual tenga respuesta. */
 export const MAXIMO_RAFAGA_MS = 12_000;
+/**
+ * Topes de una ráfaga: un cliente que manda cientos de mensajes seguidos no
+ * puede inflar la memoria de la API ni un prompt (que paga el dueño). Al
+ * llenarse se contesta lo que hay, y lo que llega mientras esa respuesta sale
+ * se descarta pasado el tope. Antes cada mensaje iba por separado.
+ */
+export const MAX_MENSAJES_RAFAGA = 20;
+export const MAX_CARACTERES_RAFAGA = 4_000;
+
 /** WhatsApp borra el "escribiendo…" a los ~10 s si no se renueva. */
 export const RENOVAR_ESCRIBIENDO_MS = 8_000;
 

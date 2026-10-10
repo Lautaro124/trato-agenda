@@ -17,7 +17,13 @@ import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
-import { RENOVAR_ESCRIBIENDO_MS, demoraDeEscritura, demoraRestante, partirEnMensajes } from './ritmo-humano.js';
+import {
+  MAX_CARACTERES_RAFAGA,
+  RENOVAR_ESCRIBIENDO_MS,
+  demoraDeEscritura,
+  demoraRestante,
+  partirEnMensajes,
+} from './ritmo-humano.js';
 import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
@@ -71,6 +77,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // Sólo el userId: el JID del cliente es su teléfono y no va a los logs.
     (clave, error) =>
       this.logger.error(`Fallo procesando mensajes entrantes de ${clave.split('\n')[0]}`, error as Error),
+    (item) => item.texto.length,
   );
 
   constructor(
@@ -239,6 +246,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * socket viejo y `handleConnectionUpdate` los ignora.
    */
   private async cerrarSocket(userId: string, modo: 'end' | 'logout'): Promise<void> {
+    // Lo que un cliente escribió y todavía no se contestó no sale por un socket cerrado.
+    this.rafagas.descartar(`${userId}\n`);
     const sock = this.sockets.get(userId);
     if (!sock) return;
     this.sockets.delete(userId);
@@ -328,7 +337,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
-      this.rafagas.agregar(`${userId}\n${remoteJid}`, { userId, remoteJid, sock, key: mensaje.key, texto });
+      this.rafagas.agregar(`${userId}\n${remoteJid}`, {
+        userId,
+        remoteJid,
+        sock,
+        key: mensaje.key,
+        texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
+      });
     }
   }
 
