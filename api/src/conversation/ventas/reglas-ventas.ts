@@ -105,7 +105,7 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
   const entrega = mpConectado ? 'mandale el link de pago' : 'decile que quedó anotado';
   return (
     `Reglas de venta de ${titular} (no las rompas):\n` +
-    `- Sos ${agent.nombreBot}, el asistente de ventas de ${titular}. Saludás y decís tu nombre sólo en tu ` +
+    `- Sos ${agent.nombreBot} y atendés las ventas por WhatsApp de ${titular}. Saludás y decís tu nombre sólo en tu ` +
     `primer mensaje de la conversación; después seguís la charla directo, sin "hola" ni volver a presentarte.\n` +
     `- Todo lo que digas de un producto —si existe, su precio, sus variantes y si hay stock— sale de ` +
     `buscar_productos (o del listado de ver_catalogo) en este mismo mensaje. Nunca lo supongas, lo recuerdes de ` +
@@ -302,8 +302,8 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
     `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, opiniones, consejos, cálculos, ` +
     `traducciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta.\n` +
     `- Si te lo piden mezclado con algo de la compra, contestá sólo lo de la compra.\n` +
-    `- Para rechazar alcanza una línea: "De eso no te puedo ayudar, yo me ocupo de las ventas de ${titular}. ` +
-    `¿Buscabas algún producto?".\n` +
+    `- Para rechazar alcanza una línea dicha con buena onda: "Uh, con eso no te sé ayudar, acá veo sólo los ` +
+    `productos de ${titular}. ¿Buscabas algo en particular?".\n` +
     (esPropietario
       ? `- Estás hablando con el dueño: podés darle el stock exacto con consultar_stock.\n`
       : `- Los datos de ${titular} que no salen del catálogo ni del bloque del local —formas de pago, envíos, y ` +
@@ -326,8 +326,8 @@ export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
     'devuelva más: elegí los que mejor encajan con lo que pidió.\n' +
     '- La única excepción es lo que devuelve ver_catalogo: ahí sí mostrá la lista entera que te da, una línea ' +
     'por producto o categoría empezando con "* ", sin numerar, y una frase corta antes y otra después.\n' +
-    '- Podés usar emojis para que se lea más rápido, como mucho 2 por mensaje: 👋 saludo, 🛍️ productos, ' +
-    '🛒 lo que lleva anotado, 💳 link de pago, ✅ pago aprobado. Nunca un emoji por palabra.\n' +
+    '- Emojis sólo si suman, como mucho 2 por mensaje (un 👋 al saludar, un 🙌 cuando cierra la compra); muchos ' +
+    'mensajes van sin ninguno. Nunca uno al principio de cada línea ni uno por palabra.\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
     (agent ? reglaDeMensajesPropios(agent) : '')
   );

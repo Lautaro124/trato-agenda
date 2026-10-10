@@ -79,7 +79,7 @@ describe('CodigoAccesoService', () => {
 
     await pedir();
 
-    expect(whatsapp.enviarAlPropioChat).toHaveBeenCalledWith('user-1', expect.stringContaining('Trato Agenda'));
+    expect(whatsapp.enviarAlPropioChat).toHaveBeenCalledWith('user-1', expect.stringContaining('Trato'));
     expect(filas()).toHaveLength(1);
     expect(filas()[0].hash).not.toContain(codigoEnviado());
     expect(filas()[0].hash).toMatch(/^[0-9a-f]{64}$/);

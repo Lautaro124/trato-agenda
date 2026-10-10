@@ -12,6 +12,21 @@ type Mensaje = { role: "agent" | "user"; text: string; foto?: FotoProducto };
 
 type Respuesta = { reply: string; imagenes?: Array<{ productoId: string; nombre: string }> };
 
+/**
+ * Copia a mano de `partirEnMensajes` (api/src/whatsapp/ritmo-humano.ts): por
+ * WhatsApp la respuesta sale en un mensaje por bloque separado con una línea
+ * en blanco, hasta tres. Acá se muestra igual para que el dueño vea lo mismo
+ * que va a ver su cliente.
+ */
+function partirEnMensajes(texto: string, maximo = 3): string[] {
+  const partes = texto
+    .split(/\n[ \t]*\n/)
+    .map((parte) => parte.trim())
+    .filter((parte) => parte.length > 0);
+  if (partes.length <= maximo) return partes;
+  return [...partes.slice(0, maximo - 1), partes.slice(maximo - 1).join("\n\n")];
+}
+
 /** Saludo y atajos del banco de pruebas, según qué hace el asistente. */
 const GUIONES = {
   agenda: {
@@ -62,7 +77,8 @@ export function TestChat() {
         text: imagen.nombre,
         foto: { ...imagen, version },
       }));
-      setMsgs((prev) => [...prev, ...fotos, { role: "agent", text: respuesta.reply }]);
+      const textos: Mensaje[] = partirEnMensajes(respuesta.reply).map((text) => ({ role: "agent", text }));
+      setMsgs((prev) => [...prev, ...fotos, ...textos]);
     } catch {
       setMsgs((prev) => [
         ...prev,

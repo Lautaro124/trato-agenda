@@ -108,7 +108,7 @@ function PlanContenido() {
         body: JSON.stringify(email ? { email } : {}),
       });
       if (res.status === 409) {
-        setError("Ese email ya es de otra cuenta de Trato Agenda. Usá otro.");
+        setError("Ese email ya es de otra cuenta de Trato. Usá otro.");
         setEnviando(false);
         return;
       }

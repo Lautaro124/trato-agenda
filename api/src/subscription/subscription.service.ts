@@ -8,7 +8,7 @@ import { estadoDeSuscripcion, type EstadoSuscripcion } from './subscription.rule
 import { aSuscripcionPublica, type PrecioPublico, type SuscripcionPublica } from './subscription.types.js';
 
 /** Texto que la persona ve en el checkout y en su resumen de Mercado Pago. */
-const RAZON = 'Trato Agenda — plan mensual';
+const RAZON = 'Trato — plan mensual';
 
 /** Mercado Pago habla de preapprovals; nosotros de suscripciones. */
 const ESTADO_POR_STATUS: Record<PreapprovalStatus, string> = {
@@ -49,7 +49,7 @@ export class SubscriptionService {
 
     const otro = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (otro && otro.id !== user.id) {
-      throw new ConflictException('Ese email ya es de otra cuenta de Trato Agenda.');
+      throw new ConflictException('Ese email ya es de otra cuenta de Trato.');
     }
     await this.prisma.user.update({ where: { id: user.id }, data: { email } });
     return email;

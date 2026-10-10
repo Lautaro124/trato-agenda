@@ -5,6 +5,7 @@
  */
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { TIMEZONE } from '../../graph/agenda-rules.js';
+import { reglasDeNaturalidad } from '../../graph/naturalidad.js';
 import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../../graph/saludo.js';
 import type { AgentConUser } from '../../graph/state.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-historial.js';
@@ -25,6 +26,15 @@ export type DepsContextoVentas = {
   ventanaHistorialMs?: number;
 };
 
+/** En ventas sí hay a quién derivar: derivar_consulta le avisa al dueño. */
+function naturalidadVentas(agent: Agent): string {
+  const titular = agent.nombreTitular || 'este negocio';
+  return reglasDeNaturalidad(
+    titular,
+    `que si prefiere hablar con alguien del negocio, le avisás a ${titular} con derivar_consulta y le escribe por este chat`,
+  );
+}
+
 export function contextoFijoVentas(
   agent: Agent,
   conversation: Pick<Conversation, 'remoteJid' | 'resumen' | 'nombreCliente'>,
@@ -39,7 +49,7 @@ export function contextoFijoVentas(
   const presentacion = bloqueDeSaludo(agent, opciones.yaSePresento);
   const reglas =
     `${reglasDeVenta(agent, opciones.mpConectado)}\n\n${reglasDeAlcanceVentas(agent, esPropietario)}\n\n` +
-    `${reglasDeEstiloVentas(agent)}${presentacion}`;
+    `${reglasDeEstiloVentas(agent)}\n\n${naturalidadVentas(agent)}${presentacion}`;
 
   if (esPropietario) {
     return (

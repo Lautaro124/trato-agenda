@@ -1,6 +1,6 @@
 # Verificación OAuth de Google
 
-Estado y material para (re)enviar la app **Trato Agenda** (proyecto Cloud
+Estado y material para (re)enviar la app **Trato** (proyecto Cloud
 `turnerowebtrato`) a la verificación de Google.
 
 Google rechazó el primer envío por tres cosas: la política de privacidad no
@@ -168,7 +168,7 @@ antes de mandarlo.
 
 > **What the app does**
 >
-> Trato Agenda is a WhatsApp assistant that books appointments into the account
+> Trato is a WhatsApp assistant that books appointments into the account
 > owner's own Google Calendar. The owner signs in with Google, links their
 > WhatsApp number, and from then on the assistant answers their clients'
 > messages, proposes free slots, and creates, moves or cancels the corresponding
@@ -248,7 +248,7 @@ antes de mandarlo.
 >
 > **Limited Use**
 >
-> Trato Agenda's use of information received from Google APIs will adhere to the
+> Trato's use of information received from Google APIs will adhere to the
 > Google API Services User Data Policy, including the Limited Use requirements.
 > The use of raw or derived user data received from Workspace APIs will adhere to
 > the Google User Data Policy, including the Limited Use requirements.
@@ -284,11 +284,18 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
 9. `/calendario` en la app, listando los eventos del titular — el otro uso de
    `auth/calendar` (`events.list`).
 10. `/cuenta` → escribir `ELIMINAR` → **Eliminar mi cuenta y mis datos**. Después
-    abrir `https://myaccount.google.com/permissions` y mostrar que Trato Agenda
+    abrir `https://myaccount.google.com/permissions` y mostrar que Trato
     **ya no figura**. Es la prueba en video de que la revocación funciona, y es
     lo que más peso tiene.
 
 ## Lo que falta hacer a mano
+
+- [ ] **Renombrar la app a "Trato" en la consola** (*Branding* de la pantalla
+      de consentimiento). Desde el 2026-10-10 la web, la política, los términos
+      y la declaración de Limited Use dicen "Trato" y no "Trato Agenda"; Google
+      compara ese nombre con el de la pantalla de consentimiento y con la
+      homepage, así que tienen que coincidir antes de reenviar. Cambiar el
+      nombre vuelve a pasar por la verificación de marca (unos días).
 
 - [ ] **Opcional, pero mejora la impresión: casilla en el dominio.** El
       contacto publicado en `/privacidad`, `/terminos`, la landing y `/cuenta`
@@ -331,7 +338,7 @@ Los scopes nuevos hay que ejercitarlos contra Google de verdad. Ya no se usa
 que un 403 en la disponibilidad apunta a un token viejo, no a un scope que
 falte.
 
-1. Revocar el acceso de Trato Agenda en
+1. Revocar el acceso de Trato en
    `https://myaccount.google.com/permissions`.
 2. Entrar de nuevo (el consentimiento tiene que mostrar los scopes nuevos).
 3. Ejercitar las cinco llamadas: pedir disponibilidad desde el chat de prueba
