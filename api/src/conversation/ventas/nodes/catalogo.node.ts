@@ -88,6 +88,94 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     };
   }
 
+  type Args = OperacionPendiente['args'];
+
+  async function crearPedido(state: EstadoVentasValue, args: Args): Promise<string> {
+    const { agent, conversation, mpConectado } = state.contexto;
+    const porDefecto: MedioDePago = mpConectado ? 'mercadopago' : 'manual';
+    const medioPago: MedioDePago =
+      args.medioPago === 'manual' || args.medioPago === 'mercadopago' ? args.medioPago : porDefecto;
+    try {
+      const venta = await deps.ventas.crearPedido({
+        userId: state.ownerUserId,
+        conversationId: conversation.id,
+        remoteJid: state.remoteJid,
+        nombreCliente: String(args.nombreCliente),
+        items: args.items as ItemPedido[],
+        medioPago,
+        entrega: leerEntrega(args.entrega),
+        datosCliente: leerDatosDeVenta(args.datosCliente),
+        // El banco de pruebas del Home (quien habla es el dueño): pedido real, fuera del histórico.
+        dePrueba: state.esPropietario,
+      });
+      return formatearPedidoCreado(agent, venta);
+    } catch (error) {
+      if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
+      throw error;
+    }
+  }
+
+  async function derivarConsulta(state: EstadoVentasValue, args: Args): Promise<string> {
+    const { agent, conversation } = state.contexto;
+    const titular = agent.nombreTitular || 'el negocio';
+    const decile = `Decile al cliente que ${titular} le va a responder por este chat.`;
+    if (await deps.notificaciones.consultaRecienteDe(state.ownerUserId, conversation.id)) {
+      return `Ya le avisé a ${titular} hace un rato de una consulta de este cliente: no lo vuelvo a molestar. ${decile}`;
+    }
+    await deps.notificaciones.avisar(
+      state.ownerUserId,
+      avisoConsultaDerivada({
+        conversationId: conversation.id,
+        nombreCliente: conversation.nombreCliente,
+        telefonoCliente: telefonoDeJid(state.remoteJid),
+        resumen: String(args.resumen),
+        dePrueba: state.esPropietario,
+      }),
+    );
+    return `Listo, le avisé a ${titular}. ${decile}`;
+  }
+
+  /** listar_ventas y resumen_ventas (sólo el dueño). */
+  async function historicoDeVentas(state: EstadoVentasValue, operacion: OperacionPendiente): Promise<string> {
+    const { args } = operacion;
+    const filtros = {
+      desde: typeof args.desde === 'string' ? args.desde : undefined,
+      hasta: typeof args.hasta === 'string' ? args.hasta : undefined,
+    };
+    try {
+      if (operacion.nombre === 'listar_ventas') {
+        const estado = typeof args.estado === 'string' ? (args.estado as never) : undefined;
+        return formatearListadoVentas(await deps.historico.listar(state.ownerUserId, { ...filtros, estado }));
+      }
+      const [resumen, listado] = await Promise.all([
+        deps.historico.resumen(state.ownerUserId, filtros),
+        deps.historico.listar(state.ownerUserId, filtros),
+      ]);
+      return formatearResumenVentas(resumen, listado);
+    } catch (error) {
+      if (error instanceof RangoInvalidoError) return `Fechas inválidas: ${error.message}`;
+      throw error;
+    }
+  }
+
+  async function enviarImagen(state: EstadoVentasValue, args: Args): Promise<Resultado> {
+    const productoId = String(args.productoId);
+    const foto = await deps.imagenes.estadoDeFoto(state.ownerUserId, productoId);
+    if (!foto) {
+      return 'Ese producto no está en el catálogo. Usá el id entre corchetes de una búsqueda de esta charla.';
+    }
+    const nombre = JSON.stringify(foto.nombre);
+    if (!foto.tieneFoto) {
+      return `${nombre} no tiene foto. Decíselo al cliente y contale cómo es con lo que dice el catálogo.`;
+    }
+    return {
+      texto:
+        `Listo: la foto de ${nombre} le llega al cliente junto con tu respuesta. No la describas ni pegues ` +
+        'links: seguí la charla (por ejemplo, preguntale si es lo que buscaba).',
+      imagen: { productoId, nombre: foto.nombre },
+    };
+  }
+
   async function ejecutar(state: EstadoVentasValue, operacion: OperacionPendiente, ofrecer: Ofrecer): Promise<Resultado> {
     const { args } = operacion;
     switch (operacion.nombre) {
@@ -110,90 +198,15 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const consulta = String(args.consulta);
         return formatearStockDueno(consulta, await deps.busqueda.buscar(state.ownerUserId, consulta));
       }
-      case 'crear_pedido': {
-        const { agent, conversation, mpConectado } = state.contexto;
-        const medioPago: MedioDePago =
-          args.medioPago === 'manual' || args.medioPago === 'mercadopago'
-            ? args.medioPago
-            : mpConectado
-              ? 'mercadopago'
-              : 'manual';
-        try {
-          const venta = await deps.ventas.crearPedido({
-            userId: state.ownerUserId,
-            conversationId: conversation.id,
-            remoteJid: state.remoteJid,
-            nombreCliente: String(args.nombreCliente),
-            items: args.items as ItemPedido[],
-            medioPago,
-            entrega: leerEntrega(args.entrega),
-            datosCliente: leerDatosDeVenta(args.datosCliente),
-            // El banco de pruebas del Home (quien habla es el dueño): pedido real, fuera del histórico.
-            dePrueba: state.esPropietario,
-          });
-          return formatearPedidoCreado(agent, venta);
-        } catch (error) {
-          if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
-          throw error;
-        }
-      }
-      case 'derivar_consulta': {
-        const { agent, conversation } = state.contexto;
-        const titular = agent.nombreTitular || 'el negocio';
-        const decile = `Decile al cliente que ${titular} le va a responder por este chat.`;
-        if (await deps.notificaciones.consultaRecienteDe(state.ownerUserId, conversation.id)) {
-          return `Ya le avisé a ${titular} hace un rato de una consulta de este cliente: no lo vuelvo a molestar. ${decile}`;
-        }
-        await deps.notificaciones.avisar(
-          state.ownerUserId,
-          avisoConsultaDerivada({
-            conversationId: conversation.id,
-            nombreCliente: conversation.nombreCliente,
-            telefonoCliente: telefonoDeJid(state.remoteJid),
-            resumen: String(args.resumen),
-            dePrueba: state.esPropietario,
-          }),
-        );
-        return `Listo, le avisé a ${titular}. ${decile}`;
-      }
+      case 'crear_pedido':
+        return crearPedido(state, args);
+      case 'derivar_consulta':
+        return derivarConsulta(state, args);
       case 'listar_ventas':
-      case 'resumen_ventas': {
-        const filtros = {
-          desde: typeof args.desde === 'string' ? args.desde : undefined,
-          hasta: typeof args.hasta === 'string' ? args.hasta : undefined,
-        };
-        try {
-          if (operacion.nombre === 'listar_ventas') {
-            const estado = typeof args.estado === 'string' ? (args.estado as never) : undefined;
-            return formatearListadoVentas(await deps.historico.listar(state.ownerUserId, { ...filtros, estado }));
-          }
-          const [resumen, listado] = await Promise.all([
-            deps.historico.resumen(state.ownerUserId, filtros),
-            deps.historico.listar(state.ownerUserId, filtros),
-          ]);
-          return formatearResumenVentas(resumen, listado);
-        } catch (error) {
-          if (error instanceof RangoInvalidoError) return `Fechas inválidas: ${error.message}`;
-          throw error;
-        }
-      }
-      case 'enviar_imagen_producto': {
-        const productoId = String(args.productoId);
-        const foto = await deps.imagenes.estadoDeFoto(state.ownerUserId, productoId);
-        if (!foto) {
-          return 'Ese producto no está en el catálogo. Usá el id entre corchetes de una búsqueda de esta charla.';
-        }
-        const nombre = JSON.stringify(foto.nombre);
-        if (!foto.tieneFoto) {
-          return `${nombre} no tiene foto. Decíselo al cliente y contale cómo es con lo que dice el catálogo.`;
-        }
-        return {
-          texto:
-            `Listo: la foto de ${nombre} le llega al cliente junto con tu respuesta. No la describas ni pegues ` +
-            'links: seguí la charla (por ejemplo, preguntale si es lo que buscaba).',
-          imagen: { productoId, nombre: foto.nombre },
-        };
-      }
+      case 'resumen_ventas':
+        return historicoDeVentas(state, operacion);
+      case 'enviar_imagen_producto':
+        return enviarImagen(state, args);
       case 'consultar_pedido':
         return formatearPedidos(await deps.ventas.pedidosDeConversacion(state.contexto.conversation.id));
       case 'cancelar_pedido': {
@@ -210,6 +223,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
   return async (state: EstadoVentasValue): Promise<EstadoVentasUpdate> => {
     const mensajes: ToolMessage[] = [];
     const ofrecer = crearOferta(state);
+    // Una por una y en orden, a propósito: la oferta va en el primer resultado
+    // que muestra productos, y los pedidos no tienen que correr en paralelo.
     for (const operacion of state.pendientes) {
       let resultado: Resultado;
       try {

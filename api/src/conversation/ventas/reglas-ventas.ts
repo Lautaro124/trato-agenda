@@ -541,8 +541,9 @@ function lineaDePromocion(promocion: PromocionVigente): string {
 /** "\"Mate imperial\": desde $ 8.000, antes $ 10.000 (20% off; ahorra $ 2.000)", como precioParaElModelo. */
 function lineaDeProductoConDescuento(producto: ProductoConDescuento): string {
   const final = formatearCentavos(producto.precioFinalCentavos);
+  const precio = producto.variosPrecios ? 'desde ' + final : final;
   return (
-    `- ${JSON.stringify(producto.nombre)}: ${producto.variosPrecios ? `desde ${final}` : final}, antes ` +
+    `- ${JSON.stringify(producto.nombre)}: ${precio}, antes ` +
     `${formatearCentavos(producto.precioListaCentavos)} (${detalleParaElModelo(producto.aplicado)}; ahorra ` +
     `${formatearCentavos(producto.aplicado.descuentoCentavos)})`
   );
@@ -560,9 +561,10 @@ export function formatearDescuentos(vigentes: DescuentosVigentes): string {
     );
   }
   const lineas = [...vigentes.promociones.map(lineaDePromocion), ...vigentes.productos.map(lineaDeProductoConDescuento)];
+  const productosMas = vigentes.restantes === 1 ? 'producto más' : 'productos más';
   const resto =
     vigentes.restantes > 0
-      ? `\nHay ${vigentes.restantes} ${vigentes.restantes === 1 ? 'producto más' : 'productos más'} con descuento: ` +
+      ? `\nHay ${vigentes.restantes} ${productosMas} con descuento: ` +
         'decile que hay más y que te cuente qué busca para pasarle el precio.'
       : '';
   return (
