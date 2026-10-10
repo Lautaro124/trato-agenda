@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   alcanceDe,
   aplicaA,
+  descuentosParaElCliente,
+  hayDescuentosVigentes,
   descuentoVigente,
   detalleParaElModelo,
   diaDeDesde,
@@ -9,6 +11,7 @@ import {
   etiquetaDescuento,
   finDeVigencia,
   inicioDeVigencia,
+  MAX_DESCUENTOS_LISTADO,
   mejorDescuento,
   montoDeDescuento,
   problemaDeDescuento,
@@ -167,5 +170,87 @@ describe('problemaDeDescuento', () => {
   it('acepta un porcentaje o un monto válidos, con o sin fechas', () => {
     expect(problemaDeDescuento({ tipo: 'porcentaje', valor: 90 })).toBeNull();
     expect(problemaDeDescuento({ tipo: 'monto', valor: 100, desde: '2026-10-10', hasta: '2026-10-10' })).toBeNull();
+  });
+});
+
+describe('descuentosParaElCliente', () => {
+  const producto = (id: string, categoria: string | null, preciosConStock: number[]) => ({
+    id,
+    nombre: `Producto ${id}`,
+    categoria,
+    preciosConStock,
+  });
+
+  it('lista las promos vigentes que tocan algo con stock, primero las de todo el catálogo', () => {
+    const resultado = descuentosParaElCliente(
+      [
+        descuento({ id: 'cat-mates', categoria: 'mates', nombre: 'Semana del mate', valor: 15, hasta: finDeVigencia('2026-10-31') }),
+        descuento({ id: 'todo', nombre: 'Aniversario', tipo: 'monto', valor: 50_000 }),
+        descuento({ id: 'cat-termos', categoria: 'Termos', nombre: 'Termos sin stock' }),
+        descuento({ id: 'pausada', categoria: 'Mates', nombre: 'Pausada', activo: false }),
+        descuento({ id: 'vencida', nombre: 'Vencida', hasta: finDeVigencia('2026-10-01') }),
+      ],
+      [producto('p-mate', 'Mates', [1_000_000]), producto('p-termo', 'Termos', [])],
+      AHORA,
+    );
+    expect(resultado.promociones).toEqual([
+      { nombre: 'Aniversario', etiqueta: '$ 500 off', categoria: null, hastaDia: null },
+      { nombre: 'Semana del mate', etiqueta: '15% off', categoria: 'mates', hastaDia: '2026-10-31' },
+    ]);
+    expect(resultado.productos).toEqual([]);
+    expect(hayDescuentosVigentes(resultado)).toBe(true);
+  });
+
+  it('una promo que dejaría todo en $ 0 no se ofrece', () => {
+    const resultado = descuentosParaElCliente(
+      [descuento({ id: 'todo', nombre: 'Regalo', tipo: 'monto', valor: 5_000_000 })],
+      [producto('p-mate', 'Mates', [1_000_000])],
+      AHORA,
+    );
+    expect(hayDescuentosVigentes(resultado)).toBe(false);
+  });
+
+  it('cada producto con descuento propio va con el precio que se cobra: el mejor, aunque sea de una promo', () => {
+    const resultado = descuentosParaElCliente(
+      [
+        descuento({ id: 'propio', productoId: 'p-mate', valor: 10 }),
+        descuento({ id: 'todo', nombre: 'Aniversario', valor: 20 }),
+        descuento({ id: 'propio-termo', productoId: 'p-termo', valor: 30 }),
+      ],
+      [
+        producto('p-mate', 'Mates', [1_500_000, 1_000_000]),
+        producto('p-termo', 'Termos', []),
+        producto('p-bombilla', null, [200_000]),
+      ],
+      AHORA,
+    );
+    expect(resultado.productos).toHaveLength(1);
+    expect(resultado.productos[0]).toMatchObject({
+      nombre: 'Producto p-mate',
+      precioFinalCentavos: 800_000,
+      precioListaCentavos: 1_000_000,
+      variosPrecios: true,
+      aplicado: { descuentoId: 'todo', etiqueta: '20% off', nombre: 'Aniversario' },
+    });
+  });
+
+  it('un descuento propio vencido no hace figurar al producto', () => {
+    const resultado = descuentosParaElCliente(
+      [descuento({ id: 'propio', productoId: 'p-mate', hasta: finDeVigencia('2026-10-01') })],
+      [producto('p-mate', 'Mates', [1_000_000])],
+      AHORA,
+    );
+    expect(hayDescuentosVigentes(resultado)).toBe(false);
+  });
+
+  it(`lista hasta ${MAX_DESCUENTOS_LISTADO} productos y cuenta el resto`, () => {
+    const productos = Array.from({ length: MAX_DESCUENTOS_LISTADO + 3 }, (_, indice) => producto(`p${indice}`, null, [100_000]));
+    const resultado = descuentosParaElCliente(
+      productos.map((p) => descuento({ id: `d-${p.id}`, productoId: p.id })),
+      productos,
+      AHORA,
+    );
+    expect(resultado.productos).toHaveLength(MAX_DESCUENTOS_LISTADO);
+    expect(resultado.restantes).toBe(3);
   });
 });

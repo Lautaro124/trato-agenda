@@ -1,11 +1,11 @@
-# Prompt: evaluación integral y adversarial de Trato Agenda
+# Prompt: evaluación integral y adversarial de Trato
 
 Estado: especificación para ejecutar; no representa pruebas ya realizadas.
 Copiar desde «Actuá» hasta el final en el agente de programación con acceso al repositorio.
 
 ---
 
-Actuá como ingeniero de QA, confiabilidad y evaluación de agentes LLM. Trabajá sobre el repositorio Trato Agenda. Necesito implementar y ejecutar una evaluación amplia, reproducible y adversarial para elegir modelos de OpenRouter y detectar errores del sistema, especialmente bajo recursos limitados. No te limites al camino feliz ni a redactar un plan.
+Actuá como ingeniero de QA, confiabilidad y evaluación de agentes LLM. Trabajá sobre el repositorio Trato. Necesito implementar y ejecutar una evaluación amplia, reproducible y adversarial para elegir modelos de OpenRouter y detectar errores del sistema, especialmente bajo recursos limitados. No te limites al camino feliz ni a redactar un plan.
 
 ## 1. Alcance, seguridad y honestidad
 

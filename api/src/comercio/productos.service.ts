@@ -20,6 +20,9 @@ import {
   type ResumenImportacion,
 } from './productos.types.js';
 
+/** De la foto sólo hace falta saber si está y de cuándo es: nunca traer los bytes a un listado. */
+const SIN_BYTES = { select: { updatedAt: true } } as const;
+
 /** Productos por página en el panel. */
 export const POR_PAGINA = 25;
 
@@ -84,7 +87,7 @@ export class ProductosService {
       this.prisma.producto.count({ where }),
       this.prisma.producto.findMany({
         where,
-        include: { variantes: { orderBy: { createdAt: 'asc' } }, descuento: true },
+        include: { variantes: { orderBy: { createdAt: 'asc' } }, descuento: true, imagen: SIN_BYTES },
         orderBy: [{ nombre: 'asc' }, { codigo: 'asc' }],
         skip: (pagina - 1) * POR_PAGINA,
         take: POR_PAGINA,
@@ -156,17 +159,23 @@ export class ProductosService {
     return this.obtener(userId, variante.productoId);
   }
 
-  /** Baja lógica: deja de venderse, pero las ventas que lo nombran siguen intactas. */
+  /**
+   * Baja lógica: deja de venderse, pero las ventas que lo nombran siguen
+   * intactas. La foto sí se borra, para que no ocupe lugar ni cupo.
+   */
   async eliminar(userId: string, id: string): Promise<void> {
     await this.buscarPropio(userId, id);
-    await this.prisma.producto.update({ where: { id }, data: { activo: false } });
+    await this.prisma.$transaction([
+      this.prisma.producto.update({ where: { id }, data: { activo: false } }),
+      this.prisma.imagenProducto.deleteMany({ where: { productoId: id, userId } }),
+    ]);
   }
 
   async obtener(userId: string, id: string): Promise<ProductoPublico> {
     const [producto, promociones] = await Promise.all([
       this.prisma.producto.findFirst({
         where: { id, userId },
-        include: { variantes: { orderBy: { createdAt: 'asc' } }, descuento: true },
+        include: { variantes: { orderBy: { createdAt: 'asc' } }, descuento: true, imagen: SIN_BYTES },
       }),
       descuentosActivos(this.prisma, userId, []),
     ]);

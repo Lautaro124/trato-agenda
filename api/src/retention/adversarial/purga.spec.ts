@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Prisma } from '../../generated/prisma/client.js';
 import type { CheckpointerService } from '../../conversation/checkpointer.provider.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import type { WhatsappService } from '../../whatsapp/whatsapp.service.js';
@@ -81,13 +82,13 @@ describe('purga de retención — adversarial (matriz E)', () => {
     expect(turnoTocado).toBe(false);
   });
 
-  it('las ventas nunca se borran: sólo pierden el nombre y el teléfono del comprador', async () => {
+  it('las ventas nunca se borran: sólo pierden el nombre, el teléfono y los datos del comprador', async () => {
     const { servicio, prisma } = servicioConDatos();
 
     await servicio.purgar();
 
     expect('deleteMany' in prisma.venta).toBe(false);
     const { data } = vi.mocked(prisma.venta.updateMany).mock.calls[0][0]!;
-    expect(data).toEqual({ nombreCliente: null, telefonoCliente: null });
+    expect(data).toEqual({ nombreCliente: null, telefonoCliente: null, datosCliente: Prisma.DbNull });
   });
 });

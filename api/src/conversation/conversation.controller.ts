@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { ConversationService, jidDePrueba } from './conversation.service.js';
 import { MENSAJE_SUSCRIPCION_VENCIDA } from './mensajes.js';
+import type { ImagenAEnviar } from './ventas/imagenes-de-la-vuelta.js';
 
 class EnviarMensajeDto {
   @IsString()
@@ -27,15 +28,19 @@ export class ConversationController {
    * Banco de pruebas del Home: le habla al mismo agente que WhatsApp, de verdad.
    * Con la prueba vencida el agente tampoco contesta acá, pero devolvemos un
    * texto en vez de silencio porque quien escribe es el dueño, no un cliente.
+   * Las fotos vuelven como ids: la web las pide a `GET /productos/:id/imagen`.
    */
   @Post('test')
-  async test(@CurrentUser() user: User, @Body() dto: EnviarMensajeDto): Promise<{ reply: string }> {
+  async test(
+    @CurrentUser() user: User,
+    @Body() dto: EnviarMensajeDto,
+  ): Promise<{ reply: string; imagenes: ImagenAEnviar[] }> {
     if (!(await this.subscriptionService.asistenteActivo(user.id))) {
-      return { reply: MENSAJE_SUSCRIPCION_VENCIDA };
+      return { reply: MENSAJE_SUSCRIPCION_VENCIDA, imagenes: [] };
     }
 
-    const reply = await this.conversationService.handleIncoming(user.id, jidDePrueba(user.id), dto.message);
-    return { reply };
+    const respuesta = await this.conversationService.responder(user.id, jidDePrueba(user.id), dto.message);
+    return { reply: respuesta.texto, imagenes: respuesta.imagenes };
   }
 
   @Delete('test')

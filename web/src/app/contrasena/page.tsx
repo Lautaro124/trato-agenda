@@ -78,7 +78,7 @@ export default function ContrasenaPage() {
               vinculado.{" "}
             </>
           ) : null}
-          Con tu número y esta contraseña vas a entrar a Trato Agenda de ahora en más.
+          Con tu número y esta contraseña vas a entrar a Trato de ahora en más.
         </p>
         <input
           type="password"

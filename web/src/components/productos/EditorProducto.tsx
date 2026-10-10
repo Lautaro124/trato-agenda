@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { FotoProducto } from "@/components/productos/FotoProducto";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -118,10 +119,13 @@ export function EditorProducto({
   producto,
   onCerrar,
   onGuardado,
+  onFotoCambiada,
 }: {
   producto: Producto | null;
   onCerrar: () => void;
   onGuardado: (producto: Producto) => void;
+  /** La foto se guarda sola (no espera al "Guardar"): avisa para refrescar el listado. */
+  onFotoCambiada?: () => void;
 }) {
   const titulo = useId();
   const idCampos = useId();
@@ -291,6 +295,12 @@ export function EditorProducto({
                 />
               </div>
 
+              <FotoProducto
+                productoId={producto?.id ?? null}
+                imagenActualizada={producto?.imagenActualizada ?? null}
+                onCambio={() => onFotoCambiada?.()}
+              />
+
               <SeccionDescuento
                 descuento={descuento}
                 precios={variantes.map((v) => ({ clave: v.clave, nombre: v.nombre.trim(), centavos: leerCentavos(v.precio) }))}
@@ -415,24 +425,28 @@ export function EditorProducto({
             </fieldset>
           </div>
 
-          {error && (
-            <p role="alert" className="text-sm text-danger-text">
-              {error}
-            </p>
-          )}
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {hayCambios && (
-              <p className="mr-auto text-[13px] font-semibold text-[var(--color-primitive-coral-700)]">
-                Cambios sin guardar
+          {/* Fija abajo del diálogo: con muchas variantes, guardar no obliga a bajar hasta el final.
+              -bottom-5 la pega al borde (el sticky se mide desde adentro del padding del diálogo).
+              El error va acá también, para que se vea al lado del botón que lo produjo. */}
+          <div className="sticky -bottom-5 -mx-5 -mb-5 flex flex-col gap-2 border-t border-line bg-card px-5 py-3">
+            {error && (
+              <p role="alert" className="text-sm text-danger-text">
+                {error}
               </p>
             )}
-            <Button variant="secondary" onClick={cerrar}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={guardando}>
-              {guardando ? "Guardando…" : "Guardar producto"}
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {hayCambios && (
+                <p className="mr-auto basis-full text-[13px] font-semibold text-[var(--color-primitive-coral-700)] sm:basis-auto">
+                  Cambios sin guardar
+                </p>
+              )}
+              <Button variant="secondary" onClick={cerrar}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={guardando}>
+                {guardando ? "Guardando…" : "Guardar producto"}
+              </Button>
+            </div>
           </div>
         </form>
       </div>

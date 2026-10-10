@@ -69,9 +69,12 @@ test.describe('venta con link de Mercado Pago', () => {
     const [descarga] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Exportar CSV' }).click()]);
     const csv = await readFile((await descarga.path())!, 'utf8');
     const [encabezado, primera] = csv.replace(/^\uFEFF/, '').split('\r\n');
-    expect(encabezado).toBe('fecha;estado;cliente;telefono;medio_de_pago;productos;total;pagada_el;operacion_mercado_pago;prueba');
+    expect(encabezado).toBe(
+      'fecha;estado;cliente;telefono;medio_de_pago;productos;total;pagada_el;operacion_mercado_pago;prueba;entrega;datos_cliente',
+    );
     expect(primera).toContain(';pagada;Ana;;Mercado Pago;2 × Mate de calabaza;$ 16.000;');
-    expect(primera.endsWith(';sí')).toBe(true);
+    // Sin datos del cliente configurados, las dos últimas columnas quedan vacías.
+    expect(primera.endsWith(';sí;;')).toBe(true);
 
     // 6. Y el dueño lo puede preguntar desde el chat de prueba.
     const resumen = await context.request.post(`${API_URL}/conversation/test`, { data: { message: 'cuánto vendí esta semana' } });

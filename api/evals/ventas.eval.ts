@@ -24,6 +24,7 @@ import { CuentaMercadoPagoService } from '../src/comercio/cuenta-mercadopago.ser
 import { DecisionesClient } from '../src/comercio/decisiones.client.js';
 import { EmbeddingsClient } from '../src/comercio/embeddings.client.js';
 import { HistoricoVentasService } from '../src/comercio/historico.service.js';
+import { ImagenesService } from '../src/comercio/imagenes.service.js';
 import { IndexadorService } from '../src/comercio/indexador.service.js';
 import { ProductosService } from '../src/comercio/productos.service.js';
 import { SugerenciasService } from '../src/comercio/sugerencias.service.js';
@@ -276,6 +277,7 @@ describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () 
           ventas: new VentasService(prisma, mp, new CuentaMercadoPagoService(prisma, mp, config), config, notificaciones),
           notificaciones,
           historico: new HistoricoVentasService(prisma),
+          imagenes: new ImagenesService(prisma),
           // El resumen de cliente no es lo que se evalúa.
           openRouter: { chat: async () => ({ content: 'Cliente de eval.' }) } as unknown as OpenRouterClient,
           llm: llmProvider.useFactory(config),

@@ -255,10 +255,38 @@ describe('AgentsService.generarVentas', () => {
       model: null,
       templateVersion: PLANTILLA_VENTAS_VERSION,
     });
+    // Sin el paso opcional de datos no se escribe nada: quedan los defaults (sólo pide el nombre).
+    expect(create).not.toHaveProperty('haceEnvios');
+    expect(create).not.toHaveProperty('datosCliente');
     // Los textos libres van escapados como dato, no como instrucción.
     expect(create.systemPrompt).toContain('"Mates \\"El Gaucho\\""');
     expect(create.systemPrompt).toContain('"Nina"');
     expect(create.systemPrompt).not.toContain('lunes a viernes');
+  });
+
+  it('guarda los datos que pide al cliente, normalizados', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generarVentas('user-1', {
+      nombreTitular: 'Tienda',
+      nombreBot: 'Tati',
+      haceEnvios: true,
+      datosCliente: [
+        { tipo: 'codigoPostal', obligatorio: true },
+        { tipo: 'codigoPostal', obligatorio: false },
+        { tipo: 'personalizado', etiqueta: ' Entre calles ', obligatorio: false },
+      ],
+    });
+
+    const [{ create }] = upsert.mock.calls[0] as [{ create: Record<string, unknown> }];
+    expect(create).toMatchObject({
+      haceEnvios: true,
+      datosCliente: [
+        { tipo: 'codigoPostal', obligatorio: true },
+        { tipo: 'personalizado', etiqueta: 'Entre calles', obligatorio: false },
+      ],
+    });
   });
 
   it('se puede regenerar si ya era de ventas', async () => {
@@ -301,6 +329,31 @@ describe('construirDescripcion', () => {
     expect(descripcion).toContain('Probador (20 min)');
     expect(descripcion).toContain('Presupuesto (30 min)');
     expect(descripcion).toContain('de 09:00 a 18:00');
+  });
+});
+
+describe('AgentsService.actualizarDatosCliente', () => {
+  const datos = { haceEnvios: false, datosCliente: [{ tipo: 'email' as const, obligatorio: true }] };
+
+  it('sólo cambia las dos columnas de datos, sin tocar el prompt', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas' });
+
+    await service.actualizarDatosCliente('user-1', datos);
+
+    expect(update).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: { haceEnvios: false, datosCliente: [{ tipo: 'email', obligatorio: true }] },
+    });
+  });
+
+  it('404 sin asistente y 409 si es de agenda', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(null);
+    await expect(service.actualizarDatosCliente('user-1', datos)).rejects.toMatchObject({ status: 404 });
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
+    await expect(service.actualizarDatosCliente('user-1', datos)).rejects.toMatchObject({ status: 409 });
+    expect(update).not.toHaveBeenCalled();
   });
 });
 

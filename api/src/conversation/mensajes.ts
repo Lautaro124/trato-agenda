@@ -2,7 +2,7 @@
 export const MENSAJE_SIN_AGENTE =
   'Este número todavía no está configurado. Avisale al dueño que complete el alta.';
 export const MENSAJE_DISCULPA_GENERICO =
-  'Perdón, tuve un problema para responderte. Probá de nuevo en un rato.';
+  'Perdón, tuve un problema para responderte recién. ¿Me escribís de nuevo en un ratito?';
 /** Cuando el proveedor del modelo rechaza el mensaje por moderación: no invita a reintentar. */
 export const MENSAJE_FUERA_DE_ALCANCE =
   'Con eso no te puedo ayudar. Si querés, seguimos con lo que necesitás.';

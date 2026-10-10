@@ -63,6 +63,14 @@ describe('reglasDeEstilo', () => {
   it('saluda y se presenta una sola vez por charla', () => {
     expect(reglasDeEstilo()).toContain('Saludá y decí tu nombre sólo en tu primer mensaje');
   });
+
+  it('confirma en una frase natural, sin el formato fijo con un emoji por renglón', () => {
+    const estilo = reglasDeEstilo();
+
+    expect(estilo).not.toContain('Te agendé:');
+    expect(estilo).not.toContain('📅 {día}');
+    expect(estilo).toContain('variá las palabras');
+  });
 });
 
 describe('reglasDeAlcance', () => {

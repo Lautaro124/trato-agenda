@@ -50,6 +50,30 @@ function EjemploDelTipo({ ventas }: { ventas: boolean }) {
   );
 }
 
+/** Cómo pide el asistente la entrega y los datos que se tildaron en el paso "datos". */
+function PedidoDeDatos({ ob }: { ob: Onboarding }) {
+  const { haceEnvios, campos } = ob.datosCliente;
+  // "¿Envío o retiro?" sólo si además se puede retirar en el local.
+  const eligeEntrega = haceEnvios && ob.local.tieneLocal && ob.local.retiroEnLocal;
+  if (!haceEnvios && campos.length === 0) return null;
+  // "código postal", pero "DNI" sigue en mayúsculas.
+  const lista = campos
+    .map(({ etiqueta }) => (etiqueta === etiqueta.toUpperCase() ? etiqueta : etiqueta[0].toLowerCase() + etiqueta.slice(1)))
+    .join(", ");
+  return (
+    <>
+      <DelCliente>Dale, uno. Soy Martina</DelCliente>
+      {eligeEntrega && (
+        <>
+          <DelAsistente>Perfecto, Martina. ¿Te lo envío o lo retirás?</DelAsistente>
+          <DelCliente>Enviámelo</DelCliente>
+        </>
+      )}
+      {campos.length > 0 && <DelAsistente>Para el pedido pasame: {lista}.</DelAsistente>}
+    </>
+  );
+}
+
 /** Lo que contestaría el asistente si le preguntan por el local, con lo cargado hasta ahora. */
 function respuestaDelLocal(ob: Onboarding): string {
   const { local } = ob;
@@ -97,12 +121,13 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
             <DelAsistente>
               {ob.presentacion} Sí, tengo el mate de calabaza curado a $ 8.000. ¿Te lo reservo?
             </DelAsistente>
-            {(paso === "local" || paso === "asistente") && (
+            {(paso === "local" || paso === "datos" || paso === "asistente") && (
               <>
                 <DelCliente>¿Puedo pasar a buscarlo?</DelCliente>
                 <DelAsistente>{respuestaDelLocal(ob)}</DelAsistente>
               </>
             )}
+            {(paso === "datos" || paso === "asistente") && <PedidoDeDatos ob={ob} />}
           </>
         ) : (
           <>

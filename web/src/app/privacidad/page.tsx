@@ -3,9 +3,9 @@ import { FooterLegal } from "@/components/FooterLegal";
 import { CUIT, EMAIL_SOPORTE, RESPONSABLE } from "@/lib/contacto";
 
 export const metadata = {
-  title: "Privacidad — Trato Agenda",
+  title: "Privacidad — Trato",
   description:
-    "Qué datos trata Trato Agenda, cómo los protege, cuánto los conserva y cómo cumple la Google API Services User Data Policy, incluido el requisito de Limited Use.",
+    "Qué datos trata Trato, cómo los protege, cuánto los conserva y cómo cumple la Google API Services User Data Policy, incluido el requisito de Limited Use.",
 };
 
 function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
@@ -47,17 +47,17 @@ export default function PrivacidadPage() {
     <main className="min-h-dvh bg-page p-5 md:p-10">
       <div className="mx-auto w-full max-w-[680px] rounded-md border border-line bg-card p-6 shadow-md md:p-8">
         <Link href="/" className="text-[13px] text-link">
-          ← Trato Agenda
+          ← Trato
         </Link>
 
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 29 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 9 de octubre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
-            Trato Agenda es un asistente de WhatsApp que coordina turnos con tus clientes, sobre una
+            Trato es un asistente de WhatsApp que coordina turnos con tus clientes, sobre una
             agenda que guardamos nosotros o, si lo elegís, sobre tu Google Calendar; o que, si tenés un
             comercio, les vende tus productos. Se opera desde la República Argentina y
             está disponible en{" "}
@@ -123,9 +123,14 @@ export default function PrivacidadPage() {
           </p>
           <p>
             <Fuerte>Si usás el asistente de ventas.</Fuerte> Tu catálogo: nombre, descripción,
-            categoría, código, variantes, precio y stock de cada producto. De cada pedido: el nombre
+            categoría, código, variantes, precio y stock de cada producto, y la foto de los productos
+            a los que les subas una (la guardamos achicada y sin los datos que trae el archivo, como
+            el lugar donde se sacó; el asistente sólo se la manda a un cliente que la pide). De cada pedido: el nombre
             que da el cliente, su número de WhatsApp, los productos, el total, el estado y las fechas,
-            y, si pagó con Mercado Pago, el número de operación. Los avisos que te mostramos en el
+            y, si pagó con Mercado Pago, el número de operación. Si configurás que el asistente pida
+            datos para el envío o para el pedido (código postal, dirección, provincia, país, email, DNI
+            u otros que definas vos), también guardamos lo que el cliente conteste, sólo los datos que
+            vos elegiste pedir. Los avisos que te mostramos en el
             panel (ventas, pedidos, stock, consultas) repiten algunos de esos datos.
           </p>
           <p>
@@ -239,7 +244,7 @@ export default function PrivacidadPage() {
               email. Vence a los 7 días.
             </Punto>
             <Punto>
-              La API sólo acepta pedidos del sitio de Trato Agenda (CORS restringido a un único origen)
+              La API sólo acepta pedidos del sitio de Trato (CORS restringido a un único origen)
               y rechaza cualquier operación que cambie datos si no viene de ahí, como defensa contra
               CSRF.
             </Punto>
@@ -319,8 +324,9 @@ export default function PrivacidadPage() {
             </Punto>
             <Punto>
               <Fuerte>Ventas:</Fuerte> se conservan mientras tu cuenta exista, porque son tu histórico.
-              A los 12 meses de cada pedido se borran el nombre y el número de WhatsApp del cliente; los
-              productos, los montos y las fechas quedan.
+              A los 12 meses de cada pedido se borran el nombre, el número de WhatsApp y los demás datos
+              que dio el cliente (dirección, email, DNI y los que hayas pedido); los productos, los
+              montos y las fechas quedan.
             </Punto>
             <Punto>
               <Fuerte>Avisos del panel:</Fuerte> los leídos se borran a los 90 días; los que nunca
@@ -328,7 +334,7 @@ export default function PrivacidadPage() {
             </Punto>
             <Punto>
               <Fuerte>Tu catálogo:</Fuerte> mientras tu cuenta exista. Un producto que borrás deja de
-              ofrecerse en el momento.
+              ofrecerse en el momento, y su foto se borra.
             </Punto>
             <Punto>
               <Fuerte>Un registro con WhatsApp que no se terminó</Fuerte> (se pidió el código QR pero
@@ -373,7 +379,7 @@ export default function PrivacidadPage() {
             <Fuerte>Los eventos que ya están en tu Google Calendar no los borramos</Fuerte>: son
             eventos de tu calendario y quedan ahí, bajo tu control. Si querés que se vayan, borralos
             desde Google antes o después de darte de baja. Lo mismo con tu cuenta de Mercado Pago: los
-            cobros que ya recibiste son tuyos, y la autorización que le diste a Trato Agenda la podés
+            cobros que ya recibiste son tuyos, y la autorización que le diste a Trato la podés
             quitar también desde las aplicaciones conectadas de tu cuenta de Mercado Pago.
           </p>
         </Seccion>
@@ -398,7 +404,7 @@ export default function PrivacidadPage() {
             <a href={`mailto:${EMAIL_SOPORTE}`} className="text-link">
               {EMAIL_SOPORTE}
             </a>
-            . Si sos cliente de alguien que usa Trato Agenda y querés que borremos tus mensajes,
+            . Si sos cliente de alguien que usa Trato y querés que borremos tus mensajes,
             escribinos igual y lo resolvemos.
           </p>
         </Seccion>
@@ -417,7 +423,7 @@ export default function PrivacidadPage() {
             , incluidos sus requisitos de Limited Use. En los términos exactos de Google:
           </p>
           <blockquote className="border-l-2 border-line pl-3.5 text-[13px] italic">
-            Trato Agenda&apos;s use of information received from Google APIs will adhere to the{" "}
+            Trato&apos;s use of information received from Google APIs will adhere to the{" "}
             <a
               href="https://developers.google.com/terms/api-services-user-data-policy"
               className="text-link not-italic"

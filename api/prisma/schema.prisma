@@ -1,4 +1,4 @@
-// Esquema de Trato Agenda.
+// Esquema de Trato.
 
 generator client {
   provider = "prisma-client"
@@ -45,6 +45,7 @@ model User {
   codigosAcceso   CodigoAcceso[]
   productos       Producto[]
   descuentos      Descuento[]
+  imagenesProducto ImagenProducto[]
   ventas          Venta[]
   cuentaMercadoPago CuentaMercadoPago?
   notificaciones  Notificacion[]
@@ -138,6 +139,14 @@ model Agent {
   /// Versión de la plantilla determinista (agent-template.ts) que generó
   /// esta config. Null en agentes generados por IA antes de este campo.
   templateVersion Int?
+
+  /// Sólo ventas: el comercio hace envíos. El asistente pregunta "¿envío o
+  /// retiro?" y pide los datos de `datosCliente` sólo si es con envío.
+  haceEnvios Boolean @default(false)
+
+  /// Sólo ventas: qué datos le pide el asistente al cliente antes de crear el
+  /// pedido. [{ tipo, etiqueta?, obligatorio }] (comercio/datos-cliente.rules.ts).
+  datosCliente Json @default("[]")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -316,6 +325,8 @@ model Producto {
   variantes Variante[]
   /// El descuento propio del producto (del formulario), si tiene.
   descuento Descuento?
+  /// La foto que el asistente le manda al cliente cuando la pide (una sola).
+  imagen    ImagenProducto?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -389,6 +400,30 @@ model Descuento {
   @@index([userId, activo])
 }
 
+/// La foto de un producto, ya recomprimida por la API (comercio/imagenes.rules.ts):
+/// JPEG de hasta 800 px y 150 KB, sin metadatos. Tabla aparte para que los
+/// listados y la búsqueda nunca arrastren los bytes. Una por producto y hasta
+/// `MAX_IMAGENES_POR_CUENTA` por cuenta, para que la base no crezca sin techo.
+model ImagenProducto {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  productoId String   @unique
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  datos Bytes
+  /// Tamaño de `datos`, para el uso de la cuenta sin leer los bytes.
+  bytes Int
+  ancho Int
+  alto  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
 /// Un pedido del asistente de ventas, desde que se reserva el stock hasta que
 /// se paga (o vence, o se cancela). La reserva no es una fila aparte: una
 /// venta `pendiente_pago` con `reservaVenceAt` en el futuro retiene sus
@@ -407,6 +442,12 @@ model Venta {
   nombreCliente   String?
   /// Número de WhatsApp del cliente (sin '+'). Misma retención que el nombre.
   telefonoCliente String?
+
+  /// "envio" | "retiro"; null si el comercio no hace envíos.
+  entrega      String?
+  /// Lo que contestó el cliente: [{ etiqueta, valor }], foto de la etiqueta
+  /// al vender (como ItemVenta). Misma retención que el nombre.
+  datosCliente Json?
 
   /// "pendiente_pago" | "pagada" | "cancelada" | "vencida"
   estado    String @default("pendiente_pago")

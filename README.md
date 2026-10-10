@@ -1,9 +1,16 @@
-# Trato Agenda
+# Trato
 
-Bot de WhatsApp que gestiona turnos por chat, sobre una agenda propia o sobre
-Google Calendar. La cuenta se crea con Google o sólo escaneando el QR de WhatsApp.
+Atención al cliente por WhatsApp a cargo de un asistente de IA que escribe como
+una persona del negocio —espera a que el cliente termine de escribir, marca
+leído, muestra "escribiendo…", parte la respuesta en mensajes cortos y nunca
+niega ser automático si se lo preguntan— y se encarga de la gestión. Tiene dos
+módulos, y cada cuenta elige uno al crearse.
 
-Un comercio puede elegir, en cambio, un **asistente de ventas**: busca en su
+El de **turnos** revisa la agenda y da, mueve y cancela turnos, sobre una agenda
+propia o sobre Google Calendar. La cuenta se crea con Google o sólo escaneando
+el QR de WhatsApp.
+
+El de **ventas** es para un comercio: busca en su
 catálogo (búsqueda híbrida de texto + embeddings en pgvector), informa precio y
 stock, arma el pedido reservando el stock, manda un link de pago de Mercado Pago
 a nombre del comercio (con OAuth) o deja el cobro a coordinar, avisa al dueño en

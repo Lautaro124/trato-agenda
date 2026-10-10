@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { hayStock } from './catalogo.rules.js';
 import { DecisionesClient } from './decisiones.client.js';
-import { mejorDescuento } from './descuentos.rules.js';
+import { descuentosParaElCliente, mejorDescuento, type DescuentosVigentes } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { reservadasPorVariante } from './reservas.js';
 import {
@@ -94,6 +94,46 @@ export class SugerenciasService {
    * vender. Del más nuevo al más viejo: es el orden determinista.
    */
   async panorama(userId: string): Promise<ProductoPanorama[]> {
+    const { productos, descuentos, ahora } = await this.conStock(userId);
+    return productos.flatMap((producto) => {
+      const precios = producto.preciosConStock
+        .map((precio) => {
+          const descuento = mejorDescuento(descuentos, producto, precio, ahora);
+          return { final: descuento?.precioFinalCentavos ?? precio, descuento };
+        })
+        .sort((a, b) => a.final - b.final);
+      if (precios.length === 0) return [];
+      const desde = precios[0].final;
+      return [
+        {
+          productoId: producto.id,
+          nombre: producto.nombre,
+          categoria: producto.categoria,
+          descripcion: producto.descripcion,
+          precioDesdeCentavos: desde,
+          variosPrecios: precios.some((precio) => precio.final !== desde),
+          descuento: precios[0].descuento?.etiqueta ?? null,
+        },
+      ];
+    });
+  }
+
+  /**
+   * `ver_descuentos`: todas las promos y los productos con descuento que hoy
+   * puede aprovechar un cliente (descuentosParaElCliente), sobre el mismo
+   * catálogo con stock que `ver_catalogo`.
+   */
+  async descuentosVigentes(userId: string): Promise<DescuentosVigentes> {
+    // Lo común es no tener ninguno: sin descuentos activos no hace falta leer el catálogo.
+    if ((await this.prisma.descuento.count({ where: { userId, activo: true } })) === 0) {
+      return { promociones: [], productos: [], restantes: 0 };
+    }
+    const { productos, descuentos, ahora } = await this.conStock(userId);
+    return descuentosParaElCliente(descuentos, productos, ahora);
+  }
+
+  /** Los productos activos con los precios de lista de sus variantes con stock, y los descuentos que pueden tocarles. */
+  private async conStock(userId: string) {
     const productos = await this.prisma.producto.findMany({
       where: { userId, activo: true },
       select: {
@@ -113,33 +153,20 @@ export class SugerenciasService {
       userId,
       productos.map((producto) => producto.id),
     );
-    const ahora = new Date();
     const reservadas = await reservadasPorVariante(
       this.prisma,
       productos.flatMap((producto) => producto.variantes.map((variante) => variante.id)),
     );
-    return productos.flatMap((producto) => {
-      const precios = producto.variantes
-        .filter((variante) => hayStock(variante, 1, reservadas.get(variante.id) ?? 0))
-        .map((variante) => {
-          const descuento = mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);
-          return { final: descuento?.precioFinalCentavos ?? variante.precioCentavos, descuento };
-        })
-        .sort((a, b) => a.final - b.final);
-      if (precios.length === 0) return [];
-      const desde = precios[0].final;
-      return [
-        {
-          productoId: producto.id,
-          nombre: producto.nombre,
-          categoria: producto.categoria,
-          descripcion: producto.descripcion,
-          precioDesdeCentavos: desde,
-          variosPrecios: precios.some((precio) => precio.final !== desde),
-          descuento: precios[0].descuento?.etiqueta ?? null,
-        },
-      ];
-    });
+    return {
+      productos: productos.map(({ variantes, ...producto }) => ({
+        ...producto,
+        preciosConStock: variantes
+          .filter((variante) => hayStock(variante, 1, reservadas.get(variante.id) ?? 0))
+          .map((variante) => variante.precioCentavos),
+      })),
+      descuentos,
+      ahora: new Date(),
+    };
   }
 
   private async ordenarCategorias(categorias: CategoriaPanorama[], estado: string): Promise<CategoriaPanorama[]> {

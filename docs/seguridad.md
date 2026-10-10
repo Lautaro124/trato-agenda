@@ -94,8 +94,19 @@ Lo que agrega superficie nueva y cómo está cubierto:
   resto de las llamadas a OpenRouter.
 - **Autorización**: todo lo de `/productos`, `/ventas` y `/notificaciones`
   filtra por el `userId` de la sesión (un id ajeno da 404, no el dato).
-- **Retención y baja**: las ventas pierden nombre y teléfono del cliente a los
-  12 meses y los avisos se purgan (leídos a los 90 días, el resto a los 12
+- **Datos del cliente en el pedido** (`datos-cliente.rules.ts`, 2026-10-10):
+  el comercio elige qué pide (código postal, dirección, provincia, país, email,
+  DNI o hasta 5 campos propios). Las etiquetas propias son texto del dueño y
+  entran al prompt con `JSON.stringify`; lo que contesta el cliente se valida
+  contra esa configuración en el nodo `validacion` (lo que el comercio no pidió
+  se descarta, así el modelo no puede guardar otros datos), se recorta a 200
+  caracteres y queda en `Venta.datosCliente`. No viaja en los avisos (sólo
+  "con envío"/"lo retira"), no se loguea, y en el CSV pasa por `celdaCsv`.
+  Lo que el cliente escribió también queda en `Message` y en los checkpoints
+  (90 días de inactividad) y puede repetirse en `Conversation.resumen` (12
+  meses): las ventanas de retención de siempre, no una nueva.
+- **Retención y baja**: las ventas pierden nombre, teléfono y datos del cliente
+  (`Venta.datosCliente`) a los 12 meses y los avisos se purgan (leídos a los 90 días, el resto a los 12
   meses); la baja de cuenta se lleva catálogo, ventas, avisos y tokens de
   Mercado Pago por cascada (`cuenta.db.spec.ts`).
 
@@ -111,6 +122,39 @@ Pendiente:
 - La baja de cuenta borra los tokens de Mercado Pago pero no revoca la
   autorización del lado de Mercado Pago; `/privacidad` le dice al vendedor que
   la quite desde su cuenta.
+
+## Fotos de productos (2026-10-09, LAU-10)
+
+El dueño sube una foto por producto y el asistente de ventas se la manda al
+cliente que la pide (`enviar_imagen_producto`). Superficie nueva y cómo está
+cubierta:
+
+- **Subida** (`PUT /productos/:id/imagen`, multipart con `FileInterceptor` de
+  `@nestjs/platform-express`): multer en memoria con tope de 2 MB, un solo
+  archivo y ningún otro campo; el producto tiene que ser del `userId` de la
+  sesión (404 si no) y el chequeo de `Origin` de `main.ts` cubre el `PUT`.
+- **Validación por contenido, no por nombre**: `formatoPorFirma`
+  (`comercio/imagenes.rules.ts`) mira los primeros bytes y sólo deja pasar
+  JPEG, PNG y WebP antes de entregarle el archivo a sharp, que sabe leer
+  muchos más formatos (SVG, TIFF, PDF…). Después sharp tiene que coincidir con
+  esa firma, con `limitInputPixels` de 25 MP contra las bombas de
+  descompresión.
+- **Nunca se guarda ni se sirve lo que subió el dueño**: se recomprime a JPEG
+  de 800 px, ≤ 150 KB y **sin metadatos** (EXIF con GPS, ICC). `GET
+  /productos/:id/imagen` responde siempre `image/jpeg` con las cabeceras de
+  seguridad globales (`nosniff`, CSP `default-src 'none'`).
+- **Tope de almacenamiento**: una foto por producto y 100 productos con foto
+  por cuenta, contados en una transacción con `SELECT … FOR UPDATE` sobre el
+  `User` (`imagenes.db.spec.ts` prueba dos subidas simultáneas por el último
+  lugar). Tabla aparte (`ImagenProducto`) para que ningún listado lea los
+  bytes. Dar de baja el producto borra su foto; la baja de cuenta, por cascada.
+- **El modelo no elige qué bytes salen**: la herramienta recibe sólo un
+  `productoId`; el nodo `catalogo` comprueba que sea un producto activo del
+  dueño con foto y deja en el `ToolMessage` un `artifact` con id y nombre
+  (nunca los bytes, que no llegan al checkpoint). `WhatsappService` vuelve a
+  leer la foto filtrando por dueño y producto activo antes de mandarla. Tope
+  de 2 fotos por respuesta (`MAX_IMAGENES_POR_MENSAJE`). Una foto que falla se
+  loguea con ids y el texto sale igual.
 
 ## Code scanning (2026-09-29)
 

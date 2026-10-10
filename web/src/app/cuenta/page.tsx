@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { SeccionDatosCliente } from "@/components/cuenta/SeccionDatosCliente";
 import { SeccionLocal } from "@/components/cuenta/SeccionLocal";
 import { AVISOS_MP, SeccionMercadoPago } from "@/components/cuenta/SeccionMercadoPago";
 import { MobileTabBar } from "@/components/MobileTabBar";
@@ -20,12 +21,12 @@ const CONFIRMACION = "ELIMINAR";
 const AVISOS_GOOGLE: Record<string, { texto: string; tono: "ok" | "error" }> = {
   conectado: { texto: "Listo: tu agenda ahora vive en Google Calendar.", tono: "ok" },
   google_en_uso: {
-    texto: "Esa cuenta de Google ya es de otro usuario de Trato Agenda. Probá con otra.",
+    texto: "Esa cuenta de Google ya es de otro usuario de Trato. Probá con otra.",
     tono: "error",
   },
   migracion_incompleta: {
     texto:
-      "Conectamos Google, pero no pudimos copiar todos tus turnos. Tu agenda sigue en Trato Agenda: probá conectar de nuevo en un rato.",
+      "Conectamos Google, pero no pudimos copiar todos tus turnos. Tu agenda sigue en Trato: probá conectar de nuevo en un rato.",
     tono: "error",
   },
 };
@@ -40,7 +41,7 @@ function describirCuenta(user: Usuario): string {
       ? ""
       : user.calendario === "google"
         ? "Tu agenda está en Google Calendar."
-        : "Tu agenda está en Trato Agenda.";
+        : "Tu agenda está en Trato.";
   return partes.length > 0 ? `Cuenta de ${partes.join(" · ")}. ${agenda}`.trim() : agenda;
 }
 
@@ -124,11 +125,13 @@ function CuentaContenido() {
 
           {esVentas && <SeccionLocal />}
 
+          {esVentas && <SeccionDatosCliente />}
+
           {!conGoogle && !esVentas && (
             <section className="rounded-lg border border-line bg-card p-5">
               <h2 className="mb-2 font-display text-[15px] font-bold text-ink">Tu agenda</h2>
               <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
-                Tus turnos y los horarios que bloqueás se guardan en Trato Agenda. Si usás Google
+                Tus turnos y los horarios que bloqueás se guardan en Trato. Si usás Google
                 Calendar, podés conectarlo: copiamos ahí los turnos que vienen y desde ese momento el
                 asistente trabaja sobre tu Google Calendar, contando también lo que cargues a mano.
               </p>
@@ -155,7 +158,7 @@ function CuentaContenido() {
                 Permisos de Google
               </h2>
               <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
-                Trato Agenda usa tu calendario para ver cuándo estás libre y para crear, mover y
+                Trato usa tu calendario para ver cuándo estás libre y para crear, mover y
                 cancelar los turnos que acuerda tu asistente. No leemos los títulos ni los invitados de
                 tus eventos para eso. Podés revocar el acceso cuando quieras desde{" "}
                 <a

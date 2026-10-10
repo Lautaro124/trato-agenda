@@ -96,27 +96,44 @@ function llamadaATool(model, name, args) {
 // del último mensaje del cliente:
 //   - "quiero …" / "lo compro" (con "soy <Nombre>") → crear_pedido con la
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
+//     si las reglas dicen que el negocio hace envíos, "con envío" / "lo retiro"
+//     van en `entrega`, y los pares "Etiqueta: valor" separados por ";" van en
+//     `datosCliente`;
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
-//   - "envío" / "envían" → derivar_consulta (el asistente no sabe de envíos);
+//   - "envío" / "envían" fuera de una compra → derivar_consulta;
 //   - "dónde queda" / "dirección" / "retirar" / "el local" → contesta con lo
 //     que dice el bloque del local del system prompt (bloqueLocal): la
 //     dirección y si se retira, que no hay local, o derivar_consulta si el
 //     local nunca se cargó;
+//   - "foto" → enviar_imagen_producto con el producto de la última búsqueda
+//     ("[producto <id>]"), o "no tengo foto" si no buscó nada;
 //   - "qué tenés" / "qué productos" / "qué ofrecés" → ver_catalogo; "mostrame
 //     <categoría>" → ver_catalogo con esa categoría;
+//   - "descuento" / "promo" / "oferta" → ver_descuentos;
 //   - sólo con las herramientas del dueño (banco de pruebas del Home):
 //     "cuánto vendí" → resumen_ventas de los últimos 7 días, "ventas de hoy" →
 //     listar_ventas de hoy;
 //   - un saludo → saludo; cualquier otra cosa → buscar_productos con el texto.
 // Con el resultado de la herramienta contesta: el primer producto encontrado,
-// la lista de ver_catalogo sin comillas, o el texto de la herramienta tal cual
-// (así el link de pago llega al cliente).
+// la lista de ver_catalogo o de ver_descuentos sin comillas, o el texto de la
+// herramienta tal cual (así el link de pago llega al cliente). Si el resultado
+// trae la oferta de descuentos (conOfertaDeDescuentos), suma la línea
+// "Además tenemos algunos descuentos, si querés te los paso.".
 
 /** "YYYY-MM-DD" en Buenos Aires, corrido `dias` días. */
 function diaDeBuenosAires(dias = 0) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(
     new Date(Date.now() + dias * 24 * 60 * 60 * 1000),
   );
+}
+
+function productoDeLaUltimaBusqueda(mensajes) {
+  for (const mensaje of [...mensajes].reverse()) {
+    if (mensaje.role !== 'tool') continue;
+    const id = textoDe(mensaje).match(/\[producto ([\w-]+)\]/)?.[1];
+    if (id) return id;
+  }
+  return null;
 }
 
 function varianteDeLaUltimaBusqueda(mensajes) {
@@ -149,11 +166,20 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
 
   if (resultadoTool) {
     const resultado = textoDe(resultadoTool);
+    const oferta = resultado.includes('Hay descuentos vigentes en el negocio.')
+      ? '\nAdemás tenemos algunos descuentos, si querés te los paso.'
+      : '';
     // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
     if (resultado.startsWith('Resultados de') || resultado.startsWith('Ningún producto se llama como')) {
-      const primero = resultado.match(/1\. "(.+?)" \(código/)?.[1];
+      const primero = resultado.match(/1\. "(.+?)" (?:\[producto [^\]]+\] )?\(código/)?.[1];
       const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
-      return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.` }));
+      return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.${oferta}` }));
+    }
+    if (resultado.startsWith('Listo: la foto')) {
+      return responder(res, 200, completion(body.model, { content: 'Ahí te mandé la foto. ¿Es lo que buscabas?' }));
+    }
+    if (resultado.includes('no tiene foto')) {
+      return responder(res, 200, completion(body.model, { content: 'De ese no tengo foto, pero te cuento cómo es.' }));
     }
     if (resultado.startsWith('No hay productos')) {
       return responder(res, 200, completion(body.model, { content: 'No tengo eso, ¿buscás otra cosa?' }));
@@ -162,11 +188,17 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const lineas = resultado.split('\n').filter((linea) => linea.startsWith('- ')).map((linea) => linea.replaceAll('"', ''));
     if (resultado.startsWith('Productos con stock')) {
       const mas = resultado.includes('Decile que tenés más') ? '\nTengo más, si ninguno te interesa contame qué buscás.' : '';
-      return responder(res, 200, completion(body.model, { content: `Esto es lo que tengo:\n${lineas.join('\n')}${mas}` }));
+      return responder(res, 200, completion(body.model, { content: `Esto es lo que tengo:\n${lineas.join('\n')}${mas}${oferta}` }));
     }
     if (resultado.startsWith('El catálogo tiene')) {
       const otras = resultado.includes('categorías más') || resultado.includes('categoría más') ? '\nY tengo otras más.' : '';
-      return responder(res, 200, completion(body.model, { content: `Tengo estas categorías:\n${lineas.join('\n')}${otras}\n¿Cuál querés ver?` }));
+      return responder(res, 200, completion(body.model, { content: `Tengo estas categorías:\n${lineas.join('\n')}${otras}\n¿Cuál querés ver?${oferta}` }));
+    }
+    if (resultado.startsWith('Descuentos vigentes')) {
+      return responder(res, 200, completion(body.model, { content: `Estos son los descuentos que tenemos:\n${lineas.join('\n')}` }));
+    }
+    if (resultado.startsWith('No hay descuentos vigentes')) {
+      return responder(res, 200, completion(body.model, { content: 'Ahora no tenemos descuentos. ¿Buscás algo puntual?' }));
     }
     return responder(res, 200, completion(body.model, { content: `Listo: ${resultado}` }));
   }
@@ -177,10 +209,17 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (ultimoUsuario.includes('cancel')) {
     return responder(res, 200, llamadaATool(body.model, 'cancelar_pedido', {}));
   }
-  if (/\b(donde queda|direccion|retir|el local)/.test(ultimoUsuario)) {
+  // Un pedido puede traer "Dirección: …" o "con envío": eso no es una consulta del local ni de envíos.
+  const esCompra = ultimoUsuario.includes('quiero') || ultimoUsuario.includes('lo compro');
+  if (ultimoUsuario.includes('foto')) {
+    const productoId = productoDeLaUltimaBusqueda(mensajes);
+    if (!productoId) return responder(res, 200, completion(body.model, { content: '¿De qué producto querés la foto?' }));
+    return responder(res, 200, llamadaATool(body.model, 'enviar_imagen_producto', { productoId }));
+  }
+  if (!esCompra && /\b(donde queda|direccion|retir|el local)/.test(ultimoUsuario)) {
     return responder(res, 200, respuestaDelLocal(body, sistema, textoDe(mensajes[indiceUsuario])));
   }
-  if (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian')) {
+  if (!esCompra && (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian'))) {
     return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: textoDe(mensajes[indiceUsuario]) }));
   }
   const delDueno = (body.tools ?? []).some((tool) => tool.function?.name === 'resumen_ventas');
@@ -189,6 +228,9 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   }
   if (delDueno && ultimoUsuario.includes('ventas de hoy')) {
     return responder(res, 200, llamadaATool(body.model, 'listar_ventas', { desde: diaDeBuenosAires(), hasta: diaDeBuenosAires() }));
+  }
+  if (/\b(descuento|promo|oferta)/.test(ultimoUsuario)) {
+    return responder(res, 200, llamadaATool(body.model, 'ver_descuentos', {}));
   }
   if (/\bque (productos )?(tenes|ofreces|vendes)\b/.test(ultimoUsuario) || ultimoUsuario.includes('lista de productos')) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', {}));
@@ -200,17 +242,29 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
     return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));
   }
-  if (ultimoUsuario.includes('quiero') || ultimoUsuario.includes('lo compro')) {
-    const nombre = textoDe(mensajes[indiceUsuario]).match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
+  if (esCompra) {
+    const texto = textoDe(mensajes[indiceUsuario]);
+    const nombre = texto.match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
     if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
     const varianteId = varianteDeLaUltimaBusqueda(mensajes);
     if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
     const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
-    return responder(
-      res,
-      200,
-      llamadaATool(body.model, 'crear_pedido', { nombreCliente: nombre, items: [{ varianteId, cantidad }] }),
-    );
+    const pedido = { nombreCliente: nombre, items: [{ varianteId, cantidad }] };
+    if (sistema.includes(' hace envíos.')) {
+      if (ultimoUsuario.includes('con envio')) pedido.entrega = 'envio';
+      else if (ultimoUsuario.includes('retiro')) pedido.entrega = 'retiro';
+    }
+    // Sin regex: "Etiqueta: valor" separados por ";" (lo que no tiene ":" no es un dato).
+    const datosCliente = texto
+      .split(';')
+      .filter((pieza) => pieza.includes(':'))
+      .map((pieza) => ({
+        campo: pieza.slice(0, pieza.indexOf(':')).trim(),
+        valor: pieza.slice(pieza.indexOf(':') + 1).trim(),
+      }))
+      .filter((dato) => dato.campo && dato.valor);
+    if (datosCliente.length > 0) pedido.datosCliente = datosCliente;
+    return responder(res, 200, llamadaATool(body.model, 'crear_pedido', pedido));
   }
   return responder(res, 200, llamadaATool(body.model, 'buscar_productos', { consulta: textoDe(mensajes[indiceUsuario]) }));
 }

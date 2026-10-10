@@ -61,7 +61,7 @@ export default function ListoPage() {
           Tenés un mes gratis, desde hoy
         </h1>
         <p className="mb-5 text-[14.5px] leading-[1.6] text-ink-secondary text-pretty">
-          Usá Trato Agenda completo{hasta ? <> hasta el <strong className="font-semibold">{hasta}</strong></> : null}. No
+          Usá Trato completo{hasta ? <> hasta el <strong className="font-semibold">{hasta}</strong></> : null}. No
           te pedimos tarjeta ahora y no se cobra nada solo.
         </p>
 

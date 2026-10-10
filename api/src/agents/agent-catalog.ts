@@ -30,10 +30,12 @@ export function esAccionValida(id: string): id is AccionId {
 export const ACCIONES_VENTAS = {
   buscar_productos: 'Buscar en el catálogo lo que pide el cliente, con precio y stock reales.',
   ver_catalogo: 'Mostrar qué productos hay (o qué categorías sugerir, si son muchos) cuando el cliente pregunta qué tenés.',
+  ver_descuentos: 'Pasarle al cliente todos los descuentos y promociones vigentes cuando los pide.',
   crear_pedido: 'Reservar el stock de lo que el cliente eligió y generar el link de pago (o dejar el pedido a coordinar).',
   consultar_pedido: 'Contar el estado de los pedidos de esta conversación.',
   cancelar_pedido: 'Cancelar el pedido sin pagar de esta conversación y liberar su reserva.',
   derivar_consulta: 'Avisarle al dueño una consulta que el asistente no puede responder.',
+  enviar_imagen_producto: 'Mandarle al cliente la foto de un producto cuando la pide.',
 } as const;
 
 export type AccionVentasId = keyof typeof ACCIONES_VENTAS;

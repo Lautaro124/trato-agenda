@@ -229,6 +229,7 @@ function Catalogo() {
             setEditando(null);
             recargar();
           }}
+          onFotoCambiada={recargar}
         />
       )}
     </main>

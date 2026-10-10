@@ -6,17 +6,23 @@
  */
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
+import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
+import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
 import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
 import { llamadasDe, type OperacionPendiente } from '../../graph/state.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
 import { MAX_BUSQUEDAS_POR_MENSAJE, variantesMostradas } from '../reglas-ventas.js';
+import { HERRAMIENTA_IMAGEN, imagenesDeLaVuelta } from '../imagenes-de-la-vuelta.js';
 import { accionesDeVentas, ESQUEMAS_PROPIETARIO_VENTAS, ESQUEMAS_VENTAS } from '../ventas-tools.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 /** Largo máximo de una consulta al catálogo: lo que pase de eso no es una búsqueda. */
 export const MAX_LARGO_CONSULTA = 200;
+
+/** Largo máximo de un id de producto: un cuid tiene 25. */
+const MAX_LARGO_ID = 64;
 
 type Veredicto = { ok: true; operacion: OperacionPendiente } | { ok: false; motivo: string };
 
@@ -26,6 +32,13 @@ export type HistorialValidacion = {
   busquedasEnElMensaje: number;
   /** Ids de variante que aparecieron en búsquedas dentro de la ventana que ve el modelo. */
   variantesVistas: Set<string>;
+  /**
+   * Productos cuya foto ya sale en esta vuelta: las que mandó el nodo
+   * `catalogo` desde el último mensaje del cliente más las aprobadas en esta
+   * misma respuesta. Con eso vale `MAX_IMAGENES_POR_MENSAJE` aunque el modelo
+   * las pida de a una, en varias idas y vueltas.
+   */
+  fotosEnElMensaje: Set<string>;
 };
 
 /** Cuenta las búsquedas de esta vuelta y junta las variantes que se le mostraron al modelo. */
@@ -41,6 +54,9 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
       .filter((mensaje) => mensaje.getType() === 'tool' && (mensaje as ToolMessage).name === 'buscar_productos').length,
     // Por el contenido y no por el nombre: los ToolMessage sembrados desde la tabla Message no lo traen.
     variantesVistas: variantesMostradas(resultados.map(textoDe)),
+    fotosEnElMensaje: new Set(
+      imagenesDeLaVuelta(state.messages.slice(state.indiceDesde ?? 0)).map((imagen) => imagen.productoId),
+    ),
   };
 }
 
@@ -95,6 +111,10 @@ export function validarLlamadaVentas(
     return { ok: true, operacion: { ...llamada, args: categoria ? { categoria } : {} } };
   }
 
+  if (llamada.nombre === 'ver_descuentos') {
+    return { ok: true, operacion: { ...llamada, args: {} } };
+  }
+
   if (llamada.nombre === 'listar_ventas' || llamada.nombre === 'resumen_ventas') {
     for (const campo of ['desde', 'hasta'] as const) {
       const valor = args[campo];
@@ -109,6 +129,28 @@ export function validarLlamadaVentas(
     const resumen = String(args.resumen ?? '').trim();
     if (!resumen) return { ok: false, motivo: 'El resumen de la consulta está vacío.' };
     return { ok: true, operacion: { ...llamada, args: { resumen: resumen.slice(0, LARGO_MAX_CONSULTA) } } };
+  }
+
+  if (llamada.nombre === HERRAMIENTA_IMAGEN) {
+    const productoId = String(args.productoId ?? '').trim();
+    if (!productoId || productoId.length > MAX_LARGO_ID) {
+      return { ok: false, motivo: 'Falta el id del producto: usá el que figura entre corchetes en la búsqueda.' };
+    }
+    const fotos = historial.fotosEnElMensaje;
+    if (fotos.has(productoId)) {
+      return { ok: false, motivo: 'Esa foto ya sale con esta respuesta: no la pidas de nuevo.' };
+    }
+    if (fotos.size >= MAX_IMAGENES_POR_MENSAJE) {
+      return {
+        ok: false,
+        motivo:
+          `Ya van ${MAX_IMAGENES_POR_MENSAJE} fotos en esta respuesta, que es el máximo. Mandá esas y, si quiere ` +
+          'ver otra, que te la pida en el próximo mensaje.',
+      };
+    }
+    // Se anota acá y no al aprobar en el nodo: dos pedidos de foto en la misma respuesta también cuentan.
+    fotos.add(productoId);
+    return { ok: true, operacion: { ...llamada, args: { productoId } } };
   }
 
   if (llamada.nombre === 'crear_pedido') {
@@ -130,7 +172,16 @@ export function validarLlamadaVentas(
           'buscar_productos y usá los ids de variante que te devuelva.',
       };
     }
-    return { ok: true, operacion: { ...llamada, args: { ...args, nombreCliente, items: agruparItems(items) } } };
+    const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args);
+    if (!datos.ok) return { ok: false, motivo: datos.motivo };
+    return {
+      ok: true,
+      operacion: {
+        ...llamada,
+        // Lo que sigue al nodo catalogo es lo ya normalizado, no lo que mandó el modelo.
+        args: { ...args, nombreCliente, items: agruparItems(items), entrega: datos.entrega, datosCliente: datos.datos },
+      },
+    };
   }
 
   return { ok: true, operacion: { ...llamada, args } };

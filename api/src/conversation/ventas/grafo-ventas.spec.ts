@@ -6,12 +6,16 @@ import { ACCIONES_VENTAS_IDS } from '../../agents/agent-catalog.js';
 import { construirConfiguracionVentas } from '../../agents/agent-template-ventas.js';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService, ProductoEncontrado } from '../../comercio/busqueda.service.js';
+import type { ImagenesService } from '../../comercio/imagenes.service.js';
+import type { DescuentoAplicado, DescuentosVigentes } from '../../comercio/descuentos.rules.js';
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
 import { LIMITE_RECURSION_VENTAS, construirGrafoVentas } from './grafo-ventas.factory.js';
+import { MAX_IMAGENES_POR_MENSAJE } from '../../comercio/imagenes.rules.js';
+import { imagenesDeLaVuelta } from './imagenes-de-la-vuelta.js';
 import { MENSAJE_CATALOGO_CAIDO } from './nodes/catalogo.node.js';
-import { YA_TE_PRESENTASTE } from './reglas-ventas.js';
+import { OFERTA_DE_DESCUENTOS, YA_TE_PRESENTASTE } from './reglas-ventas.js';
 import { PedidoRechazadoError } from '../../comercio/ventas.service.js';
 
 const AGENT = {
@@ -32,6 +36,7 @@ const MATE: ProductoEncontrado = {
   nombre: 'Mate de calabaza',
   categoria: 'Mates',
   descripcion: 'Curado, con virola de alpaca',
+  tieneImagen: false,
   variantes: [
     {
       varianteId: 'v-1',
@@ -64,6 +69,9 @@ function crearPrisma(
     message: { create: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(1) },
   } as unknown as PrismaService;
 }
+
+const SIN_DESCUENTOS: DescuentosVigentes = { promociones: [], productos: [], restantes: 0 };
+const sinDescuentos = () => vi.fn().mockResolvedValue(SIN_DESCUENTOS);
 
 function crearNotificaciones(reciente = false) {
   return { avisar: vi.fn().mockResolvedValue({}), consultaRecienteDe: vi.fn().mockResolvedValue(reciente) };
@@ -141,19 +149,21 @@ function correr(
     prisma: PrismaService;
     llm: BaseChatModel;
     busqueda: Pick<BusquedaService, 'buscar'>;
-    sugerencias?: Pick<SugerenciasService, 'verCatalogo'>;
+    sugerencias?: Partial<Pick<SugerenciasService, 'verCatalogo' | 'descuentosVigentes'>>;
     ventas?: ReturnType<typeof crearVentas>;
     notificaciones?: ReturnType<typeof crearNotificaciones>;
     historico?: ReturnType<typeof crearHistorico>;
+    imagenes?: Pick<ImagenesService, 'estadoDeFoto'>;
   },
   esPropietario = false,
 ) {
   const grafo = construirGrafoVentas({
     ...deps,
-    sugerencias: deps.sugerencias ?? { verCatalogo: vi.fn() },
+    sugerencias: { verCatalogo: vi.fn(), descuentosVigentes: sinDescuentos(), ...deps.sugerencias },
     ventas: deps.ventas ?? crearVentas(),
     notificaciones: deps.notificaciones ?? crearNotificaciones(),
     historico: deps.historico ?? crearHistorico(),
+    imagenes: deps.imagenes ?? { estadoDeFoto: vi.fn() },
     openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
     checkpointer: new MemorySaver(),
   });
@@ -210,10 +220,11 @@ describe('grafo de ventas', () => {
       prisma: crearPrisma(),
       llm,
       busqueda: { buscar: vi.fn() },
-      sugerencias: { verCatalogo: vi.fn() },
+      sugerencias: { verCatalogo: vi.fn(), descuentosVigentes: sinDescuentos() },
       ventas: crearVentas(),
       notificaciones: crearNotificaciones(),
       historico: crearHistorico(),
+      imagenes: { estadoDeFoto: vi.fn() },
       openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
       checkpointer: new MemorySaver(),
     });
@@ -268,13 +279,193 @@ describe('grafo de ventas', () => {
 
     expect(buscar).toHaveBeenCalledWith('user-1', 'mates', { categoria: undefined });
     const [tool] = toolMessages(resultado.messages);
-    expect(tool.content).toContain('"Mate de calabaza" (código MATE-01');
+    expect(tool.content).toContain('"Mate de calabaza" [producto p-1] (código MATE-01');
     expect(tool.content).toContain('[variante v-1]: $ 8.000, quedan 2 unidades');
     // Al cliente nunca le llega el stock exacto del dueño.
     expect(tool.content).not.toContain('reservadas');
     expect(resultado.messages.at(-1)?.content).toBe('Tengo el mate a $ 8.000.');
     // Humano, tool call, tool result y respuesta final.
     expect(prisma.message.create).toHaveBeenCalledTimes(4);
+  });
+
+  describe('descuentos', () => {
+    const APLICADO: DescuentoAplicado = {
+      descuentoId: 'd-1',
+      alcance: 'producto',
+      precioListaCentavos: 1_000_000,
+      descuentoCentavos: 200_000,
+      precioFinalCentavos: 800_000,
+      etiqueta: '20% off',
+      nombre: '',
+      hastaDia: null,
+    };
+    const VIGENTES: DescuentosVigentes = {
+      promociones: [{ nombre: 'Semana del mate', etiqueta: '10% off', categoria: 'Mates', hastaDia: '2026-10-31' }],
+      productos: [
+        { nombre: 'Mate imperial', precioFinalCentavos: 800_000, precioListaCentavos: 1_000_000, variosPrecios: false, aplicado: APLICADO },
+      ],
+      restantes: 0,
+    };
+    const conDescuentos = () => vi.fn().mockResolvedValue(VIGENTES);
+
+    function grafoCon(deps: {
+      llm: BaseChatModel;
+      descuentosVigentes: SugerenciasService['descuentosVigentes'];
+      agent?: Record<string, unknown>;
+    }) {
+      const grafo = construirGrafoVentas({
+        prisma: crearPrisma({ agent: deps.agent }),
+        llm: deps.llm,
+        busqueda: buscaMate(),
+        sugerencias: { verCatalogo: vi.fn(), descuentosVigentes: deps.descuentosVigentes },
+        ventas: crearVentas(),
+        notificaciones: crearNotificaciones(),
+        historico: crearHistorico(),
+        imagenes: { estadoDeFoto: vi.fn() },
+        openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
+        checkpointer: new MemorySaver(),
+      });
+      const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION_VENTAS };
+      return (texto: string) =>
+        grafo.invoke(
+          { messages: [new HumanMessage(texto)], ownerUserId: 'user-1', remoteJid: CONVERSATION.remoteJid, esPropietario: false },
+          config,
+        );
+    }
+
+    it('con descuentos vigentes, el resultado que muestra productos le pide ofrecerlos', async () => {
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo Mate de calabaza a $ 8.000.')]);
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), sugerencias: { descuentosVigentes: conDescuentos() } });
+
+      const contenido = String(resultadoDe(resultado.messages, 'buscar_productos').content);
+      expect(contenido).toContain('[variante v-1]: $ 8.000');
+      expect(contenido).toContain(OFERTA_DE_DESCUENTOS);
+      expect(contenido).toContain('ofrecele pasárselos');
+    });
+
+    it('también al mostrar el catálogo, pero no si no hay nada con stock', async () => {
+      const listado = { tipo: 'listado', productos: [], categoria: null, restantes: 0 };
+      const conProductos = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([llamada('ver_catalogo', {}), new AIMessage('.')]),
+        busqueda: { buscar: vi.fn() },
+        sugerencias: { verCatalogo: vi.fn().mockResolvedValue(listado), descuentosVigentes: conDescuentos() },
+      });
+      expect(toolMessages(conProductos.messages)[0].content).toContain(OFERTA_DE_DESCUENTOS);
+
+      const vacio = await correr({
+        prisma: crearPrisma(),
+        llm: crearModelo([llamada('ver_catalogo', {}), new AIMessage('.')]),
+        busqueda: { buscar: vi.fn() },
+        sugerencias: { verCatalogo: vi.fn().mockResolvedValue({ tipo: 'vacio' }), descuentosVigentes: conDescuentos() },
+      });
+      expect(toolMessages(vacio.messages)[0].content).not.toContain(OFERTA_DE_DESCUENTOS);
+    });
+
+    it('sin descuentos vigentes no ofrece nada', async () => {
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo Mate de calabaza a $ 8.000.')]);
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate() });
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).not.toContain(OFERTA_DE_DESCUENTOS);
+    });
+
+    it('los ofrece una sola vez por charla, aunque busque de nuevo en otro mensaje', async () => {
+      const descuentosVigentes = conDescuentos();
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        new AIMessage('Tengo Mate de calabaza a $ 8.000. Además tenemos descuentos, si querés te los paso.'),
+        llamada('buscar_productos', { consulta: 'mate' }, 'call-otra'),
+        new AIMessage('Tengo Mate de calabaza a $ 8.000.'),
+      ]);
+      const escribir = grafoCon({ llm, descuentosVigentes });
+
+      await escribir('¿tenés mates?');
+      const resultado = await escribir('¿y otro mate?');
+
+      const busquedas = toolMessages(resultado.messages).filter((mensaje) => mensaje.name === 'buscar_productos');
+      expect(busquedas).toHaveLength(2);
+      expect(busquedas[0].content).toContain(OFERTA_DE_DESCUENTOS);
+      expect(busquedas[1].content).not.toContain(OFERTA_DE_DESCUENTOS);
+      expect(descuentosVigentes).toHaveBeenCalledTimes(1);
+    });
+
+    it('con dos búsquedas en la misma vuelta, la oferta va sólo en la primera', async () => {
+      const llm = crearModelo([
+        new AIMessage({
+          content: '',
+          tool_calls: [
+            { id: 'b1', name: 'buscar_productos', args: { consulta: 'mate' } },
+            { id: 'b2', name: 'buscar_productos', args: { consulta: 'mate imperial' } },
+          ],
+        }),
+        new AIMessage('Tengo Mate de calabaza a $ 8.000.'),
+      ]);
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), sugerencias: { descuentosVigentes: conDescuentos() } });
+
+      const [primera, segunda] = toolMessages(resultado.messages);
+      expect(primera.content).toContain(OFERTA_DE_DESCUENTOS);
+      expect(segunda.content).not.toContain(OFERTA_DE_DESCUENTOS);
+    });
+
+    it('si en la misma vuelta ya pide ver_descuentos, la búsqueda no trae la oferta', async () => {
+      const llm = crearModelo([
+        new AIMessage({
+          content: '',
+          tool_calls: [
+            { id: 'b1', name: 'buscar_productos', args: { consulta: 'mate' } },
+            { id: 'd1', name: 'ver_descuentos', args: {} },
+          ],
+        }),
+        new AIMessage('Tengo Mate de calabaza a $ 8.000.'),
+      ]);
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), sugerencias: { descuentosVigentes: conDescuentos() } });
+
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).not.toContain(OFERTA_DE_DESCUENTOS);
+      expect(resultadoDe(resultado.messages, 'ver_descuentos').content).toContain('Descuentos vigentes');
+    });
+
+    it('si leer los descuentos falla, la búsqueda llega igual, sin la oferta', async () => {
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo Mate de calabaza a $ 8.000.')]);
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm,
+        busqueda: buscaMate(),
+        sugerencias: { descuentosVigentes: vi.fn().mockRejectedValue(new Error('se cayó la base')) },
+      });
+
+      const contenido = String(resultadoDe(resultado.messages, 'buscar_productos').content);
+      expect(contenido).toContain('[variante v-1]: $ 8.000');
+      expect(contenido).not.toContain(OFERTA_DE_DESCUENTOS);
+    });
+
+    it('ver_descuentos le pasa todos, aun a un agente creado antes de la herramienta, y después no los vuelve a ofrecer', async () => {
+      const viejo = { ...AGENT, allowedActions: ACCIONES_VENTAS_IDS.filter((id) => id !== 'ver_descuentos') };
+      const descuentosVigentes = conDescuentos();
+      const llm = crearModelo([
+        llamada('ver_descuentos', {}, 'call-descuentos'),
+        new AIMessage('Tenemos estos descuentos: ...'),
+        BUSCAR_MATE,
+        new AIMessage('Tengo Mate de calabaza a $ 8.000.'),
+      ]);
+      const escribir = grafoCon({ llm, descuentosVigentes, agent: viejo });
+
+      await escribir('¿qué descuentos tienen?');
+      const resultado = await escribir('¿tenés mates?');
+
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('ver_descuentos');
+      const descuentos = String(resultadoDe(resultado.messages, 'ver_descuentos').content);
+      expect(descuentos).toContain('pasale todos al cliente');
+      expect(descuentos).toContain('- Promo "Semana del mate": 10% off en la categoría "Mates" hasta el 31/10');
+      expect(descuentos).toContain('- "Mate imperial": $ 8.000, antes $ 10.000 (20% off; ahorra $ 2.000)');
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).not.toContain(OFERTA_DE_DESCUENTOS);
+      expect(descuentosVigentes).toHaveBeenCalledTimes(1);
+    });
+
+    it('el prompt le dice que use ver_descuentos cuando le piden descuentos', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
+      expect(sistemaDe(llm)).toContain('llamá ver_descuentos y pasale todos los que te devuelve');
+    });
   });
 
   describe('ver_catalogo', () => {
@@ -352,7 +543,7 @@ describe('grafo de ventas', () => {
       await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
       const sistema = sistemaDe(llm);
       expect(sistema).toContain('llamá ver_catalogo en vez de preguntarle qué busca');
-      expect(sistema).toContain('La única excepción es lo que devuelve ver_catalogo');
+      expect(sistema).toContain('Las únicas excepciones son lo que devuelven ver_catalogo y ver_descuentos');
       expect(sistema).not.toContain('preguntá qué busca antes de listar');
     });
   });
@@ -409,6 +600,126 @@ describe('grafo de ventas', () => {
     expect(resultado.messages.at(-1)?.content).toBe('Perdón, probá en un rato.');
   });
 
+  describe('enviar_imagen_producto', () => {
+    const MATE_CON_FOTO = { ...MATE, tieneImagen: true };
+    const conFoto = (estado: { nombre: string; tieneFoto: boolean } | null = { nombre: MATE.nombre, tieneFoto: true }) => ({
+      estadoDeFoto: vi.fn().mockResolvedValue(estado),
+    });
+
+    it('la búsqueda le dice al modelo el id de producto y si tiene foto', async () => {
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo el mate.')]);
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm,
+        busqueda: { buscar: vi.fn().mockResolvedValue([MATE_CON_FOTO]) },
+      });
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain(
+        '"Mate de calabaza" [producto p-1] (código MATE-01, categoría "Mates", tiene foto)',
+      );
+    });
+
+    it('aprueba la foto y la deja como artifact para la fachada, sin bytes', async () => {
+      const imagenes = conFoto();
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('enviar_imagen_producto', { productoId: ' p-1 ' }, 'call-foto'),
+        new AIMessage('Ahí va. ¿Es lo que buscabas?'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
+
+      expect(imagenes.estadoDeFoto).toHaveBeenCalledWith('user-1', 'p-1');
+      const tool = resultadoDe(resultado.messages, 'enviar_imagen_producto');
+      expect(tool.content).toContain('le llega al cliente junto con tu respuesta');
+      expect(tool.artifact).toEqual({ productoId: 'p-1', nombre: 'Mate de calabaza' });
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([{ productoId: 'p-1', nombre: 'Mate de calabaza' }]);
+    });
+
+    it('sin foto, o de un producto ajeno, no manda nada y le dice al modelo qué contestar', async () => {
+      for (const [estado, texto] of [
+        [{ nombre: MATE.nombre, tieneFoto: false }, 'no tiene foto'],
+        [null, 'no está en el catálogo'],
+      ] as const) {
+        const llm = crearModelo([llamada('enviar_imagen_producto', { productoId: 'p-1' }), new AIMessage('.')]);
+        const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes: conFoto(estado) });
+        const tool = resultadoDe(resultado.messages, 'enviar_imagen_producto');
+        expect(tool.content).toContain(texto);
+        expect(tool.artifact).toBeUndefined();
+        expect(imagenesDeLaVuelta(resultado.messages)).toEqual([]);
+      }
+    });
+
+    it(`no manda más de ${MAX_IMAGENES_POR_MENSAJE} fotos por respuesta ni repite una`, async () => {
+      const imagenes = { estadoDeFoto: vi.fn(async (_userId: string, id: string) => ({ nombre: `Producto ${id}`, tieneFoto: true })) };
+      const llm = crearModelo([
+        new AIMessage({
+          content: '',
+          tool_calls: [
+            { id: 'f1', name: 'enviar_imagen_producto', args: { productoId: 'p-1' } },
+            { id: 'f2', name: 'enviar_imagen_producto', args: { productoId: 'p-1' } },
+            { id: 'f3', name: 'enviar_imagen_producto', args: { productoId: 'p-2' } },
+          ],
+        }),
+        // En otra ida y vuelta de la misma respuesta: ya van dos.
+        llamada('enviar_imagen_producto', { productoId: 'p-3' }, 'f4'),
+        new AIMessage('Ahí van.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
+
+      expect(imagenes.estadoDeFoto).toHaveBeenCalledTimes(2);
+      expect(imagenesDeLaVuelta(resultado.messages).map((imagen) => imagen.productoId)).toEqual(['p-1', 'p-2']);
+      const rechazos = toolMessages(resultado.messages).filter((mensaje) => !mensaje.artifact);
+      expect(rechazos.map((mensaje) => mensaje.content)).toEqual([
+        expect.stringContaining('ya sale con esta respuesta'),
+        expect.stringContaining('que es el máximo'),
+      ]);
+    });
+
+    it('el tope es por mensaje del cliente: en el siguiente puede mandar otra', async () => {
+      const imagenes = conFoto();
+      const llm = crearModelo([
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f1'),
+        new AIMessage('Ahí va.'),
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f2'),
+        new AIMessage('Ahí va de nuevo.'),
+      ]);
+      const grafo = construirGrafoVentas({
+        prisma: crearPrisma(),
+        llm,
+        busqueda: buscaMate(),
+        sugerencias: { verCatalogo: vi.fn(), descuentosVigentes: sinDescuentos() },
+        ventas: crearVentas(),
+        notificaciones: crearNotificaciones(),
+        historico: crearHistorico(),
+        imagenes,
+        openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
+        checkpointer: new MemorySaver(),
+      });
+      const config = { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION_VENTAS };
+      const entrada = (texto: string) => ({
+        messages: [new HumanMessage(texto)],
+        ownerUserId: 'user-1',
+        remoteJid: CONVERSATION.remoteJid,
+        esPropietario: false,
+      });
+
+      await grafo.invoke(entrada('mandame la foto'), config);
+      const segunda = await grafo.invoke(entrada('otra vez'), config);
+
+      // Lo del mensaje anterior no cuenta: la foto vuelve a salir.
+      expect(imagenesDeLaVuelta(segunda.messages)).toEqual([{ productoId: 'p-1', nombre: 'Mate de calabaza' }]);
+    });
+
+    it('un agente creado antes de las fotos tiene la herramienta igual, sin regenerarlo', async () => {
+      const viejo = { ...AGENT, allowedActions: ['buscar_productos', 'crear_pedido'] };
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ agent: viejo }), llm, busqueda: { buscar: vi.fn() } });
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('enviar_imagen_producto');
+    });
+  });
+
   describe('pedidos', () => {
     const itemsPedido = [
       { varianteId: 'v-1', cantidad: 1 },
@@ -435,11 +746,95 @@ describe('grafo de ventas', () => {
         items: [{ varianteId: 'v-1', cantidad: 2 }],
         medioPago: 'mercadopago',
         dePrueba: false,
+        // El comercio no pide datos: no hay entrega ni datos que guardar.
+        entrega: null,
+        datosCliente: [],
       });
       const tool = resultadoDe(resultado.messages, 'crear_pedido');
       expect(tool.content).toContain('Pedido creado para "Juan": 2 × Mate de calabaza ($ 16.000). Total $ 16.000.');
       expect(tool.content).toContain('https://mp/pagar/venta-1');
       expect(sistemaDe(llm)).toContain('Cobro: con link de pago de Mercado Pago');
+    });
+
+    describe('datos del cliente', () => {
+      const CON_ENVIOS = {
+        ...AGENT,
+        haceEnvios: true,
+        // Con retiro en el local, el cliente elige entre envío y retiro.
+        local: { tieneLocal: true, horarios: [], retiroEnLocal: true },
+        datosCliente: [
+          { tipo: 'codigoPostal', obligatorio: true },
+          { tipo: 'personalizado', etiqueta: 'Entre calles', obligatorio: false },
+        ],
+      };
+
+      it('las reglas le dicen qué pedir, y sin elegir envío o retiro no crea el pedido', async () => {
+        const ventas = crearVentas();
+        const llm = crearModelo([
+          BUSCAR_MATE,
+          llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido }),
+          new AIMessage('¿Lo querés con envío o lo retirás?'),
+        ]);
+
+        const resultado = await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), ventas });
+
+        expect(ventas.crearPedido).not.toHaveBeenCalled();
+        expect(toolMessages(resultado.messages)[1].content).toContain('si lo quiere con envío o si lo retira');
+        const sistema = sistemaDe(llm);
+        expect(sistema).toContain('Mates del Sur hace envíos');
+        expect(sistema).toContain('"Código postal" (obligatorio), "Entre calles" (opcional)');
+      });
+
+      it('con envío exige los obligatorios y guarda lo que contestó con la etiqueta del comercio', async () => {
+        const ventas = crearVentas();
+        ventas.crearPedido.mockResolvedValue({ ...VENTA, entrega: 'envio' });
+        const llm = crearModelo([
+          BUSCAR_MATE,
+          llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido, entrega: 'envio', datosCliente: [] }),
+          llamada('crear_pedido', {
+            nombreCliente: 'Juan',
+            items: itemsPedido,
+            entrega: 'envio',
+            datosCliente: [
+              { campo: 'codigo postal', valor: ' C1414 ' },
+              { campo: 'Entre calles', valor: 'Thames y Uriarte' },
+              // Lo que el comercio no pidió no se guarda.
+              { campo: 'Tarjeta', valor: '4111' },
+            ],
+          }),
+          new AIMessage('Listo.'),
+        ]);
+
+        const resultado = await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), ventas });
+
+        const [, rechazo, creado] = toolMessages(resultado.messages);
+        expect(rechazo.content).toContain('faltan "Código postal"');
+        expect(ventas.crearPedido).toHaveBeenCalledTimes(1);
+        expect(ventas.crearPedido).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entrega: 'envio',
+            datosCliente: [
+              { etiqueta: 'Código postal', valor: 'C1414' },
+              { etiqueta: 'Entre calles', valor: 'Thames y Uriarte' },
+            ],
+          }),
+        );
+        expect(creado.content).toContain('Es con envío');
+      });
+
+      it('si lo retira no le pide los datos de envío', async () => {
+        const ventas = crearVentas();
+        ventas.crearPedido.mockResolvedValue(VENTA);
+        const llm = crearModelo([
+          BUSCAR_MATE,
+          llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido, entrega: 'retiro' }),
+          new AIMessage('Listo.'),
+        ]);
+
+        await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), ventas });
+
+        expect(ventas.crearPedido).toHaveBeenCalledWith(expect.objectContaining({ entrega: 'retiro', datosCliente: [] }));
+      });
     });
 
     it('sin Mercado Pago el pedido queda para coordinar, y desde el banco de pruebas va marcado', async () => {
