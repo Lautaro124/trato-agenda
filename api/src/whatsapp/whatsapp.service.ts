@@ -366,18 +366,34 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     try {
       const respuesta = await this.conversationService.responder(userId, remoteJid, texto);
       await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
-      const partes = partirEnMensajes(respuesta.texto);
-      for (const [indice, parte] of partes.entries()) {
-        if (indice > 0) escribiendo.renovar();
-        const transcurrido = indice === 0 ? Date.now() - inicio : 0;
-        // randomInt y no Math.random: es sólo jitter de tipeo, pero así no lo marca el análisis estático.
-        const espera = demoraRestante(demoraDeEscritura(parte, randomInt(0, 1001) / 1000), transcurrido);
-        if (espera > 0) await esperar(espera);
-        await sock.sendMessage(remoteJid, { text: parte });
-      }
+      await this.enviarEnOrden(sock, remoteJid, partirEnMensajes(respuesta.texto), escribiendo, Date.now() - inicio);
     } finally {
       escribiendo.parar();
     }
+  }
+
+  /**
+   * Manda las partes de a una y en orden, cada una después de su demora de
+   * tipeo. Recursivo y no un bucle con await: cada envío tiene que esperar al
+   * anterior, y así lo deja explícito. `transcurrido` (lo que ya tardó el
+   * modelo) sólo se descuenta de la primera.
+   */
+  private async enviarEnOrden(
+    sock: WASocket,
+    remoteJid: string,
+    partes: string[],
+    escribiendo: { renovar: () => void },
+    transcurrido: number,
+  ): Promise<void> {
+    const [parte, ...resto] = partes;
+    if (parte === undefined) return;
+    // randomInt y no Math.random: es sólo jitter de tipeo, pero así no lo marca el análisis estático.
+    const espera = demoraRestante(demoraDeEscritura(parte, randomInt(0, 1001) / 1000), transcurrido);
+    if (espera > 0) await esperar(espera);
+    await sock.sendMessage(remoteJid, { text: parte });
+    if (resto.length === 0) return;
+    escribiendo.renovar();
+    return this.enviarEnOrden(sock, remoteJid, resto, escribiendo, 0);
   }
 
   /** "Escribiendo…" en el chat del cliente, renovado antes de que WhatsApp lo apague solo. */
