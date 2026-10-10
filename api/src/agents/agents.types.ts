@@ -29,7 +29,6 @@ import {
 import { PRECIO_MAX } from './precio.js';
 import {
   LARGO_MAX_ETIQUETA,
-  LARGO_MIN_ETIQUETA,
   leerConfigDatosCliente,
   MAX_CAMPOS,
   TIPOS_CAMPO,
@@ -107,10 +106,12 @@ export class CampoClienteDto {
   @IsIn(TIPOS_CAMPO)
   tipo!: TipoCampo;
 
-  /** Sólo para los personalizados: la de los estándar es fija. */
-  @ValidateIf((campo: CampoClienteDto) => campo.tipo === 'personalizado')
+  /**
+   * Obligatoria sólo para los personalizados (la de los estándar es fija y se
+   * descarta), pero acotada siempre: nada grande cruza la validación.
+   */
+  @ValidateIf((campo: CampoClienteDto) => campo.tipo === 'personalizado' || campo.etiqueta !== undefined)
   @IsString()
-  @MinLength(LARGO_MIN_ETIQUETA)
   @MaxLength(LARGO_MAX_ETIQUETA)
   etiqueta?: string;
 

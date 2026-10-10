@@ -239,10 +239,15 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
       if (ultimoUsuario.includes('con envio')) pedido.entrega = 'envio';
       else if (ultimoUsuario.includes('retiro')) pedido.entrega = 'retiro';
     }
-    const datosCliente = [...texto.matchAll(/([^;:]+):\s*([^;]+)/g)].map(([, campo, valor]) => ({
-      campo: campo.trim(),
-      valor: valor.trim(),
-    }));
+    // Sin regex: "Etiqueta: valor" separados por ";" (lo que no tiene ":" no es un dato).
+    const datosCliente = texto
+      .split(';')
+      .filter((pieza) => pieza.includes(':'))
+      .map((pieza) => ({
+        campo: pieza.slice(0, pieza.indexOf(':')).trim(),
+        valor: pieza.slice(pieza.indexOf(':') + 1).trim(),
+      }))
+      .filter((dato) => dato.campo && dato.valor);
     if (datosCliente.length > 0) pedido.datosCliente = datosCliente;
     return responder(res, 200, llamadaATool(body.model, 'crear_pedido', pedido));
   }
