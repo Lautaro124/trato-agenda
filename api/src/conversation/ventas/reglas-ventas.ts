@@ -11,7 +11,13 @@ import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
 import { leerConfigDatosCliente, reglaDeDatosCliente } from '../../comercio/datos-cliente.rules.js';
-import { detalleParaElModelo } from '../../comercio/descuentos.rules.js';
+import {
+  detalleParaElModelo,
+  diaCorto,
+  type DescuentosVigentes,
+  type ProductoConDescuento,
+  type PromocionVigente,
+} from '../../comercio/descuentos.rules.js';
 import {
   detalleDeRenglones,
   estadoVisible,
@@ -19,6 +25,7 @@ import {
   MAX_CANTIDAD_POR_ITEM,
   MAX_PEDIDOS_PENDIENTES,
 } from '../../comercio/ventas.rules.js';
+import type { BaseMessage } from '@langchain/core/messages';
 import type { Agent, ItemVenta, Venta } from '../../generated/prisma/client.js';
 import {
   completarPlantilla,
@@ -119,8 +126,10 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `- Informá los precios exactamente como los devuelve la búsqueda. Si un precio viene con "antes", tiene un ` +
     `descuento vigente: decile al cliente el precio original, el descuento y el precio final, tal cual. Nunca ` +
     `redondees ni inventes descuentos, promociones, cuotas o cálculos de envío que la búsqueda no traiga, y nunca ` +
-    `sumes dos descuentos: el sistema ya aplicó el que corresponde. Si te piden un descuento que no figura, decile ` +
-    `que no lo tenés.\n` +
+    `sumes dos descuentos: el sistema ya aplicó el que corresponde.\n` +
+    `- Si el cliente pregunta por descuentos, promociones u ofertas, o te dice que sí cuando le ofreciste ` +
+    `pasárselos, llamá ver_descuentos y pasale todos los que te devuelve. Si pide un descuento que no está ahí, ` +
+    `decile que no lo tenés.\n` +
     `- Si una variante está "sin stock", decilo claro y ofrecé otra variante o producto con stock de los ` +
     `que devolvió la búsqueda. Nunca prometas cuándo vuelve a entrar.\n` +
     `- Si la búsqueda no encuentra lo que pide, decile que no lo tenés. No ofrezcas productos que no ` +
@@ -334,8 +343,9 @@ export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
     '  * *{producto}* {variante} · {precio} (sin stock)\n' +
     `- Nunca muestres más de ${MAX_PRODUCTOS_POR_MENSAJE} productos en un mismo mensaje, aunque la búsqueda ` +
     'devuelva más: elegí los que mejor encajan con lo que pidió.\n' +
-    '- La única excepción es lo que devuelve ver_catalogo: ahí sí mostrá la lista entera que te da, una línea ' +
-    'por producto o categoría empezando con "* ", sin numerar, y una frase corta antes y otra después.\n' +
+    '- Las únicas excepciones son lo que devuelven ver_catalogo y ver_descuentos: ahí sí mostrá la lista entera ' +
+    'que te dan, una línea por producto, categoría o descuento empezando con "* ", sin numerar, y una frase corta ' +
+    'antes y otra después.\n' +
     '- Emojis sólo si suman, como mucho 2 por mensaje (un 👋 al saludar, un 🙌 cuando cierra la compra); muchos ' +
     'mensajes van sin ninguno. Nunca uno al principio de cada línea ni uno por palabra.\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
@@ -511,6 +521,86 @@ export function formatearCatalogo(
       );
     }
   }
+}
+
+/** Con qué empieza el resultado de ver_descuentos cuando hay alguno. */
+export const ENCABEZADO_DESCUENTOS = 'Descuentos vigentes';
+
+/** Con qué empieza el resultado de ver_descuentos cuando no hay ninguno. */
+export const SIN_DESCUENTOS = 'No hay descuentos vigentes';
+
+/** "Promo \"Semana del mate\": 20% off en la categoría \"Mates\" hasta el 31/10". */
+function lineaDePromocion(promocion: PromocionVigente): string {
+  const donde = promocion.categoria ? `en la categoría ${JSON.stringify(promocion.categoria)}` : 'en todo el catálogo';
+  return (
+    `- Promo ${JSON.stringify(promocion.nombre)}: ${promocion.etiqueta} ${donde}` +
+    (promocion.hastaDia ? ` hasta el ${diaCorto(promocion.hastaDia)}` : '')
+  );
+}
+
+/** "\"Mate imperial\": desde $ 8.000, antes $ 10.000 (20% off; ahorra $ 2.000)", como precioParaElModelo. */
+function lineaDeProductoConDescuento(producto: ProductoConDescuento): string {
+  const final = formatearCentavos(producto.precioFinalCentavos);
+  return (
+    `- ${JSON.stringify(producto.nombre)}: ${producto.variosPrecios ? `desde ${final}` : final}, antes ` +
+    `${formatearCentavos(producto.precioListaCentavos)} (${detalleParaElModelo(producto.aplicado)}; ahorra ` +
+    `${formatearCentavos(producto.aplicado.descuentoCentavos)})`
+  );
+}
+
+/**
+ * Resultado de ver_descuentos: todas las promos y los productos con descuento
+ * propio. Los montos van escritos para que preciosSinRespaldo los reconozca.
+ */
+export function formatearDescuentos(vigentes: DescuentosVigentes): string {
+  if (vigentes.promociones.length === 0 && vigentes.productos.length === 0) {
+    return (
+      `${SIN_DESCUENTOS} ahora. Decíselo al cliente en una frase, sin inventar ninguno, y preguntale si busca ` +
+      'algo puntual.'
+    );
+  }
+  const lineas = [...vigentes.promociones.map(lineaDePromocion), ...vigentes.productos.map(lineaDeProductoConDescuento)];
+  const resto =
+    vigentes.restantes > 0
+      ? `\nHay ${vigentes.restantes} ${vigentes.restantes === 1 ? 'producto más' : 'productos más'} con descuento: ` +
+        'decile que hay más y que te cuente qué busca para pasarle el precio.'
+      : '';
+  return (
+    `${ENCABEZADO_DESCUENTOS} (pasale todos al cliente, en este orden, con los precios tal cual. Nunca se suman: a ` +
+    `cada producto el sistema ya le aplica el que más le conviene. Para el precio de un producto de una promo, ` +
+    `buscalo con buscar_productos):\n${lineas.join('\n')}${resto}`
+  );
+}
+
+/** El marcador de la oferta: queda en el ToolMessage, y así se sabe que ya se ofreció en esta charla. */
+export const OFERTA_DE_DESCUENTOS = 'Hay descuentos vigentes en el negocio.';
+
+/**
+ * Le suma al resultado de buscar_productos o ver_catalogo la instrucción de
+ * ofrecer los descuentos. Va una sola vez por charla (yaSeHablaronDescuentos).
+ */
+export function conOfertaDeDescuentos(resultado: string): string {
+  return (
+    `${resultado}\n${OFERTA_DE_DESCUENTOS} Al final de tu respuesta, en una frase corta, contale que hay ` +
+    'descuentos y ofrecele pasárselos (por ejemplo: "Además tenemos algunos descuentos, si querés te los paso"). ' +
+    'Si tu mensaje ya termina con una pregunta, decilo como afirmación, sin sumar otra pregunta. No le detalles ' +
+    'cuáles son hasta que te diga que sí: ahí llamá ver_descuentos.'
+  );
+}
+
+/**
+ * true si en lo que ve el modelo ya se ofrecieron los descuentos o ya se
+ * pasaron. Por el contenido y no por el nombre de la herramienta: los
+ * ToolMessage sembrados desde la tabla Message no lo traen.
+ */
+export function yaSeHablaronDescuentos(mensajes: BaseMessage[]): boolean {
+  return mensajes.some((mensaje) => {
+    if (mensaje.getType() !== 'tool') return false;
+    const texto = typeof mensaje.content === 'string' ? mensaje.content : JSON.stringify(mensaje.content);
+    return (
+      texto.includes(OFERTA_DE_DESCUENTOS) || texto.startsWith(ENCABEZADO_DESCUENTOS) || texto.startsWith(SIN_DESCUENTOS)
+    );
+  });
 }
 
 /**

@@ -24,6 +24,41 @@ test.describe('descuentos del asistente de ventas', () => {
     await expect(page.getByText(/Total \$ 16\.000 \(ya con los descuentos: ahorra \$ 4\.000\)/)).toBeVisible();
   });
 
+  test('ofrece los descuentos una vez al mostrar productos y los pasa todos cuando se los piden', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    const mate = await context.request.post(`${API_URL}/productos`, {
+      data: {
+        codigo: 'MATE-OFERTA',
+        nombre: 'Mate de calabaza',
+        variantes: [{ precioCentavos: 1_000_000, stock: 5 }],
+        descuento: { tipo: 'porcentaje', valor: 20 },
+      },
+    });
+    expect(mate.status(), await mate.text()).toBe(201);
+    await crearProductoPorApi(context.request, { codigo: 'TERMO-OFERTA', nombre: 'Termo de acero', categoria: 'Termos', precioCentavos: 4_500_000 });
+    const promo = await context.request.post(`${API_URL}/descuentos`, {
+      data: { nombre: 'Semana del termo', categoria: 'Termos', tipo: 'porcentaje', valor: 10 },
+    });
+    expect(promo.status(), await promo.text()).toBe(201);
+
+    const oferta = page.getByText('Además tenemos algunos descuentos, si querés te los paso.');
+    await page.goto('/inicio');
+    await escribirEnChat(page, '¿qué tenés?');
+    await expect(page.getByText('Esto es lo que tengo:')).toBeVisible();
+    await expect(oferta).toHaveCount(1);
+
+    // Una sola vez por charla: la segunda vez que muestra productos ya no insiste.
+    await escribirEnChat(page, '¿qué productos tenés?');
+    await expect(page.getByText('Esto es lo que tengo:')).toHaveCount(2);
+    await expect(oferta).toHaveCount(1);
+
+    await escribirEnChat(page, '¿qué descuentos tienen?');
+    await expect(page.getByText('Estos son los descuentos que tenemos:')).toBeVisible();
+    await expect(page.getByText('- Promo Semana del termo: 10% off en la categoría Termos')).toBeVisible();
+    await expect(page.getByText('- Mate de calabaza: $ 8.000, antes $ 10.000 (20% off; ahorra $ 2.000)')).toBeVisible();
+  });
+
   test('carga el descuento desde el formulario y la tarjeta muestra el precio final', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);

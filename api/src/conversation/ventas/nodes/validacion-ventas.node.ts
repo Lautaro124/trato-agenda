@@ -111,6 +111,10 @@ export function validarLlamadaVentas(
     return { ok: true, operacion: { ...llamada, args: categoria ? { categoria } : {} } };
   }
 
+  if (llamada.nombre === 'ver_descuentos') {
+    return { ok: true, operacion: { ...llamada, args: {} } };
+  }
+
   if (llamada.nombre === 'listar_ventas' || llamada.nombre === 'resumen_ventas') {
     for (const campo of ['desde', 'hasta'] as const) {
       const valor = args[campo];

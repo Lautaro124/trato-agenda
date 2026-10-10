@@ -211,3 +211,121 @@ export function problemaDeDescuento(datos: {
   if (datos.desde && datos.hasta && datos.hasta < datos.desde) return 'La fecha "hasta" no puede ser anterior a "desde".';
   return null;
 }
+
+/** Productos con descuento propio que `ver_descuentos` lista enteros; el resto se cuenta. */
+export const MAX_DESCUENTOS_LISTADO = 20;
+
+/** Un producto activo con los precios de lista de sus variantes que tienen stock. */
+export type ProductoParaDescuentos = {
+  id: string;
+  nombre: string;
+  categoria: string | null;
+  preciosConStock: number[];
+};
+
+/** Una promo de catálogo o de categoría que hoy le toca a algo que se puede comprar. */
+export type PromocionVigente = {
+  nombre: string;
+  etiqueta: string;
+  /** null = todo el catálogo. */
+  categoria: string | null;
+  hastaDia: string | null;
+};
+
+/** Un producto con su descuento propio, con el precio que se cobra de verdad. */
+export type ProductoConDescuento = {
+  nombre: string;
+  /** Precio final de la variante con descuento más barata. */
+  precioFinalCentavos: number;
+  /** Precio de lista de esa misma variante. */
+  precioListaCentavos: number;
+  /** true si las variantes con stock no cuestan todas lo mismo ("desde $X"). */
+  variosPrecios: boolean;
+  aplicado: DescuentoAplicado;
+};
+
+export type DescuentosVigentes = {
+  promociones: PromocionVigente[];
+  productos: ProductoConDescuento[];
+  /** Productos con descuento que no entraron en MAX_DESCUENTOS_LISTADO. */
+  restantes: number;
+};
+
+export function hayDescuentosVigentes(vigentes: DescuentosVigentes): boolean {
+  return vigentes.promociones.length > 0 || vigentes.productos.length > 0;
+}
+
+/**
+ * Lo que devuelve `ver_descuentos`: todos los descuentos que hoy puede
+ * aprovechar un cliente. Sólo cuentan los productos con stock (no tiene
+ * sentido ofrecer un descuento de algo que no se puede comprar):
+ *
+ * - Las promos de catálogo y de categoría vigentes que descuentan algo en
+ *   alguno de esos productos. Primero las de todo el catálogo.
+ * - Los productos con descuento propio vigente, cada uno con el precio que se
+ *   cobra de verdad: el de `mejorDescuento` sobre todos los descuentos, así que
+ *   si una promo le conviene más al cliente, figura esa.
+ */
+export function descuentosParaElCliente(
+  descuentos: DescuentoParaAplicar[],
+  productos: ProductoParaDescuentos[],
+  ahora: Date = new Date(),
+): DescuentosVigentes {
+  const conStock = productos.filter((producto) => producto.preciosConStock.length > 0);
+
+  const promociones = descuentos
+    .filter(
+      (descuento) =>
+        alcanceDe(descuento) !== 'producto' &&
+        descuentoVigente(descuento, ahora) &&
+        conStock.some(
+          (producto) =>
+            aplicaA(descuento, producto) &&
+            producto.preciosConStock.some((precio) => montoDeDescuento(descuento, precio) > 0),
+        ),
+    )
+    .sort(
+      (a, b) =>
+        PRIORIDAD[alcanceDe(b)] - PRIORIDAD[alcanceDe(a)] ||
+        (a.categoria ?? '').localeCompare(b.categoria ?? '', 'es') ||
+        a.nombre.localeCompare(b.nombre, 'es'),
+    )
+    .map((descuento) => ({
+      nombre: descuento.nombre,
+      etiqueta: etiquetaDescuento(descuento),
+      categoria: descuento.categoria,
+      hastaDia: diaDeHasta(descuento.hasta),
+    }));
+
+  const conDescuentoPropio = conStock.flatMap((producto) => {
+    const propio = descuentos.some(
+      (descuento) => descuento.productoId === producto.id && descuentoVigente(descuento, ahora),
+    );
+    if (!propio) return [];
+    const finales = producto.preciosConStock.map((precio) => ({
+      precio,
+      aplicado: mejorDescuento(descuentos, producto, precio, ahora),
+    }));
+    const conDescuento = finales
+      .filter((final): final is { precio: number; aplicado: DescuentoAplicado } => final.aplicado !== null)
+      .sort((a, b) => a.aplicado.precioFinalCentavos - b.aplicado.precioFinalCentavos);
+    if (conDescuento.length === 0) return [];
+    const [masBarata] = conDescuento;
+    const precioDe = (final: (typeof finales)[number]) => final.aplicado?.precioFinalCentavos ?? final.precio;
+    return [
+      {
+        nombre: producto.nombre,
+        precioFinalCentavos: masBarata.aplicado.precioFinalCentavos,
+        precioListaCentavos: masBarata.precio,
+        variosPrecios: finales.some((final) => precioDe(final) !== precioDe(finales[0])),
+        aplicado: masBarata.aplicado,
+      },
+    ];
+  });
+
+  return {
+    promociones,
+    productos: conDescuentoPropio.slice(0, MAX_DESCUENTOS_LISTADO),
+    restantes: Math.max(conDescuentoPropio.length - MAX_DESCUENTOS_LISTADO, 0),
+  };
+}

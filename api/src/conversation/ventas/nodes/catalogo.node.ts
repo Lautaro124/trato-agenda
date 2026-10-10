@@ -17,20 +17,24 @@ import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import type { ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
+import { hayDescuentosVigentes } from '../../../comercio/descuentos.rules.js';
 import {
+  conOfertaDeDescuentos,
   formatearCatalogo,
+  formatearDescuentos,
   formatearListadoVentas,
   formatearPedidoCreado,
   formatearPedidos,
   formatearResultados,
   formatearResumenVentas,
   formatearStockDueno,
+  yaSeHablaronDescuentos,
 } from '../reglas-ventas.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 export type DepsCatalogo = {
   busqueda: Pick<BusquedaService, 'buscar'>;
-  sugerencias: Pick<SugerenciasService, 'verCatalogo'>;
+  sugerencias: Pick<SugerenciasService, 'verCatalogo' | 'descuentosVigentes'>;
   ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
@@ -48,28 +52,60 @@ export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages' | '
     .map((mensaje) => mensaje.content as string);
 }
 
+/** Le suma a un resultado que muestra productos la oferta de los descuentos, si corresponde. */
+type Ofrecer = (resultado: string) => Promise<string>;
+
 export const MENSAJE_CATALOGO_CAIDO =
   'No pude consultar el catálogo en este momento. Pedile disculpas al cliente y decile que en un rato lo vuelva a intentar.';
 
 export function crearNodoCatalogo(deps: DepsCatalogo) {
   const logger = new Logger('CatalogoNode');
 
-  async function ejecutar(state: EstadoVentasValue, operacion: OperacionPendiente): Promise<Resultado> {
+  /**
+   * Los descuentos se ofrecen una sola vez por charla, en el primer resultado
+   * que muestra productos: si en lo que ve el modelo ya se ofrecieron o ya se
+   * pasaron con ver_descuentos (también si se los pasa en esta misma
+   * vuelta), no se repite. Si leerlos falla, la búsqueda sigue igual sin la
+   * oferta.
+   */
+  function crearOferta(state: EstadoVentasValue): Ofrecer {
+    let pendiente =
+      !yaSeHablaronDescuentos(state.messages.slice(state.inicioVisible ?? 0)) &&
+      !state.pendientes.some((operacion) => operacion.nombre === 'ver_descuentos');
+    return async (resultado) => {
+      if (!pendiente) return resultado;
+      pendiente = false;
+      try {
+        const vigentes = await deps.sugerencias.descuentosVigentes(state.ownerUserId);
+        return hayDescuentosVigentes(vigentes) ? conOfertaDeDescuentos(resultado) : resultado;
+      } catch (error) {
+        logger.error(
+          `No se pudieron leer los descuentos para ofrecerlos en la conversación ${state.contexto.conversation.id}: ` +
+            (error as Error).message,
+        );
+        return resultado;
+      }
+    };
+  }
+
+  async function ejecutar(state: EstadoVentasValue, operacion: OperacionPendiente, ofrecer: Ofrecer): Promise<Resultado> {
     const { args } = operacion;
     switch (operacion.nombre) {
       case 'buscar_productos': {
         const consulta = String(args.consulta);
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const productos = await deps.busqueda.buscar(state.ownerUserId, consulta, { categoria });
-        return formatearResultados(consulta, productos, state.contexto.agent);
+        const texto = formatearResultados(consulta, productos, state.contexto.agent);
+        return productos.length > 0 ? ofrecer(texto) : texto;
       }
       case 'ver_catalogo': {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
-        return formatearCatalogo(
-          await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria),
-          state.contexto.agent,
-        );
+        const catalogo = await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria);
+        const texto = formatearCatalogo(catalogo, state.contexto.agent);
+        return catalogo.tipo === 'vacio' ? texto : ofrecer(texto);
       }
+      case 'ver_descuentos':
+        return formatearDescuentos(await deps.sugerencias.descuentosVigentes(state.ownerUserId));
       case 'consultar_stock': {
         const consulta = String(args.consulta);
         return formatearStockDueno(consulta, await deps.busqueda.buscar(state.ownerUserId, consulta));
@@ -173,10 +209,11 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
 
   return async (state: EstadoVentasValue): Promise<EstadoVentasUpdate> => {
     const mensajes: ToolMessage[] = [];
+    const ofrecer = crearOferta(state);
     for (const operacion of state.pendientes) {
       let resultado: Resultado;
       try {
-        resultado = await ejecutar(state, operacion);
+        resultado = await ejecutar(state, operacion, ofrecer);
       } catch (error) {
         logger.error(`Falló ${operacion.nombre} en la conversación ${state.contexto.conversation.id}: ${(error as Error).message}`);
         resultado = MENSAJE_CATALOGO_CAIDO;
