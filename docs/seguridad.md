@@ -98,6 +98,9 @@ Lo que agrega superficie nueva y cómo está cubierto:
   se descarta, así el modelo no puede guardar otros datos), se recorta a 200
   caracteres y queda en `Venta.datosCliente`. No viaja en los avisos (sólo
   "con envío"/"lo retira"), no se loguea, y en el CSV pasa por `celdaCsv`.
+  Lo que el cliente escribió también queda en `Message` y en los checkpoints
+  (90 días de inactividad) y puede repetirse en `Conversation.resumen` (12
+  meses): las ventanas de retención de siempre, no una nueva.
 - **Retención y baja**: las ventas pierden nombre, teléfono y datos del cliente
   (`Venta.datosCliente`) a los 12 meses y los avisos se purgan (leídos a los 90 días, el resto a los 12
   meses); la baja de cuenta se lleva catálogo, ventas, avisos y tokens de

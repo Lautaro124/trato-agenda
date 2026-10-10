@@ -147,7 +147,8 @@ export function camposAPedir(config: ConfigDatosCliente, entrega: Entrega | null
   return config.campos;
 }
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Las etiquetas del dominio no llevan puntos: sin cuantificadores superpuestos, no hay backtracking (ReDoS).
+const EMAIL = /^[^\s@]{1,64}@[^\s@.]+(?:\.[^\s@.]+)+$/;
 const DNI = /^\d{6,10}$/;
 
 /** Corrige lo que se puede corregir sin adivinar (puntos del DNI) o devuelve el problema. */
