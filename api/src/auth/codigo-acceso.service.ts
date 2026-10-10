@@ -28,7 +28,7 @@ export function codigoCorrecto(recibido: string, hashGuardado: string): boolean 
 
 export function mensajeConCodigo(codigo: string): string {
   return (
-    `Tu código para entrar a Trato Agenda es ${codigo}. ` +
+    `Tu código para entrar a Trato es ${codigo}. ` +
     `Vence en ${MINUTOS_VIGENCIA_CODIGO} minutos. Si no lo pediste, ignorá este mensaje.`
   );
 }

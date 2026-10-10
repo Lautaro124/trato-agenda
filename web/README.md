@@ -1,4 +1,4 @@
-# Trato Agenda — Web
+# Trato — Web
 
 Frontend Next.js 16 (App Router) + React 19 + Tailwind v4. Es el onboarding:
 login con Google y vinculación de WhatsApp por QR.

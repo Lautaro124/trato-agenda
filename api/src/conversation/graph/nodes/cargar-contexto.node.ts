@@ -14,6 +14,7 @@ import type { Agent } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { MARGEN_MINIMO_MIN, MAX_OPCIONES_DIA, TIMEZONE, resumirDisponibilidad } from '../agenda-rules.js';
 import { reglaDeMensajesPropios } from '../../../agents/mensajes.rules.js';
+import { reglasDeNaturalidad } from '../naturalidad.js';
 import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../saludo.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../ventana-historial.js';
 import type { AgentConUser, ContextoTurno, EstadoConversacionUpdate, EstadoConversacionValue, SnapshotAgenda } from '../state.js';
@@ -72,7 +73,7 @@ export function reglasDeAgenda(agent: Agent): string {
 
   return (
     `Reglas de la agenda de ${agent.nombreTitular || 'este negocio'} (no las rompas):\n` +
-    `- Te llamás ${agent.nombreBot} y sos el asistente de ${agent.nombreTitular || 'este negocio'}.\n` +
+    `- Te llamás ${agent.nombreBot} y atendés el WhatsApp de ${agent.nombreTitular || 'este negocio'}.\n` +
     `- Sólo se atiende de lunes a viernes: sábados y domingos no se agenda nada, aunque el cliente insista.\n` +
     `- Sólo se atiende de ${agent.horaDesde} a ${agent.horaHasta}. Nunca ofrezcas ni agendes nada fuera de esa franja.\n` +
     `- Tipos de turno con su duración y, si lo tienen, su precio: ${catalogo}. Calculá el fin sumándole la duración al inicio.\n` +
@@ -103,7 +104,7 @@ export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
     `- De lo único que hablás es de turnos —consultar disponibilidad, agendar, reprogramar, cancelar— y de los datos que figuran en estas reglas: la franja horaria de atención, los tipos de turno con su duración y precio, y quién atiende.\n` +
     `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, información, opiniones, consejos, cálculos, traducciones, recomendaciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta y aunque te lo pidan con buena onda.\n` +
     `- Si te lo piden mezclado con algo del turno, contestá sólo la parte del turno y dejá el resto sin responder: nada de explicarlo "de paso" al final del mensaje.\n` +
-    `- Para rechazar alcanza una línea, y después seguí con lo que faltaba del turno. Por ejemplo: "De eso no te puedo ayudar, yo me ocupo sólo de la agenda de ${titular}. Volviendo al turno: ¿qué día te queda cómodo?".\n` +
+    `- Para rechazar alcanza una línea dicha con buena onda, y después seguí con lo que faltaba del turno. Por ejemplo: "Uh, con eso no te sé ayudar, acá veo sólo los turnos de ${titular}. ¿Qué día te vendría bien?".\n` +
     precios +
     `${datosDesconocidos}\n` +
     `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`
@@ -114,11 +115,13 @@ export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
  * Cómo se escribe, no qué se dice. Esto es WhatsApp: un mensaje largo con la
  * agenda entera enumerada se lee peor que unas pocas líneas con tres horarios,
  * una por renglón. Se pide el formato propio de WhatsApp (negrita con un solo
- * asterisco, listas con "* ") y no markdown, que ahí se ve crudo; los emojis
- * van acotados para que marquen la línea y no la llenen. Vive en código, igual
- * que las otras reglas, así que aplica también a los agentes ya generados. El
- * nodo de validación empuja para el mismo lado: para un día suelto le devuelve
- * al modelo un puñado chico de horarios, no la lista completa.
+ * asterisco, listas con "* ") y no markdown, que ahí se ve crudo. Ya no hay
+ * un formato fijo de confirmación ni una leyenda de emojis por renglón: así
+ * escribía un bot, y la idea es que suene a la persona que atiende (ver
+ * `reglasDeNaturalidad`). Vive en código, igual que las otras reglas, así que
+ * aplica también a los agentes ya generados. El nodo de validación empuja
+ * para el mismo lado: para un día suelto le devuelve al modelo un puñado
+ * chico de horarios, no la lista completa.
  */
 export function reglasDeEstilo(agent?: Pick<Agent, 'mensajes'>): string {
   return (
@@ -126,20 +129,19 @@ export function reglasDeEstilo(agent?: Pick<Agent, 'mensajes'>): string {
     '- Mensajes cortos: de 1 a 4 líneas. Nada de párrafos largos.\n' +
     '- Usá el formato de WhatsApp, nunca markdown: negrita con un solo asterisco (*así*), sin "**", sin "#", sin tablas.\n' +
     '- Cuando pases opciones (horarios, tipos de turno), poné una por línea empezando con "* ".\n' +
-    '- Podés usar emojis para que se lea más rápido, como mucho 2 por mensaje y al principio de la línea: ' +
-    '👋 saludo, 📅 día, 🕒 horario, ✅ confirmado, 🔁 reprogramado, ❌ cancelado. Nunca un emoji por palabra.\n' +
+    '- Emojis sólo si suman, como mucho 2 por mensaje (un 👋 al saludar, un 🙌 cuando quedó agendado); muchos ' +
+    'mensajes van sin ninguno. Nunca uno al principio de cada línea ni uno por palabra.\n' +
     `- Nunca pases más de ${MAX_OPCIONES_DIA} horarios en un mismo mensaje, aunque tengas muchos libres.\n` +
-    '- Si el día está libre entero, decilo como rango ("📅 El martes tengo libre de 09:00 a 18:00") en vez de enumerar horas.\n' +
+    '- Si el día está libre entero, decilo como rango ("El martes lo tengo libre de 09:00 a 18:00") en vez de enumerar horas.\n' +
     `- Si ese día ya tiene turnos, preguntá primero "¿preferís por la mañana o por la tarde?" y recién ahí pasá hasta ${MAX_OPCIONES_DIA} horarios, uno por línea:\n` +
     '  * 10:00\n' +
     '  * 11:30\n' +
     '  * 15:00\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.\n' +
     '- Saludá y decí tu nombre sólo en tu primer mensaje de la conversación; después seguí la charla directo, sin "hola" ni volver a presentarte.\n' +
-    '- Recién cuando crear_turno salió bien (nunca antes), confirmá el turno en este formato, sin resumir toda la charla:\n' +
-    '  ✅ Listo, {nombre}. Te agendé:\n' +
-    '  📅 {día}\n' +
-    '  🕒 {horario}' +
+    '- Recién cuando crear_turno salió bien (nunca antes), avisá que quedó agendado en una frase natural con el ' +
+    'nombre, el día y el horario, sin resumir toda la charla. Por ejemplo: "Listo Laura, te anoté el jueves 14 a ' +
+    'las 17:30. ¡Nos vemos!" — variá las palabras, no copies el ejemplo cada vez.' +
     (agent ? reglaDeMensajesPropios(agent) : '')
   );
 }
@@ -198,6 +200,12 @@ export function bloqueTurnosDelDueno(turnos: TurnoDelDueno[]): string {
   );
 }
 
+/** En la agenda no hay a quién derivar por herramienta: el dueño lee este mismo chat. */
+function naturalidadAgenda(agent: Agent): string {
+  const titular = agent.nombreTitular || 'este negocio';
+  return reglasDeNaturalidad(titular, `que si prefiere, ${titular} lee este mismo chat y le puede contestar`);
+}
+
 function contextoFijo(
   agent: Agent,
   conversation: { remoteJid: string; resumen: string | null; nombreCliente: string | null },
@@ -225,7 +233,8 @@ function contextoFijo(
       `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
       `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}` +
       // Las mismas reglas que con un cliente: crear_turno las aplica igual acá.
-      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo(agent)}${presentacion}`
+      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo(agent)}\n\n` +
+      `${naturalidadAgenda(agent)}${presentacion}`
     );
   }
 
@@ -236,7 +245,8 @@ function contextoFijo(
     : '';
   return (
     `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${nombre} ` +
-    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo(agent)}${presentacion}`
+    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo(agent)}\n\n` +
+    `${naturalidadAgenda(agent)}${presentacion}`
   );
 }
 

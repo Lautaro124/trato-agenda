@@ -1,4 +1,4 @@
-# Trato Agenda — API
+# Trato — API
 
 Backend NestJS con login real de Google (OAuth2). Guarda al usuario en Postgres y
 deja la sesión en una cookie `httpOnly` con un JWT propio.

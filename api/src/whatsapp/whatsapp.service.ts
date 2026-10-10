@@ -5,6 +5,7 @@ import makeWASocket, {
   DisconnectReason,
   isJidGroup,
   type WAMessage,
+  type WAMessageKey,
   type WASocket,
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
@@ -15,6 +16,8 @@ import { ConversationService } from '../conversation/conversation.service.js';
 import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
+import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
+import { RENOVAR_ESCRIBIENDO_MS, demoraDeEscritura, demoraRestante, partirEnMensajes } from './ritmo-humano.js';
 import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
@@ -43,6 +46,13 @@ function codigoDeDesconexion(error: unknown): number | undefined {
   return (error as ErrorConDisconnectCode | undefined)?.output?.statusCode;
 }
 
+/** Un mensaje de cliente esperando a que termine su ráfaga. Viaja con su socket para contestar por el mismo. */
+type MensajeEntrante = { userId: string; remoteJid: string; sock: WASocket; key: WAMessageKey; texto: string };
+
+function esperar(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 @Injectable()
 export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsappService.name);
@@ -55,6 +65,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly pendingSaves = new Map<string, Promise<void>>();
   /** Distingue el "connecting" del arranque del socket del "connecting" post-escaneo. */
   private readonly qrMostrado = new Set<string>();
+  /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
+  private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
+    (_clave, items) => this.contestarRafaga(items),
+    // Sólo el userId: el JID del cliente es su teléfono y no va a los logs.
+    (clave, error) =>
+      this.logger.error(`Fallo procesando mensajes entrantes de ${clave.split('\n')[0]}`, error as Error),
+  );
 
   constructor(
     private readonly prisma: PrismaService,
@@ -84,6 +101,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   /** Apagado prolijo: cerramos el transporte sin invalidar la sesión guardada. */
   async onModuleDestroy(): Promise<void> {
+    this.rafagas.cerrar();
     await Promise.all(
       [...this.sockets.values()].map((sock) => sock.end(undefined).catch(() => undefined)),
     );
@@ -259,7 +277,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const sock = makeWASocket({
       auth: state,
       logger: this.baileysLogger,
-      browser: Browsers.appropriate('Trato Agenda'),
+      browser: Browsers.appropriate('Trato'),
     });
 
     this.sockets.set(userId, sock);
@@ -283,10 +301,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * Mensajes entrantes de clientes del negocio (no del dueño): los pasamos al
    * agente conversacional y mandamos su respuesta. Sólo chats 1:1 en vivo —
    * se ignoran grupos, mensajes propios y el historial que llega al conectar.
+   * No se contestan de a uno: van a la ráfaga de su chat (ver
+   * `AgrupadorDeRafagas`) y salen juntos cuando el cliente deja de escribir.
    *
    * Si se venció el mes de prueba y no hay suscripción, el asistente queda en
-   * silencio: no contestamos nada. La sesión de Baileys sigue vinculada, así
-   * que cuando el dueño paga vuelve a responder sin re-escanear el QR.
+   * silencio: no contestamos nada ni marcamos el mensaje como leído, así el
+   * dueño lo ve sin leer. La sesión de Baileys sigue vinculada, así que cuando
+   * paga vuelve a responder sin re-escanear el QR.
    */
   private async handleMessagesUpsert(
     userId: string,
@@ -307,10 +328,55 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
+      this.rafagas.agregar(`${userId}\n${remoteJid}`, { userId, remoteJid, sock, key: mensaje.key, texto });
+    }
+  }
+
+  /**
+   * Contesta una ráfaga como lo haría una persona: la marca como leída, muestra
+   * "escribiendo…" mientras el modelo piensa y manda la respuesta en uno a
+   * MAX_PARTES mensajes, cada uno después de lo que tardaría en tipearlo. El
+   * tiempo del modelo cuenta como tipeo del primero, así una respuesta lenta
+   * no se demora el doble.
+   */
+  private async contestarRafaga(items: MensajeEntrante[]): Promise<void> {
+    const { userId, remoteJid, sock } = items[items.length - 1];
+    const texto = items.map((item) => item.texto).join('\n');
+
+    // Lo cosmético (leído, "escribiendo…") nunca frena la respuesta.
+    await sock.readMessages(items.map((item) => item.key)).catch(() => undefined);
+    const escribiendo = this.mostrarEscribiendo(sock, remoteJid);
+    const inicio = Date.now();
+    try {
       const respuesta = await this.conversationService.responder(userId, remoteJid, texto);
       await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
-      await sock.sendMessage(remoteJid, { text: respuesta.texto });
+      const partes = partirEnMensajes(respuesta.texto);
+      for (const [indice, parte] of partes.entries()) {
+        if (indice > 0) escribiendo.renovar();
+        const transcurrido = indice === 0 ? Date.now() - inicio : 0;
+        const espera = demoraRestante(demoraDeEscritura(parte, Math.random()), transcurrido);
+        if (espera > 0) await esperar(espera);
+        await sock.sendMessage(remoteJid, { text: parte });
+      }
+    } finally {
+      escribiendo.parar();
     }
+  }
+
+  /** "Escribiendo…" en el chat del cliente, renovado antes de que WhatsApp lo apague solo. */
+  private mostrarEscribiendo(sock: WASocket, remoteJid: string): { renovar: () => void; parar: () => void } {
+    const avisar = (estado: 'composing' | 'paused') => {
+      sock.sendPresenceUpdate(estado, remoteJid).catch(() => undefined);
+    };
+    avisar('composing');
+    const intervalo = setInterval(() => avisar('composing'), RENOVAR_ESCRIBIENDO_MS);
+    return {
+      renovar: () => avisar('composing'),
+      parar: () => {
+        clearInterval(intervalo);
+        avisar('paused');
+      },
+    };
   }
 
   /**

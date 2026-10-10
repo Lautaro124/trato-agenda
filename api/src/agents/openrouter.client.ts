@@ -153,7 +153,7 @@ export class OpenRouterClient {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://github.com/trato-agenda',
-          'X-Title': 'Trato Agenda',
+          'X-Title': 'Trato',
         },
         body: JSON.stringify({
           model: options.model ?? this.config.get('OPENROUTER_MODEL', { infer: true }),

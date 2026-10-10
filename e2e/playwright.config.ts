@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 import { WEB_URL } from './entorno';
 
 /**
- * E2E de Trato Agenda. No levanta servidores: corre contra el stack de
+ * E2E de Trato. No levanta servidores: corre contra el stack de
  * docker compose con el override de e2e (ver README, "Tests E2E").
  *
  * Proyectos:

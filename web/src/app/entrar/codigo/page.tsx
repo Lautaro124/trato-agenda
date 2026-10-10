@@ -50,7 +50,7 @@ export default function RecuperarContrasenaPage() {
       else if (!res.ok) setError("Revisá el número: con código de país, sin espacios ni guiones.");
       else setPaso("codigo");
     } catch {
-      setError("No se pudo conectar con Trato Agenda.");
+      setError("No se pudo conectar con Trato.");
     } finally {
       setEnviando(false);
     }
@@ -82,7 +82,7 @@ export default function RecuperarContrasenaPage() {
       // Navegación completa: SessionProvider sólo pregunta /auth/me al montar.
       window.location.href = destino;
     } catch {
-      setError("No se pudo conectar con Trato Agenda.");
+      setError("No se pudo conectar con Trato.");
       setEnviando(false);
     }
   }
@@ -185,7 +185,7 @@ export default function RecuperarContrasenaPage() {
         )}
 
         <div className="mt-6 rounded-md bg-sunken p-4 text-[12.5px] leading-[1.6] text-ink-secondary">
-          ¿No te llega? Si desvinculaste Trato Agenda de tu teléfono, el código no tiene por dónde salir.{" "}
+          ¿No te llega? Si desvinculaste Trato de tu teléfono, el código no tiene por dónde salir.{" "}
           <Link href="/entrar/whatsapp" className="text-link">
             Escaneá el QR de nuevo
           </Link>{" "}

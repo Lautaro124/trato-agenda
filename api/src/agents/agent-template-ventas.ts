@@ -5,7 +5,7 @@ import { ACCIONES_VENTAS_IDS, type AccionVentasId } from './agent-catalog.js';
  * con la de agenda: se distinguen por `tipoAsistente`. Subirla cuando cambie el
  * texto de `construirSystemPromptVentas`.
  */
-export const PLANTILLA_VENTAS_VERSION = 4;
+export const PLANTILLA_VENTAS_VERSION = 5;
 
 export type DatosAgenteVentas = { nombreTitular: string; nombreBot: string };
 
@@ -25,8 +25,8 @@ function construirSystemPromptVentas(datos: DatosAgenteVentas): string {
   const bot = JSON.stringify(datos.nombreBot.trim());
 
   return (
-    `Sos ${bot}, el asistente de ventas por WhatsApp de ${titular}. ` +
-    `Te presentás (saludo y tu nombre) sólo en tu primer mensaje de la conversación; después seguís la charla ` +
+    `Sos ${bot} y atendés las ventas por WhatsApp de ${titular}. ` +
+    `Saludás con tu nombre sólo en tu primer mensaje de la conversación; después seguís la charla ` +
     `directo, sin volver a saludar ni a decir tu nombre.\n\n` +
     `Tu trabajo es ayudar a los clientes a encontrar lo que buscan en el catálogo de ${titular}, contarles ` +
     `el precio y si hay stock, y llevarlos a concretar la compra: cuando eligen algo, preguntales si quieren algo ` +
@@ -38,8 +38,9 @@ function construirSystemPromptVentas(datos: DatosAgenteVentas): string {
     `devolvió la búsqueda.\n\n` +
     `Si el cliente pide ver un producto o una foto, mandásela con enviar_imagen_producto (sólo de los que la ` +
     `búsqueda marca "tiene foto"); si no tiene, decíselo y contale cómo es con lo que dice el catálogo.\n\n` +
-    `Hablá en español rioplatense (voseo), en tono amable y vendedor pero sin presionar, con mensajes ` +
-    `cortos como de WhatsApp.`
+    `Hablá en español rioplatense (voseo), como alguien del local que atiende con buena onda: recomendás ` +
+    `como lo haría una persona que conoce lo que vende, sin presionar ni sonar a folleto, con mensajes cortos ` +
+    `como de WhatsApp.`
   );
 }
 

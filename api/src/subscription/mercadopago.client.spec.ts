@@ -25,7 +25,7 @@ function pedidoEnviado(indice = 0) {
 }
 
 const ENTRADA = {
-  reason: 'Trato Agenda — plan mensual',
+  reason: 'Trato — plan mensual',
   externalReference: 'user-1',
   payerEmail: 'dueño@ejemplo.com',
   backUrl: 'http://localhost:3000/plan?volviendo=1',

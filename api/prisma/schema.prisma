@@ -1,4 +1,4 @@
-// Esquema de Trato Agenda.
+// Esquema de Trato.
 
 generator client {
   provider = "prisma-client"

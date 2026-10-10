@@ -67,8 +67,8 @@ export default function EntrarConWhatsappPage() {
                 bajada="Escaneá el código con el WhatsApp de tu negocio. Ese número va a ser tu cuenta y el que atiende a tus clientes. Después elegís una contraseña para volver a entrar. No hace falta Google."
                 pie={
                   <>
-                    Trato Agenda solo lee los mensajes que le mandan al asistente. Tus turnos quedan guardados en
-                    Trato Agenda; si más adelante querés, los pasás a Google Calendar. Al seguir aceptás los{" "}
+                    Trato solo lee los mensajes que le mandan al asistente. Tus turnos quedan guardados en
+                    la agenda de Trato; si más adelante querés, los pasás a Google Calendar. Al seguir aceptás los{" "}
                     <Link href="/terminos" className="text-link">
                       términos
                     </Link>{" "}

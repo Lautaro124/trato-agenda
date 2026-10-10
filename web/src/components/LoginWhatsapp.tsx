@@ -44,7 +44,7 @@ export function LoginWhatsapp() {
       // Navegación completa: SessionProvider sólo pregunta /auth/me al montar.
       window.location.href = destino;
     } catch {
-      setError("No se pudo conectar con Trato Agenda.");
+      setError("No se pudo conectar con Trato.");
       setEnviando(false);
     }
   }

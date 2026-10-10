@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/Button";
 import { EMAIL_SOPORTE } from "@/lib/contacto";
 
 export const metadata = {
-  title: "Trato Agenda — tu asistente de WhatsApp para turnos y ventas",
+  title: "Trato — la atención al cliente de tu negocio por WhatsApp",
   description:
-    "Trato Agenda es un asistente de WhatsApp que atiende a tus clientes: agenda turnos en tu calendario o vende tus productos con link de pago de Mercado Pago.",
+    "Trato atiende a tus clientes por WhatsApp como lo haría alguien de tu equipo y se ocupa de la gestión: revisa la agenda y da turnos, informa precios y stock y pasa el link de pago de Mercado Pago.",
 };
 
 const PASOS = [
@@ -20,19 +20,19 @@ const PASOS = [
   {
     numero: 2,
     titulo: "Contás qué hacés",
-    texto: "Elegís si el asistente da turnos o vende productos y le pasás tus horarios o tu catálogo.",
+    texto: "Elegís el módulo, turnos o ventas, y le pasás tus horarios o tu catálogo.",
   },
   {
     numero: 3,
-    titulo: "Contesta solo",
-    texto: "El asistente, que funciona con un modelo de lenguaje, responde a tus clientes y cierra el turno o el pedido.",
+    titulo: "Atiende por vos",
+    texto: "El asistente, que funciona con un modelo de lenguaje, les contesta a tus clientes con naturalidad y resuelve el turno o el pedido.",
   },
 ];
 
 const BENEFICIOS = [
   {
-    titulo: "Menos ida y vuelta",
-    texto: "Nadie queda esperando respuesta a la noche ni el domingo. El turno o la compra se arregla en el mismo chat, cuando el cliente escribe.",
+    titulo: "No suena a robot",
+    texto: "Escribe corto, con buena onda y sin frases armadas, espera a que el cliente termine de escribir y le contesta como alguien de tu equipo. Si le preguntan, dice que es un asistente automático.",
     fondo: "bg-sunken",
     radio: "rounded-tl-[48px] rounded-tr-[20px] rounded-br-[48px] rounded-bl-[20px]",
   },
@@ -67,7 +67,7 @@ const ASISTENTES = [
   {
     etiqueta: "Vender productos",
     titulo: "Para comercios y tiendas",
-    texto: "Responde qué tenés, arma el pedido y le pasa al cliente el link de pago.",
+    texto: "Cuenta qué tenés y cuánto stock queda, arma el pedido y le pasa al cliente el link de pago.",
     items: [
       "Tu catálogo con precios y stock, o subido desde Excel",
       "Cobros con tu propia cuenta de Mercado Pago",
@@ -142,11 +142,11 @@ export default function Home() {
               Un mes gratis, sin tarjeta
             </span>
             <h1 className="mt-4 mb-4 text-pretty font-display text-[34px] leading-[1.08] font-bold tracking-[-0.03em] text-ink md:text-[54px]">
-              Tu negocio contesta solo por <span className="text-primary">WhatsApp</span>
+              Atención al cliente por <span className="text-primary">WhatsApp</span> que no suena a robot
             </h1>
             <p className="mb-7 max-w-[34ch] text-pretty text-[16px] leading-[1.6] text-ink-secondary md:text-[18px]">
-              Tus clientes escriben y el asistente les responde: agenda turnos o vende tus productos,
-              en el mismo chat de siempre.
+              Tus clientes escriben como siempre y les contesta alguien que parece de tu equipo. Mientras
+              tanto, se ocupa de la gestión: revisa la agenda, informa el stock y pasa el link de pago.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Link href="/entrar">
@@ -179,10 +179,10 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex flex-col gap-3 pt-4">
-                <ChatBubble>Hola, ¿tenés lugar el jueves a la tarde?</ChatBubble>
-                <ChatBubble propio>Sí. Jueves 16:00 o 17:30. ¿Cuál te viene mejor?</ChatBubble>
+                <ChatBubble>Hola! ¿tenés lugar el jueves a la tarde?</ChatBubble>
+                <ChatBubble propio>¡Hola! Sí, el jueves me quedan 16:00 o 17:30, ¿cuál te viene mejor?</ChatBubble>
                 <ChatBubble>17:30 mejor. Soy Laura</ChatBubble>
-                <ChatBubble propio>Listo, Laura. Te esperamos el jueves a las 17:30.</ChatBubble>
+                <ChatBubble propio>Listo Laura, te anoté el jueves a las 17:30. ¡Nos vemos! 🙌</ChatBubble>
               </div>
               <div className="mt-4 flex items-center gap-2.5 rounded-lg border border-line bg-sunken p-3">
                 <span className="size-2 flex-none rounded-full bg-accent" />
@@ -199,11 +199,11 @@ export default function Home() {
       <section id="asistentes" className="px-5 pb-14 md:px-10 md:pb-20">
         <div className="mx-auto max-w-[1180px]">
           <h2 className="mb-3 font-display text-[28px] leading-[1.12] font-bold tracking-[-0.03em] text-ink md:text-[38px]">
-            Turnos o ventas, vos elegís
+            Dos módulos, la misma atención
           </h2>
           <p className="mb-9 max-w-[48ch] text-[16px] leading-[1.6] text-ink-secondary md:mb-11">
-            Al crear tu cuenta elegís para qué querés el asistente. Los dos atienden por tu WhatsApp, a
-            cualquier hora.
+            Al crear tu cuenta elegís qué módulo usa tu asistente. Los dos atienden por tu WhatsApp, a
+            cualquier hora, y hacen la gestión por vos.
           </p>
           <div className="grid gap-5 md:grid-cols-2">
             {ASISTENTES.map((a) => (
@@ -332,7 +332,7 @@ export default function Home() {
 
       <footer className="px-5 pb-11 md:px-10">
         <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-3 border-t border-line pt-6 text-[13.5px] text-muted">
-          <span className="font-display text-[15px] font-bold text-ink">Trato Agenda</span>
+          <span className="font-display text-[15px] font-bold text-ink">Trato</span>
           <div className="flex flex-wrap gap-4">
             <a href="#precio" className="text-muted">
               Precio

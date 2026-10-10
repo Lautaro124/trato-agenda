@@ -53,7 +53,7 @@ export default function VincularPage() {
                 Ayuda
               </Button>
             }
-            pie="Trato Agenda solo lee los mensajes que le mandás al bot. No accede al resto de tus chats."
+            pie="Trato solo lee los mensajes que le mandás al bot. No accede al resto de tus chats."
           />
         )}
 
