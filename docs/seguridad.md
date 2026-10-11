@@ -207,7 +207,8 @@ teléfono" (`requestPairingCode` de Baileys). Superficie nueva:
   `TOKEN_ENCRYPTION_KEY` (`encryptToken`, IV aleatorio por valor). El id de
   cada clave tampoco queda en claro: los de `session` son el JID de cada
   cliente (su teléfono), que antes iba dentro del blob cifrado, así que la
-  fila guarda `idDeFila`, un HMAC-SHA256 con esa misma clave. Baileys
+  fila guarda `idDeFila`, un HMAC-SHA256 con una subclave derivada de esa
+  clave (no se usa la misma clave directo para AES y para HMAC). Baileys
   siempre pide las claves por id, nunca las lista, así que se calcula de los
   dos lados. En claro queda sólo la categoría (`pre-key`, `session`…).
 - **Borrado**: `WhatsappClave` cuelga de `WhatsappSession.userId` con
@@ -223,7 +224,9 @@ teléfono" (`requestPairingCode` de Baileys). Superficie nueva:
   parámetros y no texto concatenado.
 - **En memoria**: `getMessage` guarda los últimos 200 mensajes **enviados**
   por cuenta (texto de las respuestas del asistente), para reenviarlos si el
-  teléfono del cliente no los pudo descifrar. Se borran al cerrar la sesión
+  teléfono del cliente no los pudo descifrar. Lo que va al chat propio del
+  dueño (códigos de acceso, avisos) no pasa por ahí: el código sólo vive
+  hasheado. Se borran al cerrar la sesión
   o reiniciar la API; nunca van a logs ni a Sentry.
 - **Avisos**: una sesión caída más de 10 minutos manda un warning a Sentry
   (`whatsapp-caido`, con userId, código de cierre e intentos, sin teléfonos)

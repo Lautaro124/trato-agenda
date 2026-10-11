@@ -72,14 +72,14 @@ export function estaVinculado(creds: AuthenticationCreds): boolean {
 /**
  * El id con que se guarda una clave. Los de `session` son el JID de cada
  * cliente (su teléfono), que antes viajaba adentro del blob cifrado: en la
- * fila va un HMAC con `TOKEN_ENCRYPTION_KEY`, así la tabla no lista quién le
+ * fila va un HMAC con una subclave de `TOKEN_ENCRYPTION_KEY`, así la tabla no lista quién le
  * escribió a quién. Baileys siempre pide las claves por id y nunca las
  * enumera, así que alcanza con calcularlo de los dos lados.
  */
 export function idDeFila(categoria: string, id: string, claveHex: string): string {
-  return createHmac('sha256', Buffer.from(claveHex, 'hex'))
-    .update(`whatsapp-clave\n${categoria}\n${id}`)
-    .digest('base64url');
+  // Subclave propia: la misma TOKEN_ENCRYPTION_KEY no se usa directo para AES y para HMAC.
+  const subclave = createHmac('sha256', Buffer.from(claveHex, 'hex')).update('trato/whatsapp-clave/id/v1').digest();
+  return createHmac('sha256', subclave).update(`${categoria}\n${id}`).digest('base64url');
 }
 
 function cifrar(valor: unknown, clave: string): string {

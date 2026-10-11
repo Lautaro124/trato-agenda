@@ -326,7 +326,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const telefono = sock && estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
     if (!sock || !telefono) return false;
     // `handleMessagesUpsert` ignora los `fromMe`: el asistente no se contesta esto.
-    await this.enviar(userId, sock, jidPropio(telefono), { text: texto });
+    // Directo y no por `enviar`: puede ser un código de acceso, que no queda en
+    // memoria para reenvíos (la base sólo guarda su hash).
+    await sock.sendMessage(jidPropio(telefono), { text: texto });
     return true;
   }
 
@@ -635,8 +637,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Toda salida pasa por acá: lo enviado queda en `enviados` para que
-   * `getMessage` lo encuentre si el cliente pide reenvío.
+   * Toda salida a un cliente pasa por acá: lo enviado queda en `enviados`
+   * para que `getMessage` lo encuentre si el cliente pide reenvío.
    */
   private async enviar(userId: string, sock: WASocket, jid: string, contenido: AnyMessageContent): Promise<void> {
     const enviado = await sock.sendMessage(jid, contenido);
