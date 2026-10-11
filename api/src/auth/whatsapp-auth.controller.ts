@@ -105,8 +105,12 @@ export class WhatsappAuthController {
   @Post('alta/codigo')
   @UseGuards(AltaGuard)
   @HttpCode(HttpStatus.OK)
-  async codigoAlta(@Req() req: RequestConAlta, @Body() dto: SolicitarCodigoDto): Promise<{ codigo: string }> {
-    return { codigo: await this.whatsappService.pedirCodigo(req.altaUserId, dto.telefono) };
+  async codigoAlta(
+    @Req() req: RequestConAlta,
+    @Ip() ip: string,
+    @Body() dto: SolicitarCodigoDto,
+  ): Promise<{ codigo: string }> {
+    return { codigo: await this.altas.pedirCodigo(req.altaUserId, ip, dto.telefono) };
   }
 
   /** Después del "connected": cambia la cookie del alta por la de sesión. */

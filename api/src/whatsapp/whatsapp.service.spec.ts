@@ -6,7 +6,7 @@ import type { Env } from '../config/env.js';
 import type { ConversationService } from '../conversation/conversation.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { SubscriptionService } from '../subscription/subscription.service.js';
-import { MAX_CODIGOS_POR_NUMERO_HORA, WhatsappService } from './whatsapp.service.js';
+import { MAX_CODIGOS_POR_CUENTA, MAX_CODIGOS_POR_NUMERO_HORA, WhatsappService } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
 
 type UsuarioMock = { id: string; googleId: string | null; phoneNumber: string | null };
@@ -21,6 +21,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     },
     whatsappSession: {
       findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         authState: 'blob-cifrado',
@@ -437,15 +438,48 @@ describe('WhatsappService — vincular con código desde el mismo celular', () =
     expect(interno(service).modoCodigo.has('user-1')).toBe(true);
   });
 
-  it('limita los códigos por número, aunque se escriba de distintas formas', async () => {
+  it('con la sesión vinculada en la base contesta 409 aunque no haya socket (reconectando)', async () => {
+    const { service, prisma, connectSpy } = crearServicio();
+    vi.mocked(prisma.whatsappSession.findUnique).mockResolvedValue({ registered: true } as never);
+
+    await expect(service.pedirCodigo('user-1', '5491122334455')).rejects.toMatchObject({ status: 409 });
+    expect(connectSpy).not.toHaveBeenCalled();
+    expect(prisma.whatsappSession.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('limita los códigos por número, aunque se escriba de distintas formas y desde distintas cuentas', async () => {
     const { service } = crearServicio();
     const formas = ['5491122334455', '541122334455', '+54 9 11 2233-4455'];
 
     // Sin socket, cada pedido falla con 503, pero igual cuenta para el límite.
     for (let i = 0; i < MAX_CODIGOS_POR_NUMERO_HORA; i++) {
-      await expect(service.pedirCodigo('user-1', formas[i % formas.length]!)).rejects.toMatchObject({ status: 503 });
+      await expect(service.pedirCodigo(`user-${i}`, formas[i % formas.length]!)).rejects.toMatchObject({ status: 503 });
     }
-    await expect(service.pedirCodigo('user-1', '5491122334455')).rejects.toMatchObject({ status: 429 });
+    await expect(service.pedirCodigo('otra', '5491122334455')).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('limita los códigos por cuenta, aunque cada uno sea para un número distinto', async () => {
+    const { service } = crearServicio();
+
+    for (let i = 0; i < MAX_CODIGOS_POR_CUENTA; i++) {
+      await expect(service.pedirCodigo('user-1', `54911223344${10 + i}`)).rejects.toMatchObject({ status: 503 });
+    }
+    await expect(service.pedirCodigo('user-1', '5491199998888')).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('un segundo pedido mientras el primero sigue en curso contesta 409', async () => {
+    const { service, connectSpy } = crearServicio();
+    const sock = socketSinVincular();
+    connectSpy.mockImplementation(async () => ponerSocket(service, 'user-1', sock));
+
+    const primero = service.pedirCodigo('user-1', '5491122334455');
+    await expect(service.pedirCodigo('user-1', '5491122334455')).rejects.toMatchObject({ status: 409 });
+
+    await vi.waitFor(() => expect(interno(service).esperandoQr.size).toBe(1));
+    await (
+      service as unknown as { handleConnectionUpdate: (u: string, e: unknown, s?: unknown) => Promise<void> }
+    ).handleConnectionUpdate('user-1', { qr: 'ref,clave' }, sock);
+    await expect(primero).resolves.toBe('ABCD-1234');
   });
 
   it('si se corta con el código pendiente no reconecta: avisa que venció', () => {

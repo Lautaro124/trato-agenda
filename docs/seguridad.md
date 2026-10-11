@@ -168,14 +168,31 @@ teléfono" (`requestPairingCode` de Baileys). Superficie nueva:
   alta sigue limitada por IP y por altas simultáneas al crearla; el código no
   abre más sockets que los que ya tenía esa alta (cierra el anterior).
 - **Notificaciones a un teléfono ajeno**: pedir el código le manda una
-  notificación a ese número antes de que nadie pruebe que es suyo. Tope de
+  notificación a ese número antes de que nadie pruebe que es suyo, y cada
+  pedido abre un socket desde la IP del servidor. Tres topes (429):
   `MAX_CODIGOS_POR_NUMERO_HORA` (5) por `claveDeTelefono`, así escribir el
-  número de distintas formas no multiplica los intentos (429).
+  número de distintas formas no multiplica los intentos;
+  `MAX_CODIGOS_POR_CUENTA` (5 cada 15 min) por cuenta o alta, así una sola
+  no le puede mandar a un número distinto en cada pedido; y, en el alta,
+  `MAX_CODIGOS_ALTA_POR_IP_HORA` (10, sólo producción). Un pedido a la vez
+  por cuenta (409 si hay otro en curso).
+- **Nunca sobre una sesión vinculada**: `pedirCodigo` mira
+  `WhatsappSession.registered` en la base y no sólo el socket (que falta
+  mientras reconecta o al arrancar): con una sesión vinculada contesta 409
+  sin cerrar nada. En el alta, además, sólo mientras el usuario siga siendo
+  un alta pendiente (`AltaWhatsappService.pedirCodigo`, 401 si no): una
+  cookie de alta conservada no sirve sobre una cuenta ya creada.
 - **No revela cuentas**: el endpoint no mira si el número tiene cuenta en
   Trato. Igual que con el QR, `asignarTelefono` lo resuelve recién al abrir
   la conexión (con `numero_en_uso` para una cuenta que no es un alta).
 - **El código sólo vuelve a quien lo pidió** y no se loguea, ni el número:
   los warnings llevan el `userId` y el motivo.
+- **Ingeniería social**: igual que con el QR, quien ingresa el código en un
+  WhatsApp que ya tiene cuenta en Trato entra a esa cuenta
+  (`transferirSesion`). La diferencia es que ahora a ese teléfono le llega
+  una notificación de WhatsApp, que facilita el engaño "pasame el código que
+  te llegó". El código se ingresa en el WhatsApp del dueño, no se dicta: la
+  pantalla lo dice así.
 - **Sesiones a medio vincular**: `estaVinculado` exige `creds.registered`
   mientras hay un código pendiente, así una sesión sin confirmar nunca queda
   `registered: true` ni se reanuda al arrancar; si se corta antes de que se

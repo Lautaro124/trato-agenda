@@ -65,6 +65,13 @@ const RECONNECT_BASE_DELAY_MS = 2000;
  * que sea suyo: sin esto, cualquiera podría llenarle de avisos el WhatsApp a otro.
  */
 export const MAX_CODIGOS_POR_NUMERO_HORA = 5;
+/**
+ * Y por cuenta (o alta): sin esto una sola cuenta podía mandarle la
+ * notificación a un número distinto en cada pedido, y cada pedido abre un
+ * socket desde la IP del servidor.
+ */
+export const MAX_CODIGOS_POR_CUENTA = 5;
+const QUINCE_MINUTOS_MS = 15 * 60 * 1000;
 /** Cuánto esperar a que el socket nuevo hable con WhatsApp antes de pedir el código. */
 export const ESPERA_SOCKET_LISTO_MS = 20_000;
 const UNA_HORA_MS = 60 * 60 * 1000;
@@ -127,6 +134,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    */
   private readonly esperandoQr = new Map<WASocket, () => void>();
   private readonly codigosPorNumero = new Limitador(MAX_CODIGOS_POR_NUMERO_HORA, UNA_HORA_MS);
+  private readonly codigosPorCuenta = new Limitador(MAX_CODIGOS_POR_CUENTA, QUINCE_MINUTOS_MS);
+  /** Un pedido de código a la vez por cuenta: dos seguidos se cerraban el socket entre sí. */
+  private readonly pidiendoCodigo = new Set<string>();
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
   private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
     (_clave, items) => this.contestarRafaga(items),
@@ -204,9 +214,27 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * existen): igual que con el QR, `asignarTelefono` lo resuelve al conectar.
    */
   async pedirCodigo(userId: string, telefono: string): Promise<string> {
+    if (this.pidiendoCodigo.has(userId)) {
+      throw new ConflictException('Ya estamos pidiendo un código: esperá un momento.');
+    }
+    this.pidiendoCodigo.add(userId);
+    try {
+      return await this.pedirCodigoSinPisarse(userId, telefono);
+    } finally {
+      this.pidiendoCodigo.delete(userId);
+    }
+  }
+
+  private async pedirCodigoSinPisarse(userId: string, telefono: string): Promise<string> {
     const socketVivo = this.sockets.get(userId);
-    if (socketVivo && estaVinculado(socketVivo.authState.creds)) {
+    // La base y no sólo el socket: una sesión vinculada puede estar sin socket
+    // un rato (reconectando, al arrancar) y empezar de cero la dejaría muda.
+    const sesion = await this.prisma.whatsappSession.findUnique({ where: { userId }, select: { registered: true } });
+    if (sesion?.registered || (socketVivo && estaVinculado(socketVivo.authState.creds))) {
       throw new ConflictException('Este WhatsApp ya está vinculado.');
+    }
+    if (!this.codigosPorCuenta.permitir(userId)) {
+      throw new HttpException('Pediste demasiados códigos: probá en unos minutos.', HttpStatus.TOO_MANY_REQUESTS);
     }
     if (!this.codigosPorNumero.permitir(claveDeTelefono(telefono))) {
       throw new HttpException('Pediste demasiados códigos para ese número: probá en un rato.', HttpStatus.TOO_MANY_REQUESTS);

@@ -31,8 +31,8 @@ export type ResultadoCodigo = { codigo: string } | { error: string };
 
 function errorDeCodigo(status: number): string {
   if (status === 400) return "Revisá el número: tiene que ser el de WhatsApp, con el código de área.";
-  if (status === 409) return "Este WhatsApp ya está vinculado.";
-  if (status === 429) return "Pediste demasiados códigos para ese número. Probá de nuevo en un rato.";
+  if (status === 409) return "Este WhatsApp ya está vinculado o ya estamos pidiendo un código. Esperá un momento.";
+  if (status === 429) return "Pediste demasiados códigos. Probá de nuevo en un rato.";
   if (status === 401) return "La página venció. Recargala para empezar de nuevo.";
   return "WhatsApp no respondió. Probá de nuevo en un momento.";
 }
