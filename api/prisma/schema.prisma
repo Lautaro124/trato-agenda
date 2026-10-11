@@ -61,9 +61,14 @@ model WhatsappSession {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// { creds, keys } de Baileys serializado con BufferJSON y cifrado entero
-  /// con AES-256-GCM (token-crypto.ts), igual que googleRefreshToken.
+  /// `{ creds }` de Baileys serializado con BufferJSON y cifrado con
+  /// AES-256-GCM (token-crypto.ts), igual que googleRefreshToken. Las claves
+  /// de Signal viven aparte, una por fila en WhatsappClave. Una fila de antes
+  /// de LAU-18 trae `{ creds, keys }` entero: se parte en filas la primera vez
+  /// que se carga (whatsapp-auth-state.ts).
   authState String
+
+  claves WhatsappClave[]
 
   /// Número vinculado (sin '+'), recién disponible cuando abre la conexión.
   phoneNumber String?
@@ -75,6 +80,27 @@ model WhatsappSession {
   linkedAt  DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+}
+
+/// Una clave de Signal de una sesión de WhatsApp (pre-keys, sesiones con cada
+/// contacto, sender keys, app-state…). Antes iban todas en un solo blob que se
+/// reescribía entero en cada mensaje; así cada `keys.set` toca sólo las filas
+/// que cambiaron. Cuelga de la sesión y no del usuario: todo lo que borra la
+/// sesión (desvincular, un QR vencido, la baja de la cuenta) se lleva sus claves.
+model WhatsappClave {
+  userId String
+  sesion WhatsappSession @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  /// Tipo de clave de Baileys (`SignalDataTypeMap`): "pre-key", "session"…
+  categoria String
+  /// Id de la clave dentro de su categoría.
+  clave     String
+  /// El valor serializado con BufferJSON y cifrado con AES-256-GCM, uno por uno.
+  valor     String
+
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, categoria, clave])
 }
 
 /// Config del agente personalizado de un usuario, generada por el meta-agente
@@ -546,7 +572,7 @@ model Notificacion {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// "venta_pagada" | "pedido_manual" | "stock_bajo" | "stock_agotado" |
-  /// "consulta_derivada" | "mercadopago_desconectado"
+  /// "consulta_derivada" | "mercadopago_desconectado" | "whatsapp_desconectado"
   tipo   String
   titulo String
   cuerpo String

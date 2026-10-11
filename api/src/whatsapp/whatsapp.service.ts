@@ -13,10 +13,14 @@ import { ConfigService } from '@nestjs/config';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  fetchLatestWaWebVersion,
   isJidGroup,
+  makeCacheableSignalKeyStore,
+  type AnyMessageContent,
   type WAMessage,
   type WAMessageKey,
   type WASocket,
+  type WAVersion,
 } from '@whiskeysockets/baileys';
 import { randomInt } from 'node:crypto';
 import pino from 'pino';
@@ -27,9 +31,13 @@ import { ImagenesService } from '../comercio/imagenes.service.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
+import { avisoWhatsappCaido, avisoWhatsappParaVolverAVincular, type Aviso } from '../notificaciones/avisos.js';
+import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
+import { avisarASentry } from '../observabilidad/aviso-a-sentry.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
+import { CacheConVencimiento, MensajesEnviados, TTL_REINTENTOS_MS } from './caches.js';
 import {
   MAX_CARACTERES_RAFAGA,
   RENOVAR_ESCRIBIENDO_MS,
@@ -38,7 +46,13 @@ import {
   partirEnMensajes,
 } from './ritmo-humano.js';
 import { PREFIJO_TIEMPOS, demoraDeEntrega, resumenDeRafaga, timestampEnMs } from './metricas.js';
-import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
+import {
+  MINUTOS_CAIDO_PARA_AVISAR,
+  correspondeAvisarCaida,
+  demoraDeReconexion,
+  politicaDeCierre,
+} from './reconexion.js';
+import { copiarSesion, estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
 /**
@@ -54,10 +68,6 @@ export function esAltaPendiente(user: { googleId: string | null; phoneNumber: st
 export function jidPropio(telefono: string): string {
   return `${telefono}@s.whatsapp.net`;
 }
-
-/** Falla recuperable de red, no una desvinculación: reintentamos con backoff. */
-const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_BASE_DELAY_MS = 2000;
 
 /**
  * Códigos de vinculación que se pueden pedir por número y por hora. Cada pedido
@@ -75,6 +85,10 @@ const QUINCE_MINUTOS_MS = 15 * 60 * 1000;
 /** Cuánto esperar a que el socket nuevo hable con WhatsApp antes de pedir el código. */
 export const ESPERA_SOCKET_LISTO_MS = 20_000;
 const UNA_HORA_MS = 60 * 60 * 1000;
+/** Cada cuánto se vuelve a preguntar la versión de WhatsApp Web, y cuánto se la espera. */
+const VIGENCIA_VERSION_WA_MS = 12 * UNA_HORA_MS;
+const ESPERA_VERSION_WA_MS = 5_000;
+const REINTENTO_VERSION_WA_MS = 10 * 60 * 1000;
 
 /** "ABCD1234" → "ABCD-1234", como lo muestra WhatsApp al pedirlo. */
 export function formatearCodigoDeVinculacion(codigo: string): string {
@@ -114,9 +128,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   private readonly sockets = new Map<string, WASocket>();
   private readonly events = new Map<string, ReplaySubject<LinkEvent>>();
+  /** Reintentos desde la última conexión abierta (ver reconexion.ts). */
   private readonly reconnectAttempts = new Map<string, number>();
+  /** El reintento programado de cada usuario: cerrar o desvincular lo cancela. */
+  private readonly reconexionesPendientes = new Map<string, NodeJS.Timeout>();
+  /** Desde cuándo está caída una sesión vinculada, para avisar si no vuelve. */
+  private readonly caidoDesde = new Map<string, number>();
+  /** Caídas ya avisadas: una sola vez por caída. */
+  private readonly caidaAvisada = new Set<string>();
+  /** `badSession` seguidos por usuario (ver MAX_SESIONES_MALAS_SEGUIDAS). */
+  private readonly sesionesMalas = new Map<string, number>();
   /** Última promesa de `saveCreds` en vuelo por usuario, para no emitir "connected" antes de que persista. */
   private readonly pendingSaves = new Map<string, Promise<void>>();
+  /** Espera los guardados en vuelo de la sesión (creds y claves) de cada usuario. */
+  private readonly guardadosEnVuelo = new Map<string, () => Promise<void>>();
   /** Distingue el "connecting" del arranque del socket del "connecting" post-escaneo. */
   private readonly qrMostrado = new Set<string>();
   /** Cuándo arrancó el socket vivo de cada usuario, para medir cuánto tarda en abrir. */
@@ -137,6 +162,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly codigosPorCuenta = new Limitador(MAX_CODIGOS_POR_CUENTA, QUINCE_MINUTOS_MS);
   /** Un pedido de código a la vez por cuenta: dos seguidos se cerraban el socket entre sí. */
   private readonly pidiendoCodigo = new Set<string>();
+  /** Cuántas veces pidió reenvío cada mensaje; Baileys lo usa para no reintentar para siempre. */
+  private readonly reintentosDeMensajes = new CacheConVencimiento(TTL_REINTENTOS_MS);
+  /** Lo último que mandó cada cuenta, para reenviarlo si el teléfono del cliente no lo pudo descifrar. */
+  private readonly enviados = new MensajesEnviados();
+  /** Versión de WhatsApp Web con la que se conecta; se refresca cada VIGENCIA_VERSION_WA_MS. */
+  private versionWa: { version: WAVersion; hasta: number } | null = null;
+  private consultandoVersion: Promise<WAVersion> | null = null;
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
   private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
     (_clave, items) => this.contestarRafaga(items),
@@ -152,6 +184,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly conversationService: ConversationService,
     private readonly subscriptionService: SubscriptionService,
     private readonly imagenes: ImagenesService,
+    private readonly notificaciones: NotificacionesService,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
@@ -175,6 +208,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** Apagado prolijo: cerramos el transporte sin invalidar la sesión guardada. */
   async onModuleDestroy(): Promise<void> {
     this.rafagas.cerrar();
+    for (const timer of this.reconexionesPendientes.values()) clearTimeout(timer);
+    this.reconexionesPendientes.clear();
     await Promise.all(
       [...this.sockets.values()].map((sock) => sock.end(undefined).catch(() => undefined)),
     );
@@ -276,6 +311,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Sin socket puede haber un reintento esperando: que no reviva lo que se desvinculó.
+    this.cancelarReconexion(userId);
+    this.olvidarCaida(userId);
     await this.prisma.whatsappSession.deleteMany({ where: { userId } });
   }
 
@@ -288,6 +326,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const telefono = sock && estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
     if (!sock || !telefono) return false;
     // `handleMessagesUpsert` ignora los `fromMe`: el asistente no se contesta esto.
+    // Directo y no por `enviar`: puede ser un código de acceso, que no queda en
+    // memoria para reenvíos (la base sólo guarda su hash).
     await sock.sendMessage(jidPropio(telefono), { text: texto });
     return true;
   }
@@ -300,7 +340,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async enviarAlCliente(userId: string, remoteJid: string, texto: string): Promise<boolean> {
     const sock = this.sockets.get(userId);
     if (!sock || !estaVinculado(sock.authState.creds)) return false;
-    await sock.sendMessage(remoteJid, { text: texto });
+    await this.enviar(userId, sock, remoteJid, { text: texto });
     const conversation = await this.prisma.conversation.findUnique({
       where: { userId_remoteJid: { userId, remoteJid } },
       select: { id: true },
@@ -324,28 +364,19 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    *    sin logout (sus credenciales son las buenas);
    * 2. se cierra la sesión vieja de la cuenta con logout, sacándola antes del
    *    mapa para que su `loggedOut` no borre la fila que estamos por escribir;
-   * 3. se copia el blob a la cuenta y se reconecta con su `userId`.
+   * 3. se copian credenciales y claves a la cuenta (`copiarSesion`) y se
+   *    reconecta con su `userId`.
    */
   async transferirSesion(desde: string, hacia: string): Promise<void> {
-    await (this.pendingSaves.get(desde) ?? Promise.resolve());
+    await this.esperarGuardados(desde);
     await this.cerrarSocket(desde, 'end');
     await this.cerrarSocket(hacia, 'logout');
-    await (this.pendingSaves.get(hacia) ?? Promise.resolve());
+    // Cerrar también puede guardar: nada de ninguno de los dos puede escribir después de copiar.
+    await Promise.all([this.esperarGuardados(desde), this.esperarGuardados(hacia)]);
 
-    const origen = await this.prisma.whatsappSession.findUniqueOrThrow({ where: { userId: desde } });
-    const datos = {
-      authState: origen.authState,
-      registered: origen.registered,
-      phoneNumber: origen.phoneNumber,
-      linkedAt: origen.linkedAt,
-    };
-    await this.prisma.whatsappSession.upsert({
-      where: { userId: hacia },
-      create: { userId: hacia, ...datos },
-      update: datos,
-    });
-    await this.prisma.whatsappSession.deleteMany({ where: { userId: desde } });
+    await copiarSesion(this.prisma, desde, hacia);
     this.pendingSaves.delete(desde);
+    this.guardadosEnVuelo.delete(desde);
     this.events.get(desde)?.complete();
     this.events.delete(desde);
 
@@ -368,6 +399,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // Lo que un cliente escribió y todavía no se contestó no sale por un socket cerrado.
     this.rafagas.descartar(`${userId}\n`);
     this.modoCodigo.delete(userId);
+    this.enviados.olvidar(userId);
+    this.cancelarReconexion(userId);
+    this.olvidarCaida(userId);
+    this.sesionesMalas.delete(userId);
     const sock = this.sockets.get(userId);
     if (!sock) return;
     this.sockets.delete(userId);
@@ -402,7 +437,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    */
   private async empezarDeCero(userId: string): Promise<void> {
     await this.cerrarSocket(userId, 'end');
-    await (this.pendingSaves.get(userId) ?? Promise.resolve());
+    await this.esperarGuardados(userId);
     await this.prisma.whatsappSession.deleteMany({ where: { userId, registered: false } });
     this.reconnectAttempts.delete(userId);
   }
@@ -420,19 +455,32 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async connect(userId: string): Promise<void> {
-    const { state, saveCreds } = await usePrismaAuthState(
+    const { state, saveCreds, esperarGuardados } = await usePrismaAuthState(
       this.prisma,
       userId,
       this.config.get('TOKEN_ENCRYPTION_KEY', { infer: true }),
     );
 
+    const version = await this.versionDeWhatsappWeb();
+
     const sock = makeWASocket({
-      auth: state,
+      // Con caché delante, cada lectura de clave no es una consulta a Postgres.
+      auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, this.baileysLogger) },
       logger: this.baileysLogger,
       browser: Browsers.appropriate('Trato'),
+      version,
+      // El historial que baja al vincular se ignora (`type !== 'notify'`), y
+      // descifrarlo demoraba la vinculación y retenía los mensajes nuevos.
+      syncFullHistory: false,
+      shouldSyncHistoryMessage: () => false,
+      // En línea, el teléfono del dueño deja de recibir notificaciones.
+      markOnlineOnConnect: false,
+      msgRetryCounterCache: this.reintentosDeMensajes,
+      getMessage: async (key) => this.enviados.buscar(userId, key.id),
     });
 
     this.sockets.set(userId, sock);
+    this.guardadosEnVuelo.set(userId, esperarGuardados);
     this.qrMostrado.delete(userId);
     this.conectandoDesde.set(userId, Date.now());
     sock.ev.on('creds.update', () => {
@@ -513,7 +561,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       const finModelo = Date.now();
       const partes = partirEnMensajes(respuesta.texto);
       await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
-      await this.enviarEnOrden(sock, remoteJid, partes, escribiendo, finModelo - inicio);
+      await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio);
       const primero = items[0]!;
       this.logger.log(
         resumenDeRafaga(userId, {
@@ -537,6 +585,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * modelo) sólo se descuenta de la primera.
    */
   private async enviarEnOrden(
+    userId: string,
     sock: WASocket,
     remoteJid: string,
     partes: string[],
@@ -548,10 +597,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // randomInt y no Math.random: es sólo jitter de tipeo, pero así no lo marca el análisis estático.
     const espera = demoraRestante(demoraDeEscritura(parte, randomInt(0, 1001) / 1000), transcurrido);
     if (espera > 0) await esperar(espera);
-    await sock.sendMessage(remoteJid, { text: parte });
+    await this.enviar(userId, sock, remoteJid, { text: parte });
     if (resto.length === 0) return;
     escribiendo.renovar();
-    return this.enviarEnOrden(sock, remoteJid, resto, escribiendo, 0);
+    return this.enviarEnOrden(userId, sock, remoteJid, resto, escribiendo, 0);
   }
 
   /** "Escribiendo…" en el chat del cliente, renovado antes de que WhatsApp lo apague solo. */
@@ -579,12 +628,43 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       try {
         const foto = await this.imagenes.paraEnviar(userId, productoId);
         if (!foto) continue;
-        await sock.sendMessage(remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: foto.nombre });
+        await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: foto.nombre });
       } catch (error) {
         // Sin el JID ni el nombre del producto: sólo ids, como el resto de los logs de Baileys.
         this.logger.error(`No se pudo mandar la foto del producto ${productoId} (cuenta ${userId}): ${(error as Error).message}`);
       }
     }
+  }
+
+  /**
+   * Toda salida a un cliente pasa por acá: lo enviado queda en `enviados`
+   * para que `getMessage` lo encuentre si el cliente pide reenvío.
+   */
+  private async enviar(userId: string, sock: WASocket, jid: string, contenido: AnyMessageContent): Promise<void> {
+    const enviado = await sock.sendMessage(jid, contenido);
+    this.enviados.guardar(userId, enviado?.key.id, enviado?.message);
+  }
+
+  /**
+   * La versión de WhatsApp Web vigente: WhatsApp rechaza cada tanto las viejas
+   * (405) y la de fábrica de Baileys envejece. Si no se puede averiguar,
+   * `fetchLatestWaWebVersion` devuelve la de fábrica y se usa esa.
+   */
+  private versionDeWhatsappWeb(): Promise<WAVersion> {
+    if (this.versionWa && this.versionWa.hasta > Date.now()) return Promise.resolve(this.versionWa.version);
+    // Al bootear se resumen todas las sesiones a la vez: una sola consulta para todas.
+    this.consultandoVersion ??= fetchLatestWaWebVersion({ signal: AbortSignal.timeout(ESPERA_VERSION_WA_MS) })
+      .then(({ version, isLatest }) => {
+        // Sin la última se vuelve a probar antes, en vez de quedarse 12 h con la de fábrica.
+        const vigencia = isLatest ? VIGENCIA_VERSION_WA_MS : REINTENTO_VERSION_WA_MS;
+        this.versionWa = { version, hasta: Date.now() + vigencia };
+        this.logger.log(`Versión de WhatsApp Web: ${version.join('.')}${isLatest ? '' : ' (la de fábrica: no se pudo consultar)'}`);
+        return version;
+      })
+      .finally(() => {
+        this.consultandoVersion = null;
+      });
+    return this.consultandoVersion;
   }
 
   private async handleConnectionUpdate(
@@ -617,6 +697,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`${PREFIJO_TIEMPOS} · conexión de ${userId} abierta en ${Date.now() - desde}ms`);
         this.conectandoDesde.delete(userId);
       }
+      const caida = this.caidoDesde.get(userId);
+      if (caida !== undefined) {
+        this.logger.log(`${PREFIJO_TIEMPOS} · conexión de ${userId} recuperada tras ${Math.round((Date.now() - caida) / 1000)}s caída`);
+      }
+      this.olvidarCaida(userId);
+      this.sesionesMalas.delete(userId);
       this.reconnectAttempts.delete(userId);
       this.qrMostrado.delete(userId);
       this.modoCodigo.delete(userId);
@@ -625,7 +711,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // Esperamos a que el último `creds.update` haya persistido antes de avisar
       // al frontend: si no, /whatsapp/status puede leer `registered: false` justo
       // después de que el usuario ve "conectado".
-      await (this.pendingSaves.get(userId) ?? Promise.resolve());
+      await this.esperarGuardados(userId);
       if (phoneNumber && !(await this.asignarTelefono(userId, phoneNumber))) {
         this.logger.warn(`El número vinculado por ${userId} ya es de otra cuenta: se desvincula.`);
         this.emit(userId, { state: 'error', motivo: 'numero_en_uso' });
@@ -640,71 +726,166 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     const codigo = codigoDeDesconexion(update.lastDisconnect?.error);
     this.conectandoDesde.delete(userId);
+    const intentos = this.reconnectAttempts.get(userId) ?? 0;
     // Hoy un corte recuperable no dejaba rastro: con esto se ve cada cierre y su motivo.
     this.logger.warn(
       `${PREFIJO_TIEMPOS} · conexión de ${userId} cerrada (código ${codigo ?? 'desconocido'}, ` +
-        `reintentos previos ${this.reconnectAttempts.get(userId) ?? 0})`,
+        `reintentos previos ${intentos})`,
     );
-
-    if (codigo === DisconnectReason.loggedOut) {
-      this.sockets.delete(userId);
-      this.reconnectAttempts.delete(userId);
-      this.prisma.whatsappSession.deleteMany({ where: { userId } }).catch((error: unknown) =>
-        this.logger.error(`No se pudo borrar la sesión de WhatsApp de ${userId}`, error as Error),
-      );
-      this.emit(userId, { state: 'error' });
-      return;
-    }
 
     const credenciales = (sock ?? this.sockets.get(userId))?.authState.creds;
-    if (this.modoCodigo.has(userId) && !(credenciales && estaVinculado(credenciales))) {
-      // El código venció (o se cortó) antes de que lo ingresaran. Reconectar
-      // con `me` ya puesto sería un login sin registro: se descarta y la
-      // pantalla ofrece pedir otro.
-      this.sockets.delete(userId);
-      this.modoCodigo.delete(userId);
-      this.qrMostrado.delete(userId);
-      this.reconnectAttempts.delete(userId);
-      this.prisma.whatsappSession.deleteMany({ where: { userId, registered: false } }).catch((error: unknown) =>
-        this.logger.error(`No se pudo borrar el código vencido de ${userId}`, error as Error),
-      );
-      this.emit(userId, { state: 'expired' });
-      return;
-    }
+    const vinculado = Boolean(credenciales && estaVinculado(credenciales));
+    const sesionesMalas = codigo === DisconnectReason.badSession ? (this.sesionesMalas.get(userId) ?? 0) + 1 : 0;
+    this.sesionesMalas.set(userId, sesionesMalas);
 
-    if (codigo === DisconnectReason.restartRequired) {
-      // Quirk conocido de Baileys justo después del primer pairing: no cuenta
-      // como reintento ni se muestra como error.
-      this.connect(userId).catch((error: unknown) =>
-        this.logger.error(`Fallo al reconectar (restartRequired) a ${userId}`, error as Error),
-      );
-      return;
-    }
+    switch (politicaDeCierre(codigo, { vinculado, modoCodigo: this.modoCodigo.has(userId), intentos, sesionesMalas })) {
+      case 'desvincular':
+        this.sockets.delete(userId);
+        this.reconnectAttempts.delete(userId);
+        this.sesionesMalas.delete(userId);
+        this.cancelarReconexion(userId);
+        this.olvidarCaida(userId);
+        this.prisma.whatsappSession.deleteMany({ where: { userId } }).catch((error: unknown) =>
+          this.logger.error(`No se pudo borrar la sesión de WhatsApp de ${userId}`, error as Error),
+        );
+        this.emit(userId, { state: 'error' });
+        return;
 
-    if (codigo === DisconnectReason.connectionReplaced) {
-      // Otra sesión se autenticó con las mismas credenciales: no perseguirla.
-      this.sockets.delete(userId);
-      this.emit(userId, { state: 'error' });
-      return;
-    }
+      case 'codigo_vencido':
+        // El código venció (o se cortó) antes de que lo ingresaran. Reconectar
+        // con `me` ya puesto sería un login sin registro: se descarta y la
+        // pantalla ofrece pedir otro.
+        this.sockets.delete(userId);
+        this.modoCodigo.delete(userId);
+        this.qrMostrado.delete(userId);
+        this.reconnectAttempts.delete(userId);
+        this.sesionesMalas.delete(userId);
+        this.prisma.whatsappSession.deleteMany({ where: { userId, registered: false } }).catch((error: unknown) =>
+          this.logger.error(`No se pudo borrar el código vencido de ${userId}`, error as Error),
+        );
+        this.emit(userId, { state: 'expired' });
+        return;
 
-    // Caso recuperable (red caída, timeout, etc.): reintentar con backoff acotado.
-    this.sockets.delete(userId);
-    const intentos = (this.reconnectAttempts.get(userId) ?? 0) + 1;
-    this.reconnectAttempts.set(userId, intentos);
-
-    if (intentos > MAX_RECONNECT_ATTEMPTS) {
-      this.emit(userId, { state: 'error' });
-      return;
-    }
-
-    setTimeout(
-      () =>
+      case 'reiniciar':
+        // Quirk conocido de Baileys justo después del primer pairing: no cuenta
+        // como reintento ni se muestra como error.
         this.connect(userId).catch((error: unknown) =>
-          this.logger.error(`Fallo al reconectar a ${userId} (intento ${intentos})`, error as Error),
-        ),
-      RECONNECT_BASE_DELAY_MS * intentos,
-    );
+          this.logger.error(`Fallo al reconectar (restartRequired) a ${userId}`, error as Error),
+        );
+        return;
+
+      case 'rendirse':
+        await this.rendirse(userId, codigo, vinculado);
+        return;
+
+      case 'reintentar':
+        this.programarReconexion(userId, codigo, vinculado);
+        return;
+    }
+  }
+
+  /**
+   * Reintenta con backoff y jitter (reconexion.ts). Una sesión vinculada no
+   * tiene tope de intentos: un corte de red de varios minutos se recupera
+   * solo, y si dura más de MINUTOS_CAIDO_PARA_AVISAR se avisa una vez.
+   */
+  private programarReconexion(userId: string, codigo: number | undefined, vinculado: boolean): void {
+    this.sockets.delete(userId);
+    const intento = (this.reconnectAttempts.get(userId) ?? 0) + 1;
+    this.reconnectAttempts.set(userId, intento);
+    if (vinculado) {
+      if (!this.caidoDesde.has(userId)) this.caidoDesde.set(userId, Date.now());
+      this.avisarSiSigueCaido(userId, codigo, intento);
+    }
+
+    // randomInt y no Math.random: es sólo jitter, pero así no lo marca el análisis estático.
+    const demora = demoraDeReconexion(intento, randomInt(0, 1001) / 1000, codigo);
+    this.cancelarReconexion(userId);
+    const timer = setTimeout(() => {
+      this.reconexionesPendientes.delete(userId);
+      void this.reconectar(userId, intento, codigo, vinculado);
+    }, demora);
+    timer.unref();
+    this.reconexionesPendientes.set(userId, timer);
+  }
+
+  private async reconectar(userId: string, intento: number, codigo: number | undefined, vinculado: boolean): Promise<void> {
+    try {
+      if (vinculado) {
+        // Si mientras esperábamos se desvinculó (o se dio por perdida), no se revive.
+        await this.esperarGuardados(userId);
+        const sesion = await this.prisma.whatsappSession.findUnique({ where: { userId }, select: { registered: true } });
+        if (!sesion?.registered) {
+          this.reconnectAttempts.delete(userId);
+          this.olvidarCaida(userId);
+          return;
+        }
+      }
+      // Otro camino (un QR nuevo, una transferencia) ya abrió un socket: ése manda.
+      if (this.sockets.has(userId)) return;
+      await this.connect(userId);
+    } catch (error) {
+      this.logger.error(`Fallo al reconectar a ${userId} (intento ${intento})`, error as Error);
+      // Sin socket no va a llegar otro "close" que lo reprograme.
+      if (vinculado) this.programarReconexion(userId, codigo, vinculado);
+      else this.emit(userId, { state: 'error' });
+    }
+  }
+
+  /**
+   * Reconectar no lo arregla (WhatsApp bloqueó los dispositivos vinculados, o
+   * la sesión quedó inservible). Una sesión vinculada se marca sin vincular,
+   * así ni el próximo arranque ni /vincular reanudan las mismas credenciales:
+   * /vincular arranca de cero con un QR nuevo.
+   */
+  private async rendirse(userId: string, codigo: number | undefined, vinculado: boolean): Promise<void> {
+    this.sockets.delete(userId);
+    this.reconnectAttempts.delete(userId);
+    this.sesionesMalas.delete(userId);
+    this.cancelarReconexion(userId);
+    this.olvidarCaida(userId);
+    this.emit(userId, { state: 'error' });
+    if (!vinculado) return;
+
+    await this.prisma.whatsappSession.updateMany({ where: { userId }, data: { registered: false } });
+    avisarASentry('WhatsApp dejó de aceptar una sesión vinculada', {
+      fingerprint: ['whatsapp-sin-reconexion'],
+      tags: { codigo },
+      userId,
+    });
+    await this.avisarAlDueno(userId, avisoWhatsappParaVolverAVincular());
+  }
+
+  /** Una vez por caída, pasados MINUTOS_CAIDO_PARA_AVISAR: a Sentry (sólo ids) y a la campanita del dueño. */
+  private avisarSiSigueCaido(userId: string, codigo: number | undefined, intento: number): void {
+    const desde = this.caidoDesde.get(userId);
+    if (desde === undefined || this.caidaAvisada.has(userId) || !correspondeAvisarCaida(desde, Date.now())) return;
+    this.caidaAvisada.add(userId);
+    avisarASentry('WhatsApp lleva un rato sin poder reconectar', {
+      fingerprint: ['whatsapp-caido'],
+      tags: { codigo, intentos: intento },
+      userId,
+    });
+    void this.avisarAlDueno(userId, avisoWhatsappCaido(MINUTOS_CAIDO_PARA_AVISAR));
+  }
+
+  private async avisarAlDueno(userId: string, aviso: Aviso): Promise<void> {
+    try {
+      await this.notificaciones.avisar(userId, aviso);
+    } catch (error) {
+      this.logger.warn(`No se pudo guardar el aviso de WhatsApp de ${userId}: ${(error as Error).message}`);
+    }
+  }
+
+  private cancelarReconexion(userId: string): void {
+    const timer = this.reconexionesPendientes.get(userId);
+    if (timer) clearTimeout(timer);
+    this.reconexionesPendientes.delete(userId);
+  }
+
+  private olvidarCaida(userId: string): void {
+    this.caidoDesde.delete(userId);
+    this.caidaAvisada.delete(userId);
   }
 
   /** Como `descartar`, pero el SSE sigue abierto para que llegue el error. */
@@ -712,6 +893,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     await this.cerrarSocket(userId, 'logout');
     await this.prisma.whatsappSession.deleteMany({ where: { userId } });
     this.pendingSaves.delete(userId);
+    this.guardadosEnVuelo.delete(userId);
+  }
+
+  /** El último `saveCreds` y cualquier `keys.set` que siga escribiendo. */
+  private async esperarGuardados(userId: string): Promise<void> {
+    await (this.pendingSaves.get(userId) ?? Promise.resolve());
+    await this.guardadosEnVuelo.get(userId)?.();
   }
 
   private getOrCreateSubject(userId: string): ReplaySubject<LinkEvent> {

@@ -198,6 +198,43 @@ teléfono" (`requestPairingCode` de Baileys). Superficie nueva:
   `registered: true` ni se reanuda al arrancar; si se corta antes de que se
   ingrese el código, se borra la fila y no se reintenta.
 
+## Conexión de WhatsApp: credenciales por clave y reconexión (2026-10-11, LAU-18)
+
+- **Credenciales de Baileys**: ya no son un solo blob `{ creds, keys }`
+  reescrito entero en cada mensaje. `creds` sigue cifrado en
+  `WhatsappSession.authState`, y cada clave de Signal es una fila de
+  `WhatsappClave`, cifrada **una por una** con AES-256-GCM y
+  `TOKEN_ENCRYPTION_KEY` (`encryptToken`, IV aleatorio por valor). El id de
+  cada clave tampoco queda en claro: los de `session` son el JID de cada
+  cliente (su teléfono), que antes iba dentro del blob cifrado, así que la
+  fila guarda `idDeFila`, un HMAC-SHA256 con una subclave derivada de esa
+  clave (no se usa la misma clave directo para AES y para HMAC). Baileys
+  siempre pide las claves por id, nunca las lista, así que se calcula de los
+  dos lados. En claro queda sólo la categoría (`pre-key`, `session`…).
+- **Borrado**: `WhatsappClave` cuelga de `WhatsappSession.userId` con
+  `onDelete: Cascade`, así que desvincular, un código vencido, empezar de
+  cero y `DELETE /auth/me` (usuario → sesión → claves) se llevan las claves
+  sin código nuevo. `cuenta.db.spec.ts` lo cubre.
+- **Migración**: una sesión anterior se parte en filas la primera vez que se
+  carga, en una transacción que también saca `keys` del blob. Con
+  `TOKEN_ENCRYPTION_KEY` rotada se arranca de cero y se borran las claves de
+  ese usuario, como antes se descartaba el blob.
+- **SQL crudo**: el upsert en lote (`unnest`) y la copia de
+  `transferirSesion` usan `$executeRaw` con plantilla etiquetada, o sea
+  parámetros y no texto concatenado.
+- **En memoria**: `getMessage` guarda los últimos 200 mensajes **enviados**
+  por cuenta (texto de las respuestas del asistente), para reenviarlos si el
+  teléfono del cliente no los pudo descifrar. Lo que va al chat propio del
+  dueño (códigos de acceso, avisos) no pasa por ahí: el código sólo vive
+  hasheado. Se borran al cerrar la sesión
+  o reiniciar la API; nunca van a logs ni a Sentry.
+- **Avisos**: una sesión caída más de 10 minutos manda un warning a Sentry
+  (`whatsapp-caido`, con userId, código de cierre e intentos, sin teléfonos)
+  y un aviso a la campanita del dueño. Si WhatsApp rechaza la sesión
+  (`forbidden`, `multideviceMismatch`, `badSession` repetido), la fila queda
+  `registered: false`: el próximo arranque no reintenta esas credenciales y
+  `/vincular` arranca de cero.
+
 ## Code scanning (2026-09-29)
 
 Las alertas abiertas en *Security → Code scanning* se reprodujeron corriendo

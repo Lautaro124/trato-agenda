@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ImagenesService } from '../comercio/imagenes.service.js';
 import type { Env } from '../config/env.js';
 import type { ConversationService } from '../conversation/conversation.service.js';
+import type { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { SubscriptionService } from '../subscription/subscription.service.js';
+import { MAX_RECONEXIONES_SIN_VINCULAR, MINIMO_TRAS_REEMPLAZO_MS, MINUTOS_CAIDO_PARA_AVISAR } from './reconexion.js';
 import { MAX_CODIGOS_POR_CUENTA, MAX_CODIGOS_POR_NUMERO_HORA, WhatsappService } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
 
@@ -23,6 +25,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
       findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         authState: 'blob-cifrado',
         registered: true,
@@ -31,7 +34,12 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
       }),
       upsert: vi.fn().mockResolvedValue({}),
     },
+    whatsappClave: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    conversation: { findUnique: vi.fn().mockResolvedValue(null) },
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    $transaction: vi.fn(),
   } as unknown as PrismaService;
+  vi.mocked(prisma.$transaction).mockImplementation(((fn: (tx: PrismaService) => Promise<unknown>) => fn(prisma)) as never);
 
   const config = {
     get: (clave: string) => (clave === 'NODE_ENV' ? 'test' : 'clave-de-prueba'),
@@ -42,22 +50,29 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     asistenteActivo: vi.fn().mockResolvedValue(true),
   } as unknown as SubscriptionService;
   const imagenes = { paraEnviar: vi.fn() } as unknown as ImagenesService;
-  const service = new WhatsappService(prisma, config, conversationService, subscriptionService, imagenes);
+  const notificaciones = { avisar: vi.fn().mockResolvedValue(null) } as unknown as NotificacionesService;
+  const service = new WhatsappService(prisma, config, conversationService, subscriptionService, imagenes, notificaciones);
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
 
   const eventos: LinkEvent[] = [];
   service.linkEvents$('user-1').subscribe((mensaje) => eventos.push(mensaje.data as LinkEvent));
 
-  return { service, prisma, connectSpy, eventos, conversationService, subscriptionService, imagenes };
+  return { service, prisma, connectSpy, eventos, conversationService, subscriptionService, imagenes, notificaciones };
 }
 
 /** Atajo: dispara handleConnectionUpdate como si Baileys hubiera cerrado la conexión. */
-function cerrarCon(service: WhatsappService, userId: string, statusCode: number) {
-  (service as unknown as { handleConnectionUpdate: (u: string, e: unknown) => void }).handleConnectionUpdate(
-    userId,
-    { connection: 'close', lastDisconnect: { error: { output: { statusCode } } } },
-  );
+function cerrarCon(service: WhatsappService, userId: string, statusCode: number, sock?: unknown) {
+  return (
+    service as unknown as { handleConnectionUpdate: (u: string, e: unknown, s?: unknown) => Promise<void> }
+  ).handleConnectionUpdate(userId, { connection: 'close', lastDisconnect: { error: { output: { statusCode } } } }, sock);
+}
+
+/** Como `cerrarCon`, pero con el socket vivo de una sesión ya vinculada (como tras un reinicio). */
+function cerrarVinculada(service: WhatsappService, userId: string, statusCode: number) {
+  const sock = { authState: { creds: { me: { id: '5491100000000:3@s.whatsapp.net' } } } };
+  (service as unknown as { sockets: Map<string, unknown> }).sockets.set(userId, sock);
+  return cerrarCon(service, userId, statusCode, sock);
 }
 
 describe('WhatsappService — ramas de handleConnectionUpdate', () => {
@@ -82,35 +97,104 @@ describe('WhatsappService — ramas de handleConnectionUpdate', () => {
     expect((service as unknown as { reconnectAttempts: Map<string, number> }).reconnectAttempts.get(userId)).toBeUndefined();
   });
 
-  it('connectionReplaced: no reconecta en loop, emite error', () => {
-    const { service, connectSpy, eventos } = crearServicio();
+  it('connectionReplaced: reintenta, pero no antes de un minuto (sin pelearse con otra instancia)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, connectSpy, eventos } = crearServicio();
 
-    cerrarCon(service, userId, DisconnectReason.connectionReplaced);
+      await cerrarCon(service, userId, DisconnectReason.connectionReplaced);
+      await vi.advanceTimersByTimeAsync(MINIMO_TRAS_REEMPLAZO_MS - 1);
+      expect(connectSpy).not.toHaveBeenCalled();
 
-    expect(connectSpy).not.toHaveBeenCalled();
-    expect(eventos).toEqual([{ state: 'error' }]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(connectSpy).toHaveBeenCalledWith(userId);
+      expect(eventos).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   describe('caída recuperable', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
-    it('reconecta con backoff y respeta MAX_RECONNECT_ATTEMPTS', async () => {
+    it('sin vincular (un QR que nadie escanea): reintenta con backoff y se rinde a los MAX_RECONEXIONES_SIN_VINCULAR', async () => {
       const { service, connectSpy, eventos } = crearServicio();
 
-      for (let i = 0; i < 5; i++) {
-        cerrarCon(service, userId, DisconnectReason.connectionLost);
+      for (let i = 0; i < MAX_RECONEXIONES_SIN_VINCULAR; i++) {
+        await cerrarCon(service, userId, DisconnectReason.connectionLost);
         await vi.runOnlyPendingTimersAsync();
       }
-      expect(connectSpy).toHaveBeenCalledTimes(5);
+      expect(connectSpy).toHaveBeenCalledTimes(MAX_RECONEXIONES_SIN_VINCULAR);
 
-      // Sexto intento: superó el tope, no reintenta más y avisa al frontend.
-      cerrarCon(service, userId, DisconnectReason.connectionLost);
+      // Uno más: superó el tope, no reintenta más y avisa al frontend.
+      await cerrarCon(service, userId, DisconnectReason.connectionLost);
       await vi.runOnlyPendingTimersAsync();
 
-      expect(connectSpy).toHaveBeenCalledTimes(5);
+      expect(connectSpy).toHaveBeenCalledTimes(MAX_RECONEXIONES_SIN_VINCULAR);
       expect(eventos.at(-1)).toEqual({ state: 'error' });
     });
+
+    it('vinculada: sigue reintentando sin tope mientras la sesión siga registrada', async () => {
+      const { service, prisma, connectSpy, eventos } = crearServicio();
+      vi.mocked(prisma.whatsappSession.findUnique).mockResolvedValue({ registered: true } as never);
+
+      for (let i = 0; i < 12; i++) {
+        await cerrarVinculada(service, userId, DisconnectReason.connectionLost);
+        await vi.runOnlyPendingTimersAsync();
+      }
+
+      expect(connectSpy).toHaveBeenCalledTimes(12);
+      expect(eventos).toEqual([]);
+    });
+
+    it('vinculada y caída más de MINUTOS_CAIDO_PARA_AVISAR: avisa al dueño una sola vez', async () => {
+      const { service, prisma, notificaciones } = crearServicio();
+      vi.mocked(prisma.whatsappSession.findUnique).mockResolvedValue({ registered: true } as never);
+
+      await cerrarVinculada(service, userId, DisconnectReason.connectionLost);
+      await vi.advanceTimersByTimeAsync((MINUTOS_CAIDO_PARA_AVISAR - 1) * 60_000);
+      await cerrarVinculada(service, userId, DisconnectReason.connectionLost);
+      expect(notificaciones.avisar).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      await cerrarVinculada(service, userId, DisconnectReason.connectionLost);
+      await cerrarVinculada(service, userId, DisconnectReason.connectionLost);
+
+      expect(notificaciones.avisar).toHaveBeenCalledOnce();
+      expect(notificaciones.avisar).toHaveBeenCalledWith(userId, expect.objectContaining({ tipo: 'whatsapp_desconectado' }));
+    });
+
+    it('si se desvincula mientras espera el reintento, no la revive', async () => {
+      const { service, connectSpy } = crearServicio();
+
+      await cerrarVinculada(service, userId, DisconnectReason.connectionLost);
+      await service.unlink(userId);
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(connectSpy).not.toHaveBeenCalled();
+    });
+
+    it('si al reintentar la sesión ya no está registrada en la base, no reconecta', async () => {
+      const { service, connectSpy } = crearServicio();
+
+      await cerrarVinculada(service, userId, DisconnectReason.connectionLost);
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(connectSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it('forbidden con una sesión vinculada: se rinde, la marca sin vincular y le pide al dueño volver a vincular', async () => {
+    const { service, prisma, connectSpy, eventos, notificaciones } = crearServicio();
+
+    await cerrarVinculada(service, userId, DisconnectReason.forbidden);
+
+    expect(connectSpy).not.toHaveBeenCalled();
+    expect(prisma.whatsappSession.updateMany).toHaveBeenCalledWith({ where: { userId }, data: { registered: false } });
+    expect(prisma.whatsappSession.deleteMany).not.toHaveBeenCalled();
+    expect(notificaciones.avisar).toHaveBeenCalledWith(userId, expect.objectContaining({ enlace: '/vincular' }));
+    expect(eventos).toEqual([{ state: 'error' }]);
   });
 });
 
@@ -372,6 +456,24 @@ describe('WhatsappService — el número vinculado identifica la cuenta', () => 
     expect(sock.sendMessage).toHaveBeenCalledWith('5491100000000@s.whatsapp.net', { text: 'hola' });
   });
 
+  it('lo que manda queda a mano para reenviarlo si el cliente pide reenvío (getMessage)', async () => {
+    const { service } = crearServicio();
+    const sock = socketFalso();
+    sock.sendMessage.mockResolvedValue({ key: { id: 'MSG-1' }, message: { conversation: 'hola' } });
+    ponerSocket(service, 'user-1', sock);
+
+    await service.enviarAlCliente('user-1', '5491111@s.whatsapp.net', 'hola');
+
+    const enviados = (service as unknown as { enviados: { buscar: (u: string, id: string) => unknown } }).enviados;
+    expect(enviados.buscar('user-1', 'MSG-1')).toEqual({ conversation: 'hola' });
+    expect(enviados.buscar('otra-cuenta', 'MSG-1')).toBeUndefined();
+
+    // Lo del chat propio (códigos de acceso, avisos) no queda en memoria.
+    sock.sendMessage.mockResolvedValue({ key: { id: 'MSG-2' }, message: { conversation: '123456' } });
+    await service.enviarAlPropioChat('user-1', '123456');
+    expect(enviados.buscar('user-1', 'MSG-2')).toBeUndefined();
+  });
+
   it('transferirSesion cierra el socket nuevo sin logout, desloguea el viejo y reconecta con la cuenta', async () => {
     const { service, prisma, connectSpy } = crearServicio();
     const nuevo = socketFalso();
@@ -390,6 +492,8 @@ describe('WhatsappService — el número vinculado identifica la cuenta', () => 
         update: expect.objectContaining({ authState: 'blob-cifrado' }),
       }),
     );
+    expect(prisma.whatsappClave.deleteMany).toHaveBeenCalledWith({ where: { userId: 'cuenta' } });
+    expect(prisma.$executeRaw).toHaveBeenCalled();
     expect(prisma.whatsappSession.deleteMany).toHaveBeenCalledWith({ where: { userId: 'alta' } });
     expect(connectSpy).toHaveBeenCalledWith('cuenta');
   });
