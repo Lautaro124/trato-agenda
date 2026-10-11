@@ -69,22 +69,24 @@ describe('MedidorDeGuardados', () => {
   it('loguea un resumen cada CADA_CUANTOS_GUARDADOS y vuelve a contar', () => {
     const medidor = new MedidorDeGuardados('user-1');
     for (let i = 1; i < CADA_CUANTOS_GUARDADOS; i++) {
-      expect(medidor.registrar(10, 20, 2048)).toBeNull();
+      expect(medidor.registrar(10, 20, 3, 2048)).toBeNull();
     }
-    const resumen = medidor.registrar(10, 50, 4096);
+    const resumen = medidor.registrar(10, 50, 1, 4096);
 
     expect(resumen).toContain(`${CADA_CUANTOS_GUARDADOS} guardados`);
     expect(resumen).toContain('maximo=60ms');
-    expect(resumen).toContain('tamaño=4KB');
-    expect(medidor.registrar(10, 20, 2048)).toBeNull();
+    expect(resumen).toContain('filas_max=3');
+    expect(resumen).toContain('tamaño_max=4KB');
+    expect(medidor.registrar(10, 20, 1, 2048)).toBeNull();
   });
 
   it('un guardado lento se loguea en el momento, con cada parte por separado', () => {
     const medidor = new MedidorDeGuardados('user-1');
-    const linea = medidor.registrar(GUARDADO_LENTO_MS, 1, 1024 * 900);
+    const linea = medidor.registrar(GUARDADO_LENTO_MS, 1, 812, 1024 * 900);
 
     expect(linea).toContain('guardado lento');
     expect(linea).toContain(`serializar=${GUARDADO_LENTO_MS}ms`);
+    expect(linea).toContain('filas=812');
     expect(linea).toContain('tamaño=900KB');
   });
 });

@@ -34,7 +34,11 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
       }),
       upsert: vi.fn().mockResolvedValue({}),
     },
+    whatsappClave: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    $transaction: vi.fn(),
   } as unknown as PrismaService;
+  vi.mocked(prisma.$transaction).mockImplementation(((fn: (tx: PrismaService) => Promise<unknown>) => fn(prisma)) as never);
 
   const config = {
     get: (clave: string) => (clave === 'NODE_ENV' ? 'test' : 'clave-de-prueba'),
@@ -482,6 +486,8 @@ describe('WhatsappService — el número vinculado identifica la cuenta', () => 
         update: expect.objectContaining({ authState: 'blob-cifrado' }),
       }),
     );
+    expect(prisma.whatsappClave.deleteMany).toHaveBeenCalledWith({ where: { userId: 'cuenta' } });
+    expect(prisma.$executeRaw).toHaveBeenCalled();
     expect(prisma.whatsappSession.deleteMany).toHaveBeenCalledWith({ where: { userId: 'alta' } });
     expect(connectSpy).toHaveBeenCalledWith('cuenta');
   });

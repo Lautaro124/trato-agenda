@@ -62,39 +62,47 @@ export function demoraDeEntrega(enviadoEnMs: number | null, recibidoEnMs: number
 }
 
 /**
- * Acumula los guardados de la sesión de Baileys (cada `keys.set` reescribe el
- * blob entero, ver whatsapp-auth-state.ts) y dice cuándo loguear: cada
- * `CADA_CUANTOS_GUARDADOS`, o enseguida si uno fue lento.
+ * Acumula los guardados de la sesión de Baileys (`saveCreds` y cada
+ * `keys.set`, ver whatsapp-auth-state.ts) y dice cuándo loguear: cada
+ * `CADA_CUANTOS_GUARDADOS`, o enseguida si uno fue lento. Desde LAU-18 cada
+ * guardado escribe sólo las filas que cambiaron, así que `filas` y el tamaño
+ * tienen que quedar chicos aunque la sesión crezca.
  */
 export class MedidorDeGuardados {
   private cantidad = 0;
   private sumaMs = 0;
   private maximoMs = 0;
+  private maximoFilas = 0;
+  private maximoBytes = 0;
 
   constructor(private readonly userId: string) {}
 
   /** Devuelve la línea a loguear, o null si todavía no toca. */
-  registrar(serializarMs: number, escribirMs: number, bytes: number): string | null {
+  registrar(serializarMs: number, escribirMs: number, filas: number, bytes: number): string | null {
     const ms = serializarMs + escribirMs;
     this.cantidad += 1;
     this.sumaMs += ms;
     this.maximoMs = Math.max(this.maximoMs, ms);
-    const kb = Math.round(bytes / 1024);
+    this.maximoFilas = Math.max(this.maximoFilas, filas);
+    this.maximoBytes = Math.max(this.maximoBytes, bytes);
 
     if (ms > GUARDADO_LENTO_MS) {
       return (
         `${PREFIJO_TIEMPOS} · guardado lento de la sesión de ${this.userId}: ` +
-        `serializar=${serializarMs}ms escribir=${escribirMs}ms tamaño=${kb}KB`
+        `serializar=${serializarMs}ms escribir=${escribirMs}ms filas=${filas} tamaño=${Math.round(bytes / 1024)}KB`
       );
     }
     if (this.cantidad < CADA_CUANTOS_GUARDADOS) return null;
 
     const linea =
       `${PREFIJO_TIEMPOS} · sesión de ${this.userId}: ${this.cantidad} guardados, ` +
-      `promedio=${Math.round(this.sumaMs / this.cantidad)}ms maximo=${this.maximoMs}ms tamaño=${kb}KB`;
+      `promedio=${Math.round(this.sumaMs / this.cantidad)}ms maximo=${this.maximoMs}ms ` +
+      `filas_max=${this.maximoFilas} tamaño_max=${Math.round(this.maximoBytes / 1024)}KB`;
     this.cantidad = 0;
     this.sumaMs = 0;
     this.maximoMs = 0;
+    this.maximoFilas = 0;
+    this.maximoBytes = 0;
     return linea;
   }
 }

@@ -15,6 +15,7 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestWaWebVersion,
   isJidGroup,
+  makeCacheableSignalKeyStore,
   type AnyMessageContent,
   type WAMessage,
   type WAMessageKey,
@@ -51,7 +52,7 @@ import {
   demoraDeReconexion,
   politicaDeCierre,
 } from './reconexion.js';
-import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
+import { copiarSesion, estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
 /**
@@ -139,6 +140,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly sesionesMalas = new Map<string, number>();
   /** Última promesa de `saveCreds` en vuelo por usuario, para no emitir "connected" antes de que persista. */
   private readonly pendingSaves = new Map<string, Promise<void>>();
+  /** Espera los guardados en vuelo de la sesión (creds y claves) de cada usuario. */
+  private readonly guardadosEnVuelo = new Map<string, () => Promise<void>>();
   /** Distingue el "connecting" del arranque del socket del "connecting" post-escaneo. */
   private readonly qrMostrado = new Set<string>();
   /** Cuándo arrancó el socket vivo de cada usuario, para medir cuánto tarda en abrir. */
@@ -359,28 +362,19 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    *    sin logout (sus credenciales son las buenas);
    * 2. se cierra la sesión vieja de la cuenta con logout, sacándola antes del
    *    mapa para que su `loggedOut` no borre la fila que estamos por escribir;
-   * 3. se copia el blob a la cuenta y se reconecta con su `userId`.
+   * 3. se copian credenciales y claves a la cuenta (`copiarSesion`) y se
+   *    reconecta con su `userId`.
    */
   async transferirSesion(desde: string, hacia: string): Promise<void> {
-    await (this.pendingSaves.get(desde) ?? Promise.resolve());
+    await this.esperarGuardados(desde);
     await this.cerrarSocket(desde, 'end');
     await this.cerrarSocket(hacia, 'logout');
-    await (this.pendingSaves.get(hacia) ?? Promise.resolve());
+    // Cerrar también puede guardar: nada de ninguno de los dos puede escribir después de copiar.
+    await Promise.all([this.esperarGuardados(desde), this.esperarGuardados(hacia)]);
 
-    const origen = await this.prisma.whatsappSession.findUniqueOrThrow({ where: { userId: desde } });
-    const datos = {
-      authState: origen.authState,
-      registered: origen.registered,
-      phoneNumber: origen.phoneNumber,
-      linkedAt: origen.linkedAt,
-    };
-    await this.prisma.whatsappSession.upsert({
-      where: { userId: hacia },
-      create: { userId: hacia, ...datos },
-      update: datos,
-    });
-    await this.prisma.whatsappSession.deleteMany({ where: { userId: desde } });
+    await copiarSesion(this.prisma, desde, hacia);
     this.pendingSaves.delete(desde);
+    this.guardadosEnVuelo.delete(desde);
     this.events.get(desde)?.complete();
     this.events.delete(desde);
 
@@ -441,7 +435,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    */
   private async empezarDeCero(userId: string): Promise<void> {
     await this.cerrarSocket(userId, 'end');
-    await (this.pendingSaves.get(userId) ?? Promise.resolve());
+    await this.esperarGuardados(userId);
     await this.prisma.whatsappSession.deleteMany({ where: { userId, registered: false } });
     this.reconnectAttempts.delete(userId);
   }
@@ -459,7 +453,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async connect(userId: string): Promise<void> {
-    const { state, saveCreds } = await usePrismaAuthState(
+    const { state, saveCreds, esperarGuardados } = await usePrismaAuthState(
       this.prisma,
       userId,
       this.config.get('TOKEN_ENCRYPTION_KEY', { infer: true }),
@@ -468,7 +462,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const version = await this.versionDeWhatsappWeb();
 
     const sock = makeWASocket({
-      auth: state,
+      // Con caché delante, cada lectura de clave no es una consulta a Postgres.
+      auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, this.baileysLogger) },
       logger: this.baileysLogger,
       browser: Browsers.appropriate('Trato'),
       version,
@@ -483,6 +478,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.sockets.set(userId, sock);
+    this.guardadosEnVuelo.set(userId, esperarGuardados);
     this.qrMostrado.delete(userId);
     this.conectandoDesde.set(userId, Date.now());
     sock.ev.on('creds.update', () => {
@@ -713,7 +709,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // Esperamos a que el último `creds.update` haya persistido antes de avisar
       // al frontend: si no, /whatsapp/status puede leer `registered: false` justo
       // después de que el usuario ve "conectado".
-      await (this.pendingSaves.get(userId) ?? Promise.resolve());
+      await this.esperarGuardados(userId);
       if (phoneNumber && !(await this.asignarTelefono(userId, phoneNumber))) {
         this.logger.warn(`El número vinculado por ${userId} ya es de otra cuenta: se desvincula.`);
         this.emit(userId, { state: 'error', motivo: 'numero_en_uso' });
@@ -815,7 +811,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     try {
       if (vinculado) {
         // Si mientras esperábamos se desvinculó (o se dio por perdida), no se revive.
-        await (this.pendingSaves.get(userId) ?? Promise.resolve());
+        await this.esperarGuardados(userId);
         const sesion = await this.prisma.whatsappSession.findUnique({ where: { userId }, select: { registered: true } });
         if (!sesion?.registered) {
           this.reconnectAttempts.delete(userId);
@@ -895,6 +891,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     await this.cerrarSocket(userId, 'logout');
     await this.prisma.whatsappSession.deleteMany({ where: { userId } });
     this.pendingSaves.delete(userId);
+    this.guardadosEnVuelo.delete(userId);
+  }
+
+  /** El último `saveCreds` y cualquier `keys.set` que siga escribiendo. */
+  private async esperarGuardados(userId: string): Promise<void> {
+    await (this.pendingSaves.get(userId) ?? Promise.resolve());
+    await this.guardadosEnVuelo.get(userId)?.();
   }
 
   private getOrCreateSubject(userId: string): ReplaySubject<LinkEvent> {
