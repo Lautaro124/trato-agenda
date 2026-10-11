@@ -10,6 +10,7 @@ import {
 } from '@whiskeysockets/baileys';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { decryptToken, encryptToken } from '../auth/token-crypto.js';
+import { MedidorDeGuardados } from './metricas.js';
 
 const logger = new Logger('WhatsappAuthState');
 
@@ -39,13 +40,20 @@ export function extraerTelefono(creds: AuthenticationCreds): string | undefined 
 }
 
 /**
- * `creds.registered` de Baileys sólo se marca `true` en el flujo de pairing
- * por código telefónico; en el flujo QR que usamos acá nunca se toca. El
- * indicador real de "ya vinculó" es que `creds.me` esté poblado, que es lo
- * que `configureSuccessfulPairing` completa al escanear el QR.
+ * Hay dos formas de vincular y cada una deja una marca distinta:
+ *
+ * - QR: `configureSuccessfulPairing` completa `creds.me` al escanear, y
+ *   `creds.registered` nunca se toca.
+ * - Código: `requestPairingCode` completa `creds.me` con el número tipeado
+ *   **antes** de que la persona ingrese el código, y deja `pairingCode`. Recién
+ *   cuando WhatsApp lo confirma Baileys pone `creds.registered` en `true`.
+ *
+ * Por eso `creds.me` solo no alcanza: con un código pendiente diría que ya
+ * vinculó, se guardaría `registered: true` y el próximo arranque intentaría
+ * reanudar una sesión que no existe.
  */
 export function estaVinculado(creds: AuthenticationCreds): boolean {
-  return Boolean(creds.me?.id);
+  return Boolean(creds.me?.id) && (creds.registered || !creds.pairingCode);
 }
 
 /**
@@ -91,15 +99,18 @@ export async function usePrismaAuthState(
 
   let linkedAt = fila?.linkedAt ?? null;
   const mutex = new Mutex();
+  const medidor = new MedidorDeGuardados(userId);
 
   const persistir = () =>
     mutex.runExclusive(async () => {
       const vinculado = estaVinculado(creds);
       if (vinculado && !linkedAt) linkedAt = new Date();
 
+      const inicio = performance.now();
       const blob = JSON.stringify({ creds, keys }, BufferJSON.replacer);
       const cifrado = encryptToken(blob, encryptionKey);
       const telefono = extraerTelefono(creds) ?? null;
+      const serializado = performance.now();
 
       try {
         await prisma.whatsappSession.upsert({
@@ -118,6 +129,13 @@ export async function usePrismaAuthState(
             linkedAt,
           },
         });
+        // Cada `keys.set` reescribe el blob entero: medimos cuánto cuesta (LAU-11).
+        const linea = medidor.registrar(
+          Math.round(serializado - inicio),
+          Math.round(performance.now() - serializado),
+          cifrado.length,
+        );
+        if (linea) logger.log(linea);
       } catch (error) {
         // Si el usuario dejó de existir (por ejemplo, un `prisma migrate reset`
         // con la API levantada), no hay dónde guardar la sesión. Propagar el

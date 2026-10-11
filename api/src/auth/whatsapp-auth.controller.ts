@@ -59,7 +59,8 @@ export class VerificarCodigoDto extends SolicitarCodigoDto {
 }
 
 /**
- * Las puertas de entrada sin Google: crear la cuenta escaneando el QR, entrar
+ * Las puertas de entrada sin Google: crear la cuenta escaneando el QR (o con
+ * el código de vinculación, desde el mismo celular), entrar
  * con número + contraseña, y recuperar la contraseña con un código que llega
  * al chat propio de WhatsApp. Son públicas; los límites de abuso viven en los
  * servicios.
@@ -98,6 +99,18 @@ export class WhatsappAuthController {
   @HttpCode(HttpStatus.ACCEPTED)
   reintentarAlta(@Req() req: RequestConAlta): Promise<void> {
     return this.whatsappService.startLink(req.altaUserId);
+  }
+
+  /** Como /whatsapp/link/codigo, pero para el usuario del alta: crear la cuenta desde el mismo celular. */
+  @Post('alta/codigo')
+  @UseGuards(AltaGuard)
+  @HttpCode(HttpStatus.OK)
+  async codigoAlta(
+    @Req() req: RequestConAlta,
+    @Ip() ip: string,
+    @Body() dto: SolicitarCodigoDto,
+  ): Promise<{ codigo: string }> {
+    return { codigo: await this.altas.pedirCodigo(req.altaUserId, ip, dto.telefono) };
   }
 
   /** Después del "connected": cambia la cookie del alta por la de sesión. */

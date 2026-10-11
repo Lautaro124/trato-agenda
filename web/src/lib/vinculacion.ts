@@ -22,7 +22,20 @@ type Endpoints = {
   reintentar: string;
   /** SSE con los eventos de Baileys. */
   stream: string;
+  /** POST { telefono } que devuelve el código para vincular desde el mismo celular. */
+  codigo: string;
 };
+
+/** Lo que devuelve pedir el código: el código, o qué decirle a la persona. */
+export type ResultadoCodigo = { codigo: string } | { error: string };
+
+function errorDeCodigo(status: number): string {
+  if (status === 400) return "Revisá el número: tiene que ser el de WhatsApp, con el código de área.";
+  if (status === 409) return "Este WhatsApp ya está vinculado o ya estamos pidiendo un código. Esperá un momento.";
+  if (status === 429) return "Pediste demasiados códigos. Probá de nuevo en un rato.";
+  if (status === 401) return "La página venció. Recargala para empezar de nuevo.";
+  return "WhatsApp no respondió. Probá de nuevo en un momento.";
+}
 
 /**
  * La máquina de estados del QR de WhatsApp, compartida por /vincular (con
@@ -37,7 +50,7 @@ export function useVinculacion(endpoints: Endpoints, habilitado: boolean) {
   const [qr, setQr] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
   const [motivo, setMotivo] = useState<MotivoError | null>(null);
-  const { iniciar, reintentar, stream } = endpoints;
+  const { iniciar, reintentar, stream, codigo } = endpoints;
 
   useEffect(() => {
     if (!habilitado) return;
@@ -85,7 +98,31 @@ export function useVinculacion(endpoints: Endpoints, habilitado: boolean) {
     });
   }, [reintentar]);
 
-  return { state, qr, phone, motivo, regenerar };
+  /**
+   * Vincular sin QR, desde el mismo celular: la API abre un socket nuevo y
+   * devuelve el código. Lo que pase después (conectando, conectado, vencido)
+   * llega por el mismo SSE que el QR.
+   */
+  const pedirCodigo = useCallback(
+    async (telefono: string): Promise<ResultadoCodigo> => {
+      setMotivo(null);
+      setState("active");
+      try {
+        const res = await apiFetch(codigo, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ telefono }),
+        });
+        if (!res.ok) return { error: errorDeCodigo(res.status) };
+        return (await res.json()) as { codigo: string };
+      } catch {
+        return { error: "No pudimos conectar con Trato." };
+      }
+    },
+    [codigo],
+  );
+
+  return { state, qr, phone, motivo, regenerar, pedirCodigo };
 }
 
 /** Texto de la tarjeta de error según lo que se sabe del fallo. */

@@ -1,4 +1,14 @@
-import { Injectable, Logger, type MessageEvent, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+  type MessageEvent,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import makeWASocket, {
   Browsers,
@@ -11,6 +21,8 @@ import makeWASocket, {
 import { randomInt } from 'node:crypto';
 import pino from 'pino';
 import { Observable, ReplaySubject, map } from 'rxjs';
+import { Limitador } from '../auth/limitador.js';
+import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
@@ -25,6 +37,7 @@ import {
   demoraRestante,
   partirEnMensajes,
 } from './ritmo-humano.js';
+import { PREFIJO_TIEMPOS, demoraDeEntrega, resumenDeRafaga, timestampEnMs } from './metricas.js';
 import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
@@ -46,6 +59,28 @@ export function jidPropio(telefono: string): string {
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 2000;
 
+/**
+ * Códigos de vinculación que se pueden pedir por número y por hora. Cada pedido
+ * le manda una notificación a ese teléfono, y quien lo pide no prueba todavía
+ * que sea suyo: sin esto, cualquiera podría llenarle de avisos el WhatsApp a otro.
+ */
+export const MAX_CODIGOS_POR_NUMERO_HORA = 5;
+/**
+ * Y por cuenta (o alta): sin esto una sola cuenta podía mandarle la
+ * notificación a un número distinto en cada pedido, y cada pedido abre un
+ * socket desde la IP del servidor.
+ */
+export const MAX_CODIGOS_POR_CUENTA = 5;
+const QUINCE_MINUTOS_MS = 15 * 60 * 1000;
+/** Cuánto esperar a que el socket nuevo hable con WhatsApp antes de pedir el código. */
+export const ESPERA_SOCKET_LISTO_MS = 20_000;
+const UNA_HORA_MS = 60 * 60 * 1000;
+
+/** "ABCD1234" → "ABCD-1234", como lo muestra WhatsApp al pedirlo. */
+export function formatearCodigoDeVinculacion(codigo: string): string {
+  return codigo.length === 8 ? `${codigo.slice(0, 4)}-${codigo.slice(4)}` : codigo;
+}
+
 /** Forma mínima que necesitamos de un error de desconexión de Baileys (Boom). */
 type ErrorConDisconnectCode = { output?: { statusCode?: number } };
 
@@ -53,8 +88,20 @@ function codigoDeDesconexion(error: unknown): number | undefined {
   return (error as ErrorConDisconnectCode | undefined)?.output?.statusCode;
 }
 
-/** Un mensaje de cliente esperando a que termine su ráfaga. Viaja con su socket para contestar por el mismo. */
-type MensajeEntrante = { userId: string; remoteJid: string; sock: WASocket; key: WAMessageKey; texto: string };
+/**
+ * Un mensaje de cliente esperando a que termine su ráfaga. Viaja con su socket
+ * para contestar por el mismo. `enviadoEn` (el timestamp de WhatsApp) y
+ * `recibidoEn` (cuándo nos lo entregó Baileys) son sólo para medir tiempos.
+ */
+type MensajeEntrante = {
+  userId: string;
+  remoteJid: string;
+  sock: WASocket;
+  key: WAMessageKey;
+  texto: string;
+  enviadoEn: number | null;
+  recibidoEn: number;
+};
 
 function esperar(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -72,6 +119,24 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly pendingSaves = new Map<string, Promise<void>>();
   /** Distingue el "connecting" del arranque del socket del "connecting" post-escaneo. */
   private readonly qrMostrado = new Set<string>();
+  /** Cuándo arrancó el socket vivo de cada usuario, para medir cuánto tarda en abrir. */
+  private readonly conectandoDesde = new Map<string, number>();
+  /**
+   * Usuarios vinculando con código (desde el mismo celular) en vez de QR. Un
+   * corte antes de que ingresen el código no se reintenta: las credenciales ya
+   * tienen el número en `me` y reconectar intentaría un login que no existe.
+   */
+  private readonly modoCodigo = new Set<string>();
+  /**
+   * Quien espera el primer QR de un socket nuevo: es la señal de que ya habló
+   * con WhatsApp. Por socket y no por usuario, así dos pedidos seguidos no se
+   * pisan la espera.
+   */
+  private readonly esperandoQr = new Map<WASocket, () => void>();
+  private readonly codigosPorNumero = new Limitador(MAX_CODIGOS_POR_NUMERO_HORA, UNA_HORA_MS);
+  private readonly codigosPorCuenta = new Limitador(MAX_CODIGOS_POR_CUENTA, QUINCE_MINUTOS_MS);
+  /** Un pedido de código a la vez por cuenta: dos seguidos se cerraban el socket entre sí. */
+  private readonly pidiendoCodigo = new Set<string>();
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
   private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
     (_clave, items) => this.contestarRafaga(items),
@@ -134,13 +199,66 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    if (socketVivo) {
-      await socketVivo.end(undefined).catch(() => undefined);
-      this.sockets.delete(userId);
+    // Venga de un QR vencido o de un código a medio ingresar, se arranca limpio.
+    await this.empezarDeCero(userId);
+    await this.connect(userId);
+  }
+
+  /**
+   * Vincular sin QR, desde el mismo celular: WhatsApp le manda una
+   * notificación a ese número y la persona ingresa el código que devolvemos
+   * ("Vincular con el número de teléfono"). Siempre con un socket nuevo,
+   * porque un código anterior queda guardado en las credenciales.
+   *
+   * No mira si el número ya tiene cuenta en Trato (eso diría qué números
+   * existen): igual que con el QR, `asignarTelefono` lo resuelve al conectar.
+   */
+  async pedirCodigo(userId: string, telefono: string): Promise<string> {
+    if (this.pidiendoCodigo.has(userId)) {
+      throw new ConflictException('Ya estamos pidiendo un código: esperá un momento.');
+    }
+    this.pidiendoCodigo.add(userId);
+    try {
+      return await this.pedirCodigoSinPisarse(userId, telefono);
+    } finally {
+      this.pidiendoCodigo.delete(userId);
+    }
+  }
+
+  private async pedirCodigoSinPisarse(userId: string, telefono: string): Promise<string> {
+    const socketVivo = this.sockets.get(userId);
+    // La base y no sólo el socket: una sesión vinculada puede estar sin socket
+    // un rato (reconectando, al arrancar) y empezar de cero la dejaría muda.
+    const sesion = await this.prisma.whatsappSession.findUnique({ where: { userId }, select: { registered: true } });
+    if (sesion?.registered || (socketVivo && estaVinculado(socketVivo.authState.creds))) {
+      throw new ConflictException('Este WhatsApp ya está vinculado.');
+    }
+    if (!this.codigosPorCuenta.permitir(userId)) {
+      throw new HttpException('Pediste demasiados códigos: probá en unos minutos.', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    if (!this.codigosPorNumero.permitir(claveDeTelefono(telefono))) {
+      throw new HttpException('Pediste demasiados códigos para ese número: probá en un rato.', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    this.reconnectAttempts.delete(userId);
+    await this.empezarDeCero(userId);
+    this.modoCodigo.add(userId);
     await this.connect(userId);
+    // `connect` vuelve apenas crea el socket, antes de que llegue nada de la
+    // red: registrar la espera acá no se pierde el primer QR.
+    const sock = this.sockets.get(userId);
+    try {
+      if (!sock) throw new Error('El socket no quedó registrado.');
+      await this.esperarPrimerQr(sock);
+      return formatearCodigoDeVinculacion(await sock.requestPairingCode(telefonoParaWhatsapp(telefono)));
+    } catch (error) {
+      // Sin el número ni el código: sólo el id y el motivo.
+      this.logger.warn(`No se pudo pedir el código de vinculación de ${userId}: ${(error as Error).message}`);
+      // Si otro pedido ya lo reemplazó, ese socket no es nuestro para cerrar.
+      if (sock && this.sockets.get(userId) === sock) await this.empezarDeCero(userId);
+      throw new ServiceUnavailableException('WhatsApp no respondió: probá de nuevo en un momento.');
+    } finally {
+      if (sock) this.esperandoQr.delete(sock);
+    }
   }
 
   /** Estado de vinculación fuera del SSE, para el badge del header. */
@@ -249,6 +367,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private async cerrarSocket(userId: string, modo: 'end' | 'logout'): Promise<void> {
     // Lo que un cliente escribió y todavía no se contestó no sale por un socket cerrado.
     this.rafagas.descartar(`${userId}\n`);
+    this.modoCodigo.delete(userId);
     const sock = this.sockets.get(userId);
     if (!sock) return;
     this.sockets.delete(userId);
@@ -277,6 +396,29 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
+  /**
+   * Cierra el socket sin vincular y borra lo que haya quedado a medio
+   * guardar: una sesión ya vinculada (`registered: true`) no se toca.
+   */
+  private async empezarDeCero(userId: string): Promise<void> {
+    await this.cerrarSocket(userId, 'end');
+    await (this.pendingSaves.get(userId) ?? Promise.resolve());
+    await this.prisma.whatsappSession.deleteMany({ where: { userId, registered: false } });
+    this.reconnectAttempts.delete(userId);
+  }
+
+  /** Se resuelve con el primer QR de ese socket, o falla a los ESPERA_SOCKET_LISTO_MS. */
+  private esperarPrimerQr(sock: WASocket): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('WhatsApp no mandó el QR a tiempo.')), ESPERA_SOCKET_LISTO_MS);
+      timer.unref();
+      this.esperandoQr.set(sock, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
   private async connect(userId: string): Promise<void> {
     const { state, saveCreds } = await usePrismaAuthState(
       this.prisma,
@@ -292,6 +434,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     this.sockets.set(userId, sock);
     this.qrMostrado.delete(userId);
+    this.conectandoDesde.set(userId, Date.now());
     sock.ev.on('creds.update', () => {
       this.pendingSaves.set(userId, saveCreds());
     });
@@ -344,6 +487,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         sock,
         key: mensaje.key,
         texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
+        enviadoEn: timestampEnMs(mensaje.messageTimestamp),
+        recibidoEn: Date.now(),
       });
     }
   }
@@ -365,8 +510,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const inicio = Date.now();
     try {
       const respuesta = await this.conversationService.responder(userId, remoteJid, texto);
+      const finModelo = Date.now();
+      const partes = partirEnMensajes(respuesta.texto);
       await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
-      await this.enviarEnOrden(sock, remoteJid, partirEnMensajes(respuesta.texto), escribiendo, Date.now() - inicio);
+      await this.enviarEnOrden(sock, remoteJid, partes, escribiendo, finModelo - inicio);
+      const primero = items[0]!;
+      this.logger.log(
+        resumenDeRafaga(userId, {
+          entregaMs: demoraDeEntrega(primero.enviadoEn, primero.recibidoEn),
+          esperaMs: inicio - primero.recibidoEn,
+          modeloMs: finModelo - inicio,
+          envioMs: Date.now() - finModelo,
+          mensajes: items.length,
+          partes: partes.length,
+        }),
+      );
     } finally {
       escribiendo.parar();
     }
@@ -438,6 +596,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (sock && this.sockets.get(userId) !== sock) return;
 
     if (update.qr) {
+      if (sock) {
+        this.esperandoQr.get(sock)?.();
+        this.esperandoQr.delete(sock);
+      }
       this.qrMostrado.add(userId);
       this.emit(userId, { state: 'active', qr: update.qr });
       return;
@@ -450,8 +612,14 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (update.connection === 'open') {
+      const desde = this.conectandoDesde.get(userId);
+      if (desde !== undefined) {
+        this.logger.log(`${PREFIJO_TIEMPOS} · conexión de ${userId} abierta en ${Date.now() - desde}ms`);
+        this.conectandoDesde.delete(userId);
+      }
       this.reconnectAttempts.delete(userId);
       this.qrMostrado.delete(userId);
+      this.modoCodigo.delete(userId);
       const sock = this.sockets.get(userId);
       const phoneNumber = sock && extraerTelefono(sock.authState.creds);
       // Esperamos a que el último `creds.update` haya persistido antes de avisar
@@ -471,6 +639,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (update.connection !== 'close') return;
 
     const codigo = codigoDeDesconexion(update.lastDisconnect?.error);
+    this.conectandoDesde.delete(userId);
+    // Hoy un corte recuperable no dejaba rastro: con esto se ve cada cierre y su motivo.
+    this.logger.warn(
+      `${PREFIJO_TIEMPOS} · conexión de ${userId} cerrada (código ${codigo ?? 'desconocido'}, ` +
+        `reintentos previos ${this.reconnectAttempts.get(userId) ?? 0})`,
+    );
 
     if (codigo === DisconnectReason.loggedOut) {
       this.sockets.delete(userId);
@@ -479,6 +653,22 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`No se pudo borrar la sesión de WhatsApp de ${userId}`, error as Error),
       );
       this.emit(userId, { state: 'error' });
+      return;
+    }
+
+    const credenciales = (sock ?? this.sockets.get(userId))?.authState.creds;
+    if (this.modoCodigo.has(userId) && !(credenciales && estaVinculado(credenciales))) {
+      // El código venció (o se cortó) antes de que lo ingresaran. Reconectar
+      // con `me` ya puesto sería un login sin registro: se descarta y la
+      // pantalla ofrece pedir otro.
+      this.sockets.delete(userId);
+      this.modoCodigo.delete(userId);
+      this.qrMostrado.delete(userId);
+      this.reconnectAttempts.delete(userId);
+      this.prisma.whatsappSession.deleteMany({ where: { userId, registered: false } }).catch((error: unknown) =>
+        this.logger.error(`No se pudo borrar el código vencido de ${userId}`, error as Error),
+      );
+      this.emit(userId, { state: 'expired' });
       return;
     }
 
