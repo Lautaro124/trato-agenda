@@ -1,3 +1,4 @@
+import { AvisoNumeroPersonal } from "@/components/AvisoNumeroPersonal";
 import { QrCode } from "@/components/QrCode";
 
 const PASOS = [
@@ -19,12 +20,15 @@ export function TarjetaQr({
   bajada,
   pie,
   acciones,
+  onUsarCodigo,
 }: {
   qr: string | null;
   titulo: string;
   bajada: string;
   pie: React.ReactNode;
   acciones?: React.ReactNode;
+  /** Pasar al código: para quien abrió la página en el mismo celular que va a vincular. */
+  onUsarCodigo?: () => void;
 }) {
   return (
     <div className="flex w-full max-w-[760px] flex-col overflow-hidden rounded-lg border border-line bg-card shadow-md md:flex-row">
@@ -50,7 +54,8 @@ export function TarjetaQr({
         <h1 className="mb-2 font-display text-2xl leading-[1.2] font-bold tracking-[-0.02em] text-ink">
           {titulo}
         </h1>
-        <p className="mb-6 text-sm leading-[1.6] text-ink-secondary">{bajada}</p>
+        <p className="mb-4 text-sm leading-[1.6] text-ink-secondary">{bajada}</p>
+        <AvisoNumeroPersonal className="mb-6" />
 
         <ol className="flex flex-col gap-4">
           {PASOS.map((paso, i) => (
@@ -62,6 +67,12 @@ export function TarjetaQr({
             </li>
           ))}
         </ol>
+
+        {onUsarCodigo && (
+          <button type="button" onClick={onUsarCodigo} className="mt-5 text-left text-[13.5px] text-link">
+            ¿Estás en el celular que querés vincular? Vinculá con un código
+          </button>
+        )}
 
         {acciones && (
           <>

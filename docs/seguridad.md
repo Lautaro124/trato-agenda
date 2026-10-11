@@ -156,6 +156,31 @@ cubierta:
   de 2 fotos por respuesta (`MAX_IMAGENES_POR_MENSAJE`). Una foto que falla se
   loguea con ids y el texto sale igual.
 
+## Vincular con código desde el celular (2026-10-11, LAU-11)
+
+Un celular no puede escanear el QR de su propia pantalla, así que
+`/vincular` y el alta ofrecen el código de "Vincular con el número de
+teléfono" (`requestPairingCode` de Baileys). Superficie nueva:
+
+- **Endpoints**: `POST /whatsapp/link/codigo` (sesión, `JwtAuthGuard`) y
+  `POST /auth/whatsapp/alta/codigo` (cookie del alta, `AltaGuard`), los dos
+  con `{ telefono }` validado por `SolicitarCodigoDto` (8 a 15 dígitos). El
+  alta sigue limitada por IP y por altas simultáneas al crearla; el código no
+  abre más sockets que los que ya tenía esa alta (cierra el anterior).
+- **Notificaciones a un teléfono ajeno**: pedir el código le manda una
+  notificación a ese número antes de que nadie pruebe que es suyo. Tope de
+  `MAX_CODIGOS_POR_NUMERO_HORA` (5) por `claveDeTelefono`, así escribir el
+  número de distintas formas no multiplica los intentos (429).
+- **No revela cuentas**: el endpoint no mira si el número tiene cuenta en
+  Trato. Igual que con el QR, `asignarTelefono` lo resuelve recién al abrir
+  la conexión (con `numero_en_uso` para una cuenta que no es un alta).
+- **El código sólo vuelve a quien lo pidió** y no se loguea, ni el número:
+  los warnings llevan el `userId` y el motivo.
+- **Sesiones a medio vincular**: `estaVinculado` exige `creds.registered`
+  mientras hay un código pendiente, así una sesión sin confirmar nunca queda
+  `registered: true` ni se reanuda al arrancar; si se corta antes de que se
+  ingrese el código, se borra la fila y no se reintenta.
+
 ## Code scanning (2026-09-29)
 
 Las alertas abiertas en *Security → Code scanning* se reprodujeron corriendo

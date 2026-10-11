@@ -42,3 +42,18 @@ test.describe('alta sólo con WhatsApp', () => {
     expect((await request.get(`${API_URL}/auth/whatsapp/alta/stream`)).status()).toBe(401);
   });
 });
+
+test.describe('alta sólo con WhatsApp, desde el celular', { tag: '@movil' }, () => {
+  test('el alta arranca con el código y el aviso del número personal', async ({ page }) => {
+    await page.goto('/entrar/whatsapp');
+
+    await expect(page.getByRole('heading', { name: 'Creá tu cuenta con WhatsApp' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('form', { name: 'Vincular con código' })).toBeVisible();
+    await expect(page.getByText('No te recomendamos usar tu celular personal.')).toBeVisible();
+  });
+});
+
+test('pedir el código del alta sin la cookie del alta da 401', async ({ request }) => {
+  const res = await request.post(`${API_URL}/auth/whatsapp/alta/codigo`, { data: { telefono: '5491122334455' } });
+  expect(res.status()).toBe(401);
+});
