@@ -546,7 +546,7 @@ model Notificacion {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// "venta_pagada" | "pedido_manual" | "stock_bajo" | "stock_agotado" |
-  /// "consulta_derivada" | "mercadopago_desconectado"
+  /// "consulta_derivada" | "mercadopago_desconectado" | "whatsapp_desconectado"
   tipo   String
   titulo String
   cuerpo String
