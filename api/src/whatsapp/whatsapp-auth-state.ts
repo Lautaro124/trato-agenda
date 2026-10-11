@@ -10,6 +10,7 @@ import {
 } from '@whiskeysockets/baileys';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { decryptToken, encryptToken } from '../auth/token-crypto.js';
+import { MedidorDeGuardados } from './metricas.js';
 
 const logger = new Logger('WhatsappAuthState');
 
@@ -91,15 +92,18 @@ export async function usePrismaAuthState(
 
   let linkedAt = fila?.linkedAt ?? null;
   const mutex = new Mutex();
+  const medidor = new MedidorDeGuardados(userId);
 
   const persistir = () =>
     mutex.runExclusive(async () => {
       const vinculado = estaVinculado(creds);
       if (vinculado && !linkedAt) linkedAt = new Date();
 
+      const inicio = performance.now();
       const blob = JSON.stringify({ creds, keys }, BufferJSON.replacer);
       const cifrado = encryptToken(blob, encryptionKey);
       const telefono = extraerTelefono(creds) ?? null;
+      const serializado = performance.now();
 
       try {
         await prisma.whatsappSession.upsert({
@@ -118,6 +122,13 @@ export async function usePrismaAuthState(
             linkedAt,
           },
         });
+        // Cada `keys.set` reescribe el blob entero: medimos cuánto cuesta (LAU-11).
+        const linea = medidor.registrar(
+          Math.round(serializado - inicio),
+          Math.round(performance.now() - serializado),
+          cifrado.length,
+        );
+        if (linea) logger.log(linea);
       } catch (error) {
         // Si el usuario dejó de existir (por ejemplo, un `prisma migrate reset`
         // con la API levantada), no hay dónde guardar la sesión. Propagar el

@@ -25,6 +25,7 @@ import {
   demoraRestante,
   partirEnMensajes,
 } from './ritmo-humano.js';
+import { PREFIJO_TIEMPOS, demoraDeEntrega, resumenDeRafaga, timestampEnMs } from './metricas.js';
 import { estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
 import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
 
@@ -53,8 +54,20 @@ function codigoDeDesconexion(error: unknown): number | undefined {
   return (error as ErrorConDisconnectCode | undefined)?.output?.statusCode;
 }
 
-/** Un mensaje de cliente esperando a que termine su ráfaga. Viaja con su socket para contestar por el mismo. */
-type MensajeEntrante = { userId: string; remoteJid: string; sock: WASocket; key: WAMessageKey; texto: string };
+/**
+ * Un mensaje de cliente esperando a que termine su ráfaga. Viaja con su socket
+ * para contestar por el mismo. `enviadoEn` (el timestamp de WhatsApp) y
+ * `recibidoEn` (cuándo nos lo entregó Baileys) son sólo para medir tiempos.
+ */
+type MensajeEntrante = {
+  userId: string;
+  remoteJid: string;
+  sock: WASocket;
+  key: WAMessageKey;
+  texto: string;
+  enviadoEn: number | null;
+  recibidoEn: number;
+};
 
 function esperar(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -72,6 +85,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly pendingSaves = new Map<string, Promise<void>>();
   /** Distingue el "connecting" del arranque del socket del "connecting" post-escaneo. */
   private readonly qrMostrado = new Set<string>();
+  /** Cuándo arrancó el socket vivo de cada usuario, para medir cuánto tarda en abrir. */
+  private readonly conectandoDesde = new Map<string, number>();
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
   private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
     (_clave, items) => this.contestarRafaga(items),
@@ -292,6 +307,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     this.sockets.set(userId, sock);
     this.qrMostrado.delete(userId);
+    this.conectandoDesde.set(userId, Date.now());
     sock.ev.on('creds.update', () => {
       this.pendingSaves.set(userId, saveCreds());
     });
@@ -344,6 +360,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         sock,
         key: mensaje.key,
         texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
+        enviadoEn: timestampEnMs(mensaje.messageTimestamp),
+        recibidoEn: Date.now(),
       });
     }
   }
@@ -365,8 +383,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const inicio = Date.now();
     try {
       const respuesta = await this.conversationService.responder(userId, remoteJid, texto);
+      const finModelo = Date.now();
+      const partes = partirEnMensajes(respuesta.texto);
       await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
-      await this.enviarEnOrden(sock, remoteJid, partirEnMensajes(respuesta.texto), escribiendo, Date.now() - inicio);
+      await this.enviarEnOrden(sock, remoteJid, partes, escribiendo, finModelo - inicio);
+      const primero = items[0]!;
+      this.logger.log(
+        resumenDeRafaga(userId, {
+          entregaMs: demoraDeEntrega(primero.enviadoEn, primero.recibidoEn),
+          esperaMs: inicio - primero.recibidoEn,
+          modeloMs: finModelo - inicio,
+          envioMs: Date.now() - finModelo,
+          mensajes: items.length,
+          partes: partes.length,
+        }),
+      );
     } finally {
       escribiendo.parar();
     }
@@ -450,6 +481,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (update.connection === 'open') {
+      const desde = this.conectandoDesde.get(userId);
+      if (desde !== undefined) {
+        this.logger.log(`${PREFIJO_TIEMPOS} · conexión de ${userId} abierta en ${Date.now() - desde}ms`);
+        this.conectandoDesde.delete(userId);
+      }
       this.reconnectAttempts.delete(userId);
       this.qrMostrado.delete(userId);
       const sock = this.sockets.get(userId);
@@ -471,6 +507,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (update.connection !== 'close') return;
 
     const codigo = codigoDeDesconexion(update.lastDisconnect?.error);
+    this.conectandoDesde.delete(userId);
+    // Hoy un corte recuperable no dejaba rastro: con esto se ve cada cierre y su motivo.
+    this.logger.warn(
+      `${PREFIJO_TIEMPOS} · conexión de ${userId} cerrada (código ${codigo ?? 'desconocido'}, ` +
+        `reintentos previos ${this.reconnectAttempts.get(userId) ?? 0})`,
+    );
 
     if (codigo === DisconnectReason.loggedOut) {
       this.sockets.delete(userId);
