@@ -372,6 +372,19 @@ describe('WhatsappService — el número vinculado identifica la cuenta', () => 
     expect(sock.sendMessage).toHaveBeenCalledWith('5491100000000@s.whatsapp.net', { text: 'hola' });
   });
 
+  it('lo que manda queda a mano para reenviarlo si el cliente pide reenvío (getMessage)', async () => {
+    const { service } = crearServicio();
+    const sock = socketFalso();
+    sock.sendMessage.mockResolvedValue({ key: { id: 'MSG-1' }, message: { conversation: 'hola' } });
+    ponerSocket(service, 'user-1', sock);
+
+    await service.enviarAlPropioChat('user-1', 'hola');
+
+    const enviados = (service as unknown as { enviados: { buscar: (u: string, id: string) => unknown } }).enviados;
+    expect(enviados.buscar('user-1', 'MSG-1')).toEqual({ conversation: 'hola' });
+    expect(enviados.buscar('otra-cuenta', 'MSG-1')).toBeUndefined();
+  });
+
   it('transferirSesion cierra el socket nuevo sin logout, desloguea el viejo y reconecta con la cuenta', async () => {
     const { service, prisma, connectSpy } = crearServicio();
     const nuevo = socketFalso();
