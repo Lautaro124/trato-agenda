@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import { initAuthCreds, type AuthenticationCreds } from '@whiskeysockets/baileys';
 import { describe, expect, it } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { usePrismaAuthState } from './whatsapp-auth-state.js';
+import { estaVinculado, usePrismaAuthState } from './whatsapp-auth-state.js';
 
 type Fila = {
   userId: string;
@@ -94,5 +95,26 @@ describe('usePrismaAuthState', () => {
 
     const leido = await state.keys.get('session', ['device-1']);
     expect(leido['device-1']).toBeUndefined();
+  });
+});
+
+describe('estaVinculado', () => {
+  const me = { id: '5491155551234:1@s.whatsapp.net', name: '~' };
+  const creds = (cambios: Partial<AuthenticationCreds>): AuthenticationCreds => ({ ...initAuthCreds(), ...cambios });
+
+  it('sin `me` no hay vinculación', () => {
+    expect(estaVinculado(creds({}))).toBe(false);
+  });
+
+  it('con QR alcanza con `me`: Baileys nunca marca `registered`', () => {
+    expect(estaVinculado(creds({ me }))).toBe(true);
+  });
+
+  it('con un código pendiente no está vinculado aunque `me` ya tenga el número', () => {
+    expect(estaVinculado(creds({ me, pairingCode: 'ABCD1234', registered: false }))).toBe(false);
+  });
+
+  it('con el código confirmado (`registered`) sí', () => {
+    expect(estaVinculado(creds({ me, pairingCode: 'ABCD1234', registered: true }))).toBe(true);
   });
 });

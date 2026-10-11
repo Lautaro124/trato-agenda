@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claveDeTelefono, normalizarTelefono, variantesDeTelefono } from './telefono.js';
+import { claveDeTelefono, normalizarTelefono, telefonoParaWhatsapp, variantesDeTelefono } from './telefono.js';
 
 describe('normalizarTelefono', () => {
   it('deja sólo los dígitos', () => {
@@ -59,5 +59,18 @@ describe('variantesDeTelefono, número nacional que empieza con 9', () => {
     const variantes = variantesDeTelefono('54991234567');
     expect(variantes).toContain('54991234567');
     expect(variantes).toContain('549991234567');
+  });
+});
+
+describe('telefonoParaWhatsapp', () => {
+  it('un número argentino siempre sale con el 9, se haya dictado o no', () => {
+    for (const forma of ['5491122334455', '541122334455', '+54 9 11 2233-4455', '54 011 2233 4455']) {
+      expect(telefonoParaWhatsapp(forma)).toBe('5491122334455');
+    }
+  });
+
+  it('fuera de Argentina sólo saca los prefijos locales', () => {
+    expect(telefonoParaWhatsapp('+52 1 55 1234 5678')).toBe('5215512345678');
+    expect(telefonoParaWhatsapp('34 600 11 22 33')).toBe('34600112233');
   });
 });

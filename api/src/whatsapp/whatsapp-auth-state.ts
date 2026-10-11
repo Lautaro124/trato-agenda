@@ -40,13 +40,20 @@ export function extraerTelefono(creds: AuthenticationCreds): string | undefined 
 }
 
 /**
- * `creds.registered` de Baileys sólo se marca `true` en el flujo de pairing
- * por código telefónico; en el flujo QR que usamos acá nunca se toca. El
- * indicador real de "ya vinculó" es que `creds.me` esté poblado, que es lo
- * que `configureSuccessfulPairing` completa al escanear el QR.
+ * Hay dos formas de vincular y cada una deja una marca distinta:
+ *
+ * - QR: `configureSuccessfulPairing` completa `creds.me` al escanear, y
+ *   `creds.registered` nunca se toca.
+ * - Código: `requestPairingCode` completa `creds.me` con el número tipeado
+ *   **antes** de que la persona ingrese el código, y deja `pairingCode`. Recién
+ *   cuando WhatsApp lo confirma Baileys pone `creds.registered` en `true`.
+ *
+ * Por eso `creds.me` solo no alcanza: con un código pendiente diría que ya
+ * vinculó, se guardaría `registered: true` y el próximo arranque intentaría
+ * reanudar una sesión que no existe.
  */
 export function estaVinculado(creds: AuthenticationCreds): boolean {
-  return Boolean(creds.me?.id);
+  return Boolean(creds.me?.id) && (creds.registered || !creds.pairingCode);
 }
 
 /**
