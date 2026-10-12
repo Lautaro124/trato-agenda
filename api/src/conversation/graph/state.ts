@@ -11,6 +11,7 @@ import { MessagesValue, StateSchema, UntrackedValue } from '@langchain/langgraph
 import { z } from 'zod';
 import type { PeriodoOcupado } from '../../calendar/calendar.service.js';
 import type { Agent, Conversation, Turno, User } from '../../generated/prisma/client.js';
+import type { TurnosGrupales } from './turnos-grupales.js';
 
 export type AgentConUser = Agent & { user: User };
 
@@ -38,6 +39,8 @@ export type ContextoTurno = {
   agent: AgentConUser;
   conversation: Conversation;
   turnoActivo: Turno | null;
+  /** Las clases de los turnos grupales en la ventana cargada, con sus anotados (turnos-grupales.ts). */
+  grupales: TurnosGrupales;
   /** System prompt completo: el generado por el meta-agente + reglas + agenda. */
   bloqueSistema: string;
 };

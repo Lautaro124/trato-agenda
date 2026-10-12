@@ -28,6 +28,13 @@ import {
 } from './agent-catalog.js';
 import { PRECIO_MAX } from './precio.js';
 import {
+  CAPACIDAD_MAX,
+  CAPACIDAD_MIN,
+  leerGrupal,
+  MAX_HORARIOS_GRUPALES,
+  type HorarioGrupal,
+} from './turnos-grupales.js';
+import {
   LARGO_MAX_ETIQUETA,
   leerConfigDatosCliente,
   MAX_CAMPOS,
@@ -50,6 +57,15 @@ import {
 /** "HH:MM" en formato 24hs. */
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Un horario fijo de un turno grupal: día de la semana y hora de inicio. */
+export class HorarioGrupalDto {
+  @IsIn(DIAS_SEMANA)
+  dia!: DiaSemana;
+
+  @Matches(HORA_HHMM, { message: 'La hora de un turno grupal tiene que ser "HH:MM" en formato 24hs.' })
+  hora!: string;
+}
+
 /** Un tipo de turno del paso 3 de /contanos, con su duración por defecto. */
 export class TipoEventoDto {
   @IsString()
@@ -68,6 +84,24 @@ export class TipoEventoDto {
   @Min(0)
   @Max(PRECIO_MAX)
   precio?: number;
+
+  /**
+   * Turno grupal (turnos-grupales.ts): cuántas personas entran en cada
+   * horario. Sin capacidad es un turno individual.
+   */
+  @IsOptional()
+  @IsInt({ message: 'La capacidad tiene que ser un número entero.' })
+  @Min(CAPACIDAD_MIN)
+  @Max(CAPACIDAD_MAX)
+  capacidad?: number;
+
+  /** Los horarios fijos del turno grupal; normalizarTipoEvento exige al menos uno si hay capacidad. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_HORARIOS_GRUPALES)
+  @ValidateNested({ each: true })
+  @Type(() => HorarioGrupalDto)
+  horarios?: HorarioGrupalDto[];
 }
 
 export class GenerateAgentDto {
@@ -308,7 +342,14 @@ export function aAgentPublico(agent: Agent): AgentPublico {
   };
 }
 
-export type TipoEvento = { nombre: string; duracionMin: number; precio?: number };
+export type TipoEvento = {
+  nombre: string;
+  duracionMin: number;
+  precio?: number;
+  /** Sólo en los turnos grupales, siempre junto con `horarios`. */
+  capacidad?: number;
+  horarios?: HorarioGrupal[];
+};
 
 /**
  * `Agent.tiposEvento` es una columna Json, así que Prisma la tipa como
@@ -318,10 +359,13 @@ export function leerTiposEvento(agent: Pick<Agent, 'tiposEvento'>): TipoEvento[]
   if (!Array.isArray(agent.tiposEvento)) return [];
   return agent.tiposEvento.flatMap((item) => {
     if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
-    const { nombre, duracionMin, precio } = item as Record<string, unknown>;
+    const registro = item as Record<string, unknown>;
+    const { nombre, duracionMin, precio } = registro;
     if (typeof nombre !== 'string' || typeof duracionMin !== 'number') return [];
     // `precio` es opcional y llega de un Json: uno inválido se descarta, no rompe el tipo de turno.
     const precioValido = typeof precio === 'number' && Number.isFinite(precio) && precio >= 0;
-    return [precioValido ? { nombre, duracionMin, precio } : { nombre, duracionMin }];
+    // Lo mismo con la parte grupal: si no tiene la forma esperada, el tipo queda individual.
+    const grupal = leerGrupal(registro, duracionMin);
+    return [{ nombre, duracionMin, ...(precioValido ? { precio } : {}), ...grupal }];
   });
 }

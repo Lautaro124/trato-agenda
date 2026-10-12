@@ -34,6 +34,20 @@ describe('reglasDeAgenda', () => {
     expect(reglas).toContain('Presupuesto (30 min)');
   });
 
+  it('cuenta los turnos grupales con su capacidad y horarios, y suma su regla sólo si hay alguno', () => {
+    const conGrupal = {
+      ...AGENT,
+      tiposEvento: [
+        { nombre: 'Probador', duracionMin: 20 },
+        { nombre: 'Yoga', duracionMin: 60, capacidad: 8, horarios: [{ dia: 'lun', hora: '19:00' }] },
+      ],
+    } as unknown as Agent;
+
+    expect(reglasDeAgenda(conGrupal)).toContain('Yoga (60 min, grupal de hasta 8 personas: lunes 19:00)');
+    expect(reglasDeAgenda(conGrupal)).toContain('sólo se dan en sus horarios fijos');
+    expect(reglasDeAgenda(AGENT)).not.toContain('grupal');
+  });
+
   it('deja afuera sábados y domingos', () => {
     expect(reglasDeAgenda(AGENT)).toContain('de lunes a viernes');
   });

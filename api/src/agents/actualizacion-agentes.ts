@@ -15,6 +15,7 @@ import { PLANTILLA_VERSION, construirConfiguracion } from './agent-template.js';
 import { PLANTILLA_VENTAS_VERSION, construirConfiguracionVentas } from './agent-template-ventas.js';
 import { construirDescripcion, construirDescripcionVentas } from './agents.service.js';
 import type { GenerateAgentDto, TipoEventoDto } from './agents.types.js';
+import { leerGrupal } from './turnos-grupales.js';
 
 export type FilaAgente = Pick<
   Agent,
@@ -59,7 +60,14 @@ export function tiposEventoValidos(valor: Prisma.JsonValue): TipoEventoDto[] | n
     if (typeof nombre !== 'string' || !nombre.trim()) return null;
     if (typeof duracionMin !== 'number' || !Number.isInteger(duracionMin) || duracionMin <= 0) return null;
     if (precio !== undefined && precio !== null && (typeof precio !== 'number' || !Number.isFinite(precio))) return null;
-    tipos.push({ nombre: nombre.trim(), duracionMin, ...(typeof precio === 'number' ? { precio } : {}) });
+    // La parte grupal se lee como en leerTiposEvento: si no tiene la forma esperada, el tipo queda individual.
+    const grupal = leerGrupal(item as Record<string, unknown>, duracionMin);
+    tipos.push({
+      nombre: nombre.trim(),
+      duracionMin,
+      ...(typeof precio === 'number' ? { precio } : {}),
+      ...grupal,
+    });
   }
   return tipos;
 }

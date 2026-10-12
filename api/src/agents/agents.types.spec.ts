@@ -100,6 +100,57 @@ describe('GenerateAgentDto', () => {
     ]);
   });
 
+  it('turno grupal: acepta capacidades enteras de 1 a 100 con sus horarios', async () => {
+    for (const capacidad of [1, 12, 100]) {
+      const tipo = { nombre: 'Yoga', duracionMin: 60, capacidad, horarios: [{ dia: 'lun', hora: '18:00' }] };
+      expect(await errores({ ...base, tiposEvento: [tipo] })).toEqual([]);
+    }
+  });
+
+  it('turno grupal: rechaza capacidades que no son enteros positivos hasta 100', async () => {
+    for (const capacidad of [0, -2, 2.5, 101, '10']) {
+      const tipo = { nombre: 'Yoga', duracionMin: 60, capacidad, horarios: [{ dia: 'lun', hora: '18:00' }] };
+      expect(await errores({ ...base, tiposEvento: [tipo] })).toContain('tiposEvento.capacidad');
+    }
+  });
+
+  it('turno grupal: rechaza horarios con un día o una hora inválidos', async () => {
+    const conHorario = (horario: Record<string, unknown>) => ({
+      ...base,
+      tiposEvento: [{ nombre: 'Yoga', duracionMin: 60, capacidad: 5, horarios: [horario] }],
+    });
+    const resultado = await validate(plainToInstance(GenerateAgentDto, conHorario({ dia: 'feriado', hora: '25:00' })), {
+      whitelist: true,
+    });
+    const horarios = resultado[0].children?.[0].children?.find((hijo) => hijo.property === 'horarios');
+    expect(horarios?.children?.[0].children?.map((error) => error.property).sort()).toEqual(['dia', 'hora']);
+  });
+
+  it('leerTiposEvento conserva la parte grupal válida y trata como individual la que no tiene forma', () => {
+    const agent = {
+      tiposEvento: [
+        { nombre: 'Yoga', duracionMin: 60, capacidad: 8, horarios: [{ dia: 'mie', hora: '18:00' }, { dia: 'lun', hora: '18:00' }] },
+        { nombre: 'Pilates', duracionMin: 60, capacidad: 0, horarios: [{ dia: 'lun', hora: '18:00' }] },
+        { nombre: 'Spinning', duracionMin: 45, capacidad: 10, horarios: [] },
+        { nombre: 'Box', duracionMin: 60, capacidad: 10, horarios: [{ dia: 'lun', hora: '23:30' }] },
+      ],
+    };
+    expect(leerTiposEvento(agent as never)).toEqual([
+      {
+        nombre: 'Yoga',
+        duracionMin: 60,
+        capacidad: 8,
+        horarios: [
+          { dia: 'lun', hora: '18:00' },
+          { dia: 'mie', hora: '18:00' },
+        ],
+      },
+      { nombre: 'Pilates', duracionMin: 60 },
+      { nombre: 'Spinning', duracionMin: 45 },
+      { nombre: 'Box', duracionMin: 60 },
+    ]);
+  });
+
   it('rechaza horas que no son HH:MM de 24hs', async () => {
     expect(await errores({ ...base, horaDesde: '24:00' })).toContain('horaDesde');
     expect(await errores({ ...base, horaHasta: '9:00' })).toContain('horaHasta');

@@ -191,6 +191,21 @@ const agenteGuardado = {
   systemPrompt: 'viejo',
 };
 
+describe('AgentsService.generate con turnos grupales', () => {
+  it('valida la parte grupal antes de guardar', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.generate('user-1', {
+        ...dto,
+        tiposEvento: [{ nombre: 'Yoga', duracionMin: 60, horarios: [{ dia: 'lun', hora: '18:00' }] }],
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});
+
 describe('AgentsService.actualizarTiposEvento', () => {
   it('reemplaza los tipos y regenera el prompt con duración y precio nuevos, sin tocar el resto', async () => {
     const { service, findUnique, update } = crearServicio();
@@ -208,6 +223,63 @@ describe('AgentsService.actualizarTiposEvento', () => {
     expect(data).toMatchObject({ model: null, templateVersion: PLANTILLA_VERSION });
     expect(data).not.toHaveProperty('allowedActions');
     expect(data).not.toHaveProperty('horaDesde');
+  });
+
+  it('guarda un turno grupal con su capacidad y horarios ordenados, y lo cuenta en el prompt', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(agenteGuardado);
+    const tipos = [
+      {
+        nombre: 'Yoga',
+        duracionMin: 60,
+        capacidad: 10,
+        horarios: [
+          { dia: 'mie' as const, hora: '18:00' },
+          { dia: 'lun' as const, hora: '18:00' },
+          { dia: 'lun' as const, hora: '18:00' },
+        ],
+      },
+    ];
+
+    await service.actualizarTiposEvento('user-1', tipos);
+
+    const [{ data }] = update.mock.calls[0] as [{ data: Record<string, unknown> }];
+    expect(data.tiposEvento).toEqual([
+      {
+        nombre: 'Yoga',
+        duracionMin: 60,
+        capacidad: 10,
+        horarios: [
+          { dia: 'lun', hora: '18:00' },
+          { dia: 'mie', hora: '18:00' },
+        ],
+      },
+    ]);
+    expect(data.systemPrompt).toContain('"Yoga" (60 min, grupal de hasta 10 personas: lunes 18:00; miércoles 18:00)');
+    expect(data.descripcion).toContain('Yoga (60 min, grupal de hasta 10 personas');
+  });
+
+  it('da 400 con un turno grupal sin horarios o con horarios que se pisan', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue(agenteGuardado);
+
+    await expect(
+      service.actualizarTiposEvento('user-1', [{ nombre: 'Yoga', duracionMin: 60, capacidad: 10, horarios: [] }]),
+    ).rejects.toMatchObject({ status: 400, message: 'Poné al menos un horario para "Yoga".' });
+    await expect(
+      service.actualizarTiposEvento('user-1', [
+        {
+          nombre: 'Yoga',
+          duracionMin: 60,
+          capacidad: 10,
+          horarios: [
+            { dia: 'lun', hora: '18:00' },
+            { dia: 'lun', hora: '18:30' },
+          ],
+        },
+      ]),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('da 404 si todavía no hay agente', async () => {

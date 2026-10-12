@@ -88,6 +88,77 @@ test.describe('editar reuniones después del onboarding', () => {
     ]);
   });
 
+  test('marca una reunión como grupal con capacidad y horarios, persiste y valida la capacidad', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgentePorApi(context.request, {
+      tiposEvento: [
+        { nombre: 'Control', duracionMin: 30 },
+        { nombre: 'Taller', duracionMin: 60 },
+      ],
+    });
+
+    await page.goto('/reuniones');
+    const guardar = page.getByRole('button', { name: 'Guardar cambios' });
+    const grupal = page.getByRole('button', { name: 'Turno grupal: Taller' });
+    await grupal.click();
+    await expect(grupal).toHaveAttribute('aria-pressed', 'true');
+
+    // Sin capacidad no se puede guardar.
+    const capacidad = page.getByLabel('Capacidad de Taller', { exact: true });
+    await expect(page.getByText('Poné cuántas personas entran: un número entero de 1 a 100.')).toBeVisible();
+    await expect(guardar).toBeDisabled();
+
+    // Cero no es un entero positivo; 101 se pasa del tope.
+    await capacidad.fill('0');
+    await expect(capacidad).toHaveAttribute('aria-invalid', 'true');
+    await expect(guardar).toBeDisabled();
+    await capacidad.fill('101');
+    await expect(guardar).toBeDisabled();
+    // Lo que no es un dígito ni se escribe.
+    await capacidad.fill('3,5');
+    await expect(capacidad).toHaveValue('35');
+    await capacidad.fill('3');
+    await expect(capacidad).toHaveAttribute('aria-invalid', 'false');
+
+    // El primer horario viene cargado (lunes 18:00); se suma el jueves a las 19:30.
+    await page.getByRole('button', { name: 'Agregar horario a Taller' }).click();
+    await page.getByLabel('Día del horario 2 de Taller', { exact: true }).selectOption('jue');
+    await page.getByLabel('Hora del horario 2 de Taller', { exact: true }).selectOption('19:30');
+    await expect(guardar).toBeEnabled();
+    await guardar.click();
+    await expect(page.getByText('Listo: tu asistente ya usa estas reuniones.')).toBeVisible();
+
+    expect((await agenteActual(context.request))?.tiposEvento).toEqual([
+      { nombre: 'Control', duracionMin: 30 },
+      {
+        nombre: 'Taller',
+        duracionMin: 60,
+        capacidad: 3,
+        horarios: [
+          { dia: 'lun', hora: '18:00' },
+          { dia: 'jue', hora: '19:30' },
+        ],
+      },
+    ]);
+
+    // Recargar muestra lo guardado.
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Turno grupal: Taller' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByLabel('Capacidad de Taller', { exact: true })).toHaveValue('3');
+    await expect(page.getByLabel('Día del horario 2 de Taller', { exact: true })).toHaveValue('jue');
+    await expect(page.getByLabel('Hora del horario 2 de Taller', { exact: true })).toHaveValue('19:30');
+    await expect(page.getByRole('button', { name: 'Turno grupal: Control' })).toHaveAttribute('aria-pressed', 'false');
+
+    // Apagarlo la vuelve individual.
+    await page.getByRole('button', { name: 'Turno grupal: Taller' }).click();
+    await guardar.click();
+    await expect(guardar).toBeDisabled();
+    expect((await agenteActual(context.request))?.tiposEvento).toEqual([
+      { nombre: 'Control', duracionMin: 30 },
+      { nombre: 'Taller', duracionMin: 60 },
+    ]);
+  });
+
   test('sin agente manda al onboarding',async ({ page, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await page.goto('/reuniones');

@@ -70,7 +70,16 @@ export async function ponerPassword(request: APIRequestContext, nueva: string): 
   expect(res.status(), await res.text()).toBe(204);
 }
 
-export type TipoEvento = { nombre: string; duracionMin: number; precio?: number };
+export type HorarioGrupal = { dia: 'lun' | 'mar' | 'mie' | 'jue' | 'vie' | 'sab' | 'dom'; hora: string };
+
+/** Con `capacidad` y `horarios` es un turno grupal. */
+export type TipoEvento = {
+  nombre: string;
+  duracionMin: number;
+  precio?: number;
+  capacidad?: number;
+  horarios?: HorarioGrupal[];
+};
 
 export type PayloadAgente = {
   tipoTitular: 'persona' | 'negocio';

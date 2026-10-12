@@ -2,7 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { calendar_v3 } from 'googleapis';
 import type { Env } from '../config/env.js';
-import type { User } from '../generated/prisma/client.js';
+import type { Turno, User } from '../generated/prisma/client.js';
+import { tituloEventoGrupal } from '../agents/turnos-grupales.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CalendarioLocal } from './calendario-local.js';
 import {
@@ -24,6 +25,8 @@ export type TurnoAgendado = {
   id: string;
   googleEventId: string;
   nombreCliente: string | null;
+  /** Sólo en los turnos grupales: el tipo de la clase. */
+  tipo: string | null;
   inicio: Date;
   fin: Date;
 };
@@ -36,6 +39,26 @@ export const CALENDARIO_GOOGLE = 'google';
 export const CALENDARIO_LOCAL = 'local';
 
 export type ResultadoMigracion = { migrados: number; pendientes: number };
+
+/** Lo que hace falta para anotar a un cliente en una clase de un turno grupal. */
+export type InscripcionGrupal = {
+  conversationId: string;
+  nombreCliente: string;
+  tipo: string;
+  inicio: Date;
+  fin: Date;
+  capacidad: number;
+};
+
+export type ResultadoInscripcion =
+  | { ok: true; turno: Turno; anotados: number }
+  | { ok: false; motivo: 'completa' | 'ya_anotado' };
+
+/**
+ * Una inscripción o una baja escribe en Google adentro de la transacción; el
+ * default de Prisma (5 s) le queda corto a una respuesta lenta de la API.
+ */
+const TIMEOUT_TRANSACCION_GRUPAL_MS = 20_000;
 
 /**
  * Distingue "Google está caído" de "este usuario tiene que volver a consentir".
@@ -100,6 +123,11 @@ function traducirError(error: unknown): CalendarUnavailableError {
     );
   }
   return new CalendarUnavailableError(`Google Calendar no respondió: ${(error as Error).message}`);
+}
+
+/** Clave del lock de Postgres de una clase: dueño, tipo e inicio. */
+function claveDeClase(userId: string, tipo: string, inicio: Date): string {
+  return `turno-grupal:${userId}:${tipo.toLowerCase()}:${inicio.toISOString()}`;
 }
 
 /**
@@ -236,6 +264,113 @@ export class CalendarService {
     }
   }
 
+  /**
+   * Anota a un cliente en una clase de un turno grupal (mismo dueño, tipo e
+   * inicio). Todos los anotados comparten un único evento: el primero lo crea
+   * y los siguientes reusan su id. El lock de Postgres por clase serializa la
+   * carrera por el último lugar (dos conversaciones a la vez) y la de una
+   * inscripción contra la baja del último anotado, que borra el evento.
+   */
+  async inscribirEnTurnoGrupal(user: UsuarioCalendario, datos: InscripcionGrupal): Promise<ResultadoInscripcion> {
+    const resultado = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${claveDeClase(user.id, datos.tipo, datos.inicio)}))`;
+        const anotados = await tx.turno.findMany({
+          where: { conversation: { userId: user.id }, tipo: datos.tipo, inicio: datos.inicio, estado: 'confirmado' },
+          select: { googleEventId: true, conversationId: true },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (anotados.some((anotado) => anotado.conversationId === datos.conversationId)) {
+          return { ok: false as const, motivo: 'ya_anotado' as const };
+        }
+        if (anotados.length >= datos.capacidad) return { ok: false as const, motivo: 'completa' as const };
+
+        const existente = anotados[0]?.googleEventId;
+        const googleEventId =
+          existente ??
+          (await this.crearEvento(user, {
+            resumen: tituloEventoGrupal(datos.tipo, 1, datos.capacidad),
+            inicio: datos.inicio,
+            fin: datos.fin,
+          }));
+        const turno = await tx.turno.create({
+          data: {
+            conversationId: datos.conversationId,
+            googleEventId,
+            nombreCliente: datos.nombreCliente,
+            tipo: datos.tipo,
+            inicio: datos.inicio,
+            fin: datos.fin,
+            estado: 'confirmado',
+          },
+        });
+        return { ok: true as const, turno, anotados: anotados.length + 1, existente: existente !== undefined };
+      },
+      { timeout: TIMEOUT_TRANSACCION_GRUPAL_MS },
+    );
+    if (!resultado.ok) return resultado;
+    if (resultado.existente) {
+      await this.retitularClase(user, resultado.turno.googleEventId, datos.tipo, resultado.anotados, datos.capacidad);
+    }
+    return { ok: true, turno: resultado.turno, anotados: resultado.anotados };
+  }
+
+  /**
+   * Da de baja a un anotado de una clase. Si quedan otros, el evento sigue (con
+   * el título actualizado); si era el último, se borra. Sirve también para un
+   * turno cuyo tipo dejó de ser grupal: mientras comparta el evento con otros,
+   * no se lo borra a ellos. Devuelve cuántos quedan anotados.
+   */
+  async bajaDeTurnoGrupal(
+    user: UsuarioCalendario,
+    turno: Pick<Turno, 'id' | 'googleEventId' | 'inicio'> & { tipo: string },
+    capacidad?: number,
+  ): Promise<number> {
+    const quedan = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${claveDeClase(user.id, turno.tipo, turno.inicio)}))`;
+        const otros = await tx.turno.count({
+          where: {
+            googleEventId: turno.googleEventId,
+            conversation: { userId: user.id },
+            estado: 'confirmado',
+            id: { not: turno.id },
+          },
+        });
+        // Si falla Google, la transacción vuelve atrás y el turno sigue confirmado: nada queda a medias.
+        if (otros === 0) await this.cancelarEvento(user, turno.googleEventId);
+        await tx.turno.updateMany({
+          where: { id: turno.id, conversation: { userId: user.id } },
+          data: { estado: 'cancelado' },
+        });
+        return otros;
+      },
+      { timeout: TIMEOUT_TRANSACCION_GRUPAL_MS },
+    );
+    if (quedan > 0) await this.retitularClase(user, turno.googleEventId, turno.tipo, quedan, capacidad);
+    return quedan;
+  }
+
+  /**
+   * Pone en el título del evento cuántos hay anotados. Es informativo para el
+   * dueño: si Google falla, la inscripción o la baja ya quedaron hechas y no
+   * se deshacen por esto.
+   */
+  private async retitularClase(
+    user: UsuarioCalendario,
+    googleEventId: string,
+    tipo: string,
+    anotados: number,
+    capacidad?: number,
+  ): Promise<void> {
+    try {
+      await this.reprogramarEvento(user, googleEventId, { resumen: tituloEventoGrupal(tipo, anotados, capacidad) });
+    } catch (error) {
+      // Sólo el mensaje: el error de googleapis arrastra la request entera y esto termina en Sentry.
+      this.logger.error(`No se pudo actualizar el título de la clase del usuario ${user.id}: ${(error as Error).message}`);
+    }
+  }
+
   async listarProximos(user: UsuarioCalendario, desde: Date, hasta: Date): Promise<EventoListado[]> {
     if (this.usaCalendarioLocal(user)) return this.local.listar(user.id, desde, hasta);
 
@@ -272,7 +407,7 @@ export class CalendarService {
         inicio: { lt: hasta },
         fin: { gt: desde },
       },
-      select: { id: true, googleEventId: true, nombreCliente: true, inicio: true, fin: true },
+      select: { id: true, googleEventId: true, nombreCliente: true, tipo: true, inicio: true, fin: true },
       orderBy: { inicio: 'asc' },
     });
   }

@@ -4,6 +4,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { leerPrecio, precioParaInput } from "@/lib/precio";
+import { DIAS_SEMANA, NOMBRE_DIA, type DiaSemana } from "@/lib/local";
+import {
+  CAPACIDAD_MAX,
+  HORAS_GRUPALES,
+  MAX_HORARIOS_GRUPALES,
+  leerCapacidad,
+  type HorarioGrupal,
+} from "@/lib/turnos-grupales";
 import {
   HORAS,
   LARGO_MAX_BOT,
@@ -14,6 +22,7 @@ import {
   SUGERENCIAS_BOT,
   TIPOS_USO,
   duracionVecina,
+  type DatosEvento,
   type Onboarding,
   type TiposEventoState,
 } from "@/app/contanos/useOnboarding";
@@ -199,7 +208,8 @@ function SelectorDuracion({
 
 /**
  * Un tipo de evento por fila. Tildarlo muestra la duración y el precio en la
- * misma fila (debajo en móvil), así la lista no salta al activar uno.
+ * misma fila (debajo en móvil), así la lista no salta al activar uno. Si se
+ * marca "Grupal", debajo aparecen la capacidad y los horarios fijos.
  */
 export function ListaEventos({ ob }: { ob: TiposEventoState }) {
   return (
@@ -212,71 +222,218 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
           <div
             key={evento.nombre}
             className={cn(
-              "flex flex-col gap-2.5 rounded-sm border px-[13px] py-[9px] sm:flex-row sm:items-center",
+              "flex flex-col gap-2.5 rounded-sm border px-[13px] py-[9px]",
               activo ? "border-primary bg-primary-subtle" : "border-line bg-card hover:border-line-strong",
             )}
           >
-            <button
-              type="button"
-              aria-pressed={activo}
-              onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
-              className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left select-none"
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "grid size-[18px] flex-none place-items-center rounded-[6px] border",
-                  activo ? "border-primary bg-primary text-primary-on" : "border-line-strong bg-card",
-                )}
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                aria-pressed={activo}
+                onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
+                className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left select-none"
               >
-                {activo && (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                )}
-              </span>
-              <span className={cn("min-w-0 flex-1 text-[14px] break-words text-ink", activo && "font-semibold")}>
-                {evento.nombre}
-              </span>
-              {!activo && (
-                <span aria-hidden className="flex-none rounded-full bg-sunken px-[9px] py-[3px] font-mono text-[11.5px] font-semibold text-muted">
-                  {duracion} min
+                <span
+                  aria-hidden
+                  className={cn(
+                    "grid size-[18px] flex-none place-items-center rounded-[6px] border",
+                    activo ? "border-primary bg-primary text-primary-on" : "border-line-strong bg-card",
+                  )}
+                >
+                  {activo && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  )}
                 </span>
-              )}
-            </button>
-            {activo && (
-              // En móvil el precio y "Sin precio" bajan a su propia línea: al lado del − / + no entran.
-              <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-                <SelectorDuracion
-                  nombre={evento.nombre}
-                  duracion={duracion}
-                  onChange={(min) => ob.fijarDuracion(evento.nombre, min)}
-                />
-                <div className="flex min-w-[200px] flex-1 items-center gap-2 sm:min-w-0 sm:flex-none">
-                  <div className="min-w-0 flex-1 sm:w-[120px] sm:flex-none">
-                    <CampoPrecio
-                      valor={datos.precio}
-                      onChange={(precio) => ob.fijarPrecio(evento.nombre, precio)}
-                      etiqueta={`Precio de ${evento.nombre}`}
-                      deshabilitado={Boolean(datos.sinPrecio)}
-                    />
+                <span className={cn("min-w-0 flex-1 text-[14px] break-words text-ink", activo && "font-semibold")}>
+                  {evento.nombre}
+                </span>
+                {!activo && (
+                  <span aria-hidden className="flex-none rounded-full bg-sunken px-[9px] py-[3px] font-mono text-[11.5px] font-semibold text-muted">
+                    {duracion} min
+                  </span>
+                )}
+              </button>
+              {activo && (
+                // En móvil el precio, "Sin precio" y "Grupal" bajan a su propia línea: al lado del − / + no entran.
+                <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                  <SelectorDuracion
+                    nombre={evento.nombre}
+                    duracion={duracion}
+                    onChange={(min) => ob.fijarDuracion(evento.nombre, min)}
+                  />
+                  <div className="flex min-w-[200px] flex-1 items-center gap-2 sm:min-w-0 sm:flex-none">
+                    <div className="min-w-0 flex-1 sm:w-[120px] sm:flex-none">
+                      <CampoPrecio
+                        valor={datos.precio}
+                        onChange={(precio) => ob.fijarPrecio(evento.nombre, precio)}
+                        etiqueta={`Precio de ${evento.nombre}`}
+                        deshabilitado={Boolean(datos.sinPrecio)}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      aria-pressed={Boolean(datos.sinPrecio)}
+                      aria-label={`Sin precio para ${evento.nombre}`}
+                      onClick={() => ob.fijarSinPrecio(evento.nombre, !datos.sinPrecio)}
+                      className={cn(chip(Boolean(datos.sinPrecio)), "flex-none whitespace-nowrap")}
+                    >
+                      Sin precio
+                    </button>
                   </div>
+                  {/* Afuera del grupo del precio: en un celular angosto baja solo a la línea siguiente. */}
                   <button
                     type="button"
-                    aria-pressed={Boolean(datos.sinPrecio)}
-                    aria-label={`Sin precio para ${evento.nombre}`}
-                    onClick={() => ob.fijarSinPrecio(evento.nombre, !datos.sinPrecio)}
-                    className={cn(chip(Boolean(datos.sinPrecio)), "flex-none whitespace-nowrap")}
+                    aria-pressed={Boolean(datos.grupal)}
+                    aria-label={`Turno grupal: ${evento.nombre}`}
+                    onClick={() => ob.fijarGrupal(evento.nombre, !datos.grupal)}
+                    className={cn(chip(Boolean(datos.grupal)), "flex-none whitespace-nowrap")}
                   >
-                    Sin precio
+                    Grupal
                   </button>
                 </div>
-              </div>
+              )}
+            </div>
+            {activo && datos.grupal && (
+              <PanelGrupal ob={ob} nombre={evento.nombre} datos={datos} problema={ob.problemasGrupales[evento.nombre]} />
             )}
           </div>
         );
       })}
     </div>
+  );
+}
+
+const SELECT_GRUPAL =
+  "box-border min-h-10 rounded-sm border border-line bg-card px-2 text-[14px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
+
+/**
+ * Lo que tiene un turno grupal: cuántas personas entran y en qué días y horas
+ * se da. Los clientes sólo se pueden anotar en esos horarios.
+ */
+function PanelGrupal({
+  ob,
+  nombre,
+  datos,
+  problema,
+}: {
+  ob: TiposEventoState;
+  nombre: string;
+  datos: DatosEvento;
+  problema: string | undefined;
+}) {
+  const horarios = datos.horarios ?? [];
+  const idProblema = `problema-grupal-${nombre.replace(/[^a-zA-Z0-9]+/g, "-")}`;
+  return (
+    <div className="flex flex-col gap-3 rounded-sm border border-line bg-card p-3">
+      <label className="flex flex-wrap items-center gap-2 text-[13.5px] text-ink">
+        <span className="font-semibold">Cuántas personas entran</span>
+        <span className="flex items-center rounded-sm border border-line bg-card focus-within:border-[var(--color-semantic-border-focus)]">
+          <input
+            value={datos.capacidad === undefined ? "" : String(datos.capacidad)}
+            onChange={(e) => ob.fijarCapacidad(nombre, leerCapacidad(e.target.value))}
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label={`Capacidad de ${nombre}`}
+            aria-invalid={problema !== undefined}
+            aria-describedby={problema ? idProblema : undefined}
+            placeholder={`1 a ${CAPACIDAD_MAX}`}
+            className="w-[84px] min-w-0 bg-transparent px-2 py-[9px] font-mono text-[14px] text-ink outline-none"
+          />
+          <span aria-hidden className="pr-3 text-[13px] text-muted">
+            personas
+          </span>
+        </span>
+      </label>
+      <div className="flex flex-col gap-2">
+        <span className="text-[13.5px] font-semibold text-ink">Horarios fijos</span>
+        <ul className="flex flex-col gap-2">
+          {horarios.map((horario, indice) => (
+            <FilaHorarioGrupal
+              key={indice}
+              nombre={nombre}
+              indice={indice}
+              horario={horario}
+              onChange={(nuevo) => ob.fijarHorario(nombre, indice, nuevo)}
+              onQuitar={() => ob.quitarHorario(nombre, indice)}
+            />
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={() => ob.agregarHorario(nombre)}
+          disabled={horarios.length >= MAX_HORARIOS_GRUPALES}
+          aria-label={`Agregar horario a ${nombre}`}
+          className="min-h-9 self-start cursor-pointer text-[13px] font-semibold text-primary-hover hover:underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
+        >
+          + Agregar horario
+        </button>
+      </div>
+      {problema ? (
+        <p id={idProblema} className="text-[12.5px] text-danger-text">
+          {problema}
+        </p>
+      ) : (
+        <p className="text-[12.5px] text-muted">Los clientes sólo se pueden anotar en estos horarios.</p>
+      )}
+    </div>
+  );
+}
+
+function FilaHorarioGrupal({
+  nombre,
+  indice,
+  horario,
+  onChange,
+  onQuitar,
+}: {
+  nombre: string;
+  indice: number;
+  horario: HorarioGrupal;
+  onChange: (horario: HorarioGrupal) => void;
+  onQuitar: () => void;
+}) {
+  const numero = indice + 1;
+  // Una hora guardada que no está en la grilla (18:10 cargado por API) se sigue mostrando.
+  const horas = HORAS_GRUPALES.includes(horario.hora)
+    ? HORAS_GRUPALES
+    : [...HORAS_GRUPALES, horario.hora].sort((a, b) => a.localeCompare(b));
+  return (
+    <li className="flex flex-wrap items-center gap-2">
+      <select
+        aria-label={`Día del horario ${numero} de ${nombre}`}
+        value={horario.dia}
+        onChange={(e) => onChange({ ...horario, dia: e.target.value as DiaSemana })}
+        className={SELECT_GRUPAL}
+      >
+        {DIAS_SEMANA.map((dia) => (
+          <option key={dia} value={dia}>
+            {NOMBRE_DIA[dia]}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label={`Hora del horario ${numero} de ${nombre}`}
+        value={horario.hora}
+        onChange={(e) => onChange({ ...horario, hora: e.target.value })}
+        className={SELECT_GRUPAL}
+      >
+        {horas.map((hora) => (
+          <option key={hora} value={hora}>
+            {hora}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={onQuitar}
+        aria-label={`Quitar horario ${numero} de ${nombre}`}
+        className="min-h-9 cursor-pointer px-1 text-[13px] text-ink-secondary hover:text-danger hover:underline"
+      >
+        Quitar
+      </button>
+    </li>
   );
 }
 
