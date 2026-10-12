@@ -17,6 +17,14 @@ import { reglaDeMensajesPropios } from '../../../agents/mensajes.rules.js';
 import { reglasDeNaturalidad } from '../naturalidad.js';
 import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../saludo.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../ventana-historial.js';
+import {
+  anotadosPorClase,
+  bloqueTurnosGrupales,
+  clasesEnRango,
+  ocupadosDeClases,
+  tiposGrupales,
+  type TurnosGrupales,
+} from '../turnos-grupales.js';
 import type { AgentConUser, ContextoTurno, EstadoConversacionUpdate, EstadoConversacionValue, SnapshotAgenda } from '../state.js';
 
 /** Cuántos días hacia adelante se traen de Google en la única llamada a freeBusy. */
@@ -49,7 +57,7 @@ export function duracionMinima(agent: Agent): number {
 }
 
 /** Lo que hace falta de un turno del dueño para nombrarlo en su prompt. */
-export type TurnoDelDueno = { inicio: Date; fin: Date; nombreCliente: string | null };
+export type TurnoDelDueno = { inicio: Date; fin: Date; nombreCliente: string | null; tipo?: string | null };
 
 export type DepsContexto = {
   prisma: PrismaService;
@@ -78,6 +86,11 @@ export function reglasDeAgenda(agent: Agent): string {
     `- Sólo se atiende de ${agent.horaDesde} a ${agent.horaHasta}. Nunca ofrezcas ni agendes nada fuera de esa franja.\n` +
     `- Tipos de turno con su duración y, si lo tienen, su precio: ${catalogo}. Calculá el fin sumándole la duración al inicio.\n` +
     `- Nunca superpongas turnos y dejá al menos ${MARGEN_MINIMO_MIN} minutos libres entre un turno y el siguiente.\n` +
+    (tiposGrupales(tipos).length > 0
+      ? `- Los turnos grupales (los que dicen "grupal de hasta N personas") sólo se dan en sus horarios fijos y ahí ` +
+        `se anotan varias personas hasta llenar la capacidad: no se agendan en otro horario ni se ofrece una clase ` +
+        `completa. Para anotar a alguien usá crear_turno con ese tipo y el inicio exacto de la clase.\n`
+      : '') +
     `- Antes de agendar, preguntá siempre a nombre de quién es el turno, salvo que ya te lo hayan dicho.\n` +
     `- No pidas confirmación: cuando ya tenés día, horario libre, tipo de turno y nombre, llamá crear_turno en ese ` +
     `mismo mensaje y avisá que quedó agendado. Lo mismo si pide moverlo (reprogramar_turno) o cancelarlo ` +
@@ -191,7 +204,11 @@ export function bloqueTurnosDelDueno(turnos: TurnoDelDueno[]): string {
   });
   const lineas = turnos
     .slice(0, MAX_TURNOS_EN_PROMPT)
-    .map((turno) => `- ${formato.format(turno.inicio)}${turno.nombreCliente ? ` · ${turno.nombreCliente}` : ''}`);
+    .map(
+      (turno) =>
+        `- ${formato.format(turno.inicio)}${turno.nombreCliente ? ` · ${turno.nombreCliente}` : ''}` +
+        (turno.tipo ? ` · clase grupal de ${turno.tipo}` : ''),
+    );
   const hayMas = turnos.length > MAX_TURNOS_EN_PROMPT;
   return (
     `Turnos ya agendados en los próximos ${DIAS_VENTANA} días (usalos para contestarle al dueño qué tiene ` +
@@ -307,12 +324,24 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
         inicio: { lt: hasta },
         fin: { gt: desde },
       },
-      select: { inicio: true, fin: true, nombreCliente: true },
+      select: { inicio: true, fin: true, nombreCliente: true, tipo: true, conversationId: true },
       orderBy: { inicio: 'asc' },
     });
+    // Las clases de los turnos grupales existen aunque nadie se haya anotado:
+    // entran al snapshot como ocupadas para que ningún turno individual caiga
+    // encima, y los huecos del prompt ya salen sin ellas.
+    const clases = clasesEnRango(leerTiposEvento(agent), desde, hasta);
+    // La que ya empezó sigue ocupando la agenda, pero no se ofrece ni admite anotados.
+    const grupales: TurnosGrupales = {
+      clases: clases.filter((clase) => clase.inicio >= desde),
+      anotados: anotadosPorClase(turnos),
+    };
     // Sólo los horarios entran al snapshot: el nombre del cliente no tiene nada
     // que hacer en la foto de ocupados, que es lo que ve cualquier conversación.
-    const ocupadosPropios = turnos.map(({ inicio, fin }) => ({ inicio, fin }));
+    const ocupadosPropios = unirOcupados(
+      turnos.map(({ inicio, fin }) => ({ inicio, fin })),
+      ocupadosDeClases(clases),
+    );
 
     let agenda: SnapshotAgenda = { desde, hasta, ocupados: ocupadosPropios, falla: false };
     try {
@@ -324,13 +353,16 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
       agenda = { desde, hasta, ocupados: [], falla: true };
     }
 
+    const clasesGrupales = bloqueTurnosGrupales(grupales);
     const contexto: ContextoTurno = {
       agent,
       conversation,
       turnoActivo,
+      grupales,
       bloqueSistema:
         `${agent.systemPrompt}\n\n${contextoFijo(agent, conversation, state.esPropietario, yaSePresento(historial.visibles))}\n\n` +
         bloqueDisponibilidad(agent, agenda) +
+        (clasesGrupales ? `\n\n${clasesGrupales}` : '') +
         // Los nombres de los clientes son sólo para el dueño.
         (state.esPropietario ? `\n\n${bloqueTurnosDelDueno(turnos)}` : ''),
     };

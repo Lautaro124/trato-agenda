@@ -4,19 +4,41 @@ import { useCallback, useMemo, useState } from "react";
 import { useDatosCliente, type PayloadDatosCliente } from "@/lib/datos-cliente";
 import type { LocalPresencial } from "@/lib/local";
 import { formatearPrecio } from "@/lib/precio";
+import {
+  MAX_HORARIOS_GRUPALES,
+  horarioSiguiente,
+  ordenarHorarios,
+  problemaGrupal,
+  type HorarioGrupal,
+} from "@/lib/turnos-grupales";
 import { useLocal } from "./useLocal";
 
 export type TipoUsoId = "consultorio" | "otro";
 
 export type TipoTitular = "persona" | "negocio";
 
-export type TipoEvento = { nombre: string; duracionMin: number; precio?: number };
+/** Con `capacidad` (y sus `horarios` fijos) es un turno grupal: lib/turnos-grupales.ts. */
+export type TipoEvento = {
+  nombre: string;
+  duracionMin: number;
+  precio?: number;
+  capacidad?: number;
+  horarios?: HorarioGrupal[];
+};
 
 /**
  * Lo que el usuario fue cargando de un tipo de evento activado. `sinPrecio` es
  * sólo de pantalla (el botón "Sin precio" traba el campo): nunca viaja a la API.
+ * Tampoco `grupal`: lo que viaja es la capacidad y los horarios, sólo si está prendido.
  */
-export type DatosEvento = { duracionMin: number; precio?: number; sinPrecio?: boolean };
+export type DatosEvento = {
+  duracionMin: number;
+  precio?: number;
+  sinPrecio?: boolean;
+  grupal?: boolean;
+  capacidad?: number;
+  horarios?: HorarioGrupal[];
+};
 
 /**
  * El "Empezar con" del paso de turnos: con qué lista arranca. Es lo que viaja
@@ -130,9 +152,13 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
   /** nombre del tipo de evento → duración y precio elegidos. Sólo los seleccionados. */
   const [elegidos, setElegidos] = useState<Record<string, DatosEvento>>(() =>
     Object.fromEntries(
-      inicial.map(({ nombre, duracionMin, precio }) => [
+      inicial.map(({ nombre, duracionMin, precio, capacidad, horarios }) => [
         nombre,
-        precio === undefined ? { duracionMin } : { duracionMin, precio },
+        {
+          duracionMin,
+          ...(precio === undefined ? {} : { precio }),
+          ...(capacidad === undefined ? {} : { grupal: true, capacidad, horarios: horarios ?? [] }),
+        },
       ]),
     ),
   );
@@ -184,6 +210,55 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     );
   }, []);
 
+  /** Cambia sólo lo que se pasa de un tipo de evento activado. */
+  const actualizar = useCallback((nombre: string, cambio: (datos: DatosEvento) => DatosEvento) => {
+    setElegidos((previos) => (previos[nombre] ? { ...previos, [nombre]: cambio(previos[nombre]) } : previos));
+  }, []);
+
+  /** Prenderlo arranca con un horario para editar y la capacidad vacía; apagarlo borra los dos. */
+  const fijarGrupal = useCallback(
+    (nombre: string, grupal: boolean) =>
+      actualizar(nombre, (datos) =>
+        grupal
+          ? { ...datos, grupal: true, horarios: datos.horarios?.length ? datos.horarios : [horarioSiguiente([])] }
+          : { ...datos, grupal: false, capacidad: undefined, horarios: undefined },
+      ),
+    [actualizar],
+  );
+
+  const fijarCapacidad = useCallback(
+    (nombre: string, capacidad: number | undefined) => actualizar(nombre, (datos) => ({ ...datos, capacidad })),
+    [actualizar],
+  );
+
+  const agregarHorario = useCallback(
+    (nombre: string) =>
+      actualizar(nombre, (datos) => {
+        const horarios = datos.horarios ?? [];
+        if (horarios.length >= MAX_HORARIOS_GRUPALES) return datos;
+        return { ...datos, horarios: [...horarios, horarioSiguiente(horarios)] };
+      }),
+    [actualizar],
+  );
+
+  const fijarHorario = useCallback(
+    (nombre: string, indice: number, horario: HorarioGrupal) =>
+      actualizar(nombre, (datos) => ({
+        ...datos,
+        horarios: (datos.horarios ?? []).map((actual, i) => (i === indice ? horario : actual)),
+      })),
+    [actualizar],
+  );
+
+  const quitarHorario = useCallback(
+    (nombre: string, indice: number) =>
+      actualizar(nombre, (datos) => ({
+        ...datos,
+        horarios: (datos.horarios ?? []).filter((_, i) => i !== indice),
+      })),
+    [actualizar],
+  );
+
   const agregarPersonalizado = useCallback(() => {
     const nombre = personalizado.trim().slice(0, LARGO_MAX_NOMBRE_EVENTO);
     if (nombre.length < LARGO_MIN_NOMBRE_EVENTO) return;
@@ -206,10 +281,26 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
 
   const seleccionados: TipoEvento[] = useMemo(
     () =>
-      Object.entries(elegidos).map(([nombre, { duracionMin, precio }]) =>
-        // Sin precio la clave no viaja: el DTO lo trata como ausente.
-        precio === undefined ? { nombre, duracionMin } : { nombre, duracionMin, precio },
-      ),
+      Object.entries(elegidos).map(([nombre, { duracionMin, precio, grupal, capacidad, horarios }]) => ({
+        nombre,
+        duracionMin,
+        // Sin precio la clave no viaja: el DTO lo trata como ausente. Lo mismo con lo grupal apagado.
+        ...(precio === undefined ? {} : { precio }),
+        ...(grupal ? { capacidad, horarios: ordenarHorarios(horarios ?? []) } : {}),
+      })),
+    [elegidos],
+  );
+
+  /** nombre → por qué su parte grupal no se puede guardar todavía. Vacío = todo bien. */
+  const problemasGrupales = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(elegidos).flatMap(([nombre, datos]) => {
+          if (!datos.grupal) return [];
+          const problema = problemaGrupal(datos.duracionMin, datos.capacidad, datos.horarios ?? []);
+          return problema ? [[nombre, problema]] : [];
+        }),
+      ) as Record<string, string>,
     [elegidos],
   );
 
@@ -223,6 +314,13 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     fijarPrecio,
     fijarSinPrecio,
     fijarPrecioATodos,
+    fijarGrupal,
+    fijarCapacidad,
+    agregarHorario,
+    fijarHorario,
+    quitarHorario,
+    problemasGrupales,
+    gruposValidos: Object.keys(problemasGrupales).length === 0,
     personalizado,
     setPersonalizado,
     agregarPersonalizado,
@@ -279,7 +377,7 @@ export function useOnboarding() {
   const puedeAvanzar: Record<PasoId, boolean> = {
     tipo: true,
     negocio: nombreTitular.trim().length >= LARGO_MIN_NOMBRE,
-    turnos: seleccionados.length > 0,
+    turnos: seleccionados.length > 0 && tipos.gruposValidos,
     horarios: rangoValido,
     local: local.valido,
     // Opcional: sin tildar nada el asistente sólo pide el nombre.

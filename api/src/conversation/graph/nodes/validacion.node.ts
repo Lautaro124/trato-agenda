@@ -32,6 +32,20 @@ import {
   resumenDelDia,
 } from '../agenda-rules.js';
 import { duracionMinima } from './cargar-contexto.node.js';
+import { leerTiposEvento } from '../../../agents/agents.types.js';
+import { esGrupal } from '../../../agents/turnos-grupales.js';
+import {
+  anotadosEn,
+  claseEn,
+  conAnotado,
+  clasesDelDia,
+  lugaresLibres,
+  mensajeClaseCompleta,
+  mensajeFueraDeHorarioGrupal,
+  tipoPorNombre,
+  type AnotadosPorClase,
+  type Clase,
+} from '../turnos-grupales.js';
 import {
   llamadasDe,
   type EstadoConversacionUpdate,
@@ -169,13 +183,46 @@ function responderDisponibilidad(
 
 type Resultado =
   | { tipo: 'respuesta'; texto: string }
-  /** `reserva` es el rango que la operación va a ocupar: se anota para que otra tool call del mismo mensaje no lo pise. */
-  | { tipo: 'pendiente'; operacion: OperacionPendiente; reserva?: PeriodoOcupado };
+  /**
+   * `reserva` es el rango que la operación va a ocupar: se anota para que otra
+   * tool call del mismo mensaje no lo pise. `inscripcion` es la clase de un
+   * turno grupal en la que anota a alguien: cuenta para la capacidad.
+   */
+  | { tipo: 'pendiente'; operacion: OperacionPendiente; reserva?: PeriodoOcupado; inscripcion?: Clase };
+
+/**
+ * Valida la inscripción en una clase de un turno grupal. El horario lo fijó
+ * el dueño, así que no se chequean choques ni franja: alcanza con que sea una
+ * clase real, que esta conversación no esté anotada y que quede lugar
+ * (contando las inscripciones ya aprobadas en este mismo mensaje).
+ */
+function validarInscripcion(
+  state: EstadoConversacionValue,
+  provisorias: AnotadosPorClase,
+  tipo: Parameters<typeof mensajeFueraDeHorarioGrupal>[0],
+  inicio: Date,
+  excepto?: { inicio: Date },
+): { ok: true; clase: Clase } | { ok: false; motivo: string } {
+  const { clases } = state.contexto.grupales;
+  const clase = claseEn(clases, tipo.nombre, inicio);
+  if (!clase) return { ok: false, motivo: mensajeFueraDeHorarioGrupal(tipo, provisorias, clases) };
+  if (excepto && clase.inicio.getTime() === excepto.inicio.getTime()) {
+    return { ok: false, motivo: 'Ya está anotado en esa clase: no hay nada que mover.' };
+  }
+  if (anotadosEn(provisorias, clase).conversaciones.has(state.contexto.conversation.id)) {
+    return { ok: false, motivo: `Ya está anotado en la clase de ${clase.tipo} del ${formatearFecha(clase.inicio)}.` };
+  }
+  if (lugaresLibres(provisorias, clase) === 0) {
+    return { ok: false, motivo: mensajeClaseCompleta(clase, provisorias, clases) };
+  }
+  return { ok: true, clase };
+}
 
 function validarLlamada(
   state: EstadoConversacionValue,
   ocupadosBase: PeriodoOcupado[],
   llamada: OperacionPendiente,
+  provisorias: AnotadosPorClase,
 ): Resultado {
   const { nombre, args } = llamada;
   const esquema = state.esPropietario
@@ -211,14 +258,10 @@ function validarLlamada(
       const dia = claveDia(desde);
       const resumenCorto = () => ({
         tipo: 'respuesta' as const,
-        texto: resumenDelDia(
-          agent,
-          ocupadosBase,
-          dia,
-          state.agenda.desde,
-          state.agenda.hasta,
-          duracionMinima(agent),
-        ),
+        texto:
+          resumenDelDia(agent, ocupadosBase, dia, state.agenda.desde, state.agenda.hasta, duracionMinima(agent)) +
+          // Las clases grupales van aparte: no son huecos libres, son lugares en un horario fijo.
+          clasesDelDia({ ...state.contexto.grupales, anotados: provisorias }, dia),
       });
 
       // Un fin de semana se contesta siempre igual ("no se atiende"), esté o no
@@ -257,6 +300,12 @@ function validarLlamada(
         };
       }
       const inicio = parsearFecha(args.inicio, 'inicio');
+      const tipo = tipoPorNombre(leerTiposEvento(state.contexto.agent), args.resumen);
+      if (tipo && esGrupal(tipo)) {
+        const inscripcion = validarInscripcion(state, provisorias, tipo, inicio);
+        if (!inscripcion.ok) return { tipo: 'respuesta', texto: `No se pudo anotar: ${inscripcion.motivo}` };
+        return { ...pendiente, inscripcion: inscripcion.clase };
+      }
       const fin = parsearFecha(args.fin, 'fin');
       const veredicto = chequearHorario(state, ocupadosBase, inicio, fin);
       if (!veredicto.ok) {
@@ -271,6 +320,21 @@ function validarLlamada(
         return { tipo: 'respuesta', texto: 'No hay ningún turno activo para reprogramar en esta conversación.' };
       }
       const inicio = parsearFecha(args.inicio, 'inicio');
+      if (turno.tipo) {
+        // Un turno grupal se mueve a otra clase del mismo tipo, con las mismas reglas que una inscripción.
+        const tipo = tipoPorNombre(leerTiposEvento(state.contexto.agent), turno.tipo);
+        if (!tipo || !esGrupal(tipo)) {
+          return {
+            tipo: 'respuesta',
+            texto:
+              `No se pudo reprogramar: ${turno.tipo} ya no es un turno grupal con horarios. ` +
+              'Si el cliente quiere otro horario, cancelá este turno y agendá uno nuevo.',
+          };
+        }
+        const inscripcion = validarInscripcion(state, provisorias, tipo, inicio, turno);
+        if (!inscripcion.ok) return { tipo: 'respuesta', texto: `No se pudo reprogramar: ${inscripcion.motivo}` };
+        return { ...pendiente, inscripcion: inscripcion.clase };
+      }
       const fin = parsearFecha(args.fin, 'fin');
       const veredicto = chequearHorario(state, ocupadosBase, inicio, fin, { inicio: turno.inicio, fin: turno.fin });
       if (!veredicto.ok) {
@@ -333,11 +397,13 @@ export function crearNodoValidacion() {
      * la agenda y terminan superpuestos.
      */
     const provisorios: PeriodoOcupado[] = [];
+    /** Lo mismo con los lugares de las clases grupales: dos inscripciones del mismo mensaje no pasan la capacidad. */
+    let provisorias: AnotadosPorClase = state.contexto.grupales.anotados;
 
     for (const llamada of llamadas) {
       let resultado: Resultado;
       try {
-        resultado = validarLlamada(state, [...state.agenda.ocupados, ...provisorios], llamada);
+        resultado = validarLlamada(state, [...state.agenda.ocupados, ...provisorios], llamada, provisorias);
       } catch (error) {
         resultado = { tipo: 'respuesta', texto: (error as Error).message };
       }
@@ -347,6 +413,7 @@ export function crearNodoValidacion() {
       } else {
         pendientes.push(resultado.operacion);
         if (resultado.reserva) provisorios.push(resultado.reserva);
+        if (resultado.inscripcion) provisorias = conAnotado(provisorias, resultado.inscripcion, state.contexto.conversation.id);
       }
     }
 

@@ -98,6 +98,13 @@ describe('tiposEventoValidos', () => {
     ]);
   });
 
+  it('conserva la parte grupal válida, así la regeneración no la pierde', () => {
+    const yoga = { nombre: 'Yoga', duracionMin: 60, capacidad: 6, horarios: [{ dia: 'jue', hora: '19:00' }] };
+    expect(tiposEventoValidos([yoga])).toEqual([yoga]);
+    // Mal formada, el tipo queda individual (igual que leerTiposEvento) en vez de frenar la regeneración.
+    expect(tiposEventoValidos([{ ...yoga, capacidad: 'seis' }])).toEqual([{ nombre: 'Yoga', duracionMin: 60 }]);
+  });
+
   it('rechaza duraciones inválidas o precios que no son números', () => {
     expect(tiposEventoValidos([{ nombre: 'Consulta', duracionMin: '30' }])).toBeNull();
     expect(tiposEventoValidos([{ nombre: 'Consulta', duracionMin: 0 }])).toBeNull();

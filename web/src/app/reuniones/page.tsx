@@ -8,6 +8,7 @@ import { AgregarEvento, ListaEventos, PrecioParaTodos } from "@/components/onboa
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
+import { ordenarHorarios } from "@/lib/turnos-grupales";
 import {
   CATALOGO_EVENTOS,
   useTiposEvento,
@@ -21,7 +22,13 @@ type AgentGuardado = { tipoUso: string; tipoAsistente?: "agenda" | "ventas"; tip
 function firma(tipos: TipoEvento[]): string {
   return JSON.stringify(
     tipos
-      .map(({ nombre, duracionMin, precio }) => [nombre, duracionMin, precio ?? null])
+      .map(({ nombre, duracionMin, precio, capacidad, horarios }) => [
+        nombre,
+        duracionMin,
+        precio ?? null,
+        capacidad ?? null,
+        capacidad === undefined ? null : ordenarHorarios(horarios ?? []).map(({ dia, hora }) => `${dia} ${hora}`),
+      ])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
   );
 }
@@ -86,7 +93,7 @@ function Editor({
   const [aviso, setAviso] = useState<{ texto: string; tono: "ok" | "error" } | null>(null);
 
   const hayCambios = firma(tipos.seleccionados) !== firma(agent.tiposEvento);
-  const puedeGuardar = hayCambios && tipos.seleccionados.length > 0 && !guardando;
+  const puedeGuardar = hayCambios && tipos.seleccionados.length > 0 && tipos.gruposValidos && !guardando;
 
   const guardar = () => {
     setGuardando(true);
@@ -117,7 +124,8 @@ function Editor({
           </h1>
           <p className="text-sm leading-[1.6] text-ink-secondary">
             Cambiá cuánto dura cada una y, si querés, cuánto cuesta (sin precio, el asistente lo deriva a
-            vos). Tu asistente lo usa desde el próximo mensaje; los turnos ya agendados no cambian.
+            vos). Marcá como grupales las que comparten varias personas, con cuántas entran y sus horarios.
+            Tu asistente lo usa desde el próximo mensaje; los turnos ya agendados no cambian.
           </p>
         </div>
 
@@ -135,6 +143,9 @@ function Editor({
           </Button>
           {tipos.seleccionados.length === 0 && (
             <span className="text-[12.5px] text-muted">Dejá al menos una reunión activa.</span>
+          )}
+          {!tipos.gruposValidos && (
+            <span className="text-[12.5px] text-muted">Completá los turnos grupales para guardar.</span>
           )}
           {aviso && (
             <p
