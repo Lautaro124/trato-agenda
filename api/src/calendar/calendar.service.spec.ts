@@ -454,7 +454,7 @@ describe('CalendarService', () => {
         findMany: vi.fn().mockResolvedValue(anotados),
         count: vi.fn().mockResolvedValue(otros),
         create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'turno-nuevo', ...data })),
-        update: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       };
       const executeRaw = vi.fn().mockResolvedValue(1);
       const conTurnos = Object.assign(prisma, { turno, $executeRaw: executeRaw });
@@ -544,7 +544,10 @@ describe('CalendarService', () => {
       await expect(service.bajaDeTurnoGrupal(usuarioConToken(), TURNO_CLASE, 2)).resolves.toBe(1);
 
       expect(eventsDelete).not.toHaveBeenCalled();
-      expect(turno.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { estado: 'cancelado' } });
+      expect(turno.updateMany).toHaveBeenCalledWith({
+        where: { id: 't1', conversation: { userId: 'user-1' } },
+        data: { estado: 'cancelado' },
+      });
       expect(eventsPatch).toHaveBeenCalledWith(expect.objectContaining({ requestBody: { summary: 'Yoga (grupal) · 1/2' } }));
     });
 
@@ -556,12 +559,12 @@ describe('CalendarService', () => {
       await expect(service.bajaDeTurnoGrupal(usuarioConToken(), TURNO_CLASE, 2)).rejects.toBeInstanceOf(
         CalendarUnavailableError,
       );
-      expect(turno.update).not.toHaveBeenCalled();
+      expect(turno.updateMany).not.toHaveBeenCalled();
 
       eventsDelete.mockResolvedValue({});
       await expect(service.bajaDeTurnoGrupal(usuarioConToken(), TURNO_CLASE, 2)).resolves.toBe(0);
       expect(eventsDelete).toHaveBeenCalledWith({ calendarId: 'primary', eventId: 'evento-clase' });
-      expect(turno.update).toHaveBeenCalledTimes(1);
+      expect(turno.updateMany).toHaveBeenCalledTimes(1);
     });
   });
 });

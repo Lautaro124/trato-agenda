@@ -339,7 +339,10 @@ export class CalendarService {
         });
         // Si falla Google, la transacción vuelve atrás y el turno sigue confirmado: nada queda a medias.
         if (otros === 0) await this.cancelarEvento(user, turno.googleEventId);
-        await tx.turno.update({ where: { id: turno.id }, data: { estado: 'cancelado' } });
+        await tx.turno.updateMany({
+          where: { id: turno.id, conversation: { userId: user.id } },
+          data: { estado: 'cancelado' },
+        });
         return otros;
       },
       { timeout: TIMEOUT_TRANSACCION_GRUPAL_MS },
@@ -363,7 +366,8 @@ export class CalendarService {
     try {
       await this.reprogramarEvento(user, googleEventId, { resumen: tituloEventoGrupal(tipo, anotados, capacidad) });
     } catch (error) {
-      this.logger.error(`No se pudo actualizar el título de la clase del usuario ${user.id}`, error as Error);
+      // Sólo el mensaje: el error de googleapis arrastra la request entera y esto termina en Sentry.
+      this.logger.error(`No se pudo actualizar el título de la clase del usuario ${user.id}: ${(error as Error).message}`);
     }
   }
 
