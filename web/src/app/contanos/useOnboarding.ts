@@ -132,7 +132,8 @@ export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> 
 export const AYUDA_POR_PASO: Record<PasoId, string> = {
   tipo: "Los pasos se acomodan a lo que elijas. Todo se puede cambiar después, menos el tipo de asistente.",
   negocio: "Con este nombre se presenta el asistente y firma los avisos.",
-  turnos: "Sin precio, el asistente le dice al cliente que lo consulte con vos.",
+  turnos:
+    "Elegí si cada uno es individual o grupal (clases, talleres). Sin precio, el asistente le dice al cliente que lo consulte con vos.",
   horarios: "Fuera de esta franja el asistente no ofrece horarios.",
   local: "Lo que no cargues, el asistente no lo inventa: te pasa la consulta a vos.",
   datos: "Es opcional: lo podés cambiar cuando quieras desde Cuenta.",
@@ -226,6 +227,21 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     [actualizar],
   );
 
+  /**
+   * El selector "Individual | Grupal" de cada fila. En un tipo que todavía no
+   * estaba elegido, elegir una modalidad también lo activa.
+   */
+  const elegirModalidad = useCallback(
+    (nombre: string, duracionMin: number, grupal: boolean) => {
+      setElegidos((previos) => {
+        if (previos[nombre] || Object.keys(previos).length >= MAX_TIPOS_EVENTO) return previos;
+        return { ...previos, [nombre]: { duracionMin } };
+      });
+      fijarGrupal(nombre, grupal);
+    },
+    [fijarGrupal],
+  );
+
   const fijarCapacidad = useCallback(
     (nombre: string, capacidad: number | undefined) => actualizar(nombre, (datos) => ({ ...datos, capacidad })),
     [actualizar],
@@ -315,6 +331,7 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     fijarSinPrecio,
     fijarPrecioATodos,
     fijarGrupal,
+    elegirModalidad,
     fijarCapacidad,
     agregarHorario,
     fijarHorario,
