@@ -90,6 +90,16 @@ const VIGENCIA_VERSION_WA_MS = 12 * UNA_HORA_MS;
 const ESPERA_VERSION_WA_MS = 5_000;
 const REINTENTO_VERSION_WA_MS = 10 * 60 * 1000;
 
+/**
+ * Cómo se presenta el socket ante WhatsApp. Tiene que ser un navegador que
+ * WhatsApp conozca y con versión fija: con un nombre propio
+ * (`Browsers.appropriate('Trato')`, que además mandaba el kernel del
+ * contenedor como versión) el QR andaba, pero el código de vinculación
+ * (`requestPairingCode`) se rechazaba siempre como "código incorrecto".
+ * Por eso en "Dispositivos vinculados" aparece "Chrome (Ubuntu)" y no "Trato".
+ */
+export const NAVEGADOR_WHATSAPP = Browsers.ubuntu('Chrome');
+
 /** "ABCD1234" → "ABCD-1234", como lo muestra WhatsApp al pedirlo. */
 export function formatearCodigoDeVinculacion(codigo: string): string {
   return codigo.length === 8 ? `${codigo.slice(0, 4)}-${codigo.slice(4)}` : codigo;
@@ -467,7 +477,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // Con caché delante, cada lectura de clave no es una consulta a Postgres.
       auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, this.baileysLogger) },
       logger: this.baileysLogger,
-      browser: Browsers.appropriate('Trato'),
+      browser: NAVEGADOR_WHATSAPP,
       version,
       // El historial que baja al vincular se ignora (`type !== 'notify'`), y
       // descifrarlo demoraba la vinculación y retenía los mensajes nuevos.

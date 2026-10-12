@@ -8,7 +8,12 @@ import type { NotificacionesService } from '../notificaciones/notificaciones.ser
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { SubscriptionService } from '../subscription/subscription.service.js';
 import { MAX_RECONEXIONES_SIN_VINCULAR, MINIMO_TRAS_REEMPLAZO_MS, MINUTOS_CAIDO_PARA_AVISAR } from './reconexion.js';
-import { MAX_CODIGOS_POR_CUENTA, MAX_CODIGOS_POR_NUMERO_HORA, WhatsappService } from './whatsapp.service.js';
+import {
+  MAX_CODIGOS_POR_CUENTA,
+  MAX_CODIGOS_POR_NUMERO_HORA,
+  NAVEGADOR_WHATSAPP,
+  WhatsappService,
+} from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
 
 type UsuarioMock = { id: string; googleId: string | null; phoneNumber: string | null };
@@ -621,5 +626,14 @@ describe('WhatsappService — vincular con código desde el mismo celular', () =
     expect(prisma.whatsappSession.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1', registered: false } });
     expect(interno(service).modoCodigo.has('user-1')).toBe(false);
     expect(connectSpy).toHaveBeenCalledWith('user-1');
+  });
+});
+
+describe('NAVEGADOR_WHATSAPP', () => {
+  it('es un navegador real con versión fija: con un nombre propio WhatsApp rechaza el código de vinculación', () => {
+    const [sistema, navegador, version] = NAVEGADOR_WHATSAPP;
+    expect(navegador).toBe('Chrome');
+    expect(sistema).toBe('Ubuntu');
+    expect(version).toMatch(/^\d+(\.\d+)+$/);
   });
 });
