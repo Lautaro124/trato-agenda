@@ -208,8 +208,9 @@ function SelectorDuracion({
 
 /**
  * Un tipo de evento por fila. Tildarlo muestra la duración y el precio en la
- * misma fila (debajo en móvil), así la lista no salta al activar uno. Si se
- * marca "Grupal", debajo aparecen la capacidad y los horarios fijos.
+ * misma fila (debajo en móvil), así la lista no salta al activar uno. Cada
+ * fila tiene a la vista "Individual | Grupal"; con Grupal, debajo aparecen la
+ * capacidad y los horarios fijos.
  */
 export function ListaEventos({ ob }: { ob: TiposEventoState }) {
   return (
@@ -226,12 +227,13 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
               activo ? "border-primary bg-primary-subtle" : "border-line bg-card hover:border-line-strong",
             )}
           >
-            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+            {/* flex-wrap: lo que no entra al lado del nombre baja a la línea siguiente, en móvil y en una columna angosta. */}
+            <div className="flex flex-wrap items-center gap-2.5">
               <button
                 type="button"
                 aria-pressed={activo}
                 onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
-                className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left select-none"
+                className="flex min-h-8 min-w-[180px] flex-1 cursor-pointer items-center gap-2.5 text-left select-none"
               >
                 <span
                   aria-hidden
@@ -255,8 +257,13 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
                   </span>
                 )}
               </button>
+              <SelectorModalidad
+                nombre={evento.nombre}
+                modalidad={activo ? (datos.grupal ? "grupal" : "individual") : null}
+                onChange={(grupal) => ob.elegirModalidad(evento.nombre, evento.duracionMin, grupal)}
+              />
               {activo && (
-                // En móvil el precio, "Sin precio" y "Grupal" bajan a su propia línea: al lado del − / + no entran.
+                // En móvil el precio y "Sin precio" bajan a su propia línea: al lado del − / + no entran.
                 <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                   <SelectorDuracion
                     nombre={evento.nombre}
@@ -282,16 +289,6 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
                       Sin precio
                     </button>
                   </div>
-                  {/* Afuera del grupo del precio: en un celular angosto baja solo a la línea siguiente. */}
-                  <button
-                    type="button"
-                    aria-pressed={Boolean(datos.grupal)}
-                    aria-label={`Turno grupal: ${evento.nombre}`}
-                    onClick={() => ob.fijarGrupal(evento.nombre, !datos.grupal)}
-                    className={cn(chip(Boolean(datos.grupal)), "flex-none whitespace-nowrap")}
-                  >
-                    Grupal
-                  </button>
                 </div>
               )}
             </div>
@@ -299,6 +296,51 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
               <PanelGrupal ob={ob} nombre={evento.nombre} datos={datos} problema={ob.problemasGrupales[evento.nombre]} />
             )}
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * "Individual | Grupal" de un tipo de turno, siempre a la vista. Sin tildar no
+ * hay ninguna marcada; elegir una también activa el tipo.
+ */
+function SelectorModalidad({
+  nombre,
+  modalidad,
+  onChange,
+}: {
+  nombre: string;
+  modalidad: "individual" | "grupal" | null;
+  onChange: (grupal: boolean) => void;
+}) {
+  const opciones = [
+    { id: "individual", label: "Individual", grupal: false },
+    { id: "grupal", label: "Grupal", grupal: true },
+  ] as const;
+  return (
+    <div
+      role="radiogroup"
+      aria-label={`Modalidad de ${nombre}`}
+      className="inline-grid flex-none grid-cols-2 gap-0.5 rounded-md bg-sunken p-[3px]"
+    >
+      {opciones.map((opcion) => {
+        const marcada = modalidad === opcion.id;
+        return (
+          <button
+            key={opcion.id}
+            type="button"
+            role="radio"
+            aria-checked={marcada}
+            onClick={() => onChange(opcion.grupal)}
+            className={cn(
+              "min-h-8 cursor-pointer rounded-sm px-3 text-[13px] whitespace-nowrap",
+              marcada ? "bg-card font-bold text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+            )}
+          >
+            {opcion.label}
+          </button>
         );
       })}
     </div>
@@ -327,6 +369,9 @@ function PanelGrupal({
   const idProblema = `problema-grupal-${nombre.replace(/[^a-zA-Z0-9]+/g, "-")}`;
   return (
     <div className="flex flex-col gap-3 rounded-sm border border-line bg-card p-3">
+      <p className="text-[13.5px] text-ink">
+        <span className="font-semibold">Turno grupal:</span> varias personas en el mismo horario.
+      </p>
       <label className="flex flex-wrap items-center gap-2 text-[13.5px] text-ink">
         <span className="font-semibold">Cuántas personas entran</span>
         <span className="flex items-center rounded-sm border border-line bg-card focus-within:border-[var(--color-semantic-border-focus)]">

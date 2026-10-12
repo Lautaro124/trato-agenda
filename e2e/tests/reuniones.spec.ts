@@ -99,9 +99,13 @@ test.describe('editar reuniones después del onboarding', () => {
 
     await page.goto('/reuniones');
     const guardar = page.getByRole('button', { name: 'Guardar cambios' });
-    const grupal = page.getByRole('button', { name: 'Turno grupal: Taller' });
+    const modalidad = (nombre: string) => page.getByRole('radiogroup', { name: `Modalidad de ${nombre}` });
+
+    // El selector está a la vista en cada fila: Taller arranca como individual.
+    await expect(modalidad('Taller').getByRole('radio', { name: 'Individual' })).toHaveAttribute('aria-checked', 'true');
+    const grupal = modalidad('Taller').getByRole('radio', { name: 'Grupal' });
     await grupal.click();
-    await expect(grupal).toHaveAttribute('aria-pressed', 'true');
+    await expect(grupal).toHaveAttribute('aria-checked', 'true');
 
     // Sin capacidad no se puede guardar.
     const capacidad = page.getByLabel('Capacidad de Taller', { exact: true });
@@ -143,20 +147,40 @@ test.describe('editar reuniones después del onboarding', () => {
 
     // Recargar muestra lo guardado.
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Turno grupal: Taller' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(modalidad('Taller').getByRole('radio', { name: 'Grupal' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByLabel('Capacidad de Taller', { exact: true })).toHaveValue('3');
     await expect(page.getByLabel('Día del horario 2 de Taller', { exact: true })).toHaveValue('jue');
     await expect(page.getByLabel('Hora del horario 2 de Taller', { exact: true })).toHaveValue('19:30');
-    await expect(page.getByRole('button', { name: 'Turno grupal: Control' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(modalidad('Control').getByRole('radio', { name: 'Individual' })).toHaveAttribute('aria-checked', 'true');
 
-    // Apagarlo la vuelve individual.
-    await page.getByRole('button', { name: 'Turno grupal: Taller' }).click();
+    // Volver a "Individual" borra capacidad y horarios.
+    const individual = modalidad('Taller').getByRole('radio', { name: 'Individual' });
+    await individual.click();
+    await expect(individual).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByLabel('Capacidad de Taller', { exact: true })).toHaveCount(0);
     await guardar.click();
     await expect(guardar).toBeDisabled();
     expect((await agenteActual(context.request))?.tiposEvento).toEqual([
       { nombre: 'Control', duracionMin: 30 },
       { nombre: 'Taller', duracionMin: 60 },
     ]);
+  });
+
+  test('elegir "Grupal" en un tipo sin tildar lo activa y abre la capacidad y los horarios', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgentePorApi(context.request, { tipoUso: 'consultorio', tiposEvento: [{ nombre: 'Control', duracionMin: 30 }] });
+
+    await page.goto('/reuniones');
+    // "Estudio" es una sugerencia del consultorio que no está elegida: sin modalidad marcada.
+    const estudio = page.getByRole('radiogroup', { name: 'Modalidad de Estudio' });
+    await expect(estudio.getByRole('radio', { name: 'Individual' })).toHaveAttribute('aria-checked', 'false');
+    await expect(estudio.getByRole('radio', { name: 'Grupal' })).toHaveAttribute('aria-checked', 'false');
+
+    await estudio.getByRole('radio', { name: 'Grupal' }).click();
+    await expect(tarjetaEvento(page, 'Estudio')).toHaveAttribute('aria-pressed', 'true');
+    await expect(estudio.getByRole('radio', { name: 'Grupal' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByLabel('Capacidad de Estudio', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Día del horario 1 de Estudio', { exact: true })).toHaveValue('lun');
   });
 
   test('sin agente manda al onboarding',async ({ page, usuarioDev }) => {
