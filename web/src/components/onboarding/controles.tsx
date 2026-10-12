@@ -124,7 +124,7 @@ export function EmpezarCon({ ob }: { ob: Onboarding }) {
 }
 
 /** Campo de precio en pesos: sólo dígitos, se muestra con separador de miles. Vacío = sin precio. */
-function CampoPrecio({
+export function CampoPrecio({
   valor,
   onChange,
   etiqueta,
@@ -162,7 +162,7 @@ function CampoPrecio({
 }
 
 /** − duración + de un tipo activado: recorre `DURACIONES` y se traba en los extremos. */
-function SelectorDuracion({
+export function SelectorDuracion({
   nombre,
   duracion,
   onChange,
@@ -212,7 +212,17 @@ function SelectorDuracion({
  * fila tiene a la vista "Individual | Grupal"; con Grupal, debajo aparecen la
  * capacidad y los horarios fijos.
  */
-export function ListaEventos({ ob }: { ob: TiposEventoState }) {
+export function ListaEventos({
+  ob,
+  conModalidad = true,
+}: {
+  ob: TiposEventoState;
+  /**
+   * El selector "Individual | Grupal" de cada fila. El wizard lo apaga: ahí
+   * las clases grupales tienen su propio paso ("¿Qué clases das?").
+   */
+  conModalidad?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       {ob.eventos.map((evento) => {
@@ -257,11 +267,13 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
                   </span>
                 )}
               </button>
-              <SelectorModalidad
-                nombre={evento.nombre}
-                modalidad={activo ? (datos.grupal ? "grupal" : "individual") : null}
-                onChange={(grupal) => ob.elegirModalidad(evento.nombre, evento.duracionMin, grupal)}
-              />
+              {conModalidad && (
+                <SelectorModalidad
+                  nombre={evento.nombre}
+                  modalidad={activo ? (datos.grupal ? "grupal" : "individual") : null}
+                  onChange={(grupal) => ob.elegirModalidad(evento.nombre, evento.duracionMin, grupal)}
+                />
+              )}
               {activo && (
                 // En móvil el precio y "Sin precio" bajan a su propia línea: al lado del − / + no entran.
                 <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">

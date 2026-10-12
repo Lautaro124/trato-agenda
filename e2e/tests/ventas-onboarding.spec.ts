@@ -45,7 +45,8 @@ test.describe('onboarding de un comercio', () => {
     await visible(page.getByRole('button', { name: /^(Atrás|Volver al paso anterior)$/ })).first().click();
     await expect(page.getByRole('radio', { name: /Vender productos/ })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('radio', { name: /Agendar turnos/ }).click();
-    await expect(visible(page.getByText('Paso 1 de 5'))).toBeVisible();
+    // Turnos suma "¿Cómo atendés?": uno a uno son 6 pasos.
+    await expect(visible(page.getByText('Paso 1 de 6'))).toBeVisible();
 
     await botonContinuar(page).click();
     await expect(visible(page.getByLabel('¿Cómo se llama tu negocio?'))).toHaveValue('Mates del Sur');
