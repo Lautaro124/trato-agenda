@@ -157,6 +157,12 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
               </DelAsistente>
             )}
             {conClases && <DelAsistente>{ob.saludoClases}</DelAsistente>}
+            {paso === "clases" && ob.ejemploReservaClase && (
+              <>
+                <DelCliente>{ob.ejemploReservaClase.cliente}</DelCliente>
+                <DelAsistente>{ob.ejemploReservaClase.asistente}</DelAsistente>
+              </>
+            )}
             {paso === "asistente" && <DelCliente>Quiero un turno para el jueves a la tarde</DelCliente>}
           </>
         )}

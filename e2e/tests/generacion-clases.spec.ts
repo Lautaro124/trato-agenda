@@ -16,17 +16,31 @@ function diasDe(page: Page, clase: string, horario = 1) {
   return visible(page.getByRole('group', { name: `Días del horario ${horario} de ${clase}`, exact: true }));
 }
 
-function resumenDe(page: Page, clase: string) {
-  return visible(page.getByRole('button', { name: `Cupo y días de ${clase}`, exact: true }));
+function horarioDe(page: Page, clase: string, horario = 1) {
+  return visible(page.getByRole('button', { name: new RegExp(`^Horario ${horario} de ${clase}: `) }));
 }
 
-/** Tilda una clase y le carga cupo, días y hora del primer horario. */
+function cupoDe(page: Page, clase: string) {
+  return visible(page.getByLabel(`Personas por clase de ${clase}`, { exact: true }));
+}
+
+/** Abre un horario nuevo de la clase y le carga días y hora; lo deja abierto. */
+async function nuevoHorario(page: Page, clase: string, numero: number, dias: string[], hora: string): Promise<void> {
+  await visible(page.getByRole('button', { name: `Agregar horario a ${clase}`, exact: true })).click();
+  for (const dia of dias) await diasDe(page, clase, numero).getByRole('button', { name: dia, exact: true }).click();
+  await visible(page.getByLabel(`Hora del horario ${numero} de ${clase}`, { exact: true })).fill(hora);
+}
+
+/** Tilda una clase y le carga cupo, días y hora del primer horario; deja el horario abierto. */
 async function cargarClase(page: Page, clase: string, cupo: number, dias: string[], hora: string): Promise<void> {
   await tarjetaEvento(page, clase).click();
   await expect(tarjetaEvento(page, clase)).toHaveAttribute('aria-pressed', 'true');
-  await visible(page.getByRole('button', { name: `${cupo} personas en ${clase}`, exact: true })).click();
-  for (const dia of dias) await diasDe(page, clase).getByRole('button', { name: dia, exact: true }).click();
-  await visible(page.getByLabel(`Hora del horario 1 de ${clase}`, { exact: true })).selectOption(hora);
+  await cupoDe(page, clase).fill(String(cupo));
+  await nuevoHorario(page, clase, 1, dias, hora);
+}
+
+function botonListo(page: Page) {
+  return visible(page.getByRole('button', { name: 'Listo', exact: true }));
 }
 
 async function terminar(page: Page): Promise<void> {
@@ -45,28 +59,35 @@ test.describe('wizard de /contanos: clases grupales', () => {
     await expect(visible(page.getByText('Elegí al menos una clase.'))).toBeVisible();
     await expect(botonContinuar(page)).toBeDisabled();
 
-    // Recién tildada, la clase se despliega y dice qué le falta.
+    // Recién tildada, la clase dice qué le falta.
     await tarjetaEvento(page, 'Yoga').click();
-    await expect(resumenDe(page, 'Yoga')).toHaveAttribute('aria-expanded', 'true');
-    await expect(resumenDe(page, 'Yoga')).toContainText('Elegí cuántas personas entran.');
+    await expect(visible(page.getByText('Escribí cuántas personas entran.'))).toBeVisible();
     await expect(visible(page.getByText('Falta completar Yoga.'))).toBeVisible();
     await expect(botonContinuar(page)).toBeDisabled();
 
-    await visible(page.getByRole('button', { name: '8 personas en Yoga', exact: true })).click();
-    await expect(resumenDe(page, 'Yoga')).toContainText('Elegí al menos un día.');
+    await cupoDe(page, 'Yoga').fill('8');
+    await expect(visible(page.getByText('Agregá al menos un horario.'))).toBeVisible();
+
+    // Los días aparecen sólo al abrir un horario; sin días, "Listo" no deja cerrarlo.
+    await visible(page.getByRole('button', { name: 'Agregar horario a Yoga', exact: true })).click();
+    await expect(botonListo(page)).toBeDisabled();
     await diasDe(page, 'Yoga').getByRole('button', { name: 'Lunes', exact: true }).click();
     await diasDe(page, 'Yoga').getByRole('button', { name: 'Miércoles', exact: true }).click();
     await expect(diasDe(page, 'Yoga').getByRole('button', { name: 'Lunes', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await botonListo(page).click();
+    await expect(horarioDe(page, 'Yoga')).toContainText('Lun y mié');
+    await expect(horarioDe(page, 'Yoga')).toContainText('18:00');
 
     // Un segundo horario: los sábados a otra hora.
-    await visible(page.getByRole('button', { name: '+ Otro día con otro horario' })).click();
-    await diasDe(page, 'Yoga', 2).getByRole('button', { name: 'Sábado', exact: true }).click();
-    await visible(page.getByLabel('Hora del horario 2 de Yoga', { exact: true })).selectOption('10:00');
+    await nuevoHorario(page, 'Yoga', 2, ['Sábado'], '10:00');
+    await botonListo(page).click();
+    await expect(horarioDe(page, 'Yoga', 2)).toContainText('Sáb');
+    await expect(horarioDe(page, 'Yoga', 2)).toContainText('10:00');
 
-    // Completa, se pliega en una línea.
-    await visible(page.getByRole('button', { name: 'Listo', exact: true })).click();
-    await expect(resumenDe(page, 'Yoga')).toHaveAttribute('aria-expanded', 'false');
-    await expect(resumenDe(page, 'Yoga')).toContainText('8 lugares · lun y mié 18:00 · sáb 10:00');
+    // Un horario que se abre y se cierra sin días no queda.
+    await visible(page.getByRole('button', { name: 'Agregar horario a Yoga', exact: true })).click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: /^Horario 3 de Yoga/ })).toHaveCount(0);
     await expect(visible(page.getByText('1 clase elegida'))).toBeVisible();
 
     await botonContinuar(page).click();
@@ -123,14 +144,57 @@ test.describe('wizard de /contanos: clases grupales', () => {
   });
 });
 
+test.describe('wizard de /contanos: clases propias', () => {
+  test('"Mi propia lista" arranca sin ninguna clase y guarda sólo las que se agregan', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await hastaAtencion(page, 'En grupo');
+
+    // Con las ideas se tilda Yoga; cambiar a la lista propia lo borra todo.
+    await tarjetaEvento(page, 'Yoga').click();
+    await visible(page.getByRole('radio', { name: 'Mi propia lista' })).click();
+    await expect(visible(page.getByText('Todavía no agregaste clases'))).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Yoga', exact: true })).toHaveCount(0);
+    await expect(visible(page.getByText('Elegí al menos una clase.'))).toBeVisible();
+
+    for (const nombre of ['Stretching', 'Cerámica']) {
+      await visible(page.getByRole('textbox', { name: /^(Nombre de la clase|Nueva clase)$/ })).fill(nombre);
+      await visible(page.getByRole('button', { name: 'Agregar', exact: true })).click();
+    }
+    await visible(page.getByRole('button', { name: 'Quitar Cerámica', exact: true })).click();
+
+    await cupoDe(page, 'Stretching').fill('10');
+    await nuevoHorario(page, 'Stretching', 1, ['Martes', 'Jueves'], '09:00');
+    await botonListo(page).click();
+    await expect(visible(page.getByText('1 clase elegida'))).toBeVisible();
+
+    await botonContinuar(page).click();
+    await terminar(page);
+
+    const agente = await agenteActual(context.request);
+    expect(agente?.tiposEvento).toEqual([
+      {
+        nombre: 'Stretching',
+        duracionMin: 60,
+        capacidad: 10,
+        horarios: [
+          { dia: 'mar', hora: '09:00' },
+          { dia: 'jue', hora: '09:00' },
+        ],
+      },
+    ]);
+  });
+});
+
 test.describe('wizard de /contanos: clases grupales en el celular', { tag: '@movil' }, () => {
-  test('arma una clase con los atajos y los días, un paso por pantalla', async ({ page, context, usuarioDev }) => {
+  test('arma una clase con el horario en una hoja que sube desde abajo', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await hastaAtencion(page, 'En grupo');
 
     await cargarClase(page, 'Funcional', 10, ['Lunes', 'Viernes'], '19:00');
-    await visible(page.getByRole('button', { name: 'Listo', exact: true })).click();
-    await expect(resumenDe(page, 'Funcional')).toContainText('10 lugares · lun y vie 19:00');
+    await expect(visible(page.getByRole('dialog', { name: 'Horario 1 de Funcional' }))).toBeVisible();
+    await botonListo(page).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(horarioDe(page, 'Funcional')).toContainText('Lun y vie');
     await botonContinuar(page).click();
     await terminar(page);
 

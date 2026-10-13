@@ -21,7 +21,7 @@ import { EditorDatosCliente } from "./DatosCliente";
 import { ControlesLocal } from "./ControlesLocal";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
 import { ElegirAtencion } from "./ElegirAtencion";
-import { AgregarClase, ListaClases } from "./ListaClases";
+import { ListaClases } from "./ListaClases";
 import { VistaPreviaChat } from "./VistaPreviaChat";
 
 const TILDE = (
@@ -265,12 +265,9 @@ function ContenidoDelPaso({
           <Pregunta
             tituloRef={tituloRef}
             titulo="¿Qué clases das?"
-            bajada="Tildá las que das y contanos cuántas personas entran y qué días son. El precio es opcional: si no lo ponés, el asistente le dice al cliente que lo consulte con vos."
+            bajada={`${ob.clases.origen === "ideas" ? "Tildá las que das" : "Agregá las clases que das"} y contanos cuántos entran y cuándo son. El precio es opcional: si no lo ponés, el asistente le dice al cliente que lo consulte con vos.`}
           />
           <ListaClases ob={ob.clases} />
-          <div className="mt-3">
-            <AgregarClase ob={ob.clases} />
-          </div>
         </>
       );
 

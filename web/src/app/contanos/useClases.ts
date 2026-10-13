@@ -3,8 +3,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { DIAS_SEMANA, type DiaSemana } from "@/lib/local";
 import {
-  CAPACIDAD_MAX,
-  CAPACIDAD_MIN,
   MAX_HORARIOS_GRUPALES,
   ordenarHorarios,
   problemaGrupal,
@@ -31,13 +29,23 @@ export type Clase = {
   nombre: string;
   duracionMin: number;
   precio?: number;
-  /** Cuántas personas entran. Sin elegir todavía: `undefined`. */
+  /** Cuántas personas entran. Sin escribir todavía: `undefined`. */
   cupo?: number;
   bloques: BloqueClase[];
   activa: boolean;
-  /** Si el panel de cupo y días está desplegado (sólo de pantalla). */
-  abierta: boolean;
 };
+
+/**
+ * "Empezar con": las ideas del catálogo (para tildar) o una lista propia,
+ * sin ninguna clase armada. Como en los turnos individuales, cambiarlo
+ * reinicia lo elegido.
+ */
+export type OrigenClases = "ideas" | "propia";
+
+export const ORIGENES_CLASES: Array<{ id: OrigenClases; label: string }> = [
+  { id: "ideas", label: "Ideas de clases" },
+  { id: "propia", label: "Mi propia lista" },
+];
 
 /** Ideas para arrancar: las clases más comunes, con su duración típica. */
 export const CATALOGO_CLASES: Array<{ nombre: string; duracionMin: number }> = [
@@ -47,11 +55,8 @@ export const CATALOGO_CLASES: Array<{ nombre: string; duracionMin: number }> = [
   { nombre: "Taller", duracionMin: 90 },
 ];
 
-/** Los atajos del cupo: tocar uno es más rápido que apretar + ocho veces. */
-export const CUPOS_SUGERIDOS = [4, 6, 8, 10, 12];
-
-/** Con qué cupo arranca el − / + si todavía no se eligió ninguno. */
-const CUPO_INICIAL = 8;
+/** La hora con la que arranca el primer horario de una clase. */
+const HORA_INICIAL = "18:00";
 
 const ABREVIATURA: Record<DiaSemana, string> = {
   lun: "lun",
@@ -63,12 +68,12 @@ const ABREVIATURA: Record<DiaSemana, string> = {
   dom: "dom",
 };
 
-function bloqueVacio(hora = "18:00"): BloqueClase {
-  return { dias: [], hora };
+function claseNueva(nombre: string, duracionMin: number, activa: boolean): Clase {
+  return { nombre, duracionMin, bloques: [], activa };
 }
 
-function claseNueva(nombre: string, duracionMin: number, activa: boolean): Clase {
-  return { nombre, duracionMin, bloques: [bloqueVacio()], activa, abierta: true };
+function ideasDelCatalogo(): Clase[] {
+  return CATALOGO_CLASES.map((idea) => claseNueva(idea.nombre, idea.duracionMin, false));
 }
 
 /** Los horarios de un bloque de días: uno por día. */
@@ -80,34 +85,37 @@ export function horariosDeClase(clase: Pick<Clase, "bloques">): HorarioGrupal[] 
 export function bloquesDeHorarios(horarios: HorarioGrupal[]): BloqueClase[] {
   const porHora = new Map<string, DiaSemana[]>();
   for (const { dia, hora } of ordenarHorarios(horarios)) porHora.set(hora, [...(porHora.get(hora) ?? []), dia]);
-  const bloques = [...porHora.entries()].map(([hora, dias]) => ({ hora, dias }));
-  return bloques.length > 0 ? bloques : [bloqueVacio()];
+  return [...porHora.entries()].map(([hora, dias]) => ({ hora, dias }));
 }
 
 function lista(partes: string[]): string {
   return partes.length <= 1 ? partes.join("") : `${partes.slice(0, -1).join(", ")} y ${partes.at(-1)}`;
 }
 
+/** "lun, mié y vie": los días de un bloque en el orden de la semana. */
+export function textoDias(bloque: BloqueClase): string {
+  return lista(DIAS_SEMANA.filter((dia) => bloque.dias.includes(dia)).map((dia) => ABREVIATURA[dia]));
+}
+
 /** "lun, mié y vie 18:00 · sáb 10:00". */
 export function textoBloques(bloques: BloqueClase[]): string {
   return bloques
     .filter((bloque) => bloque.dias.length > 0)
-    .map((bloque) => {
-      const dias = DIAS_SEMANA.filter((dia) => bloque.dias.includes(dia)).map((dia) => ABREVIATURA[dia]);
-      return `${lista(dias)} ${bloque.hora}`;
-    })
+    .map((bloque) => `${textoDias(bloque)} ${bloque.hora}`)
     .join(" · ");
 }
 
-/** "8 lugares · lun, mié y vie 18:00 · sáb 10:00": la línea de la clase plegada. */
-export function resumenClase(clase: Clase): string {
-  const lugares = clase.cupo === 1 ? "1 lugar" : `${clase.cupo} lugares`;
-  return `${lugares} · ${textoBloques(clase.bloques)}`;
+/** "19:00": a qué hora termina una clase que empieza a `hora` y dura `duracionMin`. */
+export function horaDeFin(hora: string, duracionMin: number): string {
+  const [horas, minutos] = hora.split(":").map(Number);
+  const fin = (horas * 60 + minutos + duracionMin) % (24 * 60);
+  return `${String(Math.floor(fin / 60)).padStart(2, "0")}:${String(fin % 60).padStart(2, "0")}`;
 }
 
 /** Qué le falta a una clase elegida para poder guardarla, o null. */
 export function problemaDeClase(clase: Clase): string | null {
-  if (clase.cupo === undefined) return "Elegí cuántas personas entran.";
+  if (clase.cupo === undefined) return "Escribí cuántas personas entran.";
+  if (clase.bloques.length === 0) return "Agregá al menos un horario.";
   if (clase.bloques.some((bloque) => bloque.dias.length === 0)) return "Elegí al menos un día.";
   return problemaGrupal(clase.duracionMin, clase.cupo, horariosDeClase(clase));
 }
@@ -117,6 +125,7 @@ export function problemaDeClase(clase: Clase): string | null {
  * (vuelven elegidos); el catálogo de ideas se suma sin elegir.
  */
 export function useClases(inicial: TipoEvento[] = []) {
+  const [origen, setOrigen] = useState<OrigenClases>("ideas");
   const [clases, setClases] = useState<Clase[]>(() => {
     const guardadas = inicial
       .filter((tipo) => tipo.capacidad !== undefined)
@@ -127,14 +136,20 @@ export function useClases(inicial: TipoEvento[] = []) {
         cupo: tipo.capacidad,
         bloques: bloquesDeHorarios(tipo.horarios ?? []),
         activa: true,
-        abierta: false,
       }));
-    const ideas = CATALOGO_CLASES.filter(
+    const ideas = ideasDelCatalogo().filter(
       (idea) => !guardadas.some((clase) => clase.nombre.toLowerCase() === idea.nombre.toLowerCase()),
-    ).map((idea) => claseNueva(idea.nombre, idea.duracionMin, false));
+    );
     return [...guardadas, ...ideas];
   });
   const [personalizada, setPersonalizada] = useState("");
+
+  /** Cambiar de origen reinicia la lista: las ideas sin tildar, o nada. */
+  const elegirOrigen = useCallback((nuevo: OrigenClases) => {
+    setOrigen(nuevo);
+    setClases(nuevo === "ideas" ? ideasDelCatalogo() : []);
+    setPersonalizada("");
+  }, []);
 
   /** Cambia una clase por su nombre (los nombres no se repiten). */
   const cambiar = useCallback((nombre: string, cambio: (clase: Clase) => Clase) => {
@@ -148,16 +163,16 @@ export function useClases(inicial: TipoEvento[] = []) {
         return previas.map((clase) => {
           if (clase.nombre !== nombre) return clase;
           if (!clase.activa && activas >= MAX_TIPOS_EVENTO) return clase;
-          // Al elegirla se despliega, así se ve enseguida qué falta cargar.
-          return { ...clase, activa: !clase.activa, abierta: !clase.activa ? true : clase.abierta };
+          return { ...clase, activa: !clase.activa };
         });
       }),
     [],
   );
 
-  const alternarPanel = useCallback(
-    (nombre: string) => cambiar(nombre, (clase) => ({ ...clase, abierta: !clase.abierta })),
-    [cambiar],
+  /** En "Mi propia lista" no hay nada que destildar: la clase se borra. */
+  const quitarClase = useCallback(
+    (nombre: string) => setClases((previas) => previas.filter((clase) => clase.nombre !== nombre)),
+    [],
   );
 
   const fijarDuracion = useCallback(
@@ -170,21 +185,9 @@ export function useClases(inicial: TipoEvento[] = []) {
     [cambiar],
   );
 
+  /** Lo que se escribió, sin acotar: si se pasa del rango, `problemaGrupal` dice cuál es. */
   const fijarCupo = useCallback(
-    (nombre: string, cupo: number) =>
-      cambiar(nombre, (clase) => ({ ...clase, cupo: Math.min(Math.max(cupo, CAPACIDAD_MIN), CAPACIDAD_MAX) })),
-    [cambiar],
-  );
-
-  const moverCupo = useCallback(
-    (nombre: string, sentido: 1 | -1) =>
-      cambiar(nombre, (clase) => ({
-        ...clase,
-        cupo:
-          clase.cupo === undefined
-            ? CUPO_INICIAL
-            : Math.min(Math.max(clase.cupo + sentido, CAPACIDAD_MIN), CAPACIDAD_MAX),
-      })),
+    (nombre: string, cupo: number | undefined) => cambiar(nombre, (clase) => ({ ...clase, cupo })),
     [cambiar],
   );
 
@@ -210,12 +213,13 @@ export function useClases(inicial: TipoEvento[] = []) {
     [cambiar],
   );
 
+  /** Un horario nuevo, sin días, a la hora del último (o 18:00 si es el primero). */
   const agregarBloque = useCallback(
     (nombre: string) =>
       cambiar(nombre, (clase) =>
         horariosDeClase(clase).length >= MAX_HORARIOS_GRUPALES
           ? clase
-          : { ...clase, bloques: [...clase.bloques, bloqueVacio("10:00")] },
+          : { ...clase, bloques: [...clase.bloques, { dias: [], hora: clase.bloques.at(-1)?.hora ?? HORA_INICIAL }] },
       ),
     [cambiar],
   );
@@ -226,13 +230,24 @@ export function useClases(inicial: TipoEvento[] = []) {
     [cambiar],
   );
 
+  /** Al cerrar el editor, un horario al que no se le eligió ningún día no queda dando vueltas. */
+  const limpiarBloquesVacios = useCallback(
+    (nombre: string) =>
+      cambiar(nombre, (clase) =>
+        clase.bloques.some((bloque) => bloque.dias.length === 0)
+          ? { ...clase, bloques: clase.bloques.filter((bloque) => bloque.dias.length > 0) }
+          : clase,
+      ),
+    [cambiar],
+  );
+
   const agregarPersonalizada = useCallback(() => {
     const nombre = personalizada.trim().slice(0, LARGO_MAX_NOMBRE_EVENTO);
     if (nombre.length < LARGO_MIN_NOMBRE_EVENTO) return;
     setClases((previas) => {
       const existente = previas.find((clase) => clase.nombre.toLowerCase() === nombre.toLowerCase());
       if (existente) {
-        return previas.map((clase) => (clase === existente ? { ...clase, activa: true, abierta: true } : clase));
+        return previas.map((clase) => (clase === existente ? { ...clase, activa: true } : clase));
       }
       if (previas.filter((clase) => clase.activa).length >= MAX_TIPOS_EVENTO) return previas;
       return [...previas, claseNueva(nombre, 60, true)];
@@ -241,6 +256,7 @@ export function useClases(inicial: TipoEvento[] = []) {
   }, [personalizada]);
 
   const activas = useMemo(() => clases.filter((clase) => clase.activa), [clases]);
+  const sinElegir = useMemo(() => clases.filter((clase) => !clase.activa), [clases]);
 
   /** nombre → qué le falta. Sólo las elegidas. */
   const problemas = useMemo(
@@ -268,21 +284,24 @@ export function useClases(inicial: TipoEvento[] = []) {
   );
 
   return {
+    origen,
+    elegirOrigen,
     clases,
     activas,
+    sinElegir,
     seleccionadas,
     problemas,
     validas: Object.keys(problemas).length === 0,
     alternar,
-    alternarPanel,
+    quitarClase,
     fijarDuracion,
     fijarPrecio,
     fijarCupo,
-    moverCupo,
     alternarDia,
     fijarHora,
     agregarBloque,
     quitarBloque,
+    limpiarBloquesVacios,
     personalizada,
     setPersonalizada,
     agregarPersonalizada,

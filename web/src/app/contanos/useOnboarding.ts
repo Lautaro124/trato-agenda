@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useDatosCliente, type PayloadDatosCliente } from "@/lib/datos-cliente";
-import type { LocalPresencial } from "@/lib/local";
+import { DIAS_SEMANA, NOMBRE_DIA, type LocalPresencial } from "@/lib/local";
 import { formatearPrecio } from "@/lib/precio";
 import {
   MAX_HORARIOS_GRUPALES,
@@ -167,7 +167,7 @@ export const AYUDA_POR_PASO: Record<PasoId, string> = {
   tipo: "Los pasos se acomodan a lo que elijas. Todo se puede cambiar después, menos el tipo de asistente.",
   negocio: "Con este nombre se presenta el asistente y firma los avisos.",
   atencion: "Si das clases, en el paso siguiente cargás los días, la hora y cuántas personas entran.",
-  clases: "Tocá los días de cada clase y elegí la hora. El asistente no anota a nadie cuando se llena el cupo.",
+  clases: "Contanos cuántos entran y cuándo es cada clase. El asistente no anota a nadie cuando se llena el cupo.",
   turnos:
     "Elegí si cada uno es individual o grupal (clases, talleres). Sin precio, el asistente le dice al cliente que lo consulte con vos.",
   horarios: "Fuera de esta franja el asistente no ofrece horarios.",
@@ -514,6 +514,20 @@ export function useOnboarding() {
           .map((clase) => `${clase.nombre.toLowerCase()} (${textoBloques(clase.bloques)})`)
           .join(", ")}${listas.length > 3 ? " y más" : ""}. ¿A cuál te querés anotar?`
       : "Cuando elijas tus clases, acá vas a ver cómo las ofrezco.";
+  /** Una reserva de ejemplo en la primera clase completa: el cliente elige su primer horario. */
+  const ejemploReservaClase = (() => {
+    const clase = listas[0];
+    const bloque = clase?.bloques.find((b) => b.dias.length > 0);
+    const dia = bloque && DIAS_SEMANA.find((d) => bloque.dias.includes(d));
+    if (!clase || !bloque || !dia || clase.cupo === undefined) return null;
+    const cuando = `el ${NOMBRE_DIA[dia].toLowerCase()} a las ${bloque.hora}`;
+    const quedan = clase.cupo - 1;
+    const lugares = quedan === 0 ? "Con vos se llenó la clase." : `Quedan ${quedan} ${quedan === 1 ? "lugar" : "lugares"}.`;
+    return {
+      cliente: `${conMayusculaInicial(cuando)} me viene bien. Soy Caro`,
+      asistente: `Listo, Caro: te anoté en ${clase.nombre.toLowerCase()} ${cuando}. ${lugares}`,
+    };
+  })();
 
   return {
     tipoAsistente,
@@ -532,6 +546,7 @@ export function useOnboarding() {
     clases,
     problemaClases,
     saludoClases,
+    ejemploReservaClase,
     tipoTitular: tipoTitularEfectivo,
     setTipoTitular,
     nombreTitular,
@@ -574,4 +589,8 @@ export function useOnboarding() {
       nombreBot: nombreBot.trim(),
     }),
   };
+}
+
+function conMayusculaInicial(texto: string): string {
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
