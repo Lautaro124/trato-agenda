@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Injectable,
   Logger,
+  UnauthorizedException,
   type OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -19,6 +20,9 @@ export const MAX_ALTAS_SIMULTANEAS = 20;
 /** Altas que puede arrancar una misma IP por hora (sólo en producción: los E2E salen todos de localhost). */
 export const MAX_ALTAS_POR_IP_HORA = 5;
 
+/** Códigos de vinculación que puede pedir una misma IP por hora desde altas (sólo en producción, como la anterior). */
+export const MAX_CODIGOS_ALTA_POR_IP_HORA = 10;
+
 const UNA_HORA_MS = 60 * 60 * 1000;
 
 /**
@@ -33,6 +37,7 @@ export class AltaWhatsappService implements OnModuleDestroy {
   private readonly logger = new Logger(AltaWhatsappService.name);
   private readonly pendientes = new Map<string, NodeJS.Timeout>();
   private readonly porIp = new Limitador(MAX_ALTAS_POR_IP_HORA, UNA_HORA_MS);
+  private readonly codigosPorIp = new Limitador(MAX_CODIGOS_ALTA_POR_IP_HORA, UNA_HORA_MS);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -62,6 +67,25 @@ export class AltaWhatsappService implements OnModuleDestroy {
       throw error;
     }
     return user;
+  }
+
+  /**
+   * Pedir el código de vinculación desde un alta: sólo mientras siga siendo un
+   * alta pendiente (una cookie de alta conservada no sirve sobre una cuenta ya
+   * creada) y con un tope por IP, porque cada pedido le manda una notificación
+   * a un teléfono que nadie probó todavía que sea suyo.
+   */
+  async pedirCodigo(userId: string, ip: string, telefono: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { googleId: true, phoneNumber: true },
+    });
+    if (!user || !esAltaPendiente(user)) throw new UnauthorizedException('El alta venció: empezá de nuevo.');
+    const limitaIp = this.config.get('NODE_ENV', { infer: true }) === 'production';
+    if (limitaIp && !this.codigosPorIp.permitir(ip)) {
+      throw new HttpException('Pediste demasiados códigos: probá en un rato.', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    return this.whatsapp.pedirCodigo(userId, telefono);
   }
 
   /**

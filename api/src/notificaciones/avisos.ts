@@ -12,6 +12,7 @@ export const TIPOS_NOTIFICACION = [
   'stock_agotado',
   'consulta_derivada',
   'mercadopago_desconectado',
+  'whatsapp_desconectado',
 ] as const;
 
 export type TipoNotificacion = (typeof TIPOS_NOTIFICACION)[number];
@@ -127,6 +128,36 @@ export function avisoMercadoPagoDesconectado(): Aviso {
       'pago: los pedidos quedan para cobrar a mano. Volvé a conectarla desde Cuenta.',
     enlace: '/cuenta',
     clave: 'mercadopago',
+  };
+}
+
+/**
+ * La sesión vinculada lleva un rato sin poder conectarse y se sigue
+ * reintentando sola. Por WhatsApp no va a llegar (justamente), pero queda en
+ * la campanita.
+ */
+export function avisoWhatsappCaido(minutos: number): Aviso {
+  return {
+    tipo: 'whatsapp_desconectado',
+    titulo: 'Tu WhatsApp se desconectó',
+    cuerpo:
+      `Hace más de ${minutos} minutos que el asistente no se puede conectar a tu WhatsApp, así que no está ` +
+      'contestando. Seguimos intentando solos; si no vuelve, revisá que el teléfono tenga internet.',
+    enlace: '/inicio',
+    clave: 'whatsapp',
+  };
+}
+
+/** WhatsApp rechazó la sesión y reintentar no la arregla: hay que volver a vincular. */
+export function avisoWhatsappParaVolverAVincular(): Aviso {
+  return {
+    tipo: 'whatsapp_desconectado',
+    titulo: 'Volvé a vincular tu WhatsApp',
+    cuerpo:
+      'WhatsApp dejó de aceptar la sesión del asistente y no va a contestar hasta que lo vuelvas a ' +
+      'vincular escaneando el QR.',
+    enlace: '/vincular',
+    clave: 'whatsapp-vincular',
   };
 }
 

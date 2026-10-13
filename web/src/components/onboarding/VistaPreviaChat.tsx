@@ -92,10 +92,26 @@ function respuestaDelLocal(ob: Onboarding): string {
  * viene cargando. Lo que muestra depende del tipo y del paso, así cada dato
  * nuevo aparece en la conversación apenas se escribe.
  */
+/** En "¿Cómo atendés?": cómo suena cada forma de atender, antes de cargar nada. */
+function EjemploDeAtencion({ grupal }: { grupal: boolean }) {
+  return grupal ? (
+    <>
+      <DelCliente>Hola, ¿tenés lugar en yoga el miércoles?</DelCliente>
+      <DelAsistente>¡Hola! Yoga es el miércoles a las 18:00 y quedan 3 lugares. ¿Te anoto?</DelAsistente>
+      <DelCliente>Sí, dale. Soy Martina</DelCliente>
+      <DelAsistente>Listo, Martina: te anoté en yoga el miércoles a las 18:00.</DelAsistente>
+    </>
+  ) : (
+    <EjemploDelTipo ventas={false} />
+  );
+}
+
 export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?: string }) {
   const paso = ob.pasoId;
-  const conTurnos = paso === "turnos" || paso === "horarios" || paso === "asistente";
-  const conHorarios = paso === "horarios" || paso === "asistente";
+  const pasoTurnos = ob.atencion !== "grupal";
+  const conTurnos = pasoTurnos && (paso === "turnos" || paso === "horarios" || paso === "asistente");
+  const conHorarios = pasoTurnos && (paso === "horarios" || paso === "asistente");
+  const conClases = ob.atencion !== "individual" && (paso === "clases" || paso === "horarios" || paso === "asistente");
   const inicial = (ob.nombreBot.trim()[0] ?? "A").toUpperCase();
 
   return (
@@ -115,6 +131,8 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
       <div className="flex flex-1 flex-col gap-2 bg-page px-3.5 py-4">
         {paso === "tipo" ? (
           <EjemploDelTipo ventas={ob.esVentas} />
+        ) : paso === "atencion" ? (
+          <EjemploDeAtencion grupal={ob.atencion !== "individual"} />
         ) : ob.esVentas ? (
           <>
             <DelCliente>Hola, ¿tenés mates de calabaza?</DelCliente>
@@ -137,6 +155,13 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
                 {ob.saludoEventos}
                 {conHorarios && ` ${ob.saludoHorarios}`}
               </DelAsistente>
+            )}
+            {conClases && <DelAsistente>{ob.saludoClases}</DelAsistente>}
+            {paso === "clases" && ob.ejemploReservaClase && (
+              <>
+                <DelCliente>{ob.ejemploReservaClase.cliente}</DelCliente>
+                <DelAsistente>{ob.ejemploReservaClase.asistente}</DelAsistente>
+              </>
             )}
             {paso === "asistente" && <DelCliente>Quiero un turno para el jueves a la tarde</DelCliente>}
           </>

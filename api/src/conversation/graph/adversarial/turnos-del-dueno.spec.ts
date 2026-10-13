@@ -59,7 +59,7 @@ describe('los turnos del dueño', () => {
       ],
     });
     vi.mocked(d.calendarService.listarTurnos).mockResolvedValue([
-      { id: 'turno-1', googleEventId: 'evento-abc', nombreCliente: 'Juana', inicio: TURNOS[0].inicio, fin: TURNOS[0].fin },
+      { id: 'turno-1', googleEventId: 'evento-abc', nombreCliente: 'Juana', tipo: null, inicio: TURNOS[0].inicio, fin: TURNOS[0].fin },
     ]);
 
     const resultado = await correr(d, { esPropietario: true, mensaje: '¿qué turnos tengo mañana?' });

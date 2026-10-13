@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test, visible } from './fixtures';
-import { botonContinuar, campoNuevoTipo, elegirAsistente, ETIQUETA_USO, preguntaInicial, tarjetaEvento } from './onboarding';
+import { botonContinuar, campoNuevoTipo, elegirAsistente, elegirAtencion, ETIQUETA_USO, preguntaInicial, tarjetaEvento } from './onboarding';
 
 function campoTitular(page: Page) {
   return visible(page.getByLabel('¿Cómo se llama tu negocio?'));
@@ -39,6 +39,7 @@ test.describe('wizard de /contanos: validaciones antes de generar', () => {
   test('tipos de evento: exige uno, ignora nombres de 1 letra y corta en 60 caracteres', async ({ page }) => {
     await campoTitular(page).fill('Kiosco Rápido');
     await botonContinuar(page).click();
+    await elegirAtencion(page);
     await empezarCon(page, 'otro').click();
 
     await expect(contador(page, '0 tipos elegidos')).toBeVisible();
@@ -61,6 +62,7 @@ test.describe('wizard de /contanos: validaciones antes de generar', () => {
   test('no deja pasar de 20 tipos de evento', async ({ page }) => {
     await campoTitular(page).fill('Kiosco Rápido');
     await botonContinuar(page).click();
+    await elegirAtencion(page);
     await empezarCon(page, 'otro').click();
 
     const nuevo = campoNuevoTipo(page);
@@ -82,6 +84,7 @@ test.describe('wizard de /contanos: validaciones antes de generar', () => {
   test('cambiar el "Empezar con" reinicia los tipos elegidos', async ({ page }) => {
     await campoTitular(page).fill('Consultorio Belgrano');
     await botonContinuar(page).click();
+    await elegirAtencion(page);
     await expect(empezarCon(page, 'consultorio')).toHaveAttribute('aria-checked', 'true');
 
     await tarjetaEvento(page, 'Urgencia').click();
@@ -101,6 +104,7 @@ test.describe('wizard de /contanos: validaciones antes de generar', () => {
   test('una franja invertida bloquea el avance', async ({ page }) => {
     await campoTitular(page).fill('Kiosco Rápido');
     await botonContinuar(page).click();
+    await elegirAtencion(page);
     await tarjetaEvento(page, 'Urgencia').click();
     await botonContinuar(page).click();
 

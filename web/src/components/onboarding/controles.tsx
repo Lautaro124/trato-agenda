@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { leerPrecio, precioParaInput } from "@/lib/precio";
+import { CAPACIDAD_MAX, capacidadValida, leerCapacidad } from "@/lib/turnos-grupales";
 import {
   HORAS,
   LARGO_MAX_BOT,
@@ -14,9 +15,11 @@ import {
   SUGERENCIAS_BOT,
   TIPOS_USO,
   duracionVecina,
+  type DatosEvento,
   type Onboarding,
   type TiposEventoState,
 } from "@/app/contanos/useOnboarding";
+import { HorariosGrupales } from "./HorariosGrupales";
 
 /** Controles del wizard de /contanos; los de tipos de evento también los usa /reuniones. */
 
@@ -115,7 +118,7 @@ export function EmpezarCon({ ob }: { ob: Onboarding }) {
 }
 
 /** Campo de precio en pesos: sólo dígitos, se muestra con separador de miles. Vacío = sin precio. */
-function CampoPrecio({
+export function CampoPrecio({
   valor,
   onChange,
   etiqueta,
@@ -153,7 +156,7 @@ function CampoPrecio({
 }
 
 /** − duración + de un tipo activado: recorre `DURACIONES` y se traba en los extremos. */
-function SelectorDuracion({
+export function SelectorDuracion({
   nombre,
   duracion,
   onChange,
@@ -199,9 +202,21 @@ function SelectorDuracion({
 
 /**
  * Un tipo de evento por fila. Tildarlo muestra la duración y el precio en la
- * misma fila (debajo en móvil), así la lista no salta al activar uno.
+ * misma fila (debajo en móvil), así la lista no salta al activar uno. Cada
+ * fila tiene a la vista "Individual | Grupal"; con Grupal, debajo aparecen la
+ * capacidad y los horarios fijos.
  */
-export function ListaEventos({ ob }: { ob: TiposEventoState }) {
+export function ListaEventos({
+  ob,
+  conModalidad = true,
+}: {
+  ob: TiposEventoState;
+  /**
+   * El selector "Individual | Grupal" de cada fila. El wizard lo apaga: ahí
+   * las clases grupales tienen su propio paso ("¿Qué clases das?").
+   */
+  conModalidad?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       {ob.eventos.map((evento) => {
@@ -212,70 +227,194 @@ export function ListaEventos({ ob }: { ob: TiposEventoState }) {
           <div
             key={evento.nombre}
             className={cn(
-              "flex flex-col gap-2.5 rounded-sm border px-[13px] py-[9px] sm:flex-row sm:items-center",
+              "flex flex-col gap-2.5 rounded-sm border px-[13px] py-[9px]",
               activo ? "border-primary bg-primary-subtle" : "border-line bg-card hover:border-line-strong",
             )}
           >
-            <button
-              type="button"
-              aria-pressed={activo}
-              onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
-              className="flex min-h-8 min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left select-none"
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "grid size-[18px] flex-none place-items-center rounded-[6px] border",
-                  activo ? "border-primary bg-primary text-primary-on" : "border-line-strong bg-card",
-                )}
+            {/* flex-wrap: lo que no entra al lado del nombre baja a la línea siguiente, en móvil y en una columna angosta. */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                aria-pressed={activo}
+                onClick={() => ob.alternarEvento(evento.nombre, evento.duracionMin)}
+                className="flex min-h-8 min-w-[180px] flex-1 cursor-pointer items-center gap-2.5 text-left select-none"
               >
-                {activo && (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                )}
-              </span>
-              <span className={cn("min-w-0 flex-1 text-[14px] break-words text-ink", activo && "font-semibold")}>
-                {evento.nombre}
-              </span>
-              {!activo && (
-                <span aria-hidden className="flex-none rounded-full bg-sunken px-[9px] py-[3px] font-mono text-[11.5px] font-semibold text-muted">
-                  {duracion} min
+                <span
+                  aria-hidden
+                  className={cn(
+                    "grid size-[18px] flex-none place-items-center rounded-[6px] border",
+                    activo ? "border-primary bg-primary text-primary-on" : "border-line-strong bg-card",
+                  )}
+                >
+                  {activo && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  )}
                 </span>
-              )}
-            </button>
-            {activo && (
-              // En móvil el precio y "Sin precio" bajan a su propia línea: al lado del − / + no entran.
-              <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-                <SelectorDuracion
+                <span className={cn("min-w-0 flex-1 text-[14px] break-words text-ink", activo && "font-semibold")}>
+                  {evento.nombre}
+                </span>
+                {!activo && (
+                  <span aria-hidden className="flex-none rounded-full bg-sunken px-[9px] py-[3px] font-mono text-[11.5px] font-semibold text-muted">
+                    {duracion} min
+                  </span>
+                )}
+              </button>
+              {conModalidad && (
+                <SelectorModalidad
                   nombre={evento.nombre}
-                  duracion={duracion}
-                  onChange={(min) => ob.fijarDuracion(evento.nombre, min)}
+                  modalidad={activo ? (datos.grupal ? "grupal" : "individual") : null}
+                  onChange={(grupal) => ob.elegirModalidad(evento.nombre, evento.duracionMin, grupal)}
                 />
-                <div className="flex min-w-[200px] flex-1 items-center gap-2 sm:min-w-0 sm:flex-none">
-                  <div className="min-w-0 flex-1 sm:w-[120px] sm:flex-none">
-                    <CampoPrecio
-                      valor={datos.precio}
-                      onChange={(precio) => ob.fijarPrecio(evento.nombre, precio)}
-                      etiqueta={`Precio de ${evento.nombre}`}
-                      deshabilitado={Boolean(datos.sinPrecio)}
-                    />
+              )}
+              {activo && (
+                // En móvil el precio y "Sin precio" bajan a su propia línea: al lado del − / + no entran.
+                <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                  <SelectorDuracion
+                    nombre={evento.nombre}
+                    duracion={duracion}
+                    onChange={(min) => ob.fijarDuracion(evento.nombre, min)}
+                  />
+                  <div className="flex min-w-[200px] flex-1 items-center gap-2 sm:min-w-0 sm:flex-none">
+                    <div className="min-w-0 flex-1 sm:w-[120px] sm:flex-none">
+                      <CampoPrecio
+                        valor={datos.precio}
+                        onChange={(precio) => ob.fijarPrecio(evento.nombre, precio)}
+                        etiqueta={`Precio de ${evento.nombre}`}
+                        deshabilitado={Boolean(datos.sinPrecio)}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      aria-pressed={Boolean(datos.sinPrecio)}
+                      aria-label={`Sin precio para ${evento.nombre}`}
+                      onClick={() => ob.fijarSinPrecio(evento.nombre, !datos.sinPrecio)}
+                      className={cn(chip(Boolean(datos.sinPrecio)), "flex-none whitespace-nowrap")}
+                    >
+                      Sin precio
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    aria-pressed={Boolean(datos.sinPrecio)}
-                    aria-label={`Sin precio para ${evento.nombre}`}
-                    onClick={() => ob.fijarSinPrecio(evento.nombre, !datos.sinPrecio)}
-                    className={cn(chip(Boolean(datos.sinPrecio)), "flex-none whitespace-nowrap")}
-                  >
-                    Sin precio
-                  </button>
                 </div>
-              </div>
+              )}
+            </div>
+            {activo && datos.grupal && (
+              <PanelGrupal ob={ob} nombre={evento.nombre} datos={datos} problema={ob.problemasGrupales[evento.nombre]} />
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * "Individual | Grupal" de un tipo de turno, siempre a la vista. Sin tildar no
+ * hay ninguna marcada; elegir una también activa el tipo.
+ */
+function SelectorModalidad({
+  nombre,
+  modalidad,
+  onChange,
+}: {
+  nombre: string;
+  modalidad: "individual" | "grupal" | null;
+  onChange: (grupal: boolean) => void;
+}) {
+  const opciones = [
+    { id: "individual", label: "Individual", grupal: false },
+    { id: "grupal", label: "Grupal", grupal: true },
+  ] as const;
+  return (
+    <div
+      role="radiogroup"
+      aria-label={`Modalidad de ${nombre}`}
+      className="inline-grid flex-none grid-cols-2 gap-0.5 rounded-md bg-sunken p-[3px]"
+    >
+      {opciones.map((opcion) => {
+        const marcada = modalidad === opcion.id;
+        return (
+          <button
+            key={opcion.id}
+            type="button"
+            role="radio"
+            aria-checked={marcada}
+            onClick={() => onChange(opcion.grupal)}
+            className={cn(
+              "min-h-8 cursor-pointer rounded-sm px-3 text-[13px] whitespace-nowrap",
+              marcada ? "bg-card font-bold text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+            )}
+          >
+            {opcion.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Lo que tiene un turno grupal: cuántas personas entran y en qué días y horas
+ * se da. Los clientes sólo se pueden anotar en esos horarios.
+ */
+function PanelGrupal({
+  ob,
+  nombre,
+  datos,
+  problema,
+}: {
+  ob: TiposEventoState;
+  nombre: string;
+  datos: DatosEvento;
+  problema: string | undefined;
+}) {
+  const idProblema = `problema-grupal-${nombre.replace(/[^a-zA-Z0-9]+/g, "-")}`;
+  return (
+    <div className="flex flex-col gap-3 rounded-sm border border-line bg-card p-3">
+      <p className="text-[13.5px] text-ink">
+        <span className="font-semibold">Turno grupal:</span> varias personas en el mismo horario.
+      </p>
+      <label className="flex flex-wrap items-center gap-2 text-[13.5px] text-ink">
+        <span className="font-semibold">Cuántas personas entran</span>
+        <span className="flex items-center rounded-sm border border-line bg-card focus-within:border-[var(--color-semantic-border-focus)]">
+          <input
+            value={datos.capacidad === undefined ? "" : String(datos.capacidad)}
+            onChange={(e) => ob.fijarCapacidad(nombre, leerCapacidad(e.target.value))}
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label={`Capacidad de ${nombre}`}
+            aria-invalid={!capacidadValida(datos.capacidad)}
+            aria-describedby={problema ? idProblema : undefined}
+            placeholder={`1 a ${CAPACIDAD_MAX}`}
+            className="w-[84px] min-w-0 bg-transparent px-2 py-[9px] font-mono text-[14px] text-ink outline-none"
+          />
+          <span aria-hidden className="pr-3 text-[13px] text-muted">
+            personas
+          </span>
+        </span>
+      </label>
+      <div className="flex flex-col gap-2">
+        <span className="text-[13.5px] font-semibold text-ink">¿Cuándo es?</span>
+        <HorariosGrupales
+          nombre={nombre}
+          duracionMin={datos.duracionMin}
+          bloques={datos.bloques ?? []}
+          cambios={{
+            onAlternarDia: (indice, dia) => ob.alternarDiaGrupal(nombre, indice, dia),
+            onFijarHora: (indice, hora) => ob.fijarHoraGrupal(nombre, indice, hora),
+            onAgregar: () => ob.agregarBloqueGrupal(nombre),
+            onQuitar: (indice) => ob.quitarBloqueGrupal(nombre, indice),
+            onLimpiarVacios: () => ob.limpiarBloquesGrupales(nombre),
+          }}
+        />
+      </div>
+      {problema ? (
+        <p id={idProblema} className="text-[12.5px] text-danger-text">
+          {problema}
+        </p>
+      ) : (
+        <p className="text-[12.5px] text-muted">Los clientes sólo se pueden anotar en estos horarios.</p>
+      )}
     </div>
   );
 }

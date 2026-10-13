@@ -15,10 +15,14 @@ import type {
 import { CLAVES_MENSAJE, leerMensajes, normalizarMensajes } from './mensajes.rules.js';
 import { normalizarLocal, type LocalPresencial } from './local.js';
 import { normalizarCampos } from '../comercio/datos-cliente.rules.js';
+import { detalleGrupal, esGrupal, normalizarTiposEvento } from './turnos-grupales.js';
 
 function listarTiposEvento(dto: GenerateAgentDto): string {
   return dto.tiposEvento
-    .map((tipo) => `${tipo.nombre.trim()} (${tipo.duracionMin} min)`)
+    .map((tipo) => {
+      const detalle = esGrupal(tipo) ? `${tipo.duracionMin} min, ${detalleGrupal(tipo)}` : `${tipo.duracionMin} min`;
+      return `${tipo.nombre.trim()} (${detalle})`;
+    })
     .join(', ');
 }
 
@@ -62,10 +66,12 @@ export class AgentsService {
       // Comparar "HH:MM" como strings alcanza: mismo largo y campos de ancho fijo.
       throw new BadRequestException('La hora de fin tiene que ser posterior a la de inicio.');
     }
+    const tiposEvento = this.validarTiposEvento(dto.tiposEvento);
     await this.exigirMismoTipo(userId, 'agenda');
 
-    const descripcion = construirDescripcion(dto);
-    const config = construirConfiguracion(dto);
+    const conTipos: GenerateAgentDto = { ...dto, tiposEvento };
+    const descripcion = construirDescripcion(conTipos);
+    const config = construirConfiguracion(conTipos);
 
     const datos = {
       tipoUso: dto.tipoUso,
@@ -76,7 +82,7 @@ export class AgentsService {
       nombreBot: dto.nombreBot.trim(),
       horaDesde: dto.horaDesde,
       horaHasta: dto.horaHasta,
-      tiposEvento: dto.tiposEvento as unknown as Prisma.InputJsonValue,
+      tiposEvento: tiposEvento as unknown as Prisma.InputJsonValue,
       systemPrompt: config.systemPrompt,
       allowedActions: config.allowedActions,
       // Ya no hay un modelo de OpenRouter que generó esto: lo distingue
@@ -183,7 +189,7 @@ export class AgentsService {
       throw new ConflictException('Tu asistente vende productos: no tiene reuniones para editar.');
     }
 
-    const tiposEvento = tipos.map((tipo) => ({ ...tipo, nombre: tipo.nombre.trim() }));
+    const tiposEvento = this.validarTiposEvento(tipos);
     const nombres = new Set(tiposEvento.map((tipo) => tipo.nombre.toLowerCase()));
     if (nombres.size !== tiposEvento.length) {
       throw new BadRequestException('Hay dos reuniones con el mismo nombre.');
@@ -211,6 +217,13 @@ export class AgentsService {
         templateVersion: PLANTILLA_VERSION,
       },
     });
+  }
+
+  /** Recorta los nombres y valida la parte grupal (turnos-grupales.ts); un problema es un 400. */
+  private validarTiposEvento(tipos: TipoEventoDto[]): TipoEventoDto[] {
+    const resultado = normalizarTiposEvento(tipos);
+    if ('error' in resultado) throw new BadRequestException(resultado.error);
+    return resultado.tipos;
   }
 
   private validarLocal(dto: LocalPresencialDto): LocalPresencial {

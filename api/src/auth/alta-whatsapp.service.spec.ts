@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { WhatsappService } from '../whatsapp/whatsapp.service.js';
-import { AltaWhatsappService, MAX_ALTAS_POR_IP_HORA } from './alta-whatsapp.service.js';
+import { AltaWhatsappService, MAX_ALTAS_POR_IP_HORA, MAX_CODIGOS_ALTA_POR_IP_HORA } from './alta-whatsapp.service.js';
 
 type FilaUser = { id: string; googleId: string | null; phoneNumber: string | null; calendario: string };
 
@@ -44,6 +44,7 @@ function crear(
 
   const whatsapp = {
     startLink: vi.fn().mockResolvedValue(undefined),
+    pedirCodigo: vi.fn().mockResolvedValue('ABCD-1234'),
     transferirSesion: vi.fn().mockResolvedValue(undefined),
     descartar: vi.fn().mockResolvedValue(undefined),
   } as unknown as WhatsappService;
@@ -144,5 +145,37 @@ describe('AltaWhatsappService', () => {
     expect(creado.whatsapp.descartar).toHaveBeenCalledTimes(1);
     expect(creado.usuarios.has(pendiente.id)).toBe(false);
     expect(creado.usuarios.has(conNumero.id)).toBe(true);
+  });
+});
+
+describe('AltaWhatsappService.pedirCodigo', () => {
+  it('pide el código para un alta pendiente', async () => {
+    const { service, whatsapp } = crear({ existentes: [{ id: 'a', googleId: null, phoneNumber: null, calendario: 'local' }] });
+
+    await expect(service.pedirCodigo('a', '1.1.1.1', '5491122334455')).resolves.toBe('ABCD-1234');
+    expect(whatsapp.pedirCodigo).toHaveBeenCalledWith('a', '5491122334455');
+    service.onModuleDestroy();
+  });
+
+  it('una cookie de alta sobre una cuenta ya creada no sirve: 401 sin tocar WhatsApp', async () => {
+    const { service, whatsapp } = crear({
+      existentes: [{ id: 'a', googleId: null, phoneNumber: '5491100000000', calendario: 'local' }],
+    });
+
+    await expect(service.pedirCodigo('a', '1.1.1.1', '5491122334455')).rejects.toMatchObject({ status: 401 });
+    await expect(service.pedirCodigo('no-existe', '1.1.1.1', '5491122334455')).rejects.toMatchObject({ status: 401 });
+    expect(whatsapp.pedirCodigo).not.toHaveBeenCalled();
+    service.onModuleDestroy();
+  });
+
+  it('en producción limita los códigos por IP', async () => {
+    const { service } = crear({ existentes: [{ id: 'a', googleId: null, phoneNumber: null, calendario: 'local' }] });
+
+    for (let i = 0; i < MAX_CODIGOS_ALTA_POR_IP_HORA; i++) {
+      await service.pedirCodigo('a', '1.1.1.1', '5491122334455');
+    }
+    await expect(service.pedirCodigo('a', '1.1.1.1', '5491122334455')).rejects.toMatchObject({ status: 429 });
+    await expect(service.pedirCodigo('a', '2.2.2.2', '5491122334455')).resolves.toBe('ABCD-1234');
+    service.onModuleDestroy();
   });
 });

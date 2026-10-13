@@ -7,7 +7,7 @@ import { detalleDeTipo } from './precio.js';
  * genera `construirSystemPrompt`, para poder distinguir con qué versión se
  * generó cada `Agent.templateVersion` ya persistido.
  */
-export const PLANTILLA_VERSION = 5;
+export const PLANTILLA_VERSION = 6;
 
 export type ConfiguracionAgente = { systemPrompt: string; allowedActions: AccionId[] };
 
@@ -40,7 +40,7 @@ function construirSystemPrompt(dto: GenerateAgentDto): string {
     `Sos ${bot} y atendés el WhatsApp de ${titular} (${quien}, tipo de uso: ${dto.tipoUso}). ` +
     `En tu primer mensaje de la conversación saludás con tu nombre y el de ${titular}; después seguís la charla directo, sin volver a saludar.\n\n` +
     `Atendé de lunes a viernes de ${dto.horaDesde} a ${dto.horaHasta}. ` +
-    `Tipos de turno que se pueden agendar, con su duración y precio cuando lo tienen: ${listarTiposEvento(dto)}.\n\n` +
+    `Tipos de turno que se pueden agendar, con su duración, su precio cuando lo tienen y, los grupales, cuántas personas entran y sus horarios fijos: ${listarTiposEvento(dto)}.\n\n` +
     `Antes de agendar, preguntá los datos que falten (día, horario, tipo de turno y nombre de la ` +
     `persona) si no te los dijeron. Consultá disponibilidad antes de ofrecer un horario. Apenas la ` +
     `persona elige un horario libre, agendalo y avisale que quedó agendado; si pide moverlo o cancelarlo, ` +

@@ -14,6 +14,10 @@ import { Logger } from '@nestjs/common';
 import type { CalendarService, PeriodoOcupado } from '../../../calendar/calendar.service.js';
 import { CalendarUnavailableError } from '../../../calendar/google-calendar.client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
+import { leerTiposEvento } from '../../../agents/agents.types.js';
+import { esGrupal } from '../../../agents/turnos-grupales.js';
+import type { Turno } from '../../../generated/prisma/client.js';
+import { claseEn, claveClase, conAnotado, mensajeClaseCompleta, sinAnotado, tipoPorNombre, type Clase } from '../turnos-grupales.js';
 import { MENSAJE_CALENDAR_CAIDO } from '../../mensajes.js';
 import {
   MARGEN_MINIMO_MIN,
@@ -72,6 +76,10 @@ function quitarOcupado(agenda: SnapshotAgenda, periodo: PeriodoOcupado): Snapsho
   };
 }
 
+function claveDe(clase: Clase): string {
+  return claveClase(clase.tipo, clase.inicio);
+}
+
 export function crearNodoCalendar(deps: DepsCalendar) {
   const logger = new Logger('CalendarNode');
 
@@ -112,6 +120,61 @@ export function crearNodoCalendar(deps: DepsCalendar) {
     };
   }
 
+  /** La clase de un turno grupal que nombra la tool call, si el tipo es grupal (la validación ya la aprobó). */
+  function claseDeLaLlamada(contexto: ContextoTurno, tipoTexto: unknown, inicio: Date): Clase | null {
+    const tipo = tipoPorNombre(leerTiposEvento(contexto.agent), tipoTexto);
+    if (!tipo || !esGrupal(tipo)) return null;
+    return claseEn(contexto.grupales.clases, tipo.nombre, inicio);
+  }
+
+  /** Capacidad vigente del tipo de un turno grupal, o undefined si dejó de ser grupal. */
+  function capacidadDe(contexto: ContextoTurno, tipoTexto: string): number | undefined {
+    const tipo = tipoPorNombre(leerTiposEvento(contexto.agent), tipoTexto);
+    return tipo && esGrupal(tipo) ? tipo.capacidad : undefined;
+  }
+
+  /**
+   * Anota a esta conversación en una clase. La capacidad se vuelve a contar en
+   * la base con un lock (CalendarService.inscribirEnTurnoGrupal): entre el
+   * snapshot y este momento pudo anotarse alguien desde otro chat.
+   */
+  async function inscribir(
+    contexto: ContextoTurno,
+    clase: Clase,
+    nombreCliente: string,
+  ): Promise<{ ok: true; turno: Turno; contexto: ContextoTurno } | { ok: false; texto: string }> {
+    const { agent, conversation } = contexto;
+    const resultado = await deps.calendarService.inscribirEnTurnoGrupal(agent.user, {
+      conversationId: conversation.id,
+      nombreCliente,
+      tipo: clase.tipo,
+      inicio: clase.inicio,
+      fin: clase.fin,
+      capacidad: clase.capacidad,
+    });
+    if (!resultado.ok) {
+      if (resultado.motivo === 'ya_anotado') {
+        return { ok: false, texto: `Ya está anotado en la clase de ${clase.tipo} del ${formatearFecha(clase.inicio)}.` };
+      }
+      // Se llenó recién: para la sugerencia, la clase cuenta como completa.
+      const llena = new Map(contexto.grupales.anotados);
+      const actual = contexto.grupales.anotados.get(claveDe(clase));
+      llena.set(claveDe(clase), { cantidad: clase.capacidad, conversaciones: actual?.conversaciones ?? new Set() });
+      return {
+        ok: false,
+        texto: `se llenó recién. ${mensajeClaseCompleta(clase, llena, contexto.grupales.clases)}`,
+      };
+    }
+    return {
+      ok: true,
+      turno: resultado.turno,
+      contexto: {
+        ...contexto,
+        grupales: { ...contexto.grupales, anotados: conAnotado(contexto.grupales.anotados, clase, conversation.id) },
+      },
+    };
+  }
+
   async function ejecutar(
     agenda: SnapshotAgenda,
     contexto: ContextoTurno,
@@ -145,6 +208,21 @@ export function crearNodoCalendar(deps: DepsCalendar) {
         const nombreCliente = String(args.nombreCliente).trim();
         const tipo = typeof args.resumen === 'string' && args.resumen.trim() ? args.resumen.trim() : 'Turno';
         const inicio = parsearFecha(args.inicio, 'inicio');
+
+        const clase = claseDeLaLlamada(contexto, args.resumen, inicio);
+        if (clase) {
+          const inscripcion = await inscribir(contexto, clase, nombreCliente);
+          if (!inscripcion.ok) return { texto: `No se pudo anotar: ${inscripcion.texto}` };
+          const conversacionActualizada = await deps.prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { nombreCliente },
+          });
+          return {
+            texto: `Anotado ${nombreCliente} en la clase de ${clase.tipo} del ${formatearFecha(clase.inicio)}.`,
+            contexto: { ...inscripcion.contexto, conversation: conversacionActualizada, turnoActivo: inscripcion.turno },
+          };
+        }
+
         const fin = parsearFecha(args.fin, 'fin');
 
         const choque = await choqueDeUltimoMomento(agenda, contexto, inicio, fin);
@@ -184,6 +262,22 @@ export function crearNodoCalendar(deps: DepsCalendar) {
         if (!turnoActivo) {
           return { texto: 'No hay ningún turno activo para cancelar en esta conversación.' };
         }
+        if (turnoActivo.tipo) {
+          // Turno grupal: el evento es de toda la clase y sólo se borra si era el último anotado.
+          const { tipo } = turnoActivo;
+          await deps.calendarService.bajaDeTurnoGrupal(agent.user, { ...turnoActivo, tipo }, capacidadDe(contexto, tipo));
+          return {
+            texto: `Turno del ${formatearFecha(turnoActivo.inicio)} cancelado.`,
+            contexto: {
+              ...contexto,
+              turnoActivo: null,
+              grupales: {
+                ...contexto.grupales,
+                anotados: sinAnotado(contexto.grupales.anotados, tipo, turnoActivo.inicio, conversation.id),
+              },
+            },
+          };
+        }
         await deps.calendarService.cancelarEvento(agent.user, turnoActivo.googleEventId);
         await deps.prisma.turno.update({ where: { id: turnoActivo.id }, data: { estado: 'cancelado' } });
 
@@ -199,6 +293,29 @@ export function crearNodoCalendar(deps: DepsCalendar) {
           return { texto: 'No hay ningún turno activo para reprogramar en esta conversación.' };
         }
         const inicio = parsearFecha(args.inicio, 'inicio');
+
+        if (turnoActivo.tipo) {
+          // Primero el lugar nuevo y después la baja del viejo: si la clase nueva
+          // se llenó, el cliente no se queda sin ninguna de las dos.
+          const { tipo } = turnoActivo;
+          const clase = claseDeLaLlamada(contexto, tipo, inicio);
+          if (!clase) return { texto: 'No se pudo reprogramar: ese horario no es una clase de este turno grupal.' };
+          const inscripcion = await inscribir(contexto, clase, turnoActivo.nombreCliente ?? conversation.nombreCliente ?? 'Cliente');
+          if (!inscripcion.ok) return { texto: `No se pudo reprogramar: ${inscripcion.texto}` };
+          await deps.calendarService.bajaDeTurnoGrupal(agent.user, { ...turnoActivo, tipo }, capacidadDe(contexto, tipo));
+          return {
+            texto: `Turno reprogramado para la clase de ${clase.tipo} del ${formatearFecha(clase.inicio)}.`,
+            contexto: {
+              ...inscripcion.contexto,
+              turnoActivo: inscripcion.turno,
+              grupales: {
+                ...inscripcion.contexto.grupales,
+                anotados: sinAnotado(inscripcion.contexto.grupales.anotados, tipo, turnoActivo.inicio, conversation.id),
+              },
+            },
+          };
+        }
+
         const fin = parsearFecha(args.fin, 'fin');
 
         const choque = await choqueDeUltimoMomento(agenda, contexto, inicio, fin, {
@@ -254,7 +371,8 @@ export function crearNodoCalendar(deps: DepsCalendar) {
           texto: turnos
             .map(
               (turno) =>
-                `id=${turno.googleEventId} · ${formatearFecha(turno.inicio)}${turno.nombreCliente ? ` · ${turno.nombreCliente}` : ''}`,
+                `id=${turno.googleEventId} · ${formatearFecha(turno.inicio)}${turno.nombreCliente ? ` · ${turno.nombreCliente}` : ''}` +
+                (turno.tipo ? ` · clase grupal de ${turno.tipo}` : ''),
             )
             .join('\n'),
         };

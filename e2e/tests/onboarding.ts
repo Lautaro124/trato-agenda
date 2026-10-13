@@ -130,6 +130,18 @@ async function nombrarAsistente(page: Page, perfil: PerfilWizard): Promise<void>
   await expect(visible(page.getByText(saludoEsperado(perfil)))).toBeVisible();
 }
 
+/**
+ * Paso "¿Cómo atendés?": elige la forma de atender y sigue. "Uno a uno"
+ * viene elegido, así que los recorridos de turnos individuales sólo siguen.
+ */
+export async function elegirAtencion(page: Page, atencion: 'Uno a uno' | 'En grupo' | 'Las dos cosas' = 'Uno a uno'): Promise<void> {
+  await expect(page.getByRole('heading', { name: '¿Cómo atendés a tus clientes?' })).toBeVisible();
+  const opcion = page.getByRole('radio', { name: new RegExp(`^${atencion}`) });
+  await opcion.click();
+  await expect(opcion).toHaveAttribute('aria-checked', 'true');
+  await botonContinuar(page).click();
+}
+
 /** La pregunta del primer paso: sirve para saber que el wizard ya cargó. */
 export function preguntaInicial(page: Page): Locator {
   return page.getByRole('heading', { name: '¿Qué va a hacer tu asistente?' });
@@ -155,6 +167,8 @@ export async function completarWizard(page: Page, perfil: PerfilWizard): Promise
     page.getByLabel(perfil.tipoTitular === 'persona' ? '¿Cómo te llamás?' : '¿Cómo se llama tu negocio?'),
   ).fill(perfil.nombreTitular);
   await botonContinuar(page).click();
+
+  await elegirAtencion(page);
 
   await page.getByRole('radio', { name: ETIQUETA_USO[perfil.tipoUso], exact: true }).click();
   await cargarTiposDeEvento(page, perfil);

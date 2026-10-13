@@ -80,6 +80,23 @@ export function variantesDeTelefono(crudo: string): string[] {
   return [...new Set(todas)].filter((variante) => variante.length >= 8 && variante.length <= 15);
 }
 
+/**
+ * El número como lo registra WhatsApp (la parte de usuario del JID), que es
+ * lo que pide `requestPairingCode` para vincular con código: si no coincide,
+ * a ese teléfono no le llega la notificación y el código no sirve.
+ *
+ * En Argentina WhatsApp siempre lleva el 9 (5491122334455), lo dicte o no
+ * quien escribe. En México se deja sin prefijos locales tal como llegó: no
+ * está validado si WhatsApp espera el 1 (LAU-11).
+ */
+export function telefonoParaWhatsapp(crudo: string): string {
+  const digitos = normalizarTelefono(crudo);
+  const partes = partir(digitos);
+  if (!partes) return digitos;
+  if (partes.pais === '54') return `54${DIGITO_MOVIL['54']}${sinDigitoMovil(partes)}`;
+  return `${partes.pais}${sinPrefijosLocales(partes.pais, partes.nacional)}`;
+}
+
 /** El número nacional sin el 0, el 15 ni el dígito de móvil del país. */
 function sinDigitoMovil({ pais, nacional }: { pais: string; nacional: string }): string {
   const movil = DIGITO_MOVIL[pais];

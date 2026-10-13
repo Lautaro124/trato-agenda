@@ -441,4 +441,130 @@ describe('CalendarService', () => {
       expect(ids).toEqual(new Set(['evento-a', 'evento-b']));
     });
   });
+  describe('turnos grupales', () => {
+    const CLASE = { tipo: 'Yoga', inicio: new Date('2026-09-01T15:00:00Z'), fin: new Date('2026-09-01T16:00:00Z'), capacidad: 2 };
+
+    /**
+     * Prisma con `$transaction` que corre el callback contra el mismo objeto,
+     * anotando el lock y los turnos ya anotados en la clase.
+     */
+    function crearPrismaGrupal(anotados: { googleEventId: string; conversationId: string }[], otros = 0) {
+      const { prisma } = prismaConEventosEnMemoria();
+      const turno = {
+        findMany: vi.fn().mockResolvedValue(anotados),
+        count: vi.fn().mockResolvedValue(otros),
+        create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'turno-nuevo', ...data })),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      };
+      const executeRaw = vi.fn().mockResolvedValue(1);
+      const conTurnos = Object.assign(prisma, { turno, $executeRaw: executeRaw });
+      Object.assign(conTurnos, {
+        $transaction: vi.fn((callback: (tx: unknown) => Promise<unknown>) => callback(conTurnos)),
+      });
+      return { prisma: conTurnos as unknown as PrismaService, turno, executeRaw };
+    }
+
+    it('el primer anotado crea el evento de la clase y queda con el tipo', async () => {
+      const { prisma, turno, executeRaw } = crearPrismaGrupal([]);
+      const service = new CalendarService(crearConfig(), prisma);
+
+      const resultado = await service.inscribirEnTurnoGrupal(USUARIO_LOCAL, {
+        conversationId: 'conv-1',
+        nombreCliente: 'Juan',
+        ...CLASE,
+      });
+
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+      expect(resultado).toMatchObject({ ok: true, anotados: 1 });
+      const eventos = await service.listarProximos(USUARIO_LOCAL, new Date('2026-09-01T00:00:00Z'), new Date('2026-09-02T00:00:00Z'));
+      expect(eventos).toEqual([expect.objectContaining({ resumen: 'Yoga (grupal) · 1/2' })]);
+      expect(turno.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ tipo: 'Yoga', nombreCliente: 'Juan', googleEventId: eventos[0].id }),
+      });
+    });
+
+    it('los siguientes reusan el evento de la clase y actualizan la cuenta del título', async () => {
+      const { prisma, turno } = crearPrismaGrupal([{ googleEventId: 'evento-clase', conversationId: 'conv-2' }]);
+      eventsPatch.mockResolvedValue({ data: {} });
+      const service = new CalendarService(crearConfig(), prisma);
+
+      const resultado = await service.inscribirEnTurnoGrupal(usuarioConToken(), {
+        conversationId: 'conv-1',
+        nombreCliente: 'Juan',
+        ...CLASE,
+      });
+
+      expect(resultado).toMatchObject({ ok: true, anotados: 2 });
+      expect(eventsInsert).not.toHaveBeenCalled();
+      expect(turno.create).toHaveBeenCalledWith({ data: expect.objectContaining({ googleEventId: 'evento-clase' }) });
+      expect(eventsPatch).toHaveBeenCalledWith(
+        expect.objectContaining({ eventId: 'evento-clase', requestBody: { summary: 'Yoga (grupal) · 2/2' } }),
+      );
+    });
+
+    it('con la clase llena o la conversación ya anotada no escribe nada', async () => {
+      const llena = crearPrismaGrupal([
+        { googleEventId: 'evento-clase', conversationId: 'conv-2' },
+        { googleEventId: 'evento-clase', conversationId: 'conv-3' },
+      ]);
+      const service = new CalendarService(crearConfig(), llena.prisma);
+      await expect(
+        service.inscribirEnTurnoGrupal(usuarioConToken(), { conversationId: 'conv-1', nombreCliente: 'Juan', ...CLASE }),
+      ).resolves.toEqual({ ok: false, motivo: 'completa' });
+      expect(llena.turno.create).not.toHaveBeenCalled();
+
+      const repetido = crearPrismaGrupal([{ googleEventId: 'evento-clase', conversationId: 'conv-1' }]);
+      await expect(
+        new CalendarService(crearConfig(), repetido.prisma).inscribirEnTurnoGrupal(usuarioConToken(), {
+          conversationId: 'conv-1',
+          nombreCliente: 'Juan',
+          ...CLASE,
+        }),
+      ).resolves.toEqual({ ok: false, motivo: 'ya_anotado' });
+      expect(eventsInsert).not.toHaveBeenCalled();
+    });
+
+    it('si el título no se puede actualizar, la inscripción queda igual', async () => {
+      const { prisma } = crearPrismaGrupal([{ googleEventId: 'evento-clase', conversationId: 'conv-2' }]);
+      eventsPatch.mockRejectedValue(new Error('Google caído'));
+      const service = new CalendarService(crearConfig(), prisma);
+
+      await expect(
+        service.inscribirEnTurnoGrupal(usuarioConToken(), { conversationId: 'conv-1', nombreCliente: 'Juan', ...CLASE }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    const TURNO_CLASE = { id: 't1', googleEventId: 'evento-clase', tipo: 'Yoga', inicio: CLASE.inicio };
+
+    it('la baja de un anotado deja el evento si quedan otros', async () => {
+      const { prisma, turno } = crearPrismaGrupal([], 1);
+      eventsPatch.mockResolvedValue({ data: {} });
+      const service = new CalendarService(crearConfig(), prisma);
+
+      await expect(service.bajaDeTurnoGrupal(usuarioConToken(), TURNO_CLASE, 2)).resolves.toBe(1);
+
+      expect(eventsDelete).not.toHaveBeenCalled();
+      expect(turno.updateMany).toHaveBeenCalledWith({
+        where: { id: 't1', conversation: { userId: 'user-1' } },
+        data: { estado: 'cancelado' },
+      });
+      expect(eventsPatch).toHaveBeenCalledWith(expect.objectContaining({ requestBody: { summary: 'Yoga (grupal) · 1/2' } }));
+    });
+
+    it('la baja del último anotado borra el evento; si Google falla, no se cancela el turno', async () => {
+      const { prisma, turno } = crearPrismaGrupal([], 0);
+      const service = new CalendarService(crearConfig(), prisma);
+
+      eventsDelete.mockRejectedValueOnce(new Error('Google caído'));
+      await expect(service.bajaDeTurnoGrupal(usuarioConToken(), TURNO_CLASE, 2)).rejects.toBeInstanceOf(
+        CalendarUnavailableError,
+      );
+      expect(turno.updateMany).not.toHaveBeenCalled();
+
+      eventsDelete.mockResolvedValue({});
+      await expect(service.bajaDeTurnoGrupal(usuarioConToken(), TURNO_CLASE, 2)).resolves.toBe(0);
+      expect(eventsDelete).toHaveBeenCalledWith({ calendarId: 'primary', eventId: 'evento-clase' });
+      expect(turno.updateMany).toHaveBeenCalledTimes(1);
+    });
+  });
 });

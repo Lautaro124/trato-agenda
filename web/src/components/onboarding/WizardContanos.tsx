@@ -20,6 +20,8 @@ import {
 import { EditorDatosCliente } from "./DatosCliente";
 import { ControlesLocal } from "./ControlesLocal";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
+import { ElegirAtencion } from "./ElegirAtencion";
+import { ListaClases } from "./ListaClases";
 import { VistaPreviaChat } from "./VistaPreviaChat";
 
 const TILDE = (
@@ -245,6 +247,30 @@ function ContenidoDelPaso({
         </>
       );
 
+    case "atencion":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Cómo atendés a tus clientes?"
+            bajada="Así el asistente sabe si ofrece un horario libre para una persona o un lugar en una clase. Lo podés cambiar después."
+          />
+          <ElegirAtencion valor={ob.atencion} onCambio={ob.elegirAtencion} />
+        </>
+      );
+
+    case "clases":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Qué clases das?"
+            bajada={`${ob.clases.origen === "ideas" ? "Tildá las que das" : "Agregá las clases que das"} y contanos cuántos entran y cuándo son. El precio es opcional: si no lo ponés, el asistente le dice al cliente que lo consulte con vos.`}
+          />
+          <ListaClases ob={ob.clases} />
+        </>
+      );
+
     case "turnos":
       return (
         <>
@@ -257,7 +283,8 @@ function ContenidoDelPaso({
             <EmpezarCon ob={ob} />
           </div>
           <PrecioParaTodos ob={ob} />
-          <ListaEventos ob={ob} />
+          {/* Las clases grupales tienen su propio paso: acá sólo turnos individuales. */}
+          <ListaEventos ob={ob} conModalidad={false} />
           <div className="mt-3">
             <AgregarEvento ob={ob} />
           </div>
@@ -345,7 +372,15 @@ function ContenidoDelPaso({
 
 /** El texto al lado del botón principal: cuánto falta, cuántos tipos, o que se puede cambiar. */
 function textoDelPie(ob: Onboarding): string | null {
-  if (ob.pasoId === "tipo") return ob.esVentas ? "5 pasos · cerca de 2 minutos" : "5 pasos · unos 2 minutos";
+  if (ob.pasoId === "tipo") {
+    return ob.esVentas ? `${ob.pasos.length} pasos · cerca de 2 minutos` : `${ob.pasos.length} pasos · unos 2 minutos`;
+  }
+  if (ob.pasoId === "atencion") return `${ob.pasos.length} pasos en total`;
+  if (ob.pasoId === "clases") {
+    if (ob.problemaClases) return ob.problemaClases;
+    const n = ob.clases.activas.length;
+    return `${n} ${n === 1 ? "clase elegida" : "clases elegidas"}`;
+  }
   if (ob.pasoId === "datos") return "Opcional";
   if (ob.pasoId === "turnos") {
     const n = ob.seleccionados.length;
@@ -431,7 +466,16 @@ export function WizardContanos({
               </Button>
             </span>
           )}
-          {pie && <span className="text-center text-[12.5px] text-ink-secondary md:ml-auto md:text-[13px]">{pie}</span>}
+          {pie && (
+            <span
+              className={cn(
+                "text-center text-[12.5px] md:ml-auto md:text-[13px]",
+                ob.pasoId === "clases" && ob.problemaClases ? "text-danger-text" : "text-ink-secondary",
+              )}
+            >
+              {pie}
+            </span>
+          )}
           <Button
             variant="primary"
             size="lg"

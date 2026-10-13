@@ -26,7 +26,7 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
     await prisma.$disconnect();
   });
 
-  it('borra catálogo, ventas, avisos, Mercado Pago y los hilos de sus conversaciones', async () => {
+  it('borra catálogo, ventas, avisos, Mercado Pago, la sesión de WhatsApp y los hilos de sus conversaciones', async () => {
     const dueno = await crearUsuarioDePrueba(prisma);
     await prisma.agent.create({
       data: {
@@ -80,6 +80,15 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
     await prisma.cuentaMercadoPago.create({
       data: { userId: dueno.id, mpUserId: '123', accessToken: 'cifrado', refreshToken: 'cifrado', expiraAt: new Date() },
     });
+    // La sesión de WhatsApp con sus claves de Signal, una por fila (LAU-18).
+    await prisma.whatsappSession.create({
+      data: {
+        userId: dueno.id,
+        authState: 'cifrado',
+        registered: true,
+        claves: { create: [{ categoria: 'session', clave: 'device-1', valor: 'cifrado' }] },
+      },
+    });
 
     const deleteThread = vi.fn().mockResolvedValue(undefined);
     const cuentas = new CuentaService(
@@ -104,7 +113,9 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       prisma.itemVenta.count({ where: { ventaId: venta.id } }),
       prisma.notificacion.count({ where: donde }),
       prisma.cuentaMercadoPago.count({ where: donde }),
+      prisma.whatsappSession.count({ where: donde }),
+      prisma.whatsappClave.count({ where: donde }),
     ]);
-    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });
