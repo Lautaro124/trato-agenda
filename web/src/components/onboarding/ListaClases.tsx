@@ -1,38 +1,18 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { DIAS_SEMANA, NOMBRE_DIA, type DiaSemana } from "@/lib/local";
-import { leerCapacidad, MAX_HORARIOS_GRUPALES } from "@/lib/turnos-grupales";
+import { leerCapacidad } from "@/lib/turnos-grupales";
 import { DURACIONES, LARGO_MAX_NOMBRE_EVENTO, MAX_TIPOS_EVENTO } from "@/app/contanos/useOnboarding";
-import {
-  ORIGENES_CLASES,
-  horaDeFin,
-  horariosDeClase,
-  textoDias,
-  type Clase,
-  type ClasesState,
-  type OrigenClases,
-} from "@/app/contanos/useClases";
+import { ORIGENES_CLASES, type Clase, type ClasesState, type OrigenClases } from "@/app/contanos/useClases";
 import { CampoPrecio } from "./controles";
+import { HorariosGrupales } from "./HorariosGrupales";
 
 /**
  * Paso "¿Qué clases das?" de /contanos. Cada clase elegida muestra a la vista
- * lo que tiene un solo valor (duración, cupo, precio) y sus horarios como
- * filas de resumen; los días aparecen sólo al editar un horario: en una hoja
- * que sube desde abajo en el celular, desplegado en su lugar desde `md`.
+ * lo que tiene un solo valor (duración, cupo, precio) y sus horarios con
+ * `HorariosGrupales`, el mismo editor que usa /reuniones.
  */
-
-const CORTO_DIA: Record<DiaSemana, string> = {
-  lun: "Lun",
-  mar: "Mar",
-  mie: "Mié",
-  jue: "Jue",
-  vie: "Vie",
-  sab: "Sáb",
-  dom: "Dom",
-};
 
 const ICONO_GRUPO = (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -49,27 +29,8 @@ const TILDE = (
   </svg>
 );
 
-const FLECHA = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="flex-none text-muted">
-    <path d="m9 18 6-6-6-6" />
-  </svg>
-);
-
 const CAMPO =
   "box-border flex h-10 items-center rounded-sm border border-line bg-card text-[14px] text-ink focus-within:border-[var(--color-semantic-border-focus)]";
-
-/** Un id estable para un horario: para devolverle el foco al cerrar el editor. */
-function idHorario(nombre: string, indice: number): string {
-  return `horario-${nombre.replace(/[^a-zA-Z0-9]+/g, "-")}-${indice}`;
-}
-
-function idAgregarHorario(nombre: string): string {
-  return `agregar-horario-${nombre.replace(/[^a-zA-Z0-9]+/g, "-")}`;
-}
-
-function conMayuscula(texto: string): string {
-  return texto.charAt(0).toUpperCase() + texto.slice(1);
-}
 
 /** "Empezar con": las ideas para tildar o una lista propia, sin ninguna clase armada. */
 function EmpezarConClases({ origen: elegido, onElegir }: { origen: OrigenClases; onElegir: (origen: OrigenClases) => void }) {
@@ -151,160 +112,15 @@ function CampoCupo({ ob, clase }: { ob: ClasesState; clase: Clase }) {
   );
 }
 
-/**
- * Un horario abierto para editar: días, hora, Quitar y Listo. En el celular
- * es una hoja que sube desde abajo; desde `md` ocupa el lugar de su fila.
- */
-function EditorHorario({
-  ob,
-  clase,
-  indice,
-  onCerrar,
-}: {
-  ob: ClasesState;
-  clase: Clase;
-  indice: number;
-  onCerrar: () => void;
-}) {
-  const bloque = clase.bloques[indice];
-  const numero = indice + 1;
-  const primerDia = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    primerDia.current?.focus();
-  }, []);
-
-  if (!bloque) return null;
-  const sinDias = bloque.dias.length === 0;
-
-  return (
-    <>
-      <button
-        type="button"
-        tabIndex={-1}
-        aria-label="Cerrar el horario"
-        onClick={onCerrar}
-        className="fixed inset-0 z-40 cursor-default bg-[rgba(26,25,23,0.45)] md:hidden"
-      />
-      <div
-        role="dialog"
-        aria-label={`Horario ${numero} de ${clase.nombre}`}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            onCerrar();
-          }
-        }}
-        className={cn(
-          "fixed inset-x-0 bottom-0 z-50 flex flex-col gap-4 rounded-t-[20px] bg-card px-5 pt-2.5 pb-[max(24px,env(safe-area-inset-bottom))] shadow-lg",
-          "md:static md:z-auto md:col-span-2 md:flex-row md:flex-wrap md:items-center md:gap-x-5 md:gap-y-3 md:rounded-sm md:border-[1.5px] md:border-primary md:px-3.5 md:py-3 md:shadow-none",
-        )}
-      >
-        <span aria-hidden className="h-1 w-10 self-center rounded-full bg-line-strong md:hidden" />
-        <div className="flex items-center justify-between md:hidden">
-          <span className="font-display text-[19px] font-bold text-ink">Horario de {clase.nombre}</span>
-          <button
-            type="button"
-            onClick={onCerrar}
-            aria-label="Cerrar"
-            className="-mr-2.5 grid size-11 cursor-pointer place-items-center text-ink-secondary"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-2.5 md:flex-row md:items-center">
-          <span className="text-[14px] font-semibold text-ink md:sr-only">¿Qué días?</span>
-          <div
-            role="group"
-            aria-label={`Días del horario ${numero} de ${clase.nombre}`}
-            className="grid grid-cols-7 gap-1.5 md:flex md:gap-1"
-          >
-            {DIAS_SEMANA.map((dia, i) => {
-              const activo = bloque.dias.includes(dia);
-              return (
-                <button
-                  key={dia}
-                  ref={i === 0 ? primerDia : undefined}
-                  type="button"
-                  aria-pressed={activo}
-                  aria-label={NOMBRE_DIA[dia]}
-                  onClick={() => ob.alternarDia(clase.nombre, indice, dia)}
-                  className={cn(
-                    "h-11 cursor-pointer rounded-sm border text-[13px] select-none md:h-9 md:w-11 md:text-[12.5px]",
-                    activo
-                      ? "border-primary bg-primary font-bold text-primary-on"
-                      : "border-line bg-card text-ink hover:border-line-strong",
-                  )}
-                >
-                  {CORTO_DIA[dia]}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <label className="flex flex-col gap-2.5 md:flex-row md:items-center md:gap-2">
-          <span className="text-[14px] font-semibold text-ink md:font-normal md:text-ink-secondary">
-            <span className="md:hidden">¿A qué hora empieza?</span>
-            <span className="hidden md:inline">a las</span>
-          </span>
-          <span className="flex items-center gap-2.5">
-            <span className={cn(CAMPO, "h-12 flex-1 px-3 md:h-9 md:flex-none")}>
-              <input
-                type="time"
-                step={900}
-                value={bloque.hora}
-                onChange={(e) => e.target.value && ob.fijarHora(clase.nombre, indice, e.target.value)}
-                aria-label={`Hora del horario ${numero} de ${clase.nombre}`}
-                className="min-w-0 flex-1 bg-transparent text-[17px] font-bold text-ink tabular-nums outline-none md:w-[7.5rem] md:flex-none md:text-[15px]"
-              />
-            </span>
-            <span className="text-[13px] text-muted">hasta {horaDeFin(bloque.hora, clase.duracionMin)}</span>
-          </span>
-        </label>
-
-        <div className="flex items-center gap-3 md:ml-auto">
-          <button
-            type="button"
-            onClick={() => {
-              ob.quitarBloque(clase.nombre, indice);
-              onCerrar();
-            }}
-            className="min-h-11 cursor-pointer px-2 text-[14px] font-semibold text-danger-text hover:underline md:min-h-9"
-          >
-            Quitar
-          </button>
-          {sinDias && <span className="hidden text-[12.5px] text-muted md:inline">Elegí al menos un día</span>}
-          <Button size="md" onClick={onCerrar} disabled={sinDias} className="flex-1 md:flex-none">
-            Listo
-          </Button>
-        </div>
-      </div>
-    </>
-  );
-}
-
 /** Una clase elegida: encabezado con duración, cupo y precio, y debajo sus horarios. */
 function TarjetaClase({
   ob,
   clase,
-  editando,
-  onEditar,
-  onCerrar,
-  onSoltar,
 }: {
   ob: ClasesState;
   clase: Clase;
-  editando: number | null;
-  onEditar: (indice: number) => void;
-  onCerrar: () => void;
-  onSoltar: () => void;
 }) {
   const problema = ob.problemas[clase.nombre];
-  const lleno = horariosDeClase(clase).length >= MAX_HORARIOS_GRUPALES;
   const propia = ob.origen === "propia";
   return (
     <div className="flex flex-col gap-3 rounded-md border-[1.5px] border-primary bg-primary-subtle p-3 md:p-3.5">
@@ -314,10 +130,7 @@ function TarjetaClase({
             <span className="min-w-0 flex-1 text-[15px] font-bold break-words text-ink">{clase.nombre}</span>
             <button
               type="button"
-              onClick={() => {
-                onSoltar();
-                ob.quitarClase(clase.nombre);
-              }}
+              onClick={() => ob.quitarClase(clase.nombre)}
               aria-label={`Quitar ${clase.nombre}`}
               className="grid size-9 flex-none cursor-pointer place-items-center rounded-sm text-ink-secondary hover:bg-card hover:text-danger-text"
             >
@@ -330,10 +143,7 @@ function TarjetaClase({
           <button
             type="button"
             aria-pressed
-            onClick={() => {
-              onSoltar();
-              ob.alternar(clase.nombre);
-            }}
+            onClick={() => ob.alternar(clase.nombre)}
             className="flex min-h-8 min-w-0 basis-full cursor-pointer items-center gap-2.5 text-left select-none"
           >
             <span aria-hidden className="grid size-[18px] flex-none place-items-center rounded-[6px] border border-primary bg-primary text-primary-on">
@@ -356,42 +166,18 @@ function TarjetaClase({
 
       <div className="flex flex-col gap-2.5 rounded-sm border border-line bg-card p-3 md:p-3.5">
         <span className="text-[13.5px] font-semibold text-ink">¿Cuándo es?</span>
-        <div className="grid gap-2 md:grid-cols-2">
-          {clase.bloques.map((bloque, indice) => {
-            const abierto = editando === indice;
-            const dias = bloque.dias.length > 0 ? conMayuscula(textoDias(bloque)) : "Sin días";
-            return (
-              <Fragment key={indice}>
-                <button
-                  id={idHorario(clase.nombre, indice)}
-                  type="button"
-                  aria-expanded={abierto}
-                  aria-label={`Horario ${indice + 1} de ${clase.nombre}: ${dias} ${bloque.hora}`}
-                  onClick={() => onEditar(indice)}
-                  className={cn(
-                    "flex min-h-12 cursor-pointer items-center gap-2.5 rounded-sm border bg-page px-3 text-left text-ink md:min-h-11",
-                    abierto ? "border-primary md:hidden" : "border-line hover:border-line-strong",
-                  )}
-                >
-                  <span className="min-w-0 flex-1 text-[14.5px]">{dias}</span>
-                  <span className="text-[15px] font-bold tabular-nums">{bloque.hora}</span>
-                  {FLECHA}
-                </button>
-                {abierto && <EditorHorario ob={ob} clase={clase} indice={indice} onCerrar={onCerrar} />}
-              </Fragment>
-            );
-          })}
-          <button
-            id={idAgregarHorario(clase.nombre)}
-            type="button"
-            onClick={() => onEditar(clase.bloques.length)}
-            disabled={lleno}
-            aria-label={`Agregar horario a ${clase.nombre}`}
-            className="min-h-11 cursor-pointer rounded-sm border-[1.5px] border-dashed border-line-strong bg-card px-3 text-[14px] font-semibold text-primary-hover hover:border-primary disabled:cursor-not-allowed disabled:text-muted"
-          >
-            + Agregar horario
-          </button>
-        </div>
+        <HorariosGrupales
+          nombre={clase.nombre}
+          duracionMin={clase.duracionMin}
+          bloques={clase.bloques}
+          cambios={{
+            onAlternarDia: (indice, dia) => ob.alternarDia(clase.nombre, indice, dia),
+            onFijarHora: (indice, hora) => ob.fijarHora(clase.nombre, indice, hora),
+            onAgregar: () => ob.agregarBloque(clase.nombre),
+            onQuitar: (indice) => ob.quitarBloque(clase.nombre, indice),
+            onLimpiarVacios: () => ob.limpiarBloquesVacios(clase.nombre),
+          }}
+        />
       </div>
       {problema && <p className="text-[12.5px] font-semibold text-danger-text">{problema}</p>}
     </div>
@@ -445,53 +231,6 @@ function ListaPropiaVacia({ ob }: { ob: ClasesState }) {
 
 /** Las clases del paso: las elegidas como tarjetas, las ideas sin elegir debajo y el campo para sumar otra. */
 export function ListaClases({ ob }: { ob: ClasesState }) {
-  // Un solo horario abierto a la vez, en toda la lista.
-  const [editando, setEditando] = useState<{ nombre: string; indice: number } | null>(null);
-
-  /** Cierra el horario abierto; uno sin días se borra (`limpiarBloquesVacios`). */
-  function cerrar() {
-    if (!editando) return;
-    const { nombre, indice } = editando;
-    const bloque = ob.clases.find((clase) => clase.nombre === nombre)?.bloques[indice];
-    ob.limpiarBloquesVacios(nombre);
-    setEditando(null);
-    // Después del render: la fila vuelve a aparecer (o, si se borró, el "+ Agregar horario").
-    requestAnimationFrame(() => {
-      const destino =
-        bloque && bloque.dias.length > 0 ? idHorario(nombre, indice) : idAgregarHorario(nombre);
-      document.getElementById(destino)?.focus();
-    });
-  }
-
-  /**
-   * Abre un horario (`indice` igual a la cantidad = uno nuevo). El que estaba
-   * abierto sin días se borra; como un horario sin días sólo puede ser el
-   * último de su clase, borrarlo no corre el índice de las filas de antes.
-   */
-  function editar(nombre: string, indice: number) {
-    const clase = ob.clases.find((c) => c.nombre === nombre);
-    if (!clase) return;
-    const nuevo = indice >= clase.bloques.length;
-    if (editando) {
-      const previo = ob.clases.find((c) => c.nombre === editando.nombre)?.bloques[editando.indice];
-      // Ya hay uno nuevo abierto en esta clase: se sigue con ése.
-      if (nuevo && editando.nombre === nombre && previo?.dias.length === 0) return;
-      ob.limpiarBloquesVacios(editando.nombre);
-    }
-    if (nuevo) ob.agregarBloque(nombre);
-    setEditando({ nombre, indice });
-  }
-
-  /** Destildar o quitar una clase cierra su horario abierto, si tenía. */
-  function soltar(nombre: string) {
-    if (editando?.nombre === nombre) setEditando(null);
-  }
-
-  function elegirOrigen(origen: OrigenClases) {
-    setEditando(null);
-    ob.elegirOrigen(origen);
-  }
-
   const activas = ob.activas;
   const ideas = ob.origen === "ideas" ? ob.sinElegir : [];
   const vacia = ob.origen === "propia" && ob.clases.length === 0;
@@ -499,19 +238,11 @@ export function ListaClases({ ob }: { ob: ClasesState }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="mb-1">
-        <EmpezarConClases origen={ob.origen} onElegir={elegirOrigen} />
+        <EmpezarConClases origen={ob.origen} onElegir={ob.elegirOrigen} />
       </div>
       {vacia && <ListaPropiaVacia ob={ob} />}
       {activas.map((clase) => (
-        <TarjetaClase
-          key={clase.nombre}
-          ob={ob}
-          clase={clase}
-          editando={editando?.nombre === clase.nombre ? editando.indice : null}
-          onEditar={(indice) => editar(clase.nombre, indice)}
-          onCerrar={cerrar}
-          onSoltar={() => soltar(clase.nombre)}
-        />
+        <TarjetaClase key={clase.nombre} ob={ob} clase={clase} />
       ))}
 
       {!vacia && <div className="flex flex-col gap-2">

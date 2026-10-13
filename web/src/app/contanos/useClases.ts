@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { DIAS_SEMANA, type DiaSemana } from "@/lib/local";
+import type { DiaSemana } from "@/lib/local";
 import {
   MAX_HORARIOS_GRUPALES,
-  ordenarHorarios,
-  problemaGrupal,
+  bloquesDeHorarios,
+  horariosDeBloques,
+  problemaDeBloques,
+  type BloqueClase,
   type HorarioGrupal,
 } from "@/lib/turnos-grupales";
 import {
@@ -17,13 +19,9 @@ import {
 
 /**
  * Las clases grupales del paso "¿Qué clases das?" de /contanos. Cada clase es
- * un tipo de turno grupal (`TipoEvento` con `capacidad` y `horarios`), pero
- * en pantalla los horarios se cargan como "estos días a esta hora": un bloque
- * de días con una sola hora, y tantos bloques como hagan falta (sábados a
- * otra hora). Al armar el payload cada día de cada bloque es un horario.
+ * un tipo de turno grupal (`TipoEvento` con `capacidad` y `horarios`); en
+ * pantalla sus horarios son bloques (`BloqueClase`, en lib/turnos-grupales).
  */
-
-export type BloqueClase = { dias: DiaSemana[]; hora: string };
 
 export type Clase = {
   nombre: string;
@@ -58,16 +56,6 @@ export const CATALOGO_CLASES: Array<{ nombre: string; duracionMin: number }> = [
 /** La hora con la que arranca el primer horario de una clase. */
 const HORA_INICIAL = "18:00";
 
-const ABREVIATURA: Record<DiaSemana, string> = {
-  lun: "lun",
-  mar: "mar",
-  mie: "mié",
-  jue: "jue",
-  vie: "vie",
-  sab: "sáb",
-  dom: "dom",
-};
-
 function claseNueva(nombre: string, duracionMin: number, activa: boolean): Clase {
   return { nombre, duracionMin, bloques: [], activa };
 }
@@ -76,48 +64,16 @@ function ideasDelCatalogo(): Clase[] {
   return CATALOGO_CLASES.map((idea) => claseNueva(idea.nombre, idea.duracionMin, false));
 }
 
-/** Los horarios de un bloque de días: uno por día. */
+/** Los horarios de una clase: uno por día de cada bloque. */
 export function horariosDeClase(clase: Pick<Clase, "bloques">): HorarioGrupal[] {
-  return ordenarHorarios(clase.bloques.flatMap((bloque) => bloque.dias.map((dia) => ({ dia, hora: bloque.hora }))));
-}
-
-/** Al revés: los horarios guardados agrupados por hora, para volver a mostrarlos como bloques. */
-export function bloquesDeHorarios(horarios: HorarioGrupal[]): BloqueClase[] {
-  const porHora = new Map<string, DiaSemana[]>();
-  for (const { dia, hora } of ordenarHorarios(horarios)) porHora.set(hora, [...(porHora.get(hora) ?? []), dia]);
-  return [...porHora.entries()].map(([hora, dias]) => ({ hora, dias }));
-}
-
-function lista(partes: string[]): string {
-  return partes.length <= 1 ? partes.join("") : `${partes.slice(0, -1).join(", ")} y ${partes.at(-1)}`;
-}
-
-/** "lun, mié y vie": los días de un bloque en el orden de la semana. */
-export function textoDias(bloque: BloqueClase): string {
-  return lista(DIAS_SEMANA.filter((dia) => bloque.dias.includes(dia)).map((dia) => ABREVIATURA[dia]));
-}
-
-/** "lun, mié y vie 18:00 · sáb 10:00". */
-export function textoBloques(bloques: BloqueClase[]): string {
-  return bloques
-    .filter((bloque) => bloque.dias.length > 0)
-    .map((bloque) => `${textoDias(bloque)} ${bloque.hora}`)
-    .join(" · ");
-}
-
-/** "19:00": a qué hora termina una clase que empieza a `hora` y dura `duracionMin`. */
-export function horaDeFin(hora: string, duracionMin: number): string {
-  const [horas, minutos] = hora.split(":").map(Number);
-  const fin = (horas * 60 + minutos + duracionMin) % (24 * 60);
-  return `${String(Math.floor(fin / 60)).padStart(2, "0")}:${String(fin % 60).padStart(2, "0")}`;
+  return horariosDeBloques(clase.bloques);
 }
 
 /** Qué le falta a una clase elegida para poder guardarla, o null. */
 export function problemaDeClase(clase: Clase): string | null {
   if (clase.cupo === undefined) return "Escribí cuántas personas entran.";
   if (clase.bloques.length === 0) return "Agregá al menos un horario.";
-  if (clase.bloques.some((bloque) => bloque.dias.length === 0)) return "Elegí al menos un día.";
-  return problemaGrupal(clase.duracionMin, clase.cupo, horariosDeClase(clase));
+  return problemaDeBloques(clase.duracionMin, clase.cupo, clase.bloques);
 }
 
 /**

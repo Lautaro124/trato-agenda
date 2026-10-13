@@ -2,16 +2,18 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useDatosCliente, type PayloadDatosCliente } from "@/lib/datos-cliente";
-import { DIAS_SEMANA, NOMBRE_DIA, type LocalPresencial } from "@/lib/local";
+import { DIAS_SEMANA, NOMBRE_DIA, type DiaSemana, type LocalPresencial } from "@/lib/local";
 import { formatearPrecio } from "@/lib/precio";
 import {
   MAX_HORARIOS_GRUPALES,
-  horarioSiguiente,
-  ordenarHorarios,
-  problemaGrupal,
+  bloquesDeHorarios,
+  horariosDeBloques,
+  problemaDeBloques,
+  textoBloques,
+  type BloqueClase,
   type HorarioGrupal,
 } from "@/lib/turnos-grupales";
-import { textoBloques, useClases } from "./useClases";
+import { useClases } from "./useClases";
 import { useLocal } from "./useLocal";
 
 export type TipoUsoId = "consultorio" | "otro";
@@ -30,7 +32,8 @@ export type TipoEvento = {
 /**
  * Lo que el usuario fue cargando de un tipo de evento activado. `sinPrecio` es
  * sólo de pantalla (el botón "Sin precio" traba el campo): nunca viaja a la API.
- * Tampoco `grupal`: lo que viaja es la capacidad y los horarios, sólo si está prendido.
+ * Tampoco `grupal` ni `bloques`: lo que viaja es la capacidad y los horarios
+ * (cada día de cada bloque, `horariosDeBloques`), sólo si está prendido.
  */
 export type DatosEvento = {
   duracionMin: number;
@@ -38,7 +41,7 @@ export type DatosEvento = {
   sinPrecio?: boolean;
   grupal?: boolean;
   capacidad?: number;
-  horarios?: HorarioGrupal[];
+  bloques?: BloqueClase[];
 };
 
 /**
@@ -200,7 +203,7 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
         {
           duracionMin,
           ...(precio === undefined ? {} : { precio }),
-          ...(capacidad === undefined ? {} : { grupal: true, capacidad, horarios: horarios ?? [] }),
+          ...(capacidad === undefined ? {} : { grupal: true, capacidad, bloques: bloquesDeHorarios(horarios ?? []) }),
         },
       ]),
     ),
@@ -258,13 +261,13 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     setElegidos((previos) => (previos[nombre] ? { ...previos, [nombre]: cambio(previos[nombre]) } : previos));
   }, []);
 
-  /** Prenderlo arranca con un horario para editar y la capacidad vacía; apagarlo borra los dos. */
+  /** Prenderlo arranca sin horarios y con la capacidad vacía; apagarlo borra los dos. */
   const fijarGrupal = useCallback(
     (nombre: string, grupal: boolean) =>
       actualizar(nombre, (datos) =>
         grupal
-          ? { ...datos, grupal: true, horarios: datos.horarios?.length ? datos.horarios : [horarioSiguiente([])] }
-          : { ...datos, grupal: false, capacidad: undefined, horarios: undefined },
+          ? { ...datos, grupal: true, bloques: datos.bloques ?? [] }
+          : { ...datos, grupal: false, capacidad: undefined, bloques: undefined },
       ),
     [actualizar],
   );
@@ -289,32 +292,53 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     [actualizar],
   );
 
-  const agregarHorario = useCallback(
+  /** Los horarios de un tipo grupal, como bloques de días con una hora (`HorariosGrupales`). */
+  const cambiarBloques = useCallback(
+    (nombre: string, cambio: (bloques: BloqueClase[]) => BloqueClase[]) =>
+      actualizar(nombre, (datos) => ({ ...datos, bloques: cambio(datos.bloques ?? []) })),
+    [actualizar],
+  );
+
+  const alternarDiaGrupal = useCallback(
+    (nombre: string, indice: number, dia: DiaSemana) =>
+      cambiarBloques(nombre, (bloques) =>
+        bloques.map((bloque, i) =>
+          i !== indice
+            ? bloque
+            : { ...bloque, dias: bloque.dias.includes(dia) ? bloque.dias.filter((d) => d !== dia) : [...bloque.dias, dia] },
+        ),
+      ),
+    [cambiarBloques],
+  );
+
+  const fijarHoraGrupal = useCallback(
+    (nombre: string, indice: number, hora: string) =>
+      cambiarBloques(nombre, (bloques) => bloques.map((bloque, i) => (i === indice ? { ...bloque, hora } : bloque))),
+    [cambiarBloques],
+  );
+
+  /** Un horario nuevo, sin días, a la hora del último (o 18:00 si es el primero). */
+  const agregarBloqueGrupal = useCallback(
     (nombre: string) =>
-      actualizar(nombre, (datos) => {
-        const horarios = datos.horarios ?? [];
-        if (horarios.length >= MAX_HORARIOS_GRUPALES) return datos;
-        return { ...datos, horarios: [...horarios, horarioSiguiente(horarios)] };
-      }),
-    [actualizar],
+      cambiarBloques(nombre, (bloques) =>
+        horariosDeBloques(bloques).length >= MAX_HORARIOS_GRUPALES
+          ? bloques
+          : [...bloques, { dias: [], hora: bloques.at(-1)?.hora ?? "18:00" }],
+      ),
+    [cambiarBloques],
   );
 
-  const fijarHorario = useCallback(
-    (nombre: string, indice: number, horario: HorarioGrupal) =>
-      actualizar(nombre, (datos) => ({
-        ...datos,
-        horarios: (datos.horarios ?? []).map((actual, i) => (i === indice ? horario : actual)),
-      })),
-    [actualizar],
+  const quitarBloqueGrupal = useCallback(
+    (nombre: string, indice: number) => cambiarBloques(nombre, (bloques) => bloques.filter((_, i) => i !== indice)),
+    [cambiarBloques],
   );
 
-  const quitarHorario = useCallback(
-    (nombre: string, indice: number) =>
-      actualizar(nombre, (datos) => ({
-        ...datos,
-        horarios: (datos.horarios ?? []).filter((_, i) => i !== indice),
-      })),
-    [actualizar],
+  const limpiarBloquesGrupales = useCallback(
+    (nombre: string) =>
+      cambiarBloques(nombre, (bloques) =>
+        bloques.some((bloque) => bloque.dias.length === 0) ? bloques.filter((bloque) => bloque.dias.length > 0) : bloques,
+      ),
+    [cambiarBloques],
   );
 
   const agregarPersonalizado = useCallback(() => {
@@ -339,12 +363,12 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
 
   const seleccionados: TipoEvento[] = useMemo(
     () =>
-      Object.entries(elegidos).map(([nombre, { duracionMin, precio, grupal, capacidad, horarios }]) => ({
+      Object.entries(elegidos).map(([nombre, { duracionMin, precio, grupal, capacidad, bloques }]) => ({
         nombre,
         duracionMin,
         // Sin precio la clave no viaja: el DTO lo trata como ausente. Lo mismo con lo grupal apagado.
         ...(precio === undefined ? {} : { precio }),
-        ...(grupal ? { capacidad, horarios: ordenarHorarios(horarios ?? []) } : {}),
+        ...(grupal ? { capacidad, horarios: horariosDeBloques(bloques ?? []) } : {}),
       })),
     [elegidos],
   );
@@ -355,7 +379,7 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
       Object.fromEntries(
         Object.entries(elegidos).flatMap(([nombre, datos]) => {
           if (!datos.grupal) return [];
-          const problema = problemaGrupal(datos.duracionMin, datos.capacidad, datos.horarios ?? []);
+          const problema = problemaDeBloques(datos.duracionMin, datos.capacidad, datos.bloques ?? []);
           return problema ? [[nombre, problema]] : [];
         }),
       ) as Record<string, string>,
@@ -375,9 +399,11 @@ export function useTiposEvento(tipoUso: TipoUsoId, inicial: TipoEvento[] = []) {
     fijarGrupal,
     elegirModalidad,
     fijarCapacidad,
-    agregarHorario,
-    fijarHorario,
-    quitarHorario,
+    alternarDiaGrupal,
+    fijarHoraGrupal,
+    agregarBloqueGrupal,
+    quitarBloqueGrupal,
+    limpiarBloquesGrupales,
     problemasGrupales,
     gruposValidos: Object.keys(problemasGrupales).length === 0,
     personalizado,
