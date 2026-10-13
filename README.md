@@ -121,6 +121,10 @@ está pendiente.
 | `API_PUBLIC_URL` | Opcional. URL pública de la API (redirect del OAuth y `notification_url` de los links de pago). Por defecto, el origen de `GOOGLE_CALLBACK_URL`. |
 | `MERCADOPAGO_BASE_URL` / `MERCADOPAGO_AUTH_URL` | Opcionales. `https://api.mercadopago.com` y `https://auth.mercadopago.com` por defecto; los E2E las apuntan al Mercado Pago falso (`e2e/mercadopago-stub`). |
 | `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan en pesos. Por defecto `20000`. |
+| `LINEAR_API_KEY` | Opcional. API key personal de Linear (Settings → Security & access → Personal API keys) con permiso para crear issues. Con ella y `LINEAR_TEAM_ID`, cada sugerencia de mejora que manda un dueño desde el panel se copia como issue. Sin ellas se guardan igual en la tabla `SugerenciaMejora` y quedan pendientes; un barrido cada 10 minutos las reintenta cuando aparecen. |
+| `LINEAR_TEAM_ID` | Opcional. Id (UUID) del equipo de Linear donde se crean esos issues — no la clave `LAU`. |
+| `LINEAR_LABEL_ID` | Opcional. Id de una etiqueta para marcarlos (ej. "Sugerencia"). |
+| `LINEAR_API_URL` | Opcional. Endpoint GraphQL de Linear. Por defecto `https://api.linear.app/graphql`. |
 | `SENTRY_DSN` | Opcional. DSN del proyecto de Sentry de la API. Vacía = sin Sentry (lo normal en local). La lee `src/instrument.ts`, que corre con `node --import` antes que la app, así que no pasa por `validateEnv`. |
 | `SENTRY_ENVIRONMENT` | Opcional. Environment de los eventos. Por defecto, el nombre del entorno de Railway (`RAILWAY_ENVIRONMENT_NAME`: `develop` o `production`, que corren los dos con `NODE_ENV=production`) y, fuera de Railway, `NODE_ENV`. La web hace lo mismo en el build. |
 | `SENTRY_TRACES_SAMPLE_RATE` | Opcional. Fracción de requests con traza de rendimiento. Por defecto `0.1` en producción y `0` fuera. |

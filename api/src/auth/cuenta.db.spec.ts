@@ -77,6 +77,7 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       },
     });
     await prisma.notificacion.create({ data: { userId: dueno.id, tipo: 'pedido_manual', titulo: 'Pedido', cuerpo: 'Ana' } });
+    await prisma.sugerenciaMejora.create({ data: { userId: dueno.id, tipo: 'idea', texto: 'Recordatorios el día antes' } });
     await prisma.cuentaMercadoPago.create({
       data: { userId: dueno.id, mpUserId: '123', accessToken: 'cifrado', refreshToken: 'cifrado', expiraAt: new Date() },
     });
@@ -115,7 +116,8 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       prisma.cuentaMercadoPago.count({ where: donde }),
       prisma.whatsappSession.count({ where: donde }),
       prisma.whatsappClave.count({ where: donde }),
+      prisma.sugerenciaMejora.count({ where: donde }),
     ]);
-    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });
