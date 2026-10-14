@@ -12,6 +12,7 @@ type AgentConLocal = { local: LocalPresencial | null };
 
 function EditorLocal({ inicial, paraAgenda }: Readonly<{ inicial: LocalPresencial | null; paraAgenda: boolean }>) {
   const local = useLocal(inicial, { paraAgenda });
+  const textoGuardar = paraAgenda ? "Guardar lugar" : "Guardar local";
   const avisos = paraAgenda
     ? { ok: "Listo: tu asistente ya usa dónde atendés.", error: "No pudimos guardar dónde atendés. Revisalo y probá de nuevo." }
     : {
@@ -42,7 +43,7 @@ function EditorLocal({ inicial, paraAgenda }: Readonly<{ inicial: LocalPresencia
       {paraAgenda ? <ControlesLugar lugar={local} /> : <ControlesLocal local={local} />}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button onClick={guardar} disabled={!local.valido || guardando}>
-          {guardando ? "Guardando…" : paraAgenda ? "Guardar lugar" : "Guardar local"}
+          {guardando ? "Guardando…" : textoGuardar}
         </Button>
         {aviso && (
           <p

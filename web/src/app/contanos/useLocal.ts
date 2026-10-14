@@ -144,11 +144,8 @@ export function useLocal(inicial: LocalPresencial | null = null, { paraAgenda = 
     };
   }, [tieneLocal, direccion, enlaceUbicacion, semana, retiroEnLocal, paraAgenda, lugar]);
 
-  const resumen = paraAgenda
-    ? RESUMEN_LUGAR[opcionLugar]
-    : tieneLocal
-      ? direccion.trim() || "Con local"
-      : "Sólo online";
+  const resumenVentas = tieneLocal ? direccion.trim() || "Con local" : "Sólo online";
+  const resumen = paraAgenda ? RESUMEN_LUGAR[opcionLugar] : resumenVentas;
 
   return {
     tieneLocal,
