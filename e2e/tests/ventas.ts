@@ -9,6 +9,8 @@ export async function crearAgenteVentasPorApi(
     local?: Record<string, unknown>;
     haceEnvios?: boolean;
     datosCliente?: Array<{ tipo: string; etiqueta?: string; obligatorio: boolean }>;
+    modalidadVenta?: 'stock' | 'pedido';
+    queHace?: string;
   } = {},
 ): Promise<{ nombreTitular: string }> {
   const nombreTitular = `Mates E2E ${sufijo()}`;

@@ -7,9 +7,13 @@ async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string
   const negocio = `Mates E2E ${sufijo()}`;
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
-  // Ventas no pregunta turnos ni horarios, sí por el local y, opcional, por los datos del cliente: son cinco pasos.
-  await expect(visible(page.getByText('Paso 2 de 5'))).toBeVisible();
+  // Ventas no pregunta turnos ni horarios, sí cómo vende, por el local y, opcional, por los datos del
+  // cliente: con stock son seis pasos ("Qué hacés" aparece sólo a pedido).
+  await expect(visible(page.getByText('Paso 2 de 6'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
+  await botonContinuar(page).click();
+  // "Cómo vendés": arranca con stock, lo de siempre.
+  await expect(visible(page.getByRole('radio', { name: /^Con stock/ }))).toHaveAttribute('aria-checked', 'true');
   await botonContinuar(page).click();
   // "Tu local": sin tocar nada queda "vendo sólo online".
   await expect(visible(page.getByRole('radio', { name: 'No, vendo sólo online' }))).toHaveAttribute('aria-checked', 'true');
