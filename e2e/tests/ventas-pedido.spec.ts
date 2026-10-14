@@ -24,8 +24,8 @@ test.describe('comercio que vende a pedido (LAU-21)', () => {
     await expect(botonContinuar(page)).toBeDisabled();
     await visible(page.getByLabel('¿Qué hacés?')).fill(QUE_HACE);
     await expect(botonContinuar(page)).toBeEnabled();
-    // La vista previa lo cuenta con lo que se escribió.
-    await expect(visible(page.getByText(QUE_HACE, { exact: false }))).toBeVisible();
+    // La vista previa lo cuenta con lo que se escribió (en el celular está plegada: alcanza con que esté).
+    await expect(page.getByText('Hola, soy el asistente de').filter({ hasText: QUE_HACE }).first()).toBeAttached();
     await botonContinuar(page).click();
 
     // "Tu local" y "Datos del cliente" quedan como están.
