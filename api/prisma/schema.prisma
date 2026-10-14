@@ -49,6 +49,7 @@ model User {
   ventas          Venta[]
   cuentaMercadoPago CuentaMercadoPago?
   notificaciones  Notificacion[]
+  sugerencias     SugerenciaMejora[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -596,4 +597,29 @@ model Notificacion {
   @@index([userId, leidaAt])
   @@index([userId, createdAt])
   @@index([userId, clave])
+}
+
+/// Sugerencia de mejora que manda el dueño desde el panel (LAU-14). Se guarda
+/// siempre primero y después se copia a Linear; si Linear falla queda
+/// pendiente (`enviadaAt` null) y la reintenta el barrido de MejorasService.
+/// El usuario no ve en qué estado está. Reglas en mejoras/mejoras.rules.ts.
+model SugerenciaMejora {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "idea" | "problema" | "otro"
+  tipo  String
+  /// Ya normalizado y validado: solo texto (lista blanca), sin links ni HTML.
+  texto String
+
+  /// Identificador del issue en Linear (ej. "LAU-31"). Null mientras está pendiente.
+  linearIssueId String?
+  /// Intentos fallidos de mandarla a Linear; el barrido deja de probar en 10.
+  intentos      Int       @default(0)
+  enviadaAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([enviadaAt])
 }

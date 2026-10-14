@@ -43,11 +43,13 @@ export class CuentaService {
 
     // Cascade en el schema: WhatsappSession, Agent, Conversation (con sus
     // Message y Turno), Subscription, Evento y, en un comercio, Producto (con
-    // sus variantes), Venta (con sus ítems), Notificacion y CuentaMercadoPago
-    // se van con el usuario (cuenta.db.spec.ts lo verifica). Los tokens de
-    // Mercado Pago del vendedor se borran con la fila; la autorización del
-    // lado de Mercado Pago la quita el vendedor desde su cuenta, y
-    // /privacidad le dice cómo.
+    // sus variantes), Venta (con sus ítems), Notificacion, CuentaMercadoPago y
+    // SugerenciaMejora se van con el usuario (cuenta.db.spec.ts lo verifica).
+    // Los tokens de Mercado Pago del vendedor se borran con la fila; la
+    // autorización del lado de Mercado Pago la quita el vendedor desde su
+    // cuenta, y /privacidad le dice cómo. Los issues que una sugerencia ya
+    // creó en Linear quedan: llevan el texto y el id interno, sin teléfono ni
+    // mail.
     await this.prisma.user.delete({ where: { id: user.id } });
 
     // Los eventos que el asistente ya creó en el Google Calendar del titular

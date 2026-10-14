@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 9 de octubre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 13 de octubre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -138,6 +138,10 @@ export default function PrivacidadPage() {
             identificador de Mercado Pago y los tokens que nos da. Los usamos sólo para crear links de
             pago a tu nombre y consultar si se pagaron: nunca para devolver, mover ni consultar tu
             dinero. Los datos de pago de tus clientes los maneja Mercado Pago; nosotros no los vemos.
+          </p>
+          <p>
+            <Fuerte>Si nos mandás una sugerencia</Fuerte> desde el panel: el tipo que elegiste, el
+            texto que escribiste y la fecha. Sólo se acepta texto: nada de archivos ni links.
           </p>
         </Seccion>
 
@@ -295,6 +299,11 @@ export default function PrivacidadPage() {
               datos.
             </Punto>
             <Punto>
+              <Fuerte>Linear</Fuerte>: la herramienta donde organizamos nuestro trabajo. Si nos mandás
+              una sugerencia, copiamos ahí el texto y el tipo junto con un identificador interno de tu
+              cuenta; nunca tu teléfono, tu email ni nada de tus clientes.
+            </Punto>
+            <Punto>
               <Fuerte>Sentry</Fuerte>: el registro de errores técnicos y una muestra de mediciones de
               rendimiento, con servidores en Estados Unidos. Le llega qué falló y dónde en el código,
               nunca el contenido de tus conversaciones, tu agenda ni lo que le mandamos al modelo; los
@@ -341,6 +350,10 @@ export default function PrivacidadPage() {
               nunca se escaneó): se borra dentro de las 24 horas.
             </Punto>
             <Punto>
+              <Fuerte>Sugerencias que nos mandás:</Fuerte> nuestra copia se borra a los 90 días de
+              pasarla a Linear, donde queda como parte de nuestra lista de mejoras.
+            </Punto>
+            <Punto>
               <Fuerte>Tu cuenta:</Fuerte> mientras la tengas abierta.
             </Punto>
           </Lista>
@@ -368,6 +381,10 @@ export default function PrivacidadPage() {
               Si vendías con el asistente: borramos tu catálogo, tus ventas, tus avisos y los tokens de
               tu cuenta de Mercado Pago. Los links de pago que ya se habían mandado vencen solos en
               menos de una hora.
+            </Punto>
+            <Punto>
+              Borramos las sugerencias que nos mandaste. Las que ya pasamos a Linear quedan ahí sin
+              ningún dato tuyo más que el texto que escribiste.
             </Punto>
           </Lista>
           <p>
