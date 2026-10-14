@@ -59,7 +59,7 @@ export class AgentsController {
     return aAgentPublico(agent);
   }
 
-  /** Los datos del local a la calle de un comercio (sólo asistente de ventas). */
+  /** Dónde se atiende: el local de un comercio o el lugar de los turnos (LAU-17). */
   @Put('me/local')
   async actualizarLocal(@CurrentUser() user: User, @Body() dto: ActualizarLocalDto): Promise<AgentPublico> {
     const agent = await this.agentsService.actualizarLocal(user.id, dto.local);

@@ -533,14 +533,73 @@ describe('local del asistente de ventas', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('da 404 sin agente y 409 para un asistente de agenda', async () => {
+  it('da 404 sin agente', async () => {
     const { service, findUnique, update } = crearServicio();
-
     findUnique.mockResolvedValue(null);
-    await expect(service.actualizarLocal('user-1', { tieneLocal: false })).rejects.toMatchObject({ status: 404 });
 
-    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
-    await expect(service.actualizarLocal('user-1', { tieneLocal: false })).rejects.toMatchObject({ status: 409 });
+    await expect(service.actualizarLocal('user-1', { tieneLocal: false })).rejects.toMatchObject({ status: 404 });
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('lugar de atención del asistente de turnos (LAU-17)', () => {
+  const casa = {
+    tieneLocal: true,
+    lugar: 'casa' as const,
+    direccion: ' Güemes 4321, Palermo ',
+    // Lo que es sólo de ventas no se guarda en una agenda.
+    horarios: [{ dia: 'lun' as const, desde: '09:00', hasta: '18:00' }],
+    retiroEnLocal: true,
+  };
+  const guardado = { tieneLocal: true, lugar: 'casa', direccion: 'Güemes 4321, Palermo', horarios: [], retiroEnLocal: false };
+
+  it('el alta de turnos guarda el lugar normalizado', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generate('user-1', { ...dto, local: casa });
+
+    const [{ create }] = upsert.mock.calls[0] as [{ create: Record<string, unknown> }];
+    expect(create.local).toEqual(guardado);
+  });
+
+  it('el alta sin el paso del lugar no pisa el que ya estaba', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
+
+    await service.generate('user-1', dto);
+
+    const [{ update }] = upsert.mock.calls[0] as [{ update: Record<string, unknown> }];
+    expect(update).not.toHaveProperty('local');
+  });
+
+  it('un lugar sin dirección es un 400 y no escribe nada', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await expect(service.generate('user-1', { ...dto, local: { tieneLocal: true, lugar: 'local' } })).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('actualizarLocal edita el lugar de una cuenta de turnos', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
+
+    await service.actualizarLocal('user-1', casa);
+
+    expect(update).toHaveBeenCalledWith({ where: { userId: 'user-1' }, data: { local: guardado } });
+  });
+
+  it('en ventas el tipo de lugar se descarta', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas' });
+
+    await service.actualizarLocal('user-1', casa);
+
+    const [{ data }] = update.mock.calls[0] as [{ data: { local: Record<string, unknown> } }];
+    expect(data.local).not.toHaveProperty('lugar');
+    expect(data.local.retiroEnLocal).toBe(true);
   });
 });

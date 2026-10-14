@@ -45,9 +45,9 @@ const TURNO = {
   fin: new Date(hora('10:30')),
 };
 
-function crearPrisma(opciones: { turnoActivo?: typeof TURNO | null } = {}) {
+function crearPrisma(opciones: { turnoActivo?: typeof TURNO | null; local?: unknown } = {}) {
   return {
-    agent: { findUnique: vi.fn().mockResolvedValue(AGENT) },
+    agent: { findUnique: vi.fn().mockResolvedValue({ ...AGENT, local: opciones.local ?? null }) },
     conversation: {
       findUniqueOrThrow: vi.fn().mockResolvedValue(CONVERSATION),
       update: vi.fn().mockResolvedValue({ ...CONVERSATION, nombreCliente: 'Juan' }),
@@ -223,6 +223,26 @@ describe('grafo conversacional', () => {
     );
     // El snapshot del mensaje, más la relectura del rango justo antes de escribir.
     expect(calendarService.freeBusy).toHaveBeenCalledTimes(2);
+  });
+
+  it('atiende en su casa: la dirección no está en el prompt, llega con el turno agendado', async () => {
+    const local = { tieneLocal: true, lugar: 'casa', direccion: 'Güemes 4321', horarios: [], retiroEnLocal: false };
+    const prisma = crearPrisma({ local });
+    const calendarService = crearCalendar();
+    const llm = crearModelo([
+      llamada('crear_turno', { nombreCliente: 'Juan', resumen: 'Corte', inicio: hora('10:00'), fin: hora('10:30') }),
+      new AIMessage('Listo Juan, te espero en Güemes 4321.'),
+    ]);
+
+    await correr({ prisma, calendarService, llm });
+
+    const [primera, segunda] = llm.invoke.mock.calls as unknown as Array<[BaseMessage[]]>;
+    const sistema = String(primera[0][0].content);
+    expect(sistema).toContain('atiende en su casa');
+    expect(sistema).not.toContain('Güemes 4321');
+    const resultado = segunda[0].find((mensaje) => mensaje.getType() === 'tool');
+    expect(String(resultado?.content)).toContain('Turno agendado para Juan');
+    expect(String(resultado?.content)).toContain('en su casa, "Güemes 4321"');
   });
 
   it('rechaza un horario fuera de la franja sin tocar Google', async () => {

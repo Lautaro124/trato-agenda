@@ -89,6 +89,15 @@ export type PayloadAgente = {
   horaDesde: string;
   horaHasta: string;
   nombreBot: string;
+  /** El lugar de atención (LAU-17); opcional en POST /agents/generate. */
+  local?: {
+    tieneLocal: boolean;
+    lugar?: 'local' | 'casa';
+    direccion?: string;
+    enlaceUbicacion?: string;
+    horarios: unknown[];
+    retiroEnLocal: boolean;
+  };
 };
 
 export type AgentePublico = PayloadAgente & { id: string; allowedActions: string[]; descripcion: string };

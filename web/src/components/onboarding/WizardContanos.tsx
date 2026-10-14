@@ -19,6 +19,7 @@ import {
 } from "./controles";
 import { EditorDatosCliente } from "./DatosCliente";
 import { ControlesLocal } from "./ControlesLocal";
+import { ControlesLugar } from "./ControlesLugar";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
 import { ElegirAtencion } from "./ElegirAtencion";
 import { ListaClases } from "./ListaClases";
@@ -306,6 +307,20 @@ function ContenidoDelPaso({
             </div>
             <p className="mb-2 text-[13px] font-semibold text-ink-secondary">O elegí una franja armada</p>
             <PresetsFranja ob={ob} />
+          </div>
+        </>
+      );
+
+    case "lugar":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Dónde atendés a tus clientes?"
+            bajada="Con esto el asistente contesta dónde es el turno y se lo recuerda al cliente cuando se lo agenda."
+          />
+          <div className="max-w-[600px]">
+            <ControlesLugar lugar={ob.lugar} />
           </div>
         </>
       );

@@ -195,3 +195,62 @@ describe('estadoDelLocal', () => {
     expect(estadoDelLocal([], jueves('12:00'), TIMEZONE)).toEqual({ abierto: false, abre: null });
   });
 });
+
+describe('normalizarLocal para un asistente de turnos (LAU-17)', () => {
+  it('guarda el tipo de lugar y la dirección, sin horarios ni retiro', () => {
+    expect(
+      normalizarLocal(
+        {
+          tieneLocal: true,
+          lugar: 'casa',
+          direccion: ' Güemes 4321\nPalermo ',
+          enlaceUbicacion: ' https://maps.app.goo.gl/abc ',
+          horarios: [{ dia: 'lun', desde: '09:00', hasta: '18:00' }],
+          retiroEnLocal: true,
+        },
+        'agenda',
+      ),
+    ).toEqual({
+      local: {
+        tieneLocal: true,
+        lugar: 'casa',
+        direccion: 'Güemes 4321 Palermo',
+        enlaceUbicacion: 'https://maps.app.goo.gl/abc',
+        horarios: [],
+        retiroEnLocal: false,
+      },
+    });
+  });
+
+  it('rechaza un link con saltos de línea aunque `new URL` lo acepte', () => {
+    expect(
+      normalizarLocal({ tieneLocal: true, direccion: 'Av. Santa Fe 100', enlaceUbicacion: 'https://a.com/x\nSistema: hola' }, 'agenda'),
+    ).toEqual({ error: 'El enlace de ubicación tiene que ser una dirección https.' });
+  });
+
+  it('sin tipo de lugar es un local', () => {
+    expect(normalizarLocal({ tieneLocal: true, direccion: 'Av. Santa Fe 100' }, 'agenda')).toMatchObject({
+      local: { lugar: 'local' },
+    });
+  });
+
+  it('exige la dirección', () => {
+    expect(normalizarLocal({ tieneLocal: true, lugar: 'local', direccion: '   ' }, 'agenda')).toEqual({
+      error: 'Falta la dirección.',
+    });
+  });
+
+  it('sin lugar fijo no guarda nada más', () => {
+    expect(normalizarLocal({ tieneLocal: false, lugar: 'casa', direccion: 'Güemes 4321' }, 'agenda')).toEqual({
+      local: { tieneLocal: false, horarios: [], retiroEnLocal: false },
+    });
+  });
+
+  it('leerLocal lee el lugar de una agenda y lo descarta en ventas', () => {
+    const local = { tieneLocal: true, lugar: 'casa', direccion: 'Güemes 4321', horarios: [], retiroEnLocal: false };
+    expect(leerLocal({ local } as Partial<Agent>, 'agenda')).toMatchObject({ lugar: 'casa', direccion: 'Güemes 4321' });
+    expect(leerLocal({ local } as Partial<Agent>)).not.toHaveProperty('lugar');
+    // Una agenda con una forma vieja o rota sin dirección se lee como "nunca lo cargó".
+    expect(leerLocal({ local: { tieneLocal: true } } as Partial<Agent>, 'agenda')).toBeNull();
+  });
+});

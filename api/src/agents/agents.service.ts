@@ -67,6 +67,7 @@ export class AgentsService {
       throw new BadRequestException('La hora de fin tiene que ser posterior a la de inicio.');
     }
     const tiposEvento = this.validarTiposEvento(dto.tiposEvento);
+    const local = dto.local ? this.validarLocal(dto.local, 'agenda') : undefined;
     await this.exigirMismoTipo(userId, 'agenda');
 
     const conTipos: GenerateAgentDto = { ...dto, tiposEvento };
@@ -89,6 +90,8 @@ export class AgentsService {
       // `templateVersion`, no un valor ficticio acá.
       model: null,
       templateVersion: PLANTILLA_VERSION,
+      // Sin el paso "Dónde atendés" no se pisa lo que ya estaba guardado.
+      ...(local ? { local: local as unknown as Prisma.InputJsonValue } : {}),
     };
 
     return this.prisma.agent.upsert({
@@ -107,7 +110,7 @@ export class AgentsService {
    */
   async generarVentas(userId: string, dto: GenerarAgenteVentasDto): Promise<Agent> {
     // Antes que exigirMismoTipo: un local inválido es un 400 aunque la cuenta sea de agenda.
-    const local = dto.local ? this.validarLocal(dto.local) : undefined;
+    const local = dto.local ? this.validarLocal(dto.local, 'ventas') : undefined;
     await this.exigirMismoTipo(userId, 'ventas');
     const nombreTitular = dto.nombreTitular.trim();
     const nombreBot = dto.nombreBot.trim();
@@ -226,24 +229,23 @@ export class AgentsService {
     return resultado.tipos;
   }
 
-  private validarLocal(dto: LocalPresencialDto): LocalPresencial {
-    const resultado = normalizarLocal(dto);
+  private validarLocal(dto: LocalPresencialDto, tipo: TipoAsistente): LocalPresencial {
+    const resultado = normalizarLocal(dto, tipo);
     if ('error' in resultado) throw new BadRequestException(resultado.error);
     return resultado.local;
   }
 
   /**
-   * Reemplaza los datos del local. No toca el system prompt: el grafo de
-   * ventas arma el bloque del local en cada mensaje (reglas-ventas.ts), así que
-   * el asistente lo usa desde la charla siguiente.
+   * Reemplaza el lugar de atención: el local de un comercio o dónde da los
+   * turnos un asistente de agenda, cada uno con su forma (local.ts). No toca
+   * el system prompt: los dos grafos arman ese bloque en cada mensaje
+   * (reglas-ventas.ts, graph/lugar.ts), así que el asistente lo usa desde la
+   * charla siguiente.
    */
   async actualizarLocal(userId: string, dto: LocalPresencialDto): Promise<Agent> {
     const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
     if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
-    if (tipoAsistenteDe(agent) !== 'ventas') {
-      throw new ConflictException('Tu asistente agenda turnos: no tiene un local para configurar.');
-    }
-    const local = this.validarLocal(dto);
+    const local = this.validarLocal(dto, tipoAsistenteDe(agent));
     return this.prisma.agent.update({
       where: { userId },
       data: { local: local as unknown as Prisma.InputJsonValue },

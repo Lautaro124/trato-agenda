@@ -50,8 +50,10 @@ import {
   LARGO_MIN_DIRECCION,
   leerLocal,
   MAX_FRANJAS,
+  TIPOS_LUGAR,
   type DiaSemana,
   type LocalPresencial,
+  type TipoLugar,
 } from './local.js';
 
 /** "HH:MM" en formato 24hs. */
@@ -104,6 +106,55 @@ export class TipoEventoDto {
   horarios?: HorarioGrupalDto[];
 }
 
+/** Una franja de atención del local: un día y su horario. */
+export class FranjaLocalDto {
+  @IsIn(DIAS_SEMANA)
+  dia!: DiaSemana;
+
+  @Matches(HORA_HHMM)
+  desde!: string;
+
+  @Matches(HORA_HHMM)
+  hasta!: string;
+}
+
+/**
+ * El local a la calle de un comercio, o dónde da los turnos un asistente de
+ * agenda. Que cierre después de abrir, que las franjas de un día no se pisen
+ * y lo que exige cada tipo de asistente lo mira normalizarLocal (local.ts).
+ */
+export class LocalPresencialDto {
+  @IsBoolean()
+  tieneLocal!: boolean;
+
+  /** Sólo agenda: local o consultorio, o su casa. Ventas lo descarta. */
+  @IsOptional()
+  @IsIn(TIPOS_LUGAR)
+  lugar?: TipoLugar;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(LARGO_MIN_DIRECCION)
+  @MaxLength(LARGO_MAX_DIRECCION)
+  direccion?: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(LARGO_MAX_ENLACE)
+  enlaceUbicacion?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_FRANJAS)
+  @ValidateNested({ each: true })
+  @Type(() => FranjaLocalDto)
+  horarios?: FranjaLocalDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  retiroEnLocal?: boolean;
+}
+
 export class GenerateAgentDto {
   @IsIn(TIPOS_TITULAR)
   tipoTitular!: TipoTitular;
@@ -133,6 +184,12 @@ export class GenerateAgentDto {
   @MinLength(2)
   @MaxLength(40)
   nombreBot!: string;
+
+  /** El paso "Dónde atendés" (LAU-17). Sin él (un cliente viejo de la API) no se pisa lo guardado. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LocalPresencialDto)
+  local?: LocalPresencialDto;
 }
 
 /** Un dato que el asistente de ventas le pide al cliente (datos-cliente.rules.ts). */
@@ -151,49 +208,6 @@ export class CampoClienteDto {
 
   @IsBoolean()
   obligatorio!: boolean;
-}
-
-/** Una franja de atención del local: un día y su horario. */
-export class FranjaLocalDto {
-  @IsIn(DIAS_SEMANA)
-  dia!: DiaSemana;
-
-  @Matches(HORA_HHMM)
-  desde!: string;
-
-  @Matches(HORA_HHMM)
-  hasta!: string;
-}
-
-/**
- * El local a la calle de un comercio. Que cierre después de abrir y que las
- * franjas de un día no se pisen lo mira normalizarLocal (local.ts).
- */
-export class LocalPresencialDto {
-  @IsBoolean()
-  tieneLocal!: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(LARGO_MIN_DIRECCION)
-  @MaxLength(LARGO_MAX_DIRECCION)
-  direccion?: string;
-
-  @IsOptional()
-  @IsUrl({ protocols: ['https'], require_protocol: true })
-  @MaxLength(LARGO_MAX_ENLACE)
-  enlaceUbicacion?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(MAX_FRANJAS)
-  @ValidateNested({ each: true })
-  @Type(() => FranjaLocalDto)
-  horarios?: FranjaLocalDto[];
-
-  @IsOptional()
-  @IsBoolean()
-  retiroEnLocal?: boolean;
 }
 
 /** Body de `POST /agents/generate-ventas`: el onboarding del asistente de ventas. */
@@ -335,7 +349,7 @@ export function aAgentPublico(agent: Agent): AgentPublico {
     haceEnvios: agent.haceEnvios,
     datosCliente: leerConfigDatosCliente(agent).campos,
     mensajes: leerMensajes(agent),
-    local: leerLocal(agent),
+    local: leerLocal(agent, tipoAsistenteDe(agent)),
     allowedActions: agent.allowedActions,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
