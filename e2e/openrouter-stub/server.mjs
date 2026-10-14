@@ -103,7 +103,9 @@ function llamadaATool(model, name, args) {
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
 //     si las reglas dicen que el negocio hace envíos, "con envío" / "lo retiro"
 //     van en `entrega`, y los pares "Etiqueta: valor" separados por ";" van en
-//     `datosCliente`;
+//     `datosCliente`; si el comercio vende a pedido (las reglas traen "Vendés a
+//     pedido", reglas-ventas.ts) no hay compra que cerrar: derivar_consulta con
+//     el texto del cliente, que es la solicitud para cotizar;
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
 //   - "envío" / "envían" fuera de una compra → derivar_consulta;
 //   - "dónde queda" / "dirección" / "retirar" / "el local" → contesta con lo
@@ -260,6 +262,9 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const texto = textoDe(mensajes[indiceUsuario]);
     const nombre = texto.match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
     if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
+    if (sistema.includes('Vendés a pedido')) {
+      return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: texto }));
+    }
     const varianteId = varianteDeLaUltimaBusqueda(mensajes);
     if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
     const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);

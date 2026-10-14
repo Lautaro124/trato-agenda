@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useDatosCliente, type PayloadDatosCliente } from "@/lib/datos-cliente";
 import { DIAS_SEMANA, NOMBRE_DIA, type DiaSemana, type LocalPresencial } from "@/lib/local";
+import { useModalidadVenta, type ModalidadVenta, type PayloadModalidad } from "@/lib/modalidad-venta";
 import { formatearPrecio } from "@/lib/precio";
 import {
   MAX_HORARIOS_GRUPALES,
@@ -116,6 +117,8 @@ export type PasoId =
   | "turnos"
   | "clases"
   | "horarios"
+  | "modalidad"
+  | "queHace"
   | "local"
   | "datos"
   | "asistente";
@@ -132,7 +135,8 @@ export type Atencion = "individual" | "grupal" | "ambas";
  * Los pasos de cada asistente, en orden. Ventas no pide turnos ni franja: vende
  * las 24 horas y lo que ofrece sale del catálogo, que se carga en /productos.
  * Sí pregunta por el local a la calle, para contestar dónde queda y si se retira.
- * Su paso "datos" (qué le pide al cliente, envíos) es opcional.
+ * Su paso "datos" (qué le pide al cliente, envíos) es opcional. "Qué hacés"
+ * aparece sólo si vende a pedido (LAU-21).
  */
 export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> = {
   agenda: [
@@ -148,6 +152,8 @@ export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> 
   ventas: [
     { id: "tipo", label: "Qué va a hacer" },
     { id: "negocio", label: "Tu negocio" },
+    { id: "modalidad", label: "Cómo vendés" },
+    { id: "queHace", label: "Qué hacés" },
     { id: "local", label: "Tu local" },
     { id: "datos", label: "Datos del cliente" },
     { id: "asistente", label: "Tu asistente" },
@@ -157,10 +163,14 @@ export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> 
 /**
  * Los pasos de turnos según cómo atiende: las clases no usan la franja
  * horaria (tienen sus propios horarios fijos) y los turnos individuales no
- * tienen clases.
+ * tienen clases. En ventas, "Qué hacés" sólo cuando vende a pedido.
  */
-export function pasosDe(tipo: TipoAsistente, atencion: Atencion): Array<{ id: PasoId; label: string }> {
-  if (tipo === "ventas") return PASOS.ventas;
+export function pasosDe(
+  tipo: TipoAsistente,
+  atencion: Atencion,
+  modalidad: ModalidadVenta = "stock",
+): Array<{ id: PasoId; label: string }> {
+  if (tipo === "ventas") return PASOS.ventas.filter((paso) => paso.id !== "queHace" || modalidad === "pedido");
   return PASOS.agenda.filter((paso) => {
     if (paso.id === "turnos" || paso.id === "horarios") return atencion !== "grupal";
     if (paso.id === "clases") return atencion !== "individual";
@@ -177,6 +187,8 @@ export const AYUDA_POR_PASO: Record<PasoId, string> = {
   turnos:
     "Elegí si cada uno es individual o grupal (clases, talleres). Sin precio, el asistente le dice al cliente que lo consulte con vos.",
   horarios: "Fuera de esta franja el asistente no ofrece horarios.",
+  modalidad: "Si vendés de las dos formas, elegí la que más pesa hoy. Lo podés cambiar cuando quieras desde Cuenta.",
+  queHace: "Productos, materiales y costos los vas a cargar después desde tu panel. Acá alcanza con contarlo.",
   local: "Lo que no cargues, el asistente no lo inventa: te pasa la consulta a vos.",
   datos: "Es opcional: lo podés cambiar cuando quieras desde Cuenta.",
   asistente: "Así arranca cada conversación en WhatsApp.",
@@ -189,7 +201,8 @@ export const ETIQUETA_ATENCION: Record<Atencion, string> = {
 };
 
 /** Body de POST /agents/generate-ventas. */
-export type DatosVentas = { nombreTitular: string; nombreBot: string; local: LocalPresencial } & PayloadDatosCliente;
+export type DatosVentas = { nombreTitular: string; nombreBot: string; local: LocalPresencial } & PayloadDatosCliente &
+  PayloadModalidad;
 
 export type Onboarding = ReturnType<typeof useOnboarding>;
 
@@ -442,6 +455,7 @@ export function useOnboarding() {
   const lugar = useLocal(null, { paraAgenda: true });
   // Con nombre propio y no esparcido: comparte nombres (`agregarPersonalizado`) con los tipos de evento.
   const datosCliente = useDatosCliente();
+  const modalidadVenta = useModalidadVenta();
 
   const elegirTipoUso = useCallback(
     (id: TipoUsoId) => {
@@ -458,7 +472,8 @@ export function useOnboarding() {
   }, []);
 
   const esVentas = tipoAsistente === "ventas";
-  const pasos = pasosDe(tipoAsistente, atencion);
+  // "Qué hacés" va justo después de "Cómo vendés", el único lugar donde se elige: el índice no cambia.
+  const pasos = pasosDe(tipoAsistente, atencion, modalidadVenta.modalidad);
   // En el wizard los turnos individuales y las clases se cargan en pasos
   // separados: cada uno cuenta sólo si su paso está en el recorrido.
   const conTurnos = atencion !== "grupal";
@@ -493,6 +508,8 @@ export function useOnboarding() {
     turnos: seleccionados.length > 0 && tipos.gruposValidos,
     clases: problemaClases === null,
     horarios: rangoValido,
+    modalidad: true,
+    queHace: modalidadVenta.queHaceValido,
     local: local.valido,
     // Opcional: sin tildar nada el asistente sólo pide el nombre.
     datos: true,
@@ -508,6 +525,8 @@ export function useOnboarding() {
     turnos: `${seleccionados.length} ${seleccionados.length === 1 ? "tipo" : "tipos"}`,
     clases: `${clasesElegidas.length} ${clasesElegidas.length === 1 ? "clase" : "clases"}`,
     horarios: `${horaDesde}–${horaHasta}`,
+    modalidad: modalidadVenta.resumen,
+    queHace: modalidadVenta.resumenQueHace,
     local: local.resumen,
     datos: datosCliente.resumen,
     asistente: nombreBot.trim(),
@@ -601,6 +620,7 @@ export function useOnboarding() {
     lugar,
     saludoLugar: respuestaDelLugar(lugar, titular),
     datosCliente,
+    modalidadVenta,
     puedeAvanzar,
     presentacion,
     saludo,
@@ -612,6 +632,7 @@ export function useOnboarding() {
       nombreBot: nombreBot.trim(),
       local: local.payload(),
       ...datosCliente.payload(),
+      ...modalidadVenta.payload(),
     }),
     /** Body de POST /agents/generate. */
     payload: () => ({

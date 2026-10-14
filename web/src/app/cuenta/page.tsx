@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { SeccionModalidad } from "@/components/cuenta/SeccionModalidad";
 import { SeccionDatosCliente } from "@/components/cuenta/SeccionDatosCliente";
 import { SeccionLocal } from "@/components/cuenta/SeccionLocal";
 import { AVISOS_MP, SeccionMercadoPago } from "@/components/cuenta/SeccionMercadoPago";
@@ -122,6 +123,8 @@ function CuentaContenido() {
           )}
 
           {esVentas && <SeccionMercadoPago />}
+
+          {esVentas && <SeccionModalidad />}
 
           {/* null = todavía no armó su asistente: no hay lugar que editar. */}
           {user.tipoAsistente && <SeccionLocal tipoAsistente={user.tipoAsistente} />}

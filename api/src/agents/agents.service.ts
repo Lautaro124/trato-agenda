@@ -7,6 +7,7 @@ import { tipoAsistenteDe, type TipoAsistente, type TipoTitular, type TipoUso } f
 import type {
   ActualizarDatosClienteDto,
   ActualizarMensajesDto,
+  ActualizarModalidadDto,
   GenerarAgenteVentasDto,
   GenerateAgentDto,
   LocalPresencialDto,
@@ -14,6 +15,7 @@ import type {
 } from './agents.types.js';
 import { CLAVES_MENSAJE, leerMensajes, normalizarMensajes } from './mensajes.rules.js';
 import { normalizarLocal, type LocalPresencial } from './local.js';
+import { normalizarQueHace, problemaDeModalidad } from './modalidad-venta.js';
 import { normalizarCampos } from '../comercio/datos-cliente.rules.js';
 import { detalleGrupal, esGrupal, normalizarTiposEvento } from './turnos-grupales.js';
 
@@ -111,6 +113,8 @@ export class AgentsService {
   async generarVentas(userId: string, dto: GenerarAgenteVentasDto): Promise<Agent> {
     // Antes que exigirMismoTipo: un local inválido es un 400 aunque la cuenta sea de agenda.
     const local = dto.local ? this.validarLocal(dto.local, 'ventas') : undefined;
+    const problema = problemaDeModalidad(dto.modalidadVenta ?? 'stock', dto.queHace);
+    if (problema) throw new BadRequestException(problema);
     await this.exigirMismoTipo(userId, 'ventas');
     const nombreTitular = dto.nombreTitular.trim();
     const nombreBot = dto.nombreBot.trim();
@@ -135,6 +139,9 @@ export class AgentsService {
       ...(dto.datosCliente
         ? { datosCliente: normalizarCampos(dto.datosCliente) as unknown as Prisma.InputJsonValue }
         : {}),
+      // Y con "Cómo vendés" / "Qué hacés" (LAU-21).
+      ...(dto.modalidadVenta ? { modalidadVenta: dto.modalidadVenta } : {}),
+      ...(dto.queHace !== undefined ? { queHace: normalizarQueHace(dto.queHace) || null } : {}),
     };
 
     return this.prisma.agent.upsert({
@@ -176,6 +183,32 @@ export class AgentsService {
       data: {
         haceEnvios: dto.haceEnvios,
         datosCliente: normalizarCampos(dto.datosCliente) as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  /**
+   * Con stock o a pedido (LAU-21). Como los datos del cliente, las reglas que
+   * dependen de esto se arman en código en cada mensaje (reglas-ventas.ts):
+   * no hay prompt que regenerar. Sin `queHace` en el body queda el guardado,
+   * así que volver a "stock" no lo borra.
+   */
+  async actualizarModalidad(userId: string, dto: ActualizarModalidadDto): Promise<Agent> {
+    const agent = await this.prisma.agent.findUnique({
+      where: { userId },
+      select: { tipoAsistente: true, queHace: true },
+    });
+    if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
+    if (tipoAsistenteDe(agent) !== 'ventas') {
+      throw new ConflictException('Tu asistente agenda turnos: no toma pedidos.');
+    }
+    const problema = problemaDeModalidad(dto.modalidadVenta, dto.queHace ?? agent.queHace);
+    if (problema) throw new BadRequestException(problema);
+    return this.prisma.agent.update({
+      where: { userId },
+      data: {
+        modalidadVenta: dto.modalidadVenta,
+        ...(dto.queHace !== undefined ? { queHace: normalizarQueHace(dto.queHace) || null } : {}),
       },
     });
   }

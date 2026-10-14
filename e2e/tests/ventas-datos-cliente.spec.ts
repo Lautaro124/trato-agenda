@@ -23,6 +23,8 @@ test.describe('datos que el asistente de ventas le pide al cliente', () => {
     await elegirAsistente(page, 'ventas');
     await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(`Mates E2E ${sufijo()}`);
     await botonContinuar(page).click();
+    // "Cómo vendés": con stock.
+    await botonContinuar(page).click();
     // "Tu local": sin local, todo pedido va con envío.
     await expect(visible(page.getByRole('radio', { name: 'No, vendo sólo online' }))).toHaveAttribute('aria-checked', 'true');
     await botonContinuar(page).click();

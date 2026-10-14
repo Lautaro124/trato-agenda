@@ -179,6 +179,17 @@ model Agent {
   /// pedido. [{ tipo, etiqueta?, obligatorio }] (comercio/datos-cliente.rules.ts).
   datosCliente Json @default("[]")
 
+  /// Sólo ventas (LAU-21): "stock" | "pedido". Con stock el asistente dice
+  /// precio y stock y cierra el pedido; a pedido no habla de stock ni cierra
+  /// la compra: toma la solicitud y se la pasa al dueño para que la cotice.
+  /// Las reglas están en src/agents/modalidad-venta.ts.
+  modalidadVenta String @default("stock")
+
+  /// Sólo ventas a pedido: qué hace el comercio, en sus palabras (30–600
+  /// caracteres). Es columna propia y no `descripcion`, que la regenera el backend.
+  /// Null = nunca lo cargó.
+  queHace String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

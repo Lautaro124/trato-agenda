@@ -393,6 +393,93 @@ describe('AgentsService.generarVentas', () => {
   });
 });
 
+describe('modalidad de venta (LAU-21)', () => {
+  const QUE_HACE = 'Hacemos muebles de madera a medida: mesas, bibliotecas y racks.';
+
+  it('generarVentas guarda la modalidad y "qué hacés" normalizado', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generarVentas('user-1', {
+      nombreTitular: 'Casa Ombú',
+      nombreBot: 'Lu',
+      modalidadVenta: 'pedido',
+      queHace: `  ${QUE_HACE}\n`,
+    });
+
+    const [{ create }] = upsert.mock.calls[0] as [{ create: Record<string, unknown> }];
+    expect(create).toMatchObject({ modalidadVenta: 'pedido', queHace: QUE_HACE });
+  });
+
+  it('sin el paso no pisa lo guardado', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati' });
+
+    const [{ create }] = upsert.mock.calls[0] as [{ create: Record<string, unknown> }];
+    expect(create).not.toHaveProperty('modalidadVenta');
+    expect(create).not.toHaveProperty('queHace');
+  });
+
+  it('a pedido sin "qué hacés" es un 400, antes de tocar la base', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    await expect(
+      service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati', modalidadVenta: 'pedido' }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      service.generarVentas('user-1', {
+        nombreTitular: 'Tienda',
+        nombreBot: 'Tati',
+        modalidadVenta: 'pedido',
+        queHace: 'Mesas',
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('actualizarModalidad usa el "qué hacés" guardado si no viene uno', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: QUE_HACE });
+
+    await service.actualizarModalidad('user-1', { modalidadVenta: 'pedido' });
+
+    expect(update).toHaveBeenCalledWith({ where: { userId: 'user-1' }, data: { modalidadVenta: 'pedido' } });
+  });
+
+  it('actualizarModalidad: volver a stock conserva el texto, y uno nuevo se normaliza', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null });
+
+    await service.actualizarModalidad('user-1', { modalidadVenta: 'stock' });
+    expect(update).toHaveBeenLastCalledWith({ where: { userId: 'user-1' }, data: { modalidadVenta: 'stock' } });
+
+    await service.actualizarModalidad('user-1', { modalidadVenta: 'pedido', queHace: ` ${QUE_HACE} ` });
+    expect(update).toHaveBeenLastCalledWith({
+      where: { userId: 'user-1' },
+      data: { modalidadVenta: 'pedido', queHace: QUE_HACE },
+    });
+  });
+
+  it('actualizarModalidad: 400 a pedido sin texto, 404 sin asistente y 409 si es de agenda', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null });
+    await expect(service.actualizarModalidad('user-1', { modalidadVenta: 'pedido' })).rejects.toMatchObject({
+      status: 400,
+    });
+    findUnique.mockResolvedValue(null);
+    await expect(service.actualizarModalidad('user-1', { modalidadVenta: 'stock' })).rejects.toMatchObject({
+      status: 404,
+    });
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda', queHace: null });
+    await expect(service.actualizarModalidad('user-1', { modalidadVenta: 'stock' })).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
 describe('construirDescripcion', () => {
   it('incluye titular, tipos de evento con su duración y la franja horaria', () => {
     const descripcion = construirDescripcion(dto);
