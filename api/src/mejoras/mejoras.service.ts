@@ -72,8 +72,9 @@ export class MejorasService implements OnModuleInit, OnModuleDestroy {
     const validacion = validarSugerencia(crudo);
     if (!validacion.ok) throw new BadRequestException(validacion.error);
 
+    const clave = `sugerencias:${userId}`;
     const id = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sugerencias:${userId}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${clave}))`;
       const hoy = await tx.sugerenciaMejora.count({
         where: { userId, createdAt: { gte: new Date(Date.now() - UN_DIA_MS) } },
       });

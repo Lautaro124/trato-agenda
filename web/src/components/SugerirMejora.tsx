@@ -12,7 +12,7 @@ import {
   type TipoSugerencia,
 } from "@/lib/sugerencias";
 
-export function Lamparita({ size }: { size: number }) {
+export function Lamparita({ size }: Readonly<{ size: number }>) {
   return (
     <svg
       width={size}
@@ -39,7 +39,7 @@ const FOCUSABLES = 'button:not([disabled]), textarea, input:not([disabled]), [hr
  * header no tiene lugar y se llega desde el menú de la cuenta; los dos abren
  * el mismo `PanelSugerencia`, que maneja AppHeader.
  */
-export function BotonSugerirMejora({ abierto, onAbrir }: { abierto: boolean; onAbrir: () => void }) {
+export function BotonSugerirMejora({ abierto, onAbrir }: Readonly<{ abierto: boolean; onAbrir: () => void }>) {
   return (
     <button
       type="button"
@@ -59,7 +59,7 @@ export function BotonSugerirMejora({ abierto, onAbrir }: { abierto: boolean; onA
  * (lib/sugerencias.ts). El usuario no ve qué pasa después con la sugerencia:
  * sólo que llegó.
  */
-export function PanelSugerencia({ onCerrar }: { onCerrar: () => void }) {
+export function PanelSugerencia({ onCerrar }: Readonly<{ onCerrar: () => void }>) {
   const titulo = useId();
   const idAyuda = useId();
   const idError = useId();
@@ -81,28 +81,31 @@ export function PanelSugerencia({ onCerrar }: { onCerrar: () => void }) {
     if (!enviada && texto.trim() && !window.confirm("Tenés una sugerencia sin mandar. ¿Descartarla?")) return;
     onCerrar();
   };
-  const cerrarRef = useRef(cerrar);
-  useEffect(() => {
-    cerrarRef.current = cerrar;
-  });
-
   useEffect(() => {
     primerCampo.current?.focus();
-    const alEscape = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") cerrarRef.current();
-    };
-    document.addEventListener("keydown", alEscape);
-    return () => document.removeEventListener("keydown", alEscape);
   }, []);
 
-  /** Mantiene el foco adentro del panel mientras está abierto. */
-  const atraparFoco = (e: KeyboardEvent<HTMLDivElement>) => {
+  /**
+   * Teclado del panel, escuchado en el fondo. El foco nunca sale del diálogo:
+   * arranca en el primer campo, Tab da la vuelta, y el diálogo mismo es
+   * enfocable (tabIndex -1) para cuando el foco queda sin control — un click
+   * en el título, el formulario que se desmonta al enviar, el botón que se
+   * deshabilita mientras manda. Así todo keydown llega acá. Escape cierra.
+   */
+  const alTeclado = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape") {
+      cerrar();
+      return;
+    }
     if (e.key !== "Tab" || !panel.current) return;
     const focusables = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLES));
-    if (focusables.length === 0) return;
-    const primero = focusables[0];
-    const ultimo = focusables[focusables.length - 1];
-    if (e.shiftKey && document.activeElement === primero) {
+    const primero = focusables.at(0);
+    const ultimo = focusables.at(-1);
+    if (!primero || !ultimo) return;
+    if (document.activeElement === panel.current) {
+      e.preventDefault();
+      (e.shiftKey ? ultimo : primero).focus();
+    } else if (e.shiftKey && document.activeElement === primero) {
       e.preventDefault();
       ultimo.focus();
     } else if (!e.shiftKey && document.activeElement === ultimo) {
@@ -114,6 +117,9 @@ export function PanelSugerencia({ onCerrar }: { onCerrar: () => void }) {
   const enviar = (e: FormEvent) => {
     e.preventDefault();
     if (!validacion.ok || enviando) return;
+    // El botón se deshabilita y después el formulario se desmonta: el foco
+    // pasa al diálogo para que Escape y Tab sigan andando.
+    panel.current?.focus();
     setEnviando(true);
     setErrorApi(null);
     enviarSugerencia(tipo, validacion.texto)
@@ -136,16 +142,19 @@ export function PanelSugerencia({ onCerrar }: { onCerrar: () => void }) {
   return (
     <div
       className="fixed inset-0 z-30 flex items-end justify-center bg-black/35 sm:items-stretch sm:justify-end"
-      onClick={cerrar}
+      // Sólo el fondo cierra: un click adentro del panel tiene otro target.
+      onClick={(e) => {
+        if (e.target === e.currentTarget) cerrar();
+      }}
+      onKeyDown={alTeclado}
     >
       <div
         ref={panel}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titulo}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={atraparFoco}
-        className="flex max-h-[92dvh] w-full flex-col overflow-y-auto rounded-t-[20px] bg-card pb-[env(safe-area-inset-bottom)] shadow-lg sm:max-h-none sm:w-[448px] sm:rounded-none"
+        tabIndex={-1}
+        className="flex max-h-[92dvh] outline-none w-full flex-col overflow-y-auto rounded-t-[20px] bg-card pb-[env(safe-area-inset-bottom)] shadow-lg sm:max-h-none sm:w-[448px] sm:rounded-none"
       >
         <div className="mx-auto mt-2.5 h-1 w-10 flex-none rounded-full bg-line-strong sm:hidden" aria-hidden />
         <div className="flex items-start gap-3 px-5 pt-4 sm:px-6 sm:pt-6">
