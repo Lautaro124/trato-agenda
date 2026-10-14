@@ -123,7 +123,8 @@ function CuentaContenido() {
 
           {esVentas && <SeccionMercadoPago />}
 
-          {esVentas && <SeccionLocal />}
+          {/* null = todavía no armó su asistente: no hay lugar que editar. */}
+          {user.tipoAsistente && <SeccionLocal tipoAsistente={user.tipoAsistente} />}
 
           {esVentas && <SeccionDatosCliente />}
 

@@ -11,7 +11,9 @@ import {
   semanaInicial,
   type DiaSemana,
   type LocalPresencial,
+  type OpcionLugar,
   type SemanaEnPantalla,
+  type TipoLugar,
 } from "@/lib/local";
 
 function laMasTarde(a: string, b: string): string {
@@ -22,13 +24,23 @@ function laMasTemprana(a: string, b: string): string {
   return a.localeCompare(b) <= 0 ? a : b;
 }
 
+const RESUMEN_LUGAR: Record<OpcionLugar, string> = {
+  local: "En un local",
+  casa: "En tu casa",
+  ninguno: "Sin lugar fijo",
+};
+
 /**
- * El local a la calle de un comercio. Lo usan el paso "Tu local" de /contanos
- * y la sección de /cuenta, que muestran los mismos controles sobre el mismo
- * estado (igual que useTiposEvento con /reuniones).
+ * El lugar donde se atiende. Lo usan el paso "Tu local" (ventas) o "Dónde
+ * atendés" (turnos, `paraAgenda`) de /contanos y la sección de /cuenta, que
+ * muestran los mismos controles sobre el mismo estado (igual que
+ * useTiposEvento con /reuniones). En turnos no hay horarios ni retiro: cuándo
+ * atiende ya lo dicen la franja y las clases; sí la dirección, obligatoria.
  */
-export function useLocal(inicial: LocalPresencial | null = null) {
-  const [tieneLocal, setTieneLocal] = useState(inicial?.tieneLocal ?? false);
+export function useLocal(inicial: LocalPresencial | null = null, { paraAgenda = false }: { paraAgenda?: boolean } = {}) {
+  // Turnos arranca en "local": es la respuesta más común y el paso queda listo con sólo escribir la dirección.
+  const [tieneLocal, setTieneLocal] = useState(inicial?.tieneLocal ?? paraAgenda);
+  const [lugar, setLugar] = useState<TipoLugar>(inicial?.lugar ?? "local");
   const [direccion, setDireccion] = useState(inicial?.direccion ?? "");
   const [enlaceUbicacion, setEnlaceUbicacion] = useState(inicial?.enlaceUbicacion ?? "");
   const [retiroEnLocal, setRetiroEnLocal] = useState(inicial?.retiroEnLocal ?? false);
@@ -81,27 +93,48 @@ export function useLocal(inicial: LocalPresencial | null = null) {
     );
   }, []);
 
+  const opcionLugar: OpcionLugar = tieneLocal ? lugar : "ninguno";
+  const elegirOpcionLugar = useCallback((opcion: OpcionLugar) => {
+    setTieneLocal(opcion !== "ninguno");
+    if (opcion !== "ninguno") setLugar(opcion);
+  }, []);
+
   const problemas = useMemo(
     () => ({
-      direccion: problemaDeLaDireccion(direccion),
+      direccion: problemaDeLaDireccion(direccion, paraAgenda),
       enlace: problemaDelEnlace(enlaceUbicacion),
       dias: Object.fromEntries(DIAS_SEMANA.map((dia) => [dia, problemaDelDia(semana[dia])])) as Record<
         DiaSemana,
         string | null
       >,
     }),
-    [direccion, enlaceUbicacion, semana],
+    [direccion, enlaceUbicacion, semana, paraAgenda],
   );
 
   const valido =
     !tieneLocal ||
-    (!problemas.direccion && !problemas.enlace && DIAS_SEMANA.every((dia) => !problemas.dias[dia]));
+    (!problemas.direccion &&
+      !problemas.enlace &&
+      (paraAgenda || DIAS_SEMANA.every((dia) => !problemas.dias[dia])));
 
-  /** Body de `local` en POST /agents/generate-ventas y PUT /agents/me/local. Lo vacío no viaja. */
+  /**
+   * Body de `local` en POST /agents/generate, POST /agents/generate-ventas y
+   * PUT /agents/me/local. Lo vacío no viaja.
+   */
   const payload = useCallback((): LocalPresencial => {
     if (!tieneLocal) return { tieneLocal: false, horarios: [], retiroEnLocal: false };
     const direccionLimpia = direccion.trim();
     const enlaceLimpio = enlaceUbicacion.trim();
+    if (paraAgenda) {
+      return {
+        tieneLocal: true,
+        lugar,
+        direccion: direccionLimpia,
+        ...(enlaceLimpio ? { enlaceUbicacion: enlaceLimpio } : {}),
+        horarios: [],
+        retiroEnLocal: false,
+      };
+    }
     return {
       tieneLocal: true,
       ...(direccionLimpia ? { direccion: direccionLimpia } : {}),
@@ -109,11 +142,19 @@ export function useLocal(inicial: LocalPresencial | null = null) {
       horarios: horariosDe(semana),
       retiroEnLocal,
     };
-  }, [tieneLocal, direccion, enlaceUbicacion, semana, retiroEnLocal]);
+  }, [tieneLocal, direccion, enlaceUbicacion, semana, retiroEnLocal, paraAgenda, lugar]);
+
+  const resumen = paraAgenda
+    ? RESUMEN_LUGAR[opcionLugar]
+    : tieneLocal
+      ? direccion.trim() || "Con local"
+      : "Sólo online";
 
   return {
     tieneLocal,
     setTieneLocal,
+    opcionLugar,
+    elegirOpcionLugar,
     direccion,
     setDireccion,
     enlaceUbicacion,
@@ -130,7 +171,7 @@ export function useLocal(inicial: LocalPresencial | null = null) {
     valido,
     payload,
     /** Para el riel del wizard. */
-    resumen: tieneLocal ? direccion.trim() || "Con local" : "Sólo online",
+    resumen,
   };
 }
 
