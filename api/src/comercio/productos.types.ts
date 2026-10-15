@@ -1,7 +1,6 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -127,12 +126,21 @@ export class GuardarProductoDto {
   @MaxLength(LARGOS.categoria)
   categoria?: string | null;
 
+  /** Obligatorias (al menos una) en una cuenta con stock; un producto a medida no lleva. */
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(MAX_VARIANTES)
   @ValidateNested({ each: true })
   @Type(() => VarianteDto)
-  variantes!: VarianteDto[];
+  variantes?: VarianteDto[];
+
+  /** Precio "desde" de un producto a medida. null = sin precio de referencia. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsInt()
+  @Min(1)
+  @Max(PRECIO_MAX_PESOS * 100)
+  precioReferenciaCentavos?: number | null;
 
   /**
    * El descuento propio del producto. null lo borra; ausente no lo toca (así
@@ -237,6 +245,8 @@ export type ProductoPublico = Pick<
   imagenActualizada: Date | null;
   /** Las preguntas del producto a medida (null = no se hace a medida). */
   solicitud: SolicitudADemanda | null;
+  /** Precio "desde" de un producto a medida, si el dueño puso uno. */
+  precioReferenciaCentavos: number | null;
 };
 
 /**
@@ -269,6 +279,7 @@ export function aProductoPublico(
     descuento: producto.descuento ? aDescuentoPublico(producto.descuento) : null,
     imagenActualizada: producto.imagen?.updatedAt ?? null,
     solicitud: leerSolicitud(producto.solicitud),
+    precioReferenciaCentavos: producto.precioReferenciaCentavos,
     variantes: producto.variantes
       .filter((variante) => variante.activo)
       .map((variante) => {

@@ -59,6 +59,44 @@ describe('formatearResultados', () => {
     expect(texto.match(/mandale al cliente exactamente/gi)).toHaveLength(1);
   });
 
+  it('un producto a medida no tiene variantes: se cotiza, con el "desde" si hay', () => {
+    const aMedida: ProductoEncontrado = {
+      productoId: 'p-9',
+      codigo: 'CORT-01',
+      nombre: 'Cortina roller',
+      categoria: null,
+      descripcion: '',
+      variantes: [],
+      tieneImagen: false,
+      aMedida: true,
+      precioReferenciaCentavos: 5_000_000,
+    };
+    const texto = formatearResultados('cortina', [aMedida]);
+    expect(texto).toContain('- a medida: se cotiza, desde $ 50.000');
+    expect(texto).not.toContain('[variante');
+    expect(formatearResultados('cortina', [{ ...aMedida, precioReferenciaCentavos: null }])).toContain('sin precio de referencia');
+    expect(formatearStockDueno('cortina', [aMedida])).toContain('se cotiza, desde $ 50.000, sin stock');
+  });
+
+  it('el catálogo de una cuenta a pedido no habla de stock', () => {
+    const agent = { nombreTitular: 'Lupe', mensajes: {}, modalidadVenta: 'pedido' } as never;
+    const texto = formatearCatalogo(
+      {
+        tipo: 'listado',
+        categoria: null,
+        restantes: 0,
+        productos: [
+          { productoId: 'p-9', nombre: 'Cortina', categoria: null, descripcion: '', precioDesdeCentavos: null, variosPrecios: false, aMedida: true },
+        ],
+      },
+      agent,
+    );
+    expect(texto).toContain('Productos a medida');
+    expect(texto).toContain('- "Cortina": a medida: se cotiza, sin precio de referencia');
+    expect(texto).not.toContain('con stock');
+    expect(formatearCatalogo({ tipo: 'vacio' }, agent)).toContain('ningún producto para ofrecer');
+  });
+
   it('sin resultados y con mensaje propio, le pide mandarlo tal cual', () => {
     const agent = { nombreTitular: 'Lupe', mensajes: { sinProductos: { modo: 'propio', texto: 'Uy, {busqueda} no me queda.' } } } as never;
     expect(formatearResultados('pizza', [], agent)).toContain('exactamente este mensaje, sin agregarle ni sacarle nada: "Uy, pizza no me queda."');

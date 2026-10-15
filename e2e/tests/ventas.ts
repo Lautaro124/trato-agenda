@@ -36,6 +36,7 @@ export type ProductoE2E = {
   nombre: string;
   variantes: VarianteE2E[];
   solicitud?: { preguntas: PreguntaSolicitudE2E[] } | null;
+  precioReferenciaCentavos?: number | null;
 };
 
 /** Un producto de variante única, cargado por API. */

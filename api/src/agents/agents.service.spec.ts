@@ -441,19 +441,16 @@ describe('modalidad de venta (LAU-21)', () => {
 
   it('actualizarModalidad usa el "qué hacés" guardado si no viene uno', async () => {
     const { service, findUnique, update } = crearServicio();
-    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: QUE_HACE });
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: QUE_HACE, modalidadVenta: 'pedido' });
 
     await service.actualizarModalidad('user-1', { modalidadVenta: 'pedido' });
 
     expect(update).toHaveBeenCalledWith({ where: { userId: 'user-1' }, data: { modalidadVenta: 'pedido' } });
   });
 
-  it('actualizarModalidad: volver a stock conserva el texto, y uno nuevo se normaliza', async () => {
+  it('actualizarModalidad edita "qué hacés" normalizado, con la misma modalidad', async () => {
     const { service, findUnique, update } = crearServicio();
-    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null });
-
-    await service.actualizarModalidad('user-1', { modalidadVenta: 'stock' });
-    expect(update).toHaveBeenLastCalledWith({ where: { userId: 'user-1' }, data: { modalidadVenta: 'stock' } });
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null, modalidadVenta: 'pedido' });
 
     await service.actualizarModalidad('user-1', { modalidadVenta: 'pedido', queHace: ` ${QUE_HACE} ` });
     expect(update).toHaveBeenLastCalledWith({
@@ -462,9 +459,28 @@ describe('modalidad de venta (LAU-21)', () => {
     });
   });
 
+  it('la modalidad no se cambia: ni desde /cuenta ni volviendo a pasar por el registro (409)', async () => {
+    const { service, findUnique, update, upsert } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: QUE_HACE, modalidadVenta: 'pedido' });
+    await expect(service.actualizarModalidad('user-1', { modalidadVenta: 'stock' })).rejects.toMatchObject({
+      status: 409,
+    });
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null, modalidadVenta: 'stock' });
+    await expect(
+      service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati', modalidadVenta: 'pedido', queHace: QUE_HACE }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(update).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+
+    // Regenerar con la misma modalidad (o sin mandarla) sigue andando.
+    await service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati', modalidadVenta: 'stock' });
+    await service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati' });
+    expect(upsert).toHaveBeenCalledTimes(2);
+  });
+
   it('actualizarModalidad: 400 a pedido sin texto, 404 sin asistente y 409 si es de agenda', async () => {
     const { service, findUnique, update } = crearServicio();
-    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null });
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null, modalidadVenta: 'pedido' });
     await expect(service.actualizarModalidad('user-1', { modalidadVenta: 'pedido' })).rejects.toMatchObject({
       status: 400,
     });

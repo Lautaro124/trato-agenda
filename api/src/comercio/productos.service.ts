@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Producto } from '../generated/prisma/client.js';
+import { leerModalidad, type ModalidadVenta } from '../agents/modalidad-venta.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   agruparFilasImportacion,
@@ -20,7 +21,7 @@ import {
   type ResumenImportacion,
   type SolicitudDto,
 } from './productos.types.js';
-import { normalizarSolicitud, type SolicitudADemanda } from './solicitud.rules.js';
+import { normalizarSolicitud, problemaSegunModalidad, type SolicitudADemanda } from './solicitud.rules.js';
 
 /** De la foto sólo hace falta saber si está y de cuándo es: nunca traer los bytes a un listado. */
 const SIN_BYTES = { select: { updatedAt: true } } as const;
@@ -52,6 +53,8 @@ type ProductoAGuardar = {
   descuento?: DescuentoAGuardar | null;
   /** Las preguntas del producto a medida. Igual que el descuento: null la borra, undefined no la toca. */
   solicitud?: SolicitudADemanda | null;
+  /** El precio "desde" de un producto a medida; undefined no lo toca. */
+  precioReferenciaCentavos?: number | null;
 };
 
 type Tx = Prisma.TransactionClient;
@@ -126,14 +129,15 @@ export class ProductosService {
     if (existente?.activo) {
       throw new ConflictException(`Ya hay un producto con el código ${dto.codigo.trim()}.`);
     }
-    const id = await this.prisma.$transaction((tx) => this.escribir(tx, userId, desdeDto(dto)));
+    const datos = desdeDto(dto, await this.modalidadDe(userId));
+    const id = await this.prisma.$transaction((tx) => this.escribir(tx, userId, datos));
     await this.refrescarBusqueda([id]);
     return this.obtener(userId, id);
   }
 
   async actualizar(userId: string, id: string, dto: GuardarProductoDto): Promise<ProductoPublico> {
     const actual = await this.buscarPropio(userId, id);
-    const datos = desdeDto(dto);
+    const datos = desdeDto(dto, await this.modalidadDe(userId));
     if (datos.codigo !== actual.codigo) {
       const otro = await this.prisma.producto.findUnique({
         where: { userId_codigo: { userId, codigo: datos.codigo } },
@@ -197,6 +201,10 @@ export class ProductosService {
     filas: Array<Record<string, unknown>>,
     confirmar: boolean,
   ): Promise<ResumenImportacion> {
+    // Una planilla es una fila por variante con su precio: no sirve para productos a medida.
+    if ((await this.modalidadDe(userId)) === 'pedido') {
+      throw new ConflictException('En una cuenta a pedido los productos se cargan de a uno.');
+    }
     const { productos, errores } = agruparFilasImportacion(filas);
 
     const existentes = new Set(
@@ -255,6 +263,7 @@ export class ProductosService {
       activo: true,
       textoBusqueda,
       // Sólo si vino: la importación no la manda y no tiene que pisarla.
+      ...(datos.precioReferenciaCentavos !== undefined && { precioReferenciaCentavos: datos.precioReferenciaCentavos }),
       ...(datos.solicitud !== undefined && {
         solicitud: datos.solicitud === null ? Prisma.DbNull : (datos.solicitud as unknown as Prisma.InputJsonValue),
       }),
@@ -299,6 +308,12 @@ export class ProductosService {
     return producto.id;
   }
 
+  /** Cómo vende la cuenta: decide qué productos acepta. Sin asistente todavía, con stock. */
+  private async modalidadDe(userId: string): Promise<ModalidadVenta> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { modalidadVenta: true } });
+    return agent ? leerModalidad(agent) : 'stock';
+  }
+
   /**
    * `busqueda` es un tsvector que Prisma no sabe escribir: se recalcula en SQL
    * desde `textoBusqueda`. Después se le avisa al indexador (salvo en medio de
@@ -314,9 +329,16 @@ export class ProductosService {
 }
 
 /** DTO del formulario → la misma forma que sale de una importación. */
-export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
+export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 'stock'): ProductoAGuardar {
+  const problema = problemaSegunModalidad(modalidad, {
+    variantes: dto.variantes?.length ?? 0,
+    descuento: dto.descuento,
+    solicitud: dto.solicitud,
+    precioReferencia: dto.precioReferenciaCentavos,
+  });
+  if (problema) throw new BadRequestException(problema);
   const codigo = dto.codigo.trim();
-  const variantes = dto.variantes.map((variante) => {
+  const variantes = (dto.variantes ?? []).map((variante) => {
     const nombre = (variante.nombre ?? '').trim();
     return {
       sku: (variante.sku ?? '').trim() || skuPorDefecto(codigo, nombre),
@@ -337,8 +359,15 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
     descripcion: (dto.descripcion ?? '').trim(),
     categoria: dto.categoria?.trim() || null,
     variantes,
-    descuento: dto.descuento === undefined ? undefined : dto.descuento && descuentoDesdeDto(dto.descuento),
+    // A pedido no hay variantes que descontar: si quedó uno de antes, se borra.
+    descuento:
+      modalidad === 'pedido'
+        ? null
+        : dto.descuento === undefined
+          ? undefined
+          : dto.descuento && descuentoDesdeDto(dto.descuento),
     solicitud: dto.solicitud === undefined ? undefined : dto.solicitud && solicitudDesdeDto(dto.solicitud),
+    precioReferenciaCentavos: modalidad === 'pedido' ? (dto.precioReferenciaCentavos ?? null) : undefined,
   };
 }
 

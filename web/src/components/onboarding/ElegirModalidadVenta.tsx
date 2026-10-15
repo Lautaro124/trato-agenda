@@ -44,7 +44,8 @@ const RECORRIDO_A_PEDIDO = [
 
 /**
  * "¿Cómo vendés tus productos?" (LAU-21): con stock o a pedido. Mismo formato
- * que `ElegirAsistente`. Lo usan el wizard de /contanos y la sección de /cuenta.
+ * que `ElegirAsistente`. Sólo en el wizard de /contanos: después no se cambia,
+ * porque define qué formulario de productos tiene la cuenta.
  */
 export function ElegirModalidadVenta({
   valor,
@@ -93,6 +94,10 @@ export function ElegirModalidadVenta({
           );
         })}
       </div>
+      <p className="mt-4 text-[12.5px] leading-[1.55] text-ink-secondary">
+        Esto no se puede cambiar después: define cómo cargás tus productos (con precio y stock, o a medida con las
+        preguntas para presupuestar).
+      </p>
 
       {valor === "pedido" && (
         <div className="mt-5 max-w-[640px] rounded-md border border-line bg-page px-4 py-4 sm:px-5">

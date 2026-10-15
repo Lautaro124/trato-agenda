@@ -15,7 +15,13 @@ import type {
 } from './agents.types.js';
 import { CLAVES_MENSAJE, leerMensajes, normalizarMensajes } from './mensajes.rules.js';
 import { normalizarLocal, type LocalPresencial } from './local.js';
-import { normalizarQueHace, problemaDeModalidad } from './modalidad-venta.js';
+import {
+  leerModalidad,
+  MODALIDAD_FIJA,
+  normalizarQueHace,
+  problemaDeModalidad,
+  type ModalidadVenta,
+} from './modalidad-venta.js';
 import { normalizarCampos } from '../comercio/datos-cliente.rules.js';
 import { detalleGrupal, esGrupal, normalizarTiposEvento } from './turnos-grupales.js';
 
@@ -115,7 +121,9 @@ export class AgentsService {
     const local = dto.local ? this.validarLocal(dto.local, 'ventas') : undefined;
     const problema = problemaDeModalidad(dto.modalidadVenta ?? 'stock', dto.queHace);
     if (problema) throw new BadRequestException(problema);
-    await this.exigirMismoTipo(userId, 'ventas');
+    const actual = await this.exigirMismoTipo(userId, 'ventas');
+    // "Cómo vendés" se elige una vez: volver a pasar por /contanos no es una forma de cambiarlo.
+    if (actual && dto.modalidadVenta) this.exigirMismaModalidad(actual, dto.modalidadVenta);
     const nombreTitular = dto.nombreTitular.trim();
     const nombreBot = dto.nombreBot.trim();
     const config = construirConfiguracionVentas({ nombreTitular, nombreBot });
@@ -156,8 +164,14 @@ export class AgentsService {
    * tienen datos distintos (catálogo y ventas vs. turnos), y pasar de uno a
    * otro los dejaría huérfanos. Regenerar el mismo tipo sí se puede.
    */
-  private async exigirMismoTipo(userId: string, tipo: TipoAsistente): Promise<void> {
-    const actual = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+  private async exigirMismoTipo(
+    userId: string,
+    tipo: TipoAsistente,
+  ): Promise<Pick<Agent, 'tipoAsistente' | 'modalidadVenta'> | null> {
+    const actual = await this.prisma.agent.findUnique({
+      where: { userId },
+      select: { tipoAsistente: true, modalidadVenta: true },
+    });
     if (actual && tipoAsistenteDe(actual) !== tipo) {
       throw new ConflictException(
         tipo === 'ventas'
@@ -165,6 +179,16 @@ export class AgentsService {
           : 'Tu asistente ya está configurado para vender.',
       );
     }
+    return actual;
+  }
+
+  /**
+   * La modalidad de venta, igual que el tipo de asistente, no cambia después
+   * del registro: de ella depende qué formulario de producto tiene la cuenta
+   * (stock o a medida), y los productos de una no sirven para la otra.
+   */
+  private exigirMismaModalidad(actual: Pick<Agent, 'modalidadVenta'>, pedida: ModalidadVenta): void {
+    if (leerModalidad(actual) !== pedida) throw new ConflictException(MODALIDAD_FIJA);
   }
 
   /**
@@ -188,20 +212,21 @@ export class AgentsService {
   }
 
   /**
-   * Con stock o a pedido (LAU-21). Como los datos del cliente, las reglas que
-   * dependen de esto se arman en código en cada mensaje (reglas-ventas.ts):
-   * no hay prompt que regenerar. Sin `queHace` en el body queda el guardado,
-   * así que volver a "stock" no lo borra.
+   * "Qué hacés" de una cuenta a pedido (LAU-21). La modalidad viene en el body
+   * pero no se cambia (409 si es otra): se eligió en el registro. Como los
+   * datos del cliente, las reglas que dependen de esto se arman en código en
+   * cada mensaje (reglas-ventas.ts): no hay prompt que regenerar.
    */
   async actualizarModalidad(userId: string, dto: ActualizarModalidadDto): Promise<Agent> {
     const agent = await this.prisma.agent.findUnique({
       where: { userId },
-      select: { tipoAsistente: true, queHace: true },
+      select: { tipoAsistente: true, queHace: true, modalidadVenta: true },
     });
     if (!agent) throw new NotFoundException('Todavía no configuraste tu asistente.');
     if (tipoAsistenteDe(agent) !== 'ventas') {
       throw new ConflictException('Tu asistente agenda turnos: no toma pedidos.');
     }
+    this.exigirMismaModalidad(agent, dto.modalidadVenta);
     const problema = problemaDeModalidad(dto.modalidadVenta, dto.queHace ?? agent.queHace);
     if (problema) throw new BadRequestException(problema);
     return this.prisma.agent.update({

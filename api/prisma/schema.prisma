@@ -378,6 +378,9 @@ model Producto {
   /// 'solicita', opciones, textoLibre, obligatoria }] }`. Null = no se hace a
   /// medida. La forma y sus reglas están en comercio/solicitud.rules.ts.
   solicitud Json?
+  /// Precio "desde" opcional de un producto a medida (cuenta a pedido), que no
+  /// tiene variantes: el precio real sale de la cotización. Null en los de stock.
+  precioReferenciaCentavos Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

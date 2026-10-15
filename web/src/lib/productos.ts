@@ -36,6 +36,8 @@ export type Producto = {
   imagenActualizada: string | null;
   /** Las preguntas del producto a medida; null = no se hace a medida. */
   solicitud: SolicitudADemanda | null;
+  /** Precio "desde" de un producto a medida, si el dueño puso uno. */
+  precioReferenciaCentavos: number | null;
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -68,14 +70,20 @@ export type ProductoEncontrado = {
     hayStock: boolean;
     stock: string;
   }>;
+  /** Producto a medida: sin variantes, se cotiza. */
+  aMedida?: boolean;
+  precioReferenciaCentavos?: number | null;
 };
 
-/** Body de alta/edición: el mismo shape que `GuardarProductoDto`. */
-export type ProductoAGuardar = {
+type ProductoBaseAGuardar = {
   codigo: string;
   nombre: string;
   descripcion: string;
   categoria: string | null;
+};
+
+/** Body de alta/edición en una cuenta con stock (`GuardarProductoDto`). */
+export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
   variantes: Array<{
     sku?: string;
     nombre: string;
@@ -86,9 +94,16 @@ export type ProductoAGuardar = {
   }>;
   /** null lo borra. */
   descuento: DescuentoAGuardar | null;
-  /** null = no se hace a medida (borra las preguntas). */
-  solicitud: SolicitudADemanda | null;
 };
+
+/** Body de un producto a medida (cuenta a pedido): sin variantes, stock ni descuento. */
+export type ProductoAMedidaAGuardar = ProductoBaseAGuardar & {
+  /** null = sin precio de referencia. */
+  precioReferenciaCentavos: number | null;
+  solicitud: SolicitudADemanda;
+};
+
+export type ProductoAGuardar = ProductoDeStockAGuardar | ProductoAMedidaAGuardar;
 
 /** Error de la API con el mensaje que ya viene en español (409, 400). */
 export class ErrorDeApi extends Error {}

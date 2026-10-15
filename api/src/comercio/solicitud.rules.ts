@@ -15,6 +15,7 @@
  * es de respuesta escrita; con opciones, `textoLibre` deja contestar otra cosa
  * cuando ninguna le sirve.
  */
+import type { ModalidadVenta } from '../agents/modalidad-venta.js';
 import { claveDeCampo } from './datos-cliente.rules.js';
 
 export const SOBRE_PREGUNTA = ['tiene', 'solicita'] as const;
@@ -202,4 +203,29 @@ export function validarRespuestasSolicitud(config: SolicitudADemanda, respuestas
     };
   }
   return { ok: true, respuestas: validas };
+}
+
+/**
+ * Qué formulario de producto tiene la cuenta depende de cómo vende (se elige
+ * en el registro y no cambia): con stock, variantes con precio y stock; a
+ * pedido, un producto a medida con sus preguntas y, si quiere, un precio
+ * "desde", sin variantes ni descuento. Lo que no corresponde es un 400.
+ * `undefined` es "no vino" (no toca lo guardado); `null`, "sin".
+ */
+export function problemaSegunModalidad(
+  modalidad: ModalidadVenta,
+  producto: { variantes: number; descuento: unknown; solicitud: unknown; precioReferencia: unknown },
+): string | null {
+  const presente = (valor: unknown) => valor !== undefined && valor !== null;
+  if (modalidad === 'stock') {
+    if (producto.variantes === 0) return 'Poné el precio del producto.';
+    if (presente(producto.solicitud) || presente(producto.precioReferencia)) {
+      return 'Tu cuenta vende con stock: los productos no llevan preguntas para presupuestar.';
+    }
+    return null;
+  }
+  if (producto.variantes > 0) return 'Tu cuenta vende a pedido: los productos no llevan variantes ni stock.';
+  if (presente(producto.descuento)) return 'Tu cuenta vende a pedido: los productos no llevan descuento.';
+  if (!presente(producto.solicitud)) return 'Agregá las preguntas para presupuestar el producto.';
+  return null;
 }

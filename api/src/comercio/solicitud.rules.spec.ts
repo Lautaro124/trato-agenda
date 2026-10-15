@@ -4,6 +4,7 @@ import {
   MAX_OPCIONES,
   MAX_PREGUNTAS,
   normalizarSolicitud,
+  problemaSegunModalidad,
   validarRespuestasSolicitud,
   type SolicitudADemanda,
 } from './solicitud.rules.js';
@@ -135,5 +136,26 @@ describe('validarRespuestasSolicitud', () => {
     ]);
     expect(resultado).toMatchObject({ ok: false, faltantes: ['¿Qué medida tiene la ventana?'] });
     expect(validarRespuestasSolicitud(config, 'basura')).toMatchObject({ ok: false });
+  });
+});
+
+describe('problemaSegunModalidad', () => {
+  const preguntas = { preguntas: [DETALLE] };
+
+  it('con stock: precio obligatorio, sin preguntas ni precio de referencia', () => {
+    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toBeNull();
+    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: null, solicitud: null, precioReferencia: null })).toBeNull();
+    expect(problemaSegunModalidad('stock', { variantes: 0, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toMatch(/precio/);
+    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: preguntas, precioReferencia: undefined })).toMatch(/vende con stock/);
+    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: 100 })).toMatch(/vende con stock/);
+  });
+
+  it('a pedido: preguntas obligatorias, sin variantes ni descuento; el precio "desde" es opcional', () => {
+    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: preguntas, precioReferencia: null })).toBeNull();
+    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: null, solicitud: preguntas, precioReferencia: 100 })).toBeNull();
+    expect(problemaSegunModalidad('pedido', { variantes: 1, descuento: undefined, solicitud: preguntas, precioReferencia: null })).toMatch(/variantes/);
+    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: { tipo: 'porcentaje' }, solicitud: preguntas, precioReferencia: null })).toMatch(/descuento/);
+    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: null, precioReferencia: null })).toMatch(/preguntas/);
+    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: undefined, precioReferencia: null })).toMatch(/preguntas/);
   });
 });

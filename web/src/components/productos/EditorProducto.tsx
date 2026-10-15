@@ -19,6 +19,7 @@ import {
   leerCentavos,
   type Producto,
   type ProductoAGuardar,
+  type ProductoDeStockAGuardar,
 } from "@/lib/productos";
 
 const INPUT =
@@ -91,7 +92,7 @@ function descuentoDesdeProducto(producto: Producto | null): DescuentoEnEdicion {
  */
 function armarDescuento(
   descuento: DescuentoEnEdicion,
-  variantes: ProductoAGuardar["variantes"],
+  variantes: ProductoDeStockAGuardar["variantes"],
 ): DescuentoAGuardar | null | string {
   if (!descuento.tiene) return null;
   const valor = leerValorDescuento(descuento.tipo, descuento.valor);
@@ -115,13 +116,20 @@ function entero(texto: string): number | null | "invalido" {
   return /^\d+$/.test(limpio) ? Number(limpio) : "invalido";
 }
 
-/** Alta o edición completa de un producto con sus variantes, en un diálogo. */
+/**
+ * Alta o edición completa de un producto, en un diálogo. El formulario
+ * depende de cómo vende la cuenta (se eligió en el registro): con stock,
+ * variantes con precio, stock y descuento; a pedido, un producto a medida con
+ * un precio "desde" opcional y las preguntas para presupuestarlo.
+ */
 export function EditorProducto({
+  modalidad,
   producto,
   onCerrar,
   onGuardado,
   onFotoCambiada,
 }: {
+  modalidad: "stock" | "pedido";
   producto: Producto | null;
   onCerrar: () => void;
   onGuardado: (producto: Producto) => void;
@@ -139,7 +147,11 @@ export function EditorProducto({
     producto ? desdeProducto(producto) : [nuevaVariante()],
   );
   const [descuento, setDescuento] = useState<DescuentoEnEdicion>(() => descuentoDesdeProducto(producto));
+  const aMedida = modalidad === "pedido";
   const solicitud = useSolicitudEnEdicion(producto?.solicitud ?? null);
+  const [precioReferencia, setPrecioReferencia] = useState(
+    producto?.precioReferenciaCentavos ? centavosParaInput(producto.precioReferenciaCentavos) : "",
+  );
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -149,9 +161,9 @@ export function EditorProducto({
     nombre,
     categoria,
     descripcion,
-    variantes.map((v) => [v.sku, v.nombre, v.precio, v.stock, v.stockMinimo, v.disponible]),
-    descuento,
-    solicitud.firma,
+    ...(aMedida
+      ? [precioReferencia, solicitud.firma]
+      : [variantes.map((v) => [v.sku, v.nombre, v.precio, v.stock, v.stockMinimo, v.disponible]), descuento]),
   ]);
   const [formularioInicial] = useState(formulario);
   const hayCambios = formulario !== formularioInicial;
@@ -180,7 +192,20 @@ export function EditorProducto({
   const armar = (): ProductoAGuardar | string => {
     if (!codigo.trim()) return "Poné un código para el producto.";
     if (nombre.trim().length < 2) return "Poné el nombre del producto.";
-    const armadas: ProductoAGuardar["variantes"] = [];
+    const base = {
+      codigo: codigo.trim(),
+      nombre: nombre.trim(),
+      categoria: categoria.trim() || null,
+      descripcion: descripcion.trim(),
+    };
+    if (aMedida) {
+      const precioReferenciaCentavos = precioReferencia.trim() ? leerCentavos(precioReferencia) : null;
+      if (precioReferencia.trim() && !precioReferenciaCentavos) return "Revisá el precio desde.";
+      const solicitudArmada = solicitud.armar();
+      if (typeof solicitudArmada === "string") return solicitudArmada;
+      return { ...base, precioReferenciaCentavos, solicitud: solicitudArmada };
+    }
+    const armadas: ProductoDeStockAGuardar["variantes"] = [];
     for (const [indice, variante] of variantes.entries()) {
       const cual = variantes.length > 1 ? ` de la variante ${indice + 1}` : "";
       const precioCentavos = leerCentavos(variante.precio);
@@ -200,17 +225,7 @@ export function EditorProducto({
     }
     const descuentoArmado = armarDescuento(descuento, armadas);
     if (typeof descuentoArmado === "string") return descuentoArmado;
-    const solicitudArmada = solicitud.armar();
-    if (typeof solicitudArmada === "string") return solicitudArmada;
-    return {
-      codigo: codigo.trim(),
-      nombre: nombre.trim(),
-      categoria: categoria.trim() || null,
-      descripcion: descripcion.trim(),
-      variantes: armadas,
-      descuento: descuentoArmado,
-      solicitud: solicitudArmada,
-    };
+    return { ...base, variantes: armadas, descuento: descuentoArmado };
   };
 
   const guardar = (e: React.FormEvent) => {
@@ -240,7 +255,13 @@ export function EditorProducto({
       >
         <form onSubmit={guardar} className="flex flex-col gap-4">
           <h2 id={titulo} className="font-display text-[21px] font-bold text-ink">
-            {producto ? "Editar producto" : "Nuevo producto"}
+            {aMedida
+              ? producto
+                ? "Editar producto a medida"
+                : "Nuevo producto a medida"
+              : producto
+                ? "Editar producto"
+                : "Nuevo producto"}
           </h2>
 
           {/* En pantallas grandes, dos columnas: datos y descuento a la izquierda, variantes a la derecha. */}
@@ -307,132 +328,138 @@ export function EditorProducto({
                 onCambio={() => onFotoCambiada?.()}
               />
 
-              <SeccionDescuento
-                descuento={descuento}
-                precios={variantes.map((v) => ({ clave: v.clave, nombre: v.nombre.trim(), centavos: leerCentavos(v.precio) }))}
-                onCambio={(cambios) => setDescuento((actual) => ({ ...actual, ...cambios }))}
-              />
+              {!aMedida && (
+                <SeccionDescuento
+                  descuento={descuento}
+                  precios={variantes.map((v) => ({ clave: v.clave, nombre: v.nombre.trim(), centavos: leerCentavos(v.precio) }))}
+                  onCambio={(cambios) => setDescuento((actual) => ({ ...actual, ...cambios }))}
+                />
+              )}
             </div>
 
-            <fieldset className="flex flex-col gap-3">
-              <legend className={LABEL}>
-                {variantes.length > 1 ? "Variantes (talle, color, sabor…)" : "Precio y stock"}
-              </legend>
-              {variantes.map((variante, indice) => {
-                const id = (campo: string) => `${idCampos}-${variante.clave}-${campo}`;
-                return (
-                  <div key={variante.clave} className="grid gap-3 rounded-md bg-sunken p-3 sm:grid-cols-2">
-                    {variantes.length > 1 && (
-                      <div className="sm:col-span-2">
-                        <label htmlFor={id("nombre")} className={LABEL}>
-                          Nombre de la variante {indice + 1}
-                        </label>
-                        <input
-                          id={id("nombre")}
-                          value={variante.nombre}
-                          placeholder='ej. "Talle M"'
-                          maxLength={60}
-                          onChange={(e) => cambiarVariante(variante.clave, { nombre: e.target.value })}
-                          className={INPUT}
-                        />
-                      </div>
-                    )}
-                    <div>
-                      <label htmlFor={id("precio")} className={LABEL}>
-                        Precio
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[13px] text-muted">$</span>
-                        <input
-                          id={id("precio")}
-                          inputMode="decimal"
-                          value={variante.precio}
-                          placeholder="0"
-                          onChange={(e) => cambiarVariante(variante.clave, { precio: e.target.value })}
-                          className={INPUT}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label htmlFor={id("sku")} className={LABEL}>
-                        Código interno (SKU) <span className="font-normal text-muted">(opcional)</span>
-                      </label>
-                      <input
-                        id={id("sku")}
-                        value={variante.sku}
-                        maxLength={60}
-                        onChange={(e) => cambiarVariante(variante.clave, { sku: e.target.value })}
-                        className={INPUT}
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor={id("stock")} className={LABEL}>
-                        Stock (unidades)
-                      </label>
-                      <input
-                        id={id("stock")}
-                        inputMode="numeric"
-                        value={variante.stock}
-                        placeholder="Vacío = sin control de stock"
-                        onChange={(e) => cambiarVariante(variante.clave, { stock: e.target.value })}
-                        className={INPUT}
-                      />
-                    </div>
-                    {variante.stock.trim() === "" ? (
-                      // Sin cantidad cargada, la disponibilidad se marca a mano.
-                      <div className="flex flex-col justify-end">
-                        <span className={LABEL}>¿Está disponible?</span>
-                        <label className="flex min-h-[44px] items-center gap-2 text-[14px] text-ink">
+            {aMedida ? (
+              <PrecioReferencia valor={precioReferencia} onCambio={setPrecioReferencia} />
+            ) : (
+              <fieldset className="flex flex-col gap-3">
+                <legend className={LABEL}>
+                  {variantes.length > 1 ? "Variantes (talle, color, sabor…)" : "Precio y stock"}
+                </legend>
+                {variantes.map((variante, indice) => {
+                  const id = (campo: string) => `${idCampos}-${variante.clave}-${campo}`;
+                  return (
+                    <div key={variante.clave} className="grid gap-3 rounded-md bg-sunken p-3 sm:grid-cols-2">
+                      {variantes.length > 1 && (
+                        <div className="sm:col-span-2">
+                          <label htmlFor={id("nombre")} className={LABEL}>
+                            Nombre de la variante {indice + 1}
+                          </label>
                           <input
-                            type="checkbox"
-                            checked={variante.disponible}
-                            onChange={(e) => cambiarVariante(variante.clave, { disponible: e.target.checked })}
+                            id={id("nombre")}
+                            value={variante.nombre}
+                            placeholder='ej. "Talle M"'
+                            maxLength={60}
+                            onChange={(e) => cambiarVariante(variante.clave, { nombre: e.target.value })}
+                            className={INPUT}
                           />
-                          Hay stock
-                        </label>
-                      </div>
-                    ) : (
+                        </div>
+                      )}
                       <div>
-                        <label htmlFor={id("minimo")} className={LABEL}>
-                          Avisarme cuando queden menos de <span className="font-normal text-muted">(unidades)</span>
+                        <label htmlFor={id("precio")} className={LABEL}>
+                          Precio
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[13px] text-muted">$</span>
+                          <input
+                            id={id("precio")}
+                            inputMode="decimal"
+                            value={variante.precio}
+                            placeholder="0"
+                            onChange={(e) => cambiarVariante(variante.clave, { precio: e.target.value })}
+                            className={INPUT}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label htmlFor={id("sku")} className={LABEL}>
+                          Código interno (SKU) <span className="font-normal text-muted">(opcional)</span>
                         </label>
                         <input
-                          id={id("minimo")}
-                          inputMode="numeric"
-                          value={variante.stockMinimo}
-                          placeholder="Opcional"
-                          onChange={(e) => cambiarVariante(variante.clave, { stockMinimo: e.target.value })}
+                          id={id("sku")}
+                          value={variante.sku}
+                          maxLength={60}
+                          onChange={(e) => cambiarVariante(variante.clave, { sku: e.target.value })}
                           className={INPUT}
                         />
                       </div>
-                    )}
-                    {variantes.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => setVariantes((actuales) => actuales.filter((v) => v.clave !== variante.clave))}
-                        className="cursor-pointer text-left text-[12.5px] text-danger-text sm:col-span-2"
-                      >
-                        Quitar esta variante
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-              {variantes.length < MAX_VARIANTES && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="self-start"
-                  onClick={() => setVariantes((actuales) => [...actuales, nuevaVariante()])}
-                >
-                  Agregar variante
-                </Button>
-              )}
-            </fieldset>
+                      <div>
+                        <label htmlFor={id("stock")} className={LABEL}>
+                          Stock (unidades)
+                        </label>
+                        <input
+                          id={id("stock")}
+                          inputMode="numeric"
+                          value={variante.stock}
+                          placeholder="Vacío = sin control de stock"
+                          onChange={(e) => cambiarVariante(variante.clave, { stock: e.target.value })}
+                          className={INPUT}
+                        />
+                      </div>
+                      {variante.stock.trim() === "" ? (
+                        // Sin cantidad cargada, la disponibilidad se marca a mano.
+                        <div className="flex flex-col justify-end">
+                          <span className={LABEL}>¿Está disponible?</span>
+                          <label className="flex min-h-[44px] items-center gap-2 text-[14px] text-ink">
+                            <input
+                              type="checkbox"
+                              checked={variante.disponible}
+                              onChange={(e) => cambiarVariante(variante.clave, { disponible: e.target.checked })}
+                            />
+                            Hay stock
+                          </label>
+                        </div>
+                      ) : (
+                        <div>
+                          <label htmlFor={id("minimo")} className={LABEL}>
+                            Avisarme cuando queden menos de <span className="font-normal text-muted">(unidades)</span>
+                          </label>
+                          <input
+                            id={id("minimo")}
+                            inputMode="numeric"
+                            value={variante.stockMinimo}
+                            placeholder="Opcional"
+                            onChange={(e) => cambiarVariante(variante.clave, { stockMinimo: e.target.value })}
+                            className={INPUT}
+                          />
+                        </div>
+                      )}
+                      {variantes.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setVariantes((actuales) => actuales.filter((v) => v.clave !== variante.clave))}
+                          className="cursor-pointer text-left text-[12.5px] text-danger-text sm:col-span-2"
+                        >
+                          Quitar esta variante
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {variantes.length < MAX_VARIANTES && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => setVariantes((actuales) => [...actuales, nuevaVariante()])}
+                  >
+                    Agregar variante
+                  </Button>
+                )}
+              </fieldset>
+            )}
           </div>
 
           {/* A todo el ancho: las preguntas necesitan aire, y en pantallas grandes van sus dos bloques lado a lado. */}
-          <SeccionSolicitud estado={solicitud} />
+          {aMedida && <SeccionSolicitud estado={solicitud} />}
 
           {/* Fija abajo del diálogo: con muchas variantes, guardar no obliga a bajar hasta el final.
               -bottom-5 la pega al borde (el sticky se mide desde adentro del padding del diálogo).
@@ -459,6 +486,34 @@ export function EditorProducto({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/** El precio "desde" de un producto a medida: opcional, el real sale de la cotización. */
+function PrecioReferencia({ valor, onCambio }: Readonly<{ valor: string; onCambio: (valor: string) => void }>) {
+  return (
+    <div className="flex flex-col gap-3 rounded-md bg-sunken p-4">
+      <div>
+        <label htmlFor="producto-precio-desde" className={LABEL}>
+          Precio desde <span className="font-normal text-muted">(opcional)</span>
+        </label>
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] text-muted">$</span>
+          <input
+            id="producto-precio-desde"
+            inputMode="decimal"
+            value={valor}
+            placeholder="Sin precio de referencia"
+            onChange={(e) => onCambio(e.target.value)}
+            className={INPUT}
+          />
+        </div>
+      </div>
+      <p className="text-[12.5px] leading-[1.5] text-ink-secondary">
+        Es a medida: el precio final lo ponés vos cuando cotizás. Si cargás un “desde”, tu asistente lo puede usar
+        como referencia; si no, le dice al cliente que se lo pasás con la cotización.
+      </p>
     </div>
   );
 }

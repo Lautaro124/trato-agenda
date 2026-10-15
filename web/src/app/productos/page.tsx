@@ -37,13 +37,18 @@ export default function ProductosPage() {
   return (
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="productos" user={user} />
-      <Catalogo />
+      <Catalogo aPedido={user.modalidadVenta === "pedido"} />
       <MobileTabBar active="productos" />
     </div>
   );
 }
 
-function Catalogo() {
+/**
+ * `aPedido`: la cuenta vende a medida (se eligió en el registro y no cambia).
+ * Ahí los productos se cargan de a uno con su formulario a medida: sin
+ * planillas ni promociones, que son de precio y stock.
+ */
+function Catalogo({ aPedido }: Readonly<{ aPedido: boolean }>) {
   const [consulta, setConsulta] = useState("");
   const [consultaAplicada, setConsultaAplicada] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -113,14 +118,18 @@ function Catalogo() {
               Tus productos
             </h1>
             <p className="text-sm leading-[1.6] text-ink-secondary">
-              Lo que tu asistente puede vender: precio, stock y descuentos por variante. Editá lo que quieras y tocá “Guardar cambios”; valen desde el próximo mensaje.
+              {aPedido
+                ? "Lo que hacés a medida y lo que tu asistente le pregunta al cliente para que puedas presupuestarlo. Los cambios valen desde el próximo mensaje."
+                : "Lo que tu asistente puede vender: precio, stock y descuentos por variante. Editá lo que quieras y tocá “Guardar cambios”; valen desde el próximo mensaje."}
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setImportando(true)}>
-              Importar planilla
-            </Button>
-            <Button onClick={() => setEditando("nuevo")}>Nuevo producto</Button>
+            {!aPedido && (
+              <Button variant="secondary" onClick={() => setImportando(true)}>
+                Importar planilla
+              </Button>
+            )}
+            <Button onClick={() => setEditando("nuevo")}>{aPedido ? "Nuevo producto a medida" : "Nuevo producto"}</Button>
           </div>
         </div>
 
@@ -130,13 +139,23 @@ function Catalogo() {
             {importando && <ImportarProductos onCerrar={() => setImportando(false)} onImportado={recargar} />}
 
             {catalogoVacio && !importando ? (
-              <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
-                <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos</p>
-                <p className="mb-4 text-sm text-ink-secondary">
-                  Lo más rápido es subir tu lista en una planilla (CSV o Excel). También podés cargarlos de a uno.
-                </p>
-                <Button onClick={() => setImportando(true)}>Importar planilla</Button>
-              </div>
+              aPedido ? (
+                <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
+                  <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos a medida</p>
+                  <p className="mb-4 text-sm text-ink-secondary">
+                    Cargá cada uno con las preguntas que necesitás para presupuestarlo: medidas, materiales, colores.
+                  </p>
+                  <Button onClick={() => setEditando("nuevo")}>Cargar mi primer producto</Button>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
+                  <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos</p>
+                  <p className="mb-4 text-sm text-ink-secondary">
+                    Lo más rápido es subir tu lista en una planilla (CSV o Excel). También podés cargarlos de a uno.
+                  </p>
+                  <Button onClick={() => setImportando(true)}>Importar planilla</Button>
+                </div>
+              )
             ) : (
               <>
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -215,7 +234,7 @@ function Catalogo() {
           {!catalogoVacio && (
             <aside aria-label="Herramientas del catálogo" className="flex flex-col gap-4 lg:sticky lg:top-5">
               <ProbarBusqueda />
-              <Promociones categorias={categorias} onCambio={recargar} />
+              {!aPedido && <Promociones categorias={categorias} onCambio={recargar} />}
             </aside>
           )}
         </div>
@@ -223,6 +242,7 @@ function Catalogo() {
 
       {editando && (
         <EditorProducto
+          modalidad={aPedido ? "pedido" : "stock"}
           producto={editando === "nuevo" ? null : editando}
           onCerrar={() => setEditando(null)}
           onGuardado={() => {

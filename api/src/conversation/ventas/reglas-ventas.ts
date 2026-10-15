@@ -453,6 +453,8 @@ export function formatearResultados(
       (producto.tieneImagen ? ', tiene foto' : '') +
       ')' +
       (producto.descripcion ? `: ${JSON.stringify(producto.descripcion.slice(0, 200))}` : '');
+    // Un producto a medida no tiene variantes: se cotiza. Sin el formato "[variante …]:", que es para crear_pedido.
+    if (producto.aMedida) return [cabecera, `   - ${precioAMedida(producto.precioReferenciaCentavos ?? null)}`].join('\n');
     const variantes = producto.variantes.map(
       (variante) =>
         `   - ${variante.nombre ? `${JSON.stringify(variante.nombre)} ` : ''}[variante ${variante.varianteId}]: ` +
@@ -499,8 +501,16 @@ export function precioParaElModelo(variante: Pick<ProductoEncontrado['variantes'
   );
 }
 
+/** Un producto a medida, para el modelo: el precio sale de la cotización; el "desde", si hay, va escrito. */
+export function precioAMedida(precioReferenciaCentavos: number | null): string {
+  return precioReferenciaCentavos === null
+    ? 'a medida: se cotiza, sin precio de referencia'
+    : `a medida: se cotiza, desde ${formatearCentavos(precioReferenciaCentavos)}`;
+}
+
 function lineaDeProducto(producto: ProductoPanorama): string {
-  const precio = formatearCentavos(producto.precioDesdeCentavos);
+  if (producto.aMedida) return `- ${JSON.stringify(producto.nombre)}: ${precioAMedida(producto.precioDesdeCentavos)}`;
+  const precio = formatearCentavos(producto.precioDesdeCentavos ?? 0); // con stock siempre tiene
   const desde = producto.variosPrecios ? `desde ${precio}` : precio;
   return (
     `- ${JSON.stringify(producto.nombre)}: ${desde}` +
@@ -526,15 +536,18 @@ function otrasCategorias(restantes: number): string {
  */
 export function formatearCatalogo(
   resultado: ResultadoCatalogo,
-  agent?: Pick<Agent, 'mensajes' | 'nombreTitular'>,
+  agent?: Pick<Agent, 'mensajes' | 'nombreTitular'> & Partial<Pick<Agent, 'modalidadVenta'>>,
 ): string {
+  // A pedido los productos no tienen stock: se cotizan.
+  const aPedido = agent?.modalidadVenta === 'pedido';
+  const conStock = aPedido ? '' : ' con stock';
   switch (resultado.tipo) {
     case 'vacio': {
       // Sin búsqueda de por medio no hay con qué completar {busqueda}: ahí queda el texto de siempre.
       const propio = agent && sinProductosPropio(agent, null);
-      if (propio) return `Ahora no hay ningún producto con stock para ofrecer. ${propio}`;
+      if (propio) return `Ahora no hay ningún producto${conStock} para ofrecer. ${propio}`;
       return (
-        'Ahora no hay ningún producto con stock para ofrecer. Decíselo al cliente en una frase y preguntale si ' +
+        `Ahora no hay ningún producto${conStock} para ofrecer. Decíselo al cliente en una frase y preguntale si ` +
         'busca algo puntual.'
       );
     }
@@ -545,6 +558,12 @@ export function formatearCatalogo(
           ? `\nEstos son ${resultado.productos.length} de ${resultado.productos.length + resultado.restantes}, ` +
             'los que más le pueden interesar. Decile que tenés más y que, si ninguno le interesa, te cuente qué busca.'
           : '';
+      if (aPedido) {
+        return (
+          `Productos a medida${de} (mostrale la lista entera, en este orden; se cotizan, y "desde" es el precio de ` +
+          `referencia que puso el dueño, no el precio final):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
+        );
+      }
       return (
         `Productos con stock${de} (mostrale la lista entera, en este orden, con el precio tal cual; "desde" ` +
         `significa que hay variantes con distinto precio, y "con X% off" que ese precio ya tiene el descuento):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
@@ -552,7 +571,7 @@ export function formatearCatalogo(
     }
     case 'categorias':
       return (
-        `El catálogo tiene ${resultado.totalProductos} productos con stock, demasiados para listarlos. Sugerile ` +
+        `El catálogo tiene ${resultado.totalProductos} productos${conStock}, demasiados para listarlos. Sugerile ` +
         `estas categorías, en este orden (las primeras son las que más le pueden interesar), y preguntale cuál ` +
         `quiere ver:\n${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}\n` +
         'Cuando elija una, llamá ver_catalogo con esa categoría.'
@@ -561,13 +580,13 @@ export function formatearCatalogo(
       const propio = agent && sinProductosPropio(agent, resultado.categoria);
       if (propio) {
         return (
-          `No hay productos con stock en la categoría ${JSON.stringify(resultado.categoria)}. ${propio} ` +
+          `No hay productos${conStock} en la categoría ${JSON.stringify(resultado.categoria)}. ${propio} ` +
           `Si después te pregunta qué otra cosa tenés, estas son las categorías, en este orden:\n` +
           `${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}`
         );
       }
       return (
-        `No hay productos con stock en la categoría ${JSON.stringify(resultado.categoria)}. Decíselo y sugerile ` +
+        `No hay productos${conStock} en la categoría ${JSON.stringify(resultado.categoria)}. Decíselo y sugerile ` +
         `estas, en este orden:\n${resultado.categorias.map(lineaDeCategoria).join('\n')}${otrasCategorias(resultado.restantes)}`
       );
     }
@@ -682,6 +701,9 @@ export function formatearStockDueno(consulta: string, productos: ProductoEncontr
   if (productos.length === 0) return `No hay productos para ${JSON.stringify(consulta)} en el catálogo.`;
   return productos
     .map((producto) => {
+      if (producto.aMedida) {
+        return `${JSON.stringify(producto.nombre)} (código ${producto.codigo})\n   - ${precioAMedida(producto.precioReferenciaCentavos ?? null)}, sin stock`;
+      }
       const variantes = producto.variantes.map((variante) => {
         const unidades =
           variante.unidades === null

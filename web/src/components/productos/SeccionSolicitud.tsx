@@ -113,10 +113,14 @@ function aGuardar(pregunta: PreguntaEnEdicion): PreguntaSolicitud {
   };
 }
 
-/** Estado de la sección "Pedido a medida" del editor de productos. */
+/**
+ * Estado de las preguntas de un producto a medida. Uno nuevo arranca con una
+ * pregunta vacía, lista para escribir.
+ */
 export function useSolicitudEnEdicion(inicial: SolicitudADemanda | null) {
-  const [activa, setActiva] = useState(inicial !== null);
-  const [preguntas, setPreguntas] = useState<PreguntaEnEdicion[]>(() => inicial?.preguntas.map(desdeGuardada) ?? []);
+  const [preguntas, setPreguntas] = useState<PreguntaEnEdicion[]>(
+    () => inicial?.preguntas.map(desdeGuardada) ?? [{ ...nuevaPregunta("tiene"), nueva: false }],
+  );
 
   const cambiar = (clave: string, cambios: Partial<PreguntaEnEdicion>) =>
     setPreguntas((actuales) => actuales.map((p) => (p.clave === clave ? { ...p, ...cambios } : p)));
@@ -124,16 +128,10 @@ export function useSolicitudEnEdicion(inicial: SolicitudADemanda | null) {
   const llena = preguntas.length >= MAX_PREGUNTAS;
 
   return {
-    activa,
     preguntas,
     llena,
     /** Para saber si hay cambios sin guardar: sin lo que es sólo de pantalla. */
-    firma: JSON.stringify([activa, activa ? preguntas.map(aGuardar) : []]),
-    alternar: (valor: boolean) => {
-      setActiva(valor);
-      // Al encenderla por primera vez, una pregunta lista para escribir.
-      if (valor && preguntas.length === 0) setPreguntas([nuevaPregunta("tiene")]);
-    },
+    firma: JSON.stringify(preguntas.map(aGuardar)),
     agregar: (sobre: SobrePregunta) => {
       if (llena) return;
       setPreguntas((actuales) => [...actuales.map((p) => ({ ...p, nueva: false })), nuevaPregunta(sobre)]);
@@ -168,12 +166,8 @@ export function useSolicitudEnEdicion(inicial: SolicitudADemanda | null) {
           p.clave !== clave ? p : problemaDePregunta(aGuardar(p)) ? { ...p, revisar: true } : { ...p, abierta: false },
         ),
       ),
-    /**
-     * Lo que se manda: null si está apagada, o el texto del error (y las
-     * preguntas con problemas quedan abiertas mostrándolo).
-     */
-    armar: (): SolicitudADemanda | null | string => {
-      if (!activa) return null;
+    /** Lo que se manda, o el texto del error (y las preguntas con problemas quedan abiertas mostrándolo). */
+    armar: (): SolicitudADemanda | string => {
       const armadas = preguntas.map(aGuardar);
       const problema = problemaDeSolicitud(armadas);
       if (problema) {
@@ -443,86 +437,66 @@ function TarjetaPregunta({ estado, pregunta }: { estado: SolicitudEnEdicion; pre
 }
 
 /**
- * "Pedido a medida": las preguntas que el asistente le hace al cliente para
- * presupuestar, en dos bloques (lo que ya tiene y lo que pide) así el dueño
- * no tiene que entender una etiqueta abstracta: el bloque lo dice.
+ * Las preguntas que el asistente le hace al cliente para presupuestar un
+ * producto a medida, en dos bloques (lo que ya tiene y lo que pide) así el
+ * dueño no tiene que entender una etiqueta abstracta: el bloque lo dice.
  */
 export function SeccionSolicitud({ estado }: { estado: SolicitudEnEdicion }) {
   return (
-    <fieldset
-      className={cn(
-        "flex flex-col gap-4 rounded-lg border p-4",
-        estado.activa ? "border-[var(--color-primitive-coral-200)] bg-primary-subtle" : "border-line",
-      )}
-    >
-      <legend className="px-1 text-[13.5px] font-bold text-ink">Pedido a medida</legend>
-      <div>
-        <label className="flex items-center gap-2 text-[14px] font-semibold text-ink">
-          <input
-            type="checkbox"
-            checked={estado.activa}
-            onChange={(e) => estado.alternar(e.target.checked)}
-            className="size-4 accent-[var(--color-semantic-primary-default)]"
-          />
-          <span>Este producto se hace a medida</span>
-        </label>
-        <p className="mt-1.5 text-[12.5px] leading-[1.5] text-ink-secondary">
-          {estado.activa
-            ? "Tu asistente le hace estas preguntas al cliente para que puedas presupuestar. El precio de arriba queda como referencia (“desde”)."
-            : "Para lo que se presupuesta según lo que necesita cada cliente: medidas, materiales, colores."}
-        </p>
-      </div>
+    <fieldset className="flex flex-col gap-4 rounded-lg border border-[var(--color-primitive-coral-200)] bg-primary-subtle p-4">
+      <legend className="px-1 text-[13.5px] font-bold text-ink">Preguntas para presupuestar</legend>
+      <p className="text-[12.5px] leading-[1.5] text-ink-secondary">
+        Tu asistente se las hace al cliente antes de pasarte el pedido, así tenés lo que necesitás para cotizarlo.
+      </p>
 
-      {estado.activa && (
-        <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
-          {BLOQUES.map((bloque) => {
-            const delBloque = estado.preguntas.filter((p) => p.sobre === bloque.sobre);
-            return (
-              <section key={bloque.sobre} aria-label={bloque.titulo} className="flex flex-col gap-2.5">
-                <div className="flex items-start gap-2.5">
-                  <span
-                    aria-hidden
-                    className="grid size-6 flex-none place-items-center rounded-full bg-primary text-[12.5px] font-bold text-primary-on"
-                  >
-                    {bloque.numero}
-                  </span>
-                  <div>
-                    <h3 className="text-[14.5px] font-bold text-ink">{bloque.titulo}</h3>
-                    <p className="text-[12.5px] text-ink-secondary">{bloque.ayuda}</p>
-                  </div>
-                </div>
-
-                {delBloque.length === 0 ? (
-                  <p className="rounded-md border border-dashed border-line-strong bg-card px-3.5 py-3 text-[13px] text-muted">
-                    Sin preguntas todavía. {bloque.ejemplo}
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-2">
-                    {delBloque.map((pregunta) => (
-                      <li key={pregunta.clave}>
-                        <TarjetaPregunta estado={estado} pregunta={pregunta} />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => estado.agregar(bloque.sobre)}
-                  disabled={estado.llena}
-                  aria-label={`Agregar pregunta a ${bloque.titulo}`}
-                  className="flex min-h-10 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary bg-card text-[13.5px] font-semibold text-primary-hover hover:bg-primary-subtle disabled:cursor-not-allowed disabled:border-line disabled:text-muted"
+      <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
+        {BLOQUES.map((bloque) => {
+          const delBloque = estado.preguntas.filter((p) => p.sobre === bloque.sobre);
+          return (
+            <section key={bloque.sobre} aria-label={bloque.titulo} className="flex flex-col gap-2.5">
+              <div className="flex items-start gap-2.5">
+                <span
+                  aria-hidden
+                  className="grid size-6 flex-none place-items-center rounded-full bg-primary text-[12.5px] font-bold text-primary-on"
                 >
-                  + Agregar pregunta
-                </button>
-              </section>
-            );
-          })}
-          {estado.llena && (
-            <p className="text-[12.5px] text-muted lg:col-span-2">Llegaste al máximo de {MAX_PREGUNTAS} preguntas.</p>
-          )}
-        </div>
-      )}
+                  {bloque.numero}
+                </span>
+                <div>
+                  <h3 className="text-[14.5px] font-bold text-ink">{bloque.titulo}</h3>
+                  <p className="text-[12.5px] text-ink-secondary">{bloque.ayuda}</p>
+                </div>
+              </div>
+
+              {delBloque.length === 0 ? (
+                <p className="rounded-md border border-dashed border-line-strong bg-card px-3.5 py-3 text-[13px] text-muted">
+                  Sin preguntas todavía. {bloque.ejemplo}
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {delBloque.map((pregunta) => (
+                    <li key={pregunta.clave}>
+                      <TarjetaPregunta estado={estado} pregunta={pregunta} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <button
+                type="button"
+                onClick={() => estado.agregar(bloque.sobre)}
+                disabled={estado.llena}
+                aria-label={`Agregar pregunta a ${bloque.titulo}`}
+                className="flex min-h-10 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary bg-card text-[13.5px] font-semibold text-primary-hover hover:bg-primary-subtle disabled:cursor-not-allowed disabled:border-line disabled:text-muted"
+              >
+                + Agregar pregunta
+              </button>
+            </section>
+          );
+        })}
+        {estado.llena && (
+          <p className="text-[12.5px] text-muted lg:col-span-2">Llegaste al máximo de {MAX_PREGUNTAS} preguntas.</p>
+        )}
+      </div>
     </fieldset>
   );
 }

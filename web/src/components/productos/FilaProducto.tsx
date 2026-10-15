@@ -173,6 +173,8 @@ export function FilaProducto({
   // fijo que no entra en alguna): el de la primera variante que tenga.
   const aplicado = producto.variantes.find((v) => v.descuento)?.descuento ?? null;
   const propioInactivo = !aplicado && producto.descuento;
+  // Producto a medida (cuenta a pedido): sin variantes, no hay precio ni stock que editar acá.
+  const aMedida = producto.variantes.length === 0 && producto.solicitud !== null;
 
   return (
     <li
@@ -212,14 +214,21 @@ export function FilaProducto({
         </div>
       </div>
 
-      {producto.solicitud && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <Badge tone="info">A medida</Badge>
-          <span className="text-[12px] text-muted">
+      {aMedida && producto.solicitud && (
+        <div className="mt-3 flex flex-col gap-1.5 rounded-md bg-sunken p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="info">A medida</Badge>
+            <span className="text-[14px] font-semibold text-ink">
+              {producto.precioReferenciaCentavos
+                ? `Desde ${formatearCentavos(producto.precioReferenciaCentavos)}`
+                : "Precio a cotizar"}
+            </span>
+          </div>
+          <p className="text-[12.5px] text-ink-secondary">
             {producto.solicitud.preguntas.length === 1
               ? "1 pregunta para presupuestar"
               : `${producto.solicitud.preguntas.length} preguntas para presupuestar`}
-          </span>
+          </p>
         </div>
       )}
 
@@ -236,57 +245,59 @@ export function FilaProducto({
         )
       )}
 
-      <form onSubmit={guardar} aria-label={`Precio y stock de ${producto.nombre}`}>
-        <ul className="mt-3 flex flex-col gap-2">
-          {analisis.map((a) => (
-            <FilaVariante
-              key={a.variante.id}
-              variante={a.variante}
-              borrador={a.borrador}
-              nombreProducto={producto.nombre}
-              unica={producto.variantes.length === 1 && a.variante.nombre === ""}
-              editada={a.editada}
-              precioEditado={a.precioEditado}
-              stockEditado={a.stockEditado}
-              estado={etiquetaStock(a.vista)}
-              sinControl={a.vista.stock === null}
-              deshabilitada={guardando}
-              onCambio={(cambios) => cambiar(a.variante.id, cambios)}
-            />
-          ))}
-        </ul>
+      {!aMedida && (
+        <form onSubmit={guardar} aria-label={`Precio y stock de ${producto.nombre}`}>
+          <ul className="mt-3 flex flex-col gap-2">
+            {analisis.map((a) => (
+              <FilaVariante
+                key={a.variante.id}
+                variante={a.variante}
+                borrador={a.borrador}
+                nombreProducto={producto.nombre}
+                unica={producto.variantes.length === 1 && a.variante.nombre === ""}
+                editada={a.editada}
+                precioEditado={a.precioEditado}
+                stockEditado={a.stockEditado}
+                estado={etiquetaStock(a.vista)}
+                sinControl={a.vista.stock === null}
+                deshabilitada={guardando}
+                onCambio={(cambios) => cambiar(a.variante.id, cambios)}
+              />
+            ))}
+          </ul>
 
-        {hayCambios ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-            <p className="flex-1 text-[13px] font-semibold text-[var(--color-primitive-coral-700)]">
-              Cambios sin guardar
-            </p>
-            <Button variant="secondary" size="sm" disabled={guardando} onClick={descartar}>
-              Descartar
-            </Button>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={guardando}
-              aria-label={`Guardar cambios de ${producto.nombre}`}
-            >
-              {guardando ? "Guardando…" : "Guardar cambios"}
-            </Button>
-          </div>
-        ) : (
-          guardado && (
-            <p role="status" className="mt-3 text-[13px] font-semibold text-success-text">
-              ✓ Guardado
-            </p>
-          )
-        )}
+          {hayCambios ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              <p className="flex-1 text-[13px] font-semibold text-[var(--color-primitive-coral-700)]">
+                Cambios sin guardar
+              </p>
+              <Button variant="secondary" size="sm" disabled={guardando} onClick={descartar}>
+                Descartar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={guardando}
+                aria-label={`Guardar cambios de ${producto.nombre}`}
+              >
+                {guardando ? "Guardando…" : "Guardar cambios"}
+              </Button>
+            </div>
+          ) : (
+            guardado && (
+              <p role="status" className="mt-3 text-[13px] font-semibold text-success-text">
+                ✓ Guardado
+              </p>
+            )
+          )}
 
-        {error && (
-          <p role="alert" className="mt-2 text-[12px] text-danger-text">
-            {error}
-          </p>
-        )}
-      </form>
+          {error && (
+            <p role="alert" className="mt-2 text-[12px] text-danger-text">
+              {error}
+            </p>
+          )}
+        </form>
+      )}
     </li>
   );
 }

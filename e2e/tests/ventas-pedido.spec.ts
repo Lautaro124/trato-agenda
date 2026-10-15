@@ -42,21 +42,22 @@ test.describe('comercio que vende a pedido (LAU-21)', () => {
     expect(agente.modalidadVenta).toBe('pedido');
     expect(agente.queHace).toBe(QUE_HACE);
 
-    // Al volver a editar se ve la modalidad guardada.
+    // En Cuenta la modalidad se ve fija; lo único que se edita es "Qué hacés".
     await page.goto('/cuenta');
     const seccion = page.getByRole('region', { name: 'Cómo vendés' });
-    await expect(seccion.getByRole('radio', { name: /^A pedido/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(seccion.getByText('Vendés a pedido')).toBeVisible();
+    await expect(seccion.getByText('Se eligió al crear tu asistente y no se puede cambiar.')).toBeVisible();
+    await expect(seccion.getByRole('radio')).toHaveCount(0);
     await expect(seccion.getByLabel('¿Qué hacés?')).toHaveValue(QUE_HACE);
-
-    // Volver a stock avisa que lo que está en curso no cambia, y se guarda.
-    await seccion.getByRole('radio', { name: /^Con stock/ }).click();
-    await expect(seccion.getByText('Los pedidos que ya están en curso terminan como empezaron.', { exact: false })).toBeVisible();
+    await seccion.getByLabel('¿Qué hacés?').fill(`${QUE_HACE} También placares.`);
     await seccion.getByRole('button', { name: 'Guardar cambios' }).click();
-    await expect(seccion.getByText('Listo: tu asistente ya vende así', { exact: false })).toBeVisible();
+    await expect(seccion.getByText('Listo: tu asistente lo usa desde el próximo mensaje.')).toBeVisible();
     const actualizado = (await agenteActual(context.request)) as unknown as { modalidadVenta: string; queHace: string };
-    expect(actualizado.modalidadVenta).toBe('stock');
-    // El texto queda guardado por si vuelve a vender a pedido.
-    expect(actualizado.queHace).toBe(QUE_HACE);
+    expect(actualizado).toMatchObject({ modalidadVenta: 'pedido', queHace: `${QUE_HACE} También placares.` });
+
+    // Y la API tampoco deja cambiarla.
+    const cambio = await context.request.put(`${API_URL}/agents/me/modalidad`, { data: { modalidadVenta: 'stock' } });
+    expect(cambio.status()).toBe(409);
   });
 
   test('a pedido no cierra la compra: le pasa la solicitud al dueño', async ({ context, usuarioDev }) => {

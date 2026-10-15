@@ -14,6 +14,9 @@ import type { Agent } from '../generated/prisma/client.js';
 export const MODALIDADES_VENTA = ['stock', 'pedido'] as const;
 export type ModalidadVenta = (typeof MODALIDADES_VENTA)[number];
 
+/** El 409 de querer cambiarla: se elige una sola vez, en el registro. */
+export const MODALIDAD_FIJA = 'La forma de vender se elige al crear tu asistente y no se puede cambiar.';
+
 /** Menos que esto no le dice al asistente qué pedidos tomar. */
 export const MIN_QUE_HACE = 30;
 /** Va entero en el prompt de cada mensaje: acotado. */

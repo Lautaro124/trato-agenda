@@ -57,6 +57,14 @@ export function ProbarBusqueda() {
               <span className="font-semibold text-ink">{producto.nombre}</span>
               <span className="text-muted"> · {producto.codigo}</span>
               <ul className="text-[12.5px] text-ink-secondary">
+                {producto.aMedida && (
+                  <li>
+                    A medida ·{" "}
+                    {producto.precioReferenciaCentavos
+                      ? `desde ${formatearCentavos(producto.precioReferenciaCentavos)}`
+                      : "precio a cotizar"}
+                  </li>
+                )}
                 {producto.variantes.map((variante) => (
                   <li key={variante.varianteId}>
                     {variante.nombre ? `${variante.nombre}: ` : ""}

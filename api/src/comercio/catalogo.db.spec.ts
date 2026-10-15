@@ -264,40 +264,6 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       await productos.eliminar(dueno.id, creado.id);
     });
 
-    it('las preguntas a medida se guardan con el producto, la importación no las pisa y null las borra', async () => {
-      const solicitud = {
-        preguntas: [
-          { texto: '¿De qué color?', sobre: 'solicita' as const, opciones: ['Blanco', 'Negro'], textoLibre: false, obligatoria: true },
-          { texto: '¿Qué medida tiene el hueco?', sobre: 'tiene' as const, opciones: [], textoLibre: true, obligatoria: true },
-        ],
-      };
-      const dto = { codigo: 'CORT-01', nombre: 'Cortina a medida', variantes: [{ precioCentavos: 5_000_000 }], solicitud };
-      const creado = await productos.crear(dueno.id, dto);
-      // Primero lo que el cliente tiene, después lo que pide.
-      expect(creado.solicitud?.preguntas.map((pregunta) => pregunta.texto)).toEqual([
-        '¿Qué medida tiene el hueco?',
-        '¿De qué color?',
-      ]);
-
-      await productos.importar(dueno.id, [{ codigo: 'CORT-01', nombre: 'Cortina a medida', precio: '60.000' }], true);
-      expect((await productos.obtener(dueno.id, creado.id)).solicitud).toEqual(creado.solicitud);
-
-      // Sin mandarla, la edición tampoco la toca.
-      const { solicitud: _sinTocar, ...sinSolicitud } = dto;
-      expect((await productos.actualizar(dueno.id, creado.id, sinSolicitud)).solicitud).toEqual(creado.solicitud);
-
-      await expect(
-        productos.actualizar(dueno.id, creado.id, {
-          ...dto,
-          solicitud: { preguntas: [{ ...solicitud.preguntas[0], opciones: ['Blanco'] }] },
-        }),
-      ).rejects.toThrow(/una sola opción/);
-
-      const comun = await productos.actualizar(dueno.id, creado.id, { ...dto, solicitud: null });
-      expect(comun.solicitud).toBeNull();
-      await productos.eliminar(dueno.id, creado.id);
-    });
-
     it('la búsqueda aplica la promo de la categoría y no la de otro comercio', async () => {
       const promos = await prisma.descuento.createManyAndReturn({
         data: [
@@ -315,6 +281,76 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       } finally {
         await prisma.descuento.deleteMany({ where: { id: { in: promos.map((promo) => promo.id) } } });
       }
+    });
+  });
+
+  describe('productos a medida (cuenta a pedido)', () => {
+    let taller: User;
+    const solicitud = {
+      preguntas: [
+        { texto: '¿De qué color?', sobre: 'solicita' as const, opciones: ['Blanco', 'Negro'], textoLibre: false, obligatoria: true },
+        { texto: '¿Qué medida tiene el hueco?', sobre: 'tiene' as const, opciones: [], textoLibre: true, obligatoria: true },
+      ],
+    };
+    const dto = { codigo: 'CORT-01', nombre: 'Cortina a medida', precioReferenciaCentavos: 5_000_000, solicitud };
+
+    beforeAll(async () => {
+      taller = await crearUsuarioDePrueba(prisma);
+      await prisma.agent.create({
+        data: {
+          userId: taller.id,
+          tipoAsistente: 'ventas',
+          modalidadVenta: 'pedido',
+          nombreBot: 'Lu',
+          descripcion: 'Cortinas',
+          tipoUso: 'comercio',
+          systemPrompt: 'Tomá pedidos.',
+          allowedActions: ['buscar_productos'],
+          horaDesde: '00:00',
+          horaHasta: '23:59',
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.user.deleteMany({ where: { id: taller.id } });
+    });
+
+    it('se guarda sin variantes, con sus preguntas y el precio "desde", y la búsqueda lo encuentra', async () => {
+      const creado = await productos.crear(taller.id, dto);
+      expect(creado.variantes).toEqual([]);
+      expect(creado.precioReferenciaCentavos).toBe(5_000_000);
+      // Primero lo que el cliente tiene, después lo que pide.
+      expect(creado.solicitud?.preguntas.map((pregunta) => pregunta.texto)).toEqual(['¿Qué medida tiene el hueco?', '¿De qué color?']);
+
+      const [encontrado] = await busqueda.buscar(taller.id, 'CORT-01');
+      expect(encontrado).toMatchObject({ nombre: 'Cortina a medida', aMedida: true, precioReferenciaCentavos: 5_000_000, variantes: [] });
+
+      const sinPrecio = await productos.actualizar(taller.id, creado.id, { ...dto, precioReferenciaCentavos: null });
+      expect(sinPrecio.precioReferenciaCentavos).toBeNull();
+    });
+
+    it('rechaza variantes, descuento o un producto sin preguntas, y no importa planillas', async () => {
+      await expect(
+        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ precioCentavos: 100 }] }),
+      ).rejects.toThrow(/no llevan variantes/);
+      await expect(
+        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', descuento: { tipo: 'porcentaje', valor: 10 } }),
+      ).rejects.toThrow(/no llevan descuento/);
+      await expect(productos.crear(taller.id, { codigo: 'CORT-02', nombre: 'Sin preguntas' })).rejects.toThrow(/preguntas/);
+      await expect(
+        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', solicitud: { preguntas: [{ ...solicitud.preguntas[0], opciones: ['Blanco'] }] } }),
+      ).rejects.toThrow(/una sola opción/);
+      await expect(productos.importar(taller.id, [{ codigo: 'X', nombre: 'Algo', precio: '1' }], false)).rejects.toThrow(
+        /de a uno/,
+      );
+    });
+
+    it('una cuenta con stock no acepta preguntas ni precio de referencia', async () => {
+      await expect(
+        productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], solicitud }),
+      ).rejects.toThrow(/vende con stock/);
+      await expect(productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa' })).rejects.toThrow(/precio/);
     });
   });
 });
