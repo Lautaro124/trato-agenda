@@ -154,6 +154,10 @@ export class ProductosService {
       where: { id: varianteId, activo: true, producto: { userId, activo: true } },
     });
     if (!variante) throw new NotFoundException('No existe esa variante.');
+    // Una cuenta a pedido puede tener productos con variantes de antes: no se les edita stock ni precio.
+    if ((await this.modalidadDe(userId)) === 'pedido') {
+      throw new ConflictException('Tu cuenta vende a pedido: los productos no llevan variantes ni stock.');
+    }
 
     await this.prisma.variante.update({
       where: { id: varianteId },

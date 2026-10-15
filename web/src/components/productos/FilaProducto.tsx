@@ -88,13 +88,17 @@ function analizar(variante: Variante, borrador: Borrador) {
 /**
  * Una tarjeta del catálogo: datos del producto y edición rápida de precio y
  * stock por variante. Lo que se tipea queda pendiente hasta "Guardar cambios".
+ * En una cuenta a pedido (`aPedido`) no hay precio ni stock que editar: la
+ * tarjeta muestra el producto a medida y sus preguntas.
  */
 export function FilaProducto({
+  aPedido,
   producto,
   onCambio,
   onEditar,
   onBorrar,
 }: {
+  aPedido: boolean;
   producto: Producto;
   onCambio: (producto: Producto) => void;
   onEditar: () => void;
@@ -169,12 +173,14 @@ export function FilaProducto({
       .finally(() => setGuardando(false));
   };
 
+  // Lo decide la cuenta, no la forma del producto: uno cargado antes con
+  // variantes (o por planilla) sigue siendo a medida en una cuenta a pedido,
+  // y ahí no hay precio, stock ni descuento que mostrar.
+  const aMedida = aPedido;
   // El descuento que hoy aplica (el mismo para todas las variantes, salvo un monto
   // fijo que no entra en alguna): el de la primera variante que tenga.
-  const aplicado = producto.variantes.find((v) => v.descuento)?.descuento ?? null;
-  const propioInactivo = !aplicado && producto.descuento;
-  // Producto a medida (cuenta a pedido): sin variantes, no hay precio ni stock que editar acá.
-  const aMedida = producto.variantes.length === 0 && producto.solicitud !== null;
+  const aplicado = aMedida ? null : (producto.variantes.find((v) => v.descuento)?.descuento ?? null);
+  const propioInactivo = !aMedida && !aplicado && producto.descuento;
 
   return (
     <li
@@ -214,7 +220,7 @@ export function FilaProducto({
         </div>
       </div>
 
-      {aMedida && producto.solicitud && (
+      {aMedida && (
         <div className="mt-3 flex flex-col gap-1.5 rounded-md bg-sunken p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="info">A medida</Badge>
@@ -224,11 +230,19 @@ export function FilaProducto({
                 : "Precio a cotizar"}
             </span>
           </div>
-          <p className="text-[12.5px] text-ink-secondary">
-            {producto.solicitud.preguntas.length === 1
-              ? "1 pregunta para presupuestar"
-              : `${producto.solicitud.preguntas.length} preguntas para presupuestar`}
-          </p>
+          {producto.solicitud ? (
+            <p className="text-[12.5px] text-ink-secondary">
+              {producto.solicitud.preguntas.length === 1
+                ? "1 pregunta para presupuestar"
+                : `${producto.solicitud.preguntas.length} preguntas para presupuestar`}
+            </p>
+          ) : (
+            // Cargado antes como producto de stock: al guardarlo desde "Editar" pasa a ser a medida.
+            <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-secondary">
+              <Badge tone="warning">Incompleto</Badge>
+              Faltan las preguntas para presupuestar: tocá “Editar”.
+            </p>
+          )}
         </div>
       )}
 

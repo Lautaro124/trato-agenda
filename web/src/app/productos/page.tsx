@@ -200,6 +200,7 @@ function Catalogo({ aPedido }: Readonly<{ aPedido: boolean }>) {
                       {listado.productos.map((producto) => (
                         <FilaProducto
                           key={producto.id}
+                          aPedido={aPedido}
                           producto={producto}
                           onCambio={reemplazar}
                           onEditar={() => setEditando(producto)}
