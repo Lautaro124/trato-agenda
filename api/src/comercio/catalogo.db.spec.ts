@@ -346,6 +346,29 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       );
     });
 
+    it('un producto con variantes de antes no edita stock, y al guardarlo a medida las pierde', async () => {
+      // Cargado cuando la cuenta todavía vendía con stock (o por planilla): queda con su variante.
+      const viejo = await prisma.producto.create({
+        data: {
+          userId: taller.id,
+          codigo: 'CORT-VIEJA',
+          nombre: 'Cortina vieja',
+          textoBusqueda: 'cortina vieja',
+          variantes: { create: { sku: 'CORT-VIEJA', nombre: '', precioCentavos: 100_000, stock: 3 } },
+        },
+        include: { variantes: true },
+      });
+
+      await expect(productos.actualizarVariante(taller.id, viejo.variantes[0].id, { stock: 9 })).rejects.toThrow(
+        /vende a pedido/,
+      );
+      expect((await prisma.variante.findUniqueOrThrow({ where: { id: viejo.variantes[0].id } })).stock).toBe(3);
+
+      const aMedida = await productos.actualizar(taller.id, viejo.id, { ...dto, codigo: 'CORT-VIEJA' });
+      expect(aMedida.variantes).toEqual([]);
+      expect(aMedida.solicitud?.preguntas).toHaveLength(2);
+    });
+
     it('una cuenta con stock no acepta preguntas ni precio de referencia', async () => {
       await expect(
         productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], solicitud }),
