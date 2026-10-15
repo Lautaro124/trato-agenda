@@ -220,31 +220,7 @@ export function FilaProducto({
         </div>
       </div>
 
-      {aMedida && (
-        <div className="mt-3 flex flex-col gap-1.5 rounded-md bg-sunken p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="info">A medida</Badge>
-            <span className="text-[14px] font-semibold text-ink">
-              {producto.precioReferenciaCentavos
-                ? `Desde ${formatearCentavos(producto.precioReferenciaCentavos)}`
-                : "Precio a cotizar"}
-            </span>
-          </div>
-          {producto.solicitud ? (
-            <p className="text-[12.5px] text-ink-secondary">
-              {producto.solicitud.preguntas.length === 1
-                ? "1 pregunta para presupuestar"
-                : `${producto.solicitud.preguntas.length} preguntas para presupuestar`}
-            </p>
-          ) : (
-            // Cargado antes como producto de stock: al guardarlo desde "Editar" pasa a ser a medida.
-            <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-secondary">
-              <Badge tone="warning">Incompleto</Badge>
-              Faltan las preguntas para presupuestar: tocá “Editar”.
-            </p>
-          )}
-        </div>
-      )}
+      {aMedida && <ResumenAMedida producto={producto} />}
 
       {aplicado ? (
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -313,6 +289,35 @@ export function FilaProducto({
         </form>
       )}
     </li>
+  );
+}
+
+/** Lo que muestra la tarjeta de un producto en una cuenta a pedido: precio "desde" y preguntas. */
+function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {
+  return (
+    <div className="mt-3 flex flex-col gap-1.5 rounded-md bg-sunken p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="info">A medida</Badge>
+        <span className="text-[14px] font-semibold text-ink">
+          {producto.precioReferenciaCentavos
+            ? `Desde ${formatearCentavos(producto.precioReferenciaCentavos)}`
+            : "Precio a cotizar"}
+        </span>
+      </div>
+      {producto.solicitud ? (
+        <p className="text-[12.5px] text-ink-secondary">
+          {producto.solicitud.preguntas.length === 1
+            ? "1 pregunta para presupuestar"
+            : `${producto.solicitud.preguntas.length} preguntas para presupuestar`}
+        </p>
+      ) : (
+        // Cargado antes como producto de stock: al guardarlo desde "Editar" pasa a ser a medida.
+        <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-secondary">
+          <Badge tone="warning">Incompleto</Badge>
+          Faltan las preguntas para presupuestar: tocá “Editar”.
+        </p>
+      )}
+    </div>
   );
 }
 
