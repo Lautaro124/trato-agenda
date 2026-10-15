@@ -1,13 +1,20 @@
 /**
- * El local a la calle de un comercio (sólo asistente de ventas): si tiene,
- * dónde queda, cuándo abre y si se puede retirar ahí. Vive en `Agent.local`
- * (Json) y el grafo de ventas lo lee en cada mensaje, así que guardarlo no
- * regenera el system prompt.
+ * El lugar físico donde se atiende, en `Agent.local` (Json). Los dos
+ * asistentes lo usan, cada uno con su forma:
+ * - ventas: el local a la calle de un comercio — si tiene, dónde queda, cuándo
+ *   abre y si se puede retirar ahí.
+ * - agenda (LAU-17): dónde se dan los turnos — un local o consultorio, la casa
+ *   del titular, o ningún lugar fijo (`tieneLocal: false`: online o a
+ *   domicilio). Sin horarios ni retiro: cuándo atiende ya lo dicen la franja y
+ *   las clases, y la dirección es obligatoria (es todo lo que hay para cargar).
+ * Los grafos lo leen en cada mensaje, así que guardarlo no regenera el system
+ * prompt.
  *
  * Todo acá es puro (sin base ni red), igual que mensajes.rules.ts: lo usan el
  * endpoint que lo guarda y el bloque del prompt que se lo cuenta al modelo.
  */
 import type { Agent } from '../generated/prisma/client.js';
+import type { TipoAsistente } from './agent-catalog.js';
 
 /** En el orden de la semana argentina: lunes primero. */
 export const DIAS_SEMANA = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'] as const;
@@ -35,8 +42,14 @@ const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export type FranjaLocal = { dia: DiaSemana; desde: string; hasta: string };
 
+/** Sólo agenda: dónde da los turnos quien tiene un lugar fijo. */
+export const TIPOS_LUGAR = ['local', 'casa'] as const;
+export type TipoLugar = (typeof TIPOS_LUGAR)[number];
+
 export type LocalPresencial = {
   tieneLocal: boolean;
+  /** Sólo agenda y con `tieneLocal`: si es un local o consultorio, o su casa. */
+  lugar?: TipoLugar;
   direccion?: string;
   /** Link de Google Maps (o el que sea), siempre https. */
   enlaceUbicacion?: string;
@@ -47,6 +60,7 @@ export type LocalPresencial = {
 /** Lo que manda la pantalla, ya con la forma validada por el DTO. */
 export type LocalEntrada = {
   tieneLocal: boolean;
+  lugar?: TipoLugar;
   direccion?: string;
   enlaceUbicacion?: string;
   horarios?: FranjaLocal[];
@@ -55,6 +69,10 @@ export type LocalEntrada = {
 
 function esObjeto(valor: unknown): valor is Record<string, unknown> {
   return typeof valor === 'object' && valor !== null && !Array.isArray(valor);
+}
+
+function esLugar(valor: unknown): valor is TipoLugar {
+  return typeof valor === 'string' && (TIPOS_LUGAR as readonly string[]).includes(valor);
 }
 
 function esDia(valor: unknown): valor is DiaSemana {
@@ -85,7 +103,8 @@ function ordenar(franjas: FranjaLocal[]): FranjaLocal[] {
 function problemaDeTextos(direccion: string, enlace: string): string | null {
   if (direccion && direccion.length < LARGO_MIN_DIRECCION) return 'La dirección es demasiado corta.';
   if (direccion.length > LARGO_MAX_DIRECCION) return 'La dirección es demasiado larga.';
-  if (enlace && (!esHttps(enlace) || enlace.length > LARGO_MAX_ENLACE)) {
+  // Sin espacios: `new URL` descarta los saltos de línea, y el link va tal cual al prompt.
+  if (enlace && (/\s/.test(enlace) || !esHttps(enlace) || enlace.length > LARGO_MAX_ENLACE)) {
     return 'El enlace de ubicación tiene que ser una dirección https.';
   }
   return null;
@@ -115,12 +134,17 @@ function problemaDeHorarios(horarios: FranjaLocal[]): string | null {
  * Valida y normaliza lo que manda la pantalla. Devuelve el motivo del rechazo
  * en castellano (va tal cual en el 400). Sin local no se guarda nada más: una
  * dirección o un retiro sueltos se le contarían al cliente de un negocio que
- * no tiene dónde atenderlo.
+ * no tiene dónde atenderlo. `tipo` dice de qué asistente es: el de turnos no
+ * guarda horarios ni retiro, y sí exige la dirección y el tipo de lugar.
  */
-export function normalizarLocal(entrada: LocalEntrada): { local: LocalPresencial } | { error: string } {
+export function normalizarLocal(
+  entrada: LocalEntrada,
+  tipo: TipoAsistente = 'ventas',
+): { local: LocalPresencial } | { error: string } {
   if (!entrada.tieneLocal) {
     return { local: { tieneLocal: false, horarios: [], retiroEnLocal: false } };
   }
+  if (tipo === 'agenda') return normalizarLugarDeTurnos(entrada);
   const direccion = enUnaLinea(entrada.direccion ?? '');
   const enlace = (entrada.enlaceUbicacion ?? '').trim();
   const horarios = ordenar(entrada.horarios ?? []);
@@ -138,16 +162,39 @@ export function normalizarLocal(entrada: LocalEntrada): { local: LocalPresencial
   };
 }
 
+/** El lugar de un asistente de turnos con dirección fija (local o casa). */
+function normalizarLugarDeTurnos(entrada: LocalEntrada): { local: LocalPresencial } | { error: string } {
+  const direccion = enUnaLinea(entrada.direccion ?? '');
+  const enlace = (entrada.enlaceUbicacion ?? '').trim();
+  if (!direccion) return { error: 'Falta la dirección.' };
+  const error = problemaDeTextos(direccion, enlace);
+  if (error) return { error };
+  return {
+    local: {
+      tieneLocal: true,
+      lugar: esLugar(entrada.lugar) ? entrada.lugar : 'local',
+      direccion,
+      ...(enlace ? { enlaceUbicacion: enlace } : {}),
+      horarios: [],
+      retiroEnLocal: false,
+    },
+  };
+}
+
 /**
  * `Agent.local` es una columna Json: hay que validar la forma antes de usarla
  * en vez de castear. Lo que no se entiende vuelve como `null` (= nunca lo
  * cargó), que es el caso en el que el asistente no afirma nada del local.
  */
-export function leerLocal(agent: Partial<Pick<Agent, 'local'>>): LocalPresencial | null {
+export function leerLocal(
+  agent: Partial<Pick<Agent, 'local'>>,
+  tipo: TipoAsistente = 'ventas',
+): LocalPresencial | null {
   const valor = agent.local;
   if (!esObjeto(valor) || typeof valor.tieneLocal !== 'boolean') return null;
   const entrada: LocalEntrada = {
     tieneLocal: valor.tieneLocal,
+    lugar: esLugar(valor.lugar) ? valor.lugar : undefined,
     direccion: typeof valor.direccion === 'string' ? valor.direccion : undefined,
     enlaceUbicacion: typeof valor.enlaceUbicacion === 'string' ? valor.enlaceUbicacion : undefined,
     horarios: Array.isArray(valor.horarios)
@@ -159,7 +206,7 @@ export function leerLocal(agent: Partial<Pick<Agent, 'local'>>): LocalPresencial
       : [],
     retiroEnLocal: valor.retiroEnLocal === true,
   };
-  const resultado = normalizarLocal(entrada);
+  const resultado = normalizarLocal(entrada, tipo);
   return 'local' in resultado ? resultado.local : null;
 }
 

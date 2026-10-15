@@ -393,6 +393,93 @@ describe('AgentsService.generarVentas', () => {
   });
 });
 
+describe('modalidad de venta (LAU-21)', () => {
+  const QUE_HACE = 'Hacemos muebles de madera a medida: mesas, bibliotecas y racks.';
+
+  it('generarVentas guarda la modalidad y "qué hacés" normalizado', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generarVentas('user-1', {
+      nombreTitular: 'Casa Ombú',
+      nombreBot: 'Lu',
+      modalidadVenta: 'pedido',
+      queHace: `  ${QUE_HACE}\n`,
+    });
+
+    const [{ create }] = upsert.mock.calls[0] as [{ create: Record<string, unknown> }];
+    expect(create).toMatchObject({ modalidadVenta: 'pedido', queHace: QUE_HACE });
+  });
+
+  it('sin el paso no pisa lo guardado', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati' });
+
+    const [{ create }] = upsert.mock.calls[0] as [{ create: Record<string, unknown> }];
+    expect(create).not.toHaveProperty('modalidadVenta');
+    expect(create).not.toHaveProperty('queHace');
+  });
+
+  it('a pedido sin "qué hacés" es un 400, antes de tocar la base', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    await expect(
+      service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati', modalidadVenta: 'pedido' }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      service.generarVentas('user-1', {
+        nombreTitular: 'Tienda',
+        nombreBot: 'Tati',
+        modalidadVenta: 'pedido',
+        queHace: 'Mesas',
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('actualizarModalidad usa el "qué hacés" guardado si no viene uno', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: QUE_HACE });
+
+    await service.actualizarModalidad('user-1', { modalidadVenta: 'pedido' });
+
+    expect(update).toHaveBeenCalledWith({ where: { userId: 'user-1' }, data: { modalidadVenta: 'pedido' } });
+  });
+
+  it('actualizarModalidad: volver a stock conserva el texto, y uno nuevo se normaliza', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null });
+
+    await service.actualizarModalidad('user-1', { modalidadVenta: 'stock' });
+    expect(update).toHaveBeenLastCalledWith({ where: { userId: 'user-1' }, data: { modalidadVenta: 'stock' } });
+
+    await service.actualizarModalidad('user-1', { modalidadVenta: 'pedido', queHace: ` ${QUE_HACE} ` });
+    expect(update).toHaveBeenLastCalledWith({
+      where: { userId: 'user-1' },
+      data: { modalidadVenta: 'pedido', queHace: QUE_HACE },
+    });
+  });
+
+  it('actualizarModalidad: 400 a pedido sin texto, 404 sin asistente y 409 si es de agenda', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas', queHace: null });
+    await expect(service.actualizarModalidad('user-1', { modalidadVenta: 'pedido' })).rejects.toMatchObject({
+      status: 400,
+    });
+    findUnique.mockResolvedValue(null);
+    await expect(service.actualizarModalidad('user-1', { modalidadVenta: 'stock' })).rejects.toMatchObject({
+      status: 404,
+    });
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda', queHace: null });
+    await expect(service.actualizarModalidad('user-1', { modalidadVenta: 'stock' })).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
 describe('construirDescripcion', () => {
   it('incluye titular, tipos de evento con su duración y la franja horaria', () => {
     const descripcion = construirDescripcion(dto);
@@ -533,14 +620,73 @@ describe('local del asistente de ventas', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('da 404 sin agente y 409 para un asistente de agenda', async () => {
+  it('da 404 sin agente', async () => {
     const { service, findUnique, update } = crearServicio();
-
     findUnique.mockResolvedValue(null);
-    await expect(service.actualizarLocal('user-1', { tieneLocal: false })).rejects.toMatchObject({ status: 404 });
 
-    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
-    await expect(service.actualizarLocal('user-1', { tieneLocal: false })).rejects.toMatchObject({ status: 409 });
+    await expect(service.actualizarLocal('user-1', { tieneLocal: false })).rejects.toMatchObject({ status: 404 });
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('lugar de atención del asistente de turnos (LAU-17)', () => {
+  const casa = {
+    tieneLocal: true,
+    lugar: 'casa' as const,
+    direccion: ' Güemes 4321, Palermo ',
+    // Lo que es sólo de ventas no se guarda en una agenda.
+    horarios: [{ dia: 'lun' as const, desde: '09:00', hasta: '18:00' }],
+    retiroEnLocal: true,
+  };
+  const guardado = { tieneLocal: true, lugar: 'casa', direccion: 'Güemes 4321, Palermo', horarios: [], retiroEnLocal: false };
+
+  it('el alta de turnos guarda el lugar normalizado', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await service.generate('user-1', { ...dto, local: casa });
+
+    const [{ create }] = upsert.mock.calls[0] as [{ create: Record<string, unknown> }];
+    expect(create.local).toEqual(guardado);
+  });
+
+  it('el alta sin el paso del lugar no pisa el que ya estaba', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
+
+    await service.generate('user-1', dto);
+
+    const [{ update }] = upsert.mock.calls[0] as [{ update: Record<string, unknown> }];
+    expect(update).not.toHaveProperty('local');
+  });
+
+  it('un lugar sin dirección es un 400 y no escribe nada', async () => {
+    const { service, findUnique, upsert } = crearServicio();
+    findUnique.mockResolvedValue(null);
+
+    await expect(service.generate('user-1', { ...dto, local: { tieneLocal: true, lugar: 'local' } })).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('actualizarLocal edita el lugar de una cuenta de turnos', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'agenda' });
+
+    await service.actualizarLocal('user-1', casa);
+
+    expect(update).toHaveBeenCalledWith({ where: { userId: 'user-1' }, data: { local: guardado } });
+  });
+
+  it('en ventas el tipo de lugar se descarta', async () => {
+    const { service, findUnique, update } = crearServicio();
+    findUnique.mockResolvedValue({ tipoAsistente: 'ventas' });
+
+    await service.actualizarLocal('user-1', casa);
+
+    const [{ data }] = update.mock.calls[0] as [{ data: { local: Record<string, unknown> } }];
+    expect(data.local).not.toHaveProperty('lugar');
+    expect(data.local.retiroEnLocal).toBe(true);
   });
 });

@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CampanaNotificaciones } from "@/components/CampanaNotificaciones";
+import { BotonSugerirMejora, Lamparita, PanelSugerencia } from "@/components/SugerirMejora";
 import { Badge } from "@/components/ui/Badge";
 import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
@@ -83,6 +84,20 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
   const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(null);
   const [menuAbierto, setMenuAbierto] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuBoton = useRef<HTMLButtonElement>(null);
+  const [sugerenciaAbierta, setSugerenciaAbierta] = useState(false);
+  const focoPrevio = useRef<HTMLElement | null>(null);
+
+  const abrirSugerencia = () => {
+    focoPrevio.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setMenuAbierto(false);
+    setSugerenciaAbierta(true);
+  };
+  const cerrarSugerencia = () => {
+    setSugerenciaAbierta(false);
+    // Desde el menú del celular el ítem ya no existe: el foco vuelve al botón del menú.
+    (focoPrevio.current?.isConnected ? focoPrevio.current : menuBoton.current)?.focus();
+  };
 
   useEffect(() => {
     if (!menuAbierto) return;
@@ -145,6 +160,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
       </nav>
 
       <div className="ml-auto flex items-center gap-3 sm:gap-4">
+        <BotonSugerirMejora abierto={sugerenciaAbierta} onAbrir={abrirSugerencia} />
         <CampanaNotificaciones />
         {whatsapp && (
           <span className="whitespace-nowrap">
@@ -156,6 +172,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
 
         <div ref={menuRef} className="relative">
           <button
+            ref={menuBoton}
             type="button"
             onClick={() => setMenuAbierto((v) => !v)}
             aria-haspopup="menu"
@@ -217,6 +234,16 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
               >
                 Cuenta
               </Link>
+              {/* En el celular el botón del header no entra: se llega desde acá. */}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={abrirSugerencia}
+                className="flex w-full items-center gap-2 px-4 py-2 text-left text-[13.5px] font-semibold text-primary-active hover:bg-sunken md:hidden"
+              >
+                <Lamparita size={15} />
+                Sugerir mejora
+              </button>
               <button
                 type="button"
                 role="menuitem"
@@ -232,6 +259,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
           )}
         </div>
       </div>
+      {sugerenciaAbierta && <PanelSugerencia onCerrar={cerrarSugerencia} />}
     </header>
   );
 }

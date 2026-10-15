@@ -1,7 +1,8 @@
 /**
- * El local a la calle de un comercio, del lado de la pantalla. La forma es la
- * de `LocalPresencial` en api/src/agents/local.ts, y los límites también: si
- * se superan, la API responde 400.
+ * El lugar donde se atiende, del lado de la pantalla: el local a la calle de
+ * un comercio, o dónde da los turnos un asistente de agenda (LAU-17). La forma
+ * es la de `LocalPresencial` en api/src/agents/local.ts, y los límites
+ * también: si se superan, la API responde 400.
  */
 
 export const DIAS_SEMANA = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"] as const;
@@ -29,9 +30,17 @@ export const HORAS_LOCAL = Array.from({ length: 36 }, (_, i) => {
 
 export type FranjaLocal = { dia: DiaSemana; desde: string; hasta: string };
 
+/** Sólo agenda: dónde da los turnos quien tiene un lugar fijo. */
+export type TipoLugar = "local" | "casa";
+
+/** Las tres respuestas del paso "¿Dónde atendés?": `ninguno` es `tieneLocal: false`. */
+export type OpcionLugar = TipoLugar | "ninguno";
+
 /** Lo que devuelve `GET /agents/me` en `local` y lo que manda `PUT /agents/me/local`. */
 export type LocalPresencial = {
   tieneLocal: boolean;
+  /** Sólo agenda. */
+  lugar?: TipoLugar;
   direccion?: string;
   enlaceUbicacion?: string;
   horarios: FranjaLocal[];
@@ -94,7 +103,9 @@ export function problemaDelEnlace(enlace: string): string | null {
   return "Pegá el link completo, que empiece con https://";
 }
 
-export function problemaDeLaDireccion(direccion: string): string | null {
+/** En turnos la dirección es obligatoria (es lo único que se carga); en ventas, no. */
+export function problemaDeLaDireccion(direccion: string, obligatoria = false): string | null {
   const limpia = direccion.trim();
-  return limpia && limpia.length < LARGO_MIN_DIRECCION ? "La dirección es demasiado corta." : null;
+  if (!limpia) return obligatoria ? "Escribí la dirección." : null;
+  return limpia.length < LARGO_MIN_DIRECCION ? "La dirección es demasiado corta." : null;
 }

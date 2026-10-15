@@ -8,6 +8,7 @@ import {
   ActualizarDatosClienteDto,
   ActualizarLocalDto,
   ActualizarMensajesDto,
+  ActualizarModalidadDto,
   ActualizarTiposEventoDto,
   GenerarAgenteVentasDto,
   GenerateAgentDto,
@@ -59,7 +60,17 @@ export class AgentsController {
     return aAgentPublico(agent);
   }
 
-  /** Los datos del local a la calle de un comercio (sólo asistente de ventas). */
+  /** Con stock o a pedido, y qué hace el comercio (LAU-21). */
+  @Put('me/modalidad')
+  async actualizarModalidad(
+    @CurrentUser() user: User,
+    @Body() dto: ActualizarModalidadDto,
+  ): Promise<AgentPublico> {
+    const agent = await this.agentsService.actualizarModalidad(user.id, dto);
+    return aAgentPublico(agent);
+  }
+
+  /** Dónde se atiende: el local de un comercio o el lugar de los turnos (LAU-17). */
   @Put('me/local')
   async actualizarLocal(@CurrentUser() user: User, @Body() dto: ActualizarLocalDto): Promise<AgentPublico> {
     const agent = await this.agentsService.actualizarLocal(user.id, dto.local);
