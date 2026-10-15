@@ -21,7 +21,12 @@ import {
   type ResumenImportacion,
   type SolicitudDto,
 } from './productos.types.js';
-import { normalizarSolicitud, problemaSegunModalidad, type SolicitudADemanda } from './solicitud.rules.js';
+import {
+  normalizarMateriales,
+  normalizarSolicitud,
+  problemaSegunModalidad,
+  type SolicitudADemanda,
+} from './solicitud.rules.js';
 
 /** De la foto sólo hace falta saber si está y de cuándo es: nunca traer los bytes a un listado. */
 const SIN_BYTES = { select: { updatedAt: true } } as const;
@@ -55,6 +60,8 @@ type ProductoAGuardar = {
   solicitud?: SolicitudADemanda | null;
   /** El precio "desde" de un producto a medida; undefined no lo toca. */
   precioReferenciaCentavos?: number | null;
+  /** Los materiales de un producto a medida; undefined (la importación, las cuentas con stock) no los toca. */
+  materiales?: string[];
 };
 
 type Tx = Prisma.TransactionClient;
@@ -271,6 +278,7 @@ export class ProductosService {
       ...(datos.solicitud !== undefined && {
         solicitud: datos.solicitud === null ? Prisma.DbNull : (datos.solicitud as unknown as Prisma.InputJsonValue),
       }),
+      ...(datos.materiales !== undefined && { materiales: datos.materiales }),
     };
     const producto = id
       ? await tx.producto.update({ where: { id }, data: campos })
@@ -339,6 +347,7 @@ export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 's
     descuento: dto.descuento,
     solicitud: dto.solicitud,
     precioReferencia: dto.precioReferenciaCentavos,
+    materiales: dto.materiales,
   });
   if (problema) throw new BadRequestException(problema);
   const codigo = dto.codigo.trim();
@@ -372,7 +381,16 @@ export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 's
           : dto.descuento && descuentoDesdeDto(dto.descuento),
     solicitud: dto.solicitud === undefined ? undefined : dto.solicitud && solicitudDesdeDto(dto.solicitud),
     precioReferenciaCentavos: modalidad === 'pedido' ? (dto.precioReferenciaCentavos ?? null) : undefined,
+    // Como el precio "desde": en un producto a medida, no mandarlos es no tener.
+    materiales: modalidad === 'pedido' ? materialesDesdeDto(dto.materiales ?? []) : undefined,
   };
+}
+
+/** Los materiales del producto a medida → lo que se guarda, o un 400 con el motivo. */
+function materialesDesdeDto(lista: string[]): string[] {
+  const resultado = normalizarMateriales(lista);
+  if ('error' in resultado) throw new BadRequestException(resultado.error);
+  return resultado.materiales;
 }
 
 /** Las preguntas del producto a medida → lo que se guarda, o un 400 con el motivo. */

@@ -292,8 +292,9 @@ export function FilaProducto({
   );
 }
 
-/** Lo que muestra la tarjeta de un producto en una cuenta a pedido: precio "desde" y preguntas. */
+/** Lo que muestra la tarjeta de un producto en una cuenta a pedido: precio "desde", materiales y preguntas. */
 function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {
+  const preguntas = producto.solicitud?.preguntas.length ?? 0;
   return (
     <div className="mt-3 flex flex-col gap-1.5 rounded-md bg-sunken p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -304,17 +305,22 @@ function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {
             : "Precio a cotizar"}
         </span>
       </div>
+      {producto.materiales.length > 0 && (
+        <p className="text-[12.5px] text-ink-secondary">En {producto.materiales.join(" · ")}</p>
+      )}
       {producto.solicitud ? (
         <p className="text-[12.5px] text-ink-secondary">
-          {producto.solicitud.preguntas.length === 1
-            ? "1 pregunta para presupuestar"
-            : `${producto.solicitud.preguntas.length} preguntas para presupuestar`}
+          {preguntas === 0
+            ? "Sin preguntas propias"
+            : preguntas === 1
+              ? "1 pregunta para hacer"
+              : `${preguntas} preguntas para hacer`}
         </p>
       ) : (
         // Cargado antes como producto de stock: al guardarlo desde "Editar" pasa a ser a medida.
         <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-secondary">
           <Badge tone="warning">Incompleto</Badge>
-          Faltan las preguntas para presupuestar: tocá “Editar”.
+          Tocá “Editar” y guardalo para que sea a medida.
         </p>
       )}
     </div>

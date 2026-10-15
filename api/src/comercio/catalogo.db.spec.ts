@@ -320,8 +320,9 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       const creado = await productos.crear(taller.id, dto);
       expect(creado.variantes).toEqual([]);
       expect(creado.precioReferenciaCentavos).toBe(5_000_000);
-      // Primero lo que el cliente tiene, después lo que pide.
-      expect(creado.solicitud?.preguntas.map((pregunta) => pregunta.texto)).toEqual(['¿Qué medida tiene el hueco?', '¿De qué color?']);
+      // En el orden en que el dueño las cargó.
+      expect(creado.solicitud?.preguntas.map((pregunta) => pregunta.texto)).toEqual(['¿De qué color?', '¿Qué medida tiene el hueco?']);
+      expect(creado.materiales).toEqual([]);
 
       const [encontrado] = await busqueda.buscar(taller.id, 'CORT-01');
       expect(encontrado).toMatchObject({ nombre: 'Cortina a medida', aMedida: true, precioReferenciaCentavos: 5_000_000, variantes: [] });
@@ -330,7 +331,29 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(sinPrecio.precioReferenciaCentavos).toBeNull();
     });
 
-    it('rechaza variantes, descuento o un producto sin preguntas, y no importa planillas', async () => {
+    it('las preguntas son opcionales y los materiales lo hacen encontrable', async () => {
+      const placard = await productos.crear(taller.id, {
+        codigo: 'PLAC-01',
+        nombre: 'Placard',
+        solicitud: { preguntas: [] },
+        materiales: [' Melamina ', 'melamina', 'Roble macizo'],
+      });
+      expect(placard.solicitud).toEqual({ preguntas: [] });
+      expect(placard.materiales).toEqual(['Melamina', 'Roble macizo']);
+
+      const [encontrado] = await busqueda.buscar(taller.id, 'roble macizo');
+      expect(encontrado).toMatchObject({ productoId: placard.id, aMedida: true, materiales: ['Melamina', 'Roble macizo'], preguntas: [] });
+
+      // Sin materiales en el body, un producto a medida queda sin materiales (como el precio "desde").
+      const sinMateriales = await productos.actualizar(taller.id, placard.id, {
+        codigo: 'PLAC-01',
+        nombre: 'Placard',
+        solicitud: { preguntas: [] },
+      });
+      expect(sinMateriales.materiales).toEqual([]);
+    });
+
+    it('rechaza variantes, descuento o un producto sin solicitud, y no importa planillas', async () => {
       await expect(
         productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ precioCentavos: 100 }] }),
       ).rejects.toThrow(/no llevan variantes/);
@@ -369,9 +392,12 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(aMedida.solicitud?.preguntas).toHaveLength(2);
     });
 
-    it('una cuenta con stock no acepta preguntas ni precio de referencia', async () => {
+    it('una cuenta con stock no acepta preguntas, materiales ni precio de referencia', async () => {
       await expect(
         productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], solicitud }),
+      ).rejects.toThrow(/vende con stock/);
+      await expect(
+        productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], materiales: ['Roble'] }),
       ).rejects.toThrow(/vende con stock/);
       await expect(productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa' })).rejects.toThrow(/precio/);
     });

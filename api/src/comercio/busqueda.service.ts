@@ -13,7 +13,7 @@ import { mejorDescuento, type DescuentoAplicado } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
 import { reservadasPorVariante } from './reservas.js';
-import { leerSolicitud } from './solicitud.rules.js';
+import { leerSolicitud, type PreguntaSolicitud } from './solicitud.rules.js';
 
 /** Productos que devuelve una búsqueda del asistente: los que entran en un mensaje de WhatsApp. */
 export const RESULTADOS_POR_BUSQUEDA = 8;
@@ -79,6 +79,10 @@ export type ProductoEncontrado = {
   aMedida?: boolean;
   /** Su precio "desde", si el dueño puso uno. */
   precioReferenciaCentavos?: number | null;
+  /** Producto a medida: con qué materiales se hace ([] = no los cargó). */
+  materiales?: string[];
+  /** Producto a medida: lo que el asistente pregunta para cotizar, en orden. */
+  preguntas?: PreguntaSolicitud[];
 };
 
 export type OpcionesBusqueda = {
@@ -240,7 +244,8 @@ export class BusquedaService {
     return ids.flatMap((id) => {
       const producto = porId.get(id);
       // Sin variantes sólo vale un producto a medida: no tiene precio ni stock, se cotiza.
-      const aMedida = producto ? producto.variantes.length === 0 && leerSolicitud(producto.solicitud) !== null : false;
+      const solicitud = producto && producto.variantes.length === 0 ? leerSolicitud(producto.solicitud) : null;
+      const aMedida = solicitud !== null;
       if (!producto || (producto.variantes.length === 0 && !aMedida)) return [];
       return [
         {
@@ -250,7 +255,14 @@ export class BusquedaService {
           categoria: producto.categoria,
           descripcion: producto.descripcion,
           tieneImagen: producto.imagen !== null,
-          ...(aMedida ? { aMedida, precioReferenciaCentavos: producto.precioReferenciaCentavos } : {}),
+          ...(solicitud
+            ? {
+                aMedida,
+                precioReferenciaCentavos: producto.precioReferenciaCentavos,
+                materiales: producto.materiales,
+                preguntas: solicitud.preguntas,
+              }
+            : {}),
           variantes: producto.variantes.map((variante) => {
             const reservadasVariante = reservadas.get(variante.id) ?? 0;
             const descuento = mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);

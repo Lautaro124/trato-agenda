@@ -191,12 +191,15 @@ function reglasAPedido(agent: Agent): string {
     `${titular} al cotizar. Nunca inventes ni calcules un precio, un descuento, un plazo de entrega o un costo de envío.\n` +
     `- Si lo que pide no tiene nada que ver con lo que hace ${titular}, decíselo con buena onda; si dudás, ` +
     `tomalo igual y que ${titular} decida.\n` +
-    `- Para tomar la solicitud preguntá lo que haga falta para cotizar: qué necesita, medidas, cantidades o ` +
-    `materiales si aplican, y para cuándo lo quiere. De a una o dos preguntas por mensaje, sin interrogatorios.\n` +
+    `- Para tomar la solicitud, si el producto del catálogo trae "para cotizarlo preguntale esto", hacé esas ` +
+    `preguntas en ese orden, ofreciendo las opciones que trae cada una; saltá las que el cliente ya contestó y ` +
+    `no pases la solicitud sin las necesarias. Si trae materiales, ofrecé sólo esos. Si no trae preguntas, ` +
+    `preguntá lo que haga falta para cotizar: qué necesita, medidas, cantidades o materiales si aplican, y para ` +
+    `cuándo lo quiere. De a una o dos preguntas por mensaje, sin interrogatorios.\n` +
     (reglaDatos ? `${reglaDatos}\n` : '') +
     `- Si no sabés su nombre, preguntáselo antes de pasar la solicitud.\n` +
-    `- Cuando tengas el detalle, llamá derivar_consulta con un resumen de la solicitud (qué quiere, el detalle ` +
-    `y para cuándo) y decile al cliente que ${titular} se lo cotiza y le escribe por este chat. No le pidas que ` +
+    `- Cuando tengas el detalle, llamá derivar_consulta con un resumen de la solicitud (qué quiere, el detalle, ` +
+    `cada respuesta a las preguntas del producto y para cuándo) y decile al cliente que ${titular} se lo cotiza y le escribe por este chat. No le pidas que ` +
     `confirme nada ni le digas que el pedido está hecho: todavía falta el precio.\n` +
     `- Si el cliente necesita algo que no sabés (formas de pago, envíos, un reclamo), también avisale a ` +
     `${titular} con derivar_consulta.`
@@ -454,7 +457,11 @@ export function formatearResultados(
       ')' +
       (producto.descripcion ? `: ${JSON.stringify(producto.descripcion.slice(0, 200))}` : '');
     // Un producto a medida no tiene variantes: se cotiza. Sin el formato "[variante …]:", que es para crear_pedido.
-    if (producto.aMedida) return [cabecera, `   - ${precioAMedida(producto.precioReferenciaCentavos ?? null)}`].join('\n');
+    if (producto.aMedida) {
+      return [cabecera, `   - ${precioAMedida(producto.precioReferenciaCentavos ?? null)}`, ...detalleAMedida(producto)].join(
+        '\n',
+      );
+    }
     const variantes = producto.variantes.map(
       (variante) =>
         `   - ${variante.nombre ? `${JSON.stringify(variante.nombre)} ` : ''}[variante ${variante.varianteId}]: ` +
@@ -508,8 +515,47 @@ export function precioAMedida(precioReferenciaCentavos: number | null): string {
     : `a medida: se cotiza, desde ${formatearCentavos(precioReferenciaCentavos)}`;
 }
 
+/** Una lista de textos del dueño, cada uno como dato. */
+function listaDeTextos(textos: readonly string[]): string {
+  return textos.map((texto) => JSON.stringify(texto)).join(', ');
+}
+
+/**
+ * Lo que el dueño cargó para cotizar un producto a medida: los materiales con
+ * los que lo hace y las preguntas que el asistente le tiene que hacer al
+ * cliente, en el orden en que las cargó. Sin nada cargado no agrega líneas y
+ * vale la regla general de reglasAPedido (qué necesita y para cuándo).
+ */
+export function detalleAMedida(producto: Pick<ProductoEncontrado, 'materiales' | 'preguntas'>): string[] {
+  const lineas: string[] = [];
+  const materiales = producto.materiales ?? [];
+  if (materiales.length > 0) {
+    lineas.push(
+      `   - materiales con los que lo hace (ofrecé sólo estos; si no dijo cuál quiere, preguntáselo): ${listaDeTextos(materiales)}`,
+    );
+  }
+  const preguntas = producto.preguntas ?? [];
+  if (preguntas.length > 0) {
+    lineas.push('   - para cotizarlo preguntale esto, en este orden:');
+    for (const [indice, pregunta] of preguntas.entries()) {
+      const cuando = pregunta.obligatoria ? 'necesaria para cotizar' : 'si no la contesta, seguí';
+      const opciones =
+        pregunta.opciones.length === 0
+          ? ''
+          : pregunta.textoLibre
+            ? `; opciones para ofrecerle: ${listaDeTextos(pregunta.opciones)} (puede contestar otra cosa)`
+            : `; sólo puede elegir entre: ${listaDeTextos(pregunta.opciones)}`;
+      lineas.push(`     ${indice + 1}. ${JSON.stringify(pregunta.texto)} (${cuando}${opciones})`);
+    }
+  }
+  return lineas;
+}
+
 function lineaDeProducto(producto: ProductoPanorama): string {
-  if (producto.aMedida) return `- ${JSON.stringify(producto.nombre)}: ${precioAMedida(producto.precioDesdeCentavos)}`;
+  if (producto.aMedida) {
+    const materiales = producto.materiales?.length ? ` (lo hace en ${listaDeTextos(producto.materiales)})` : '';
+    return `- ${JSON.stringify(producto.nombre)}: ${precioAMedida(producto.precioDesdeCentavos)}${materiales}`;
+  }
   const precio = formatearCentavos(producto.precioDesdeCentavos ?? 0); // con stock siempre tiene
   const desde = producto.variosPrecios ? `desde ${precio}` : precio;
   return (

@@ -54,6 +54,8 @@ export type ProductoParaIndexar = {
   descripcion: string;
   categoria: string | null;
   variantes: Array<{ sku: string; nombre: string }>;
+  /** Los materiales de un producto a medida: "placard de melamina" lo encuentra. */
+  materiales?: readonly string[];
 };
 
 /** Todo lo buscable de un producto en un solo texto normalizado. */
@@ -62,7 +64,14 @@ export function textoBusquedaDe(producto: ProductoParaIndexar): string {
     .flatMap((variante) => [variante.nombre, variante.sku])
     .filter((parte) => parte.length > 0);
   return normalizarTexto(
-    [producto.nombre, producto.categoria ?? '', producto.descripcion, producto.codigo, ...variantes]
+    [
+      producto.nombre,
+      producto.categoria ?? '',
+      producto.descripcion,
+      producto.codigo,
+      ...variantes,
+      ...(producto.materiales ?? []),
+    ]
       .filter((parte) => parte.length > 0)
       .join(' | '),
   );

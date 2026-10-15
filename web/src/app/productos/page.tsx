@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
+import { EditorAMedida } from "@/components/productos/EditorAMedida";
 import { EditorProducto } from "@/components/productos/EditorProducto";
 import { FilaProducto } from "@/components/productos/FilaProducto";
 import { ImportarProductos } from "@/components/productos/ImportarProductos";
@@ -61,6 +62,10 @@ function Catalogo({ aPedido }: Readonly<{ aPedido: boolean }>) {
   const [importando, setImportando] = useState(false);
 
   const recargar = useCallback(() => setRecargas((n) => n + 1), []);
+  const alGuardar = () => {
+    setEditando(null);
+    recargar();
+  };
 
   // La búsqueda espera a que se deje de tipear; el setState va en el callback
   // del timer, no en el cuerpo del efecto.
@@ -143,7 +148,7 @@ function Catalogo({ aPedido }: Readonly<{ aPedido: boolean }>) {
                 <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
                   <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos a medida</p>
                   <p className="mb-4 text-sm text-ink-secondary">
-                    Cargá cada uno con las preguntas que necesitás para presupuestarlo: medidas, materiales, colores.
+                    Cargá lo que hacés, en qué materiales y lo que tu asistente le pregunta al cliente para que lo cotices.
                   </p>
                   <Button onClick={() => setEditando("nuevo")}>Cargar mi primer producto</Button>
                 </div>
@@ -241,18 +246,23 @@ function Catalogo({ aPedido }: Readonly<{ aPedido: boolean }>) {
         </div>
       </div>
 
-      {editando && (
-        <EditorProducto
-          modalidad={aPedido ? "pedido" : "stock"}
-          producto={editando === "nuevo" ? null : editando}
-          onCerrar={() => setEditando(null)}
-          onGuardado={() => {
-            setEditando(null);
-            recargar();
-          }}
-          onFotoCambiada={recargar}
-        />
-      )}
+      {editando &&
+        (aPedido ? (
+          <EditorAMedida
+            producto={editando === "nuevo" ? null : editando}
+            codigosUsados={new Set(listado?.productos.map((producto) => producto.codigo.toUpperCase()) ?? [])}
+            onCerrar={() => setEditando(null)}
+            onGuardado={alGuardar}
+            onFotoCambiada={recargar}
+          />
+        ) : (
+          <EditorProducto
+            producto={editando === "nuevo" ? null : editando}
+            onCerrar={() => setEditando(null)}
+            onGuardado={alGuardar}
+            onFotoCambiada={recargar}
+          />
+        ))}
     </main>
   );
 }

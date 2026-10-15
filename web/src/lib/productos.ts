@@ -38,6 +38,8 @@ export type Producto = {
   solicitud: SolicitudADemanda | null;
   /** Precio "desde" de un producto a medida, si el dueño puso uno. */
   precioReferenciaCentavos: number | null;
+  /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
+  materiales: string[];
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -100,7 +102,9 @@ export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
 export type ProductoAMedidaAGuardar = ProductoBaseAGuardar & {
   /** null = sin precio de referencia. */
   precioReferenciaCentavos: number | null;
+  /** Las preguntas para hacer: pueden ser ninguna, pero la solicitud va siempre (es lo que lo hace a medida). */
   solicitud: SolicitudADemanda;
+  materiales: string[];
 };
 
 export type ProductoAGuardar = ProductoDeStockAGuardar | ProductoAMedidaAGuardar;

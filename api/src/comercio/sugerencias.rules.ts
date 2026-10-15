@@ -41,6 +41,8 @@ export type ProductoPanorama = {
   precioDesdeCentavos: number | null;
   /** Producto a medida (cuenta a pedido): no tiene variantes ni stock, se cotiza. */
   aMedida?: boolean;
+  /** Producto a medida: con qué materiales se hace. */
+  materiales?: string[];
   /** true si las variantes con stock no cuestan todas lo mismo ("desde $X"). */
   variosPrecios: boolean;
   /** "20% off", si esa variante más barata tiene un descuento vigente. */

@@ -78,6 +78,35 @@ describe('formatearResultados', () => {
     expect(formatearStockDueno('cortina', [aMedida])).toContain('se cotiza, desde $ 50.000, sin stock');
   });
 
+  it('un producto a medida trae sus materiales y las preguntas para cotizar, en orden y como dato', () => {
+    const aMedida: ProductoEncontrado = {
+      productoId: 'p-9',
+      codigo: 'PLAC-01',
+      nombre: 'Placard',
+      categoria: null,
+      descripcion: '',
+      variantes: [],
+      tieneImagen: false,
+      aMedida: true,
+      precioReferenciaCentavos: null,
+      materiales: ['Melamina', 'MDF "laqueado"'],
+      preguntas: [
+        { texto: '¿Qué medidas tiene el hueco?', sobre: 'tiene', opciones: [], textoLibre: true, obligatoria: true },
+        { texto: '¿Qué puertas preferís?', sobre: 'solicita', opciones: ['Corredizas', 'De abrir'], textoLibre: false, obligatoria: true },
+        { texto: '¿De qué color?', sobre: 'solicita', opciones: ['Blanco', 'Gris'], textoLibre: true, obligatoria: false },
+      ],
+    };
+    const texto = formatearResultados('placard', [aMedida]);
+    expect(texto).toContain('ofrecé sólo estos; si no dijo cuál quiere, preguntáselo): "Melamina", "MDF \\"laqueado\\""');
+    expect(texto).toContain('para cotizarlo preguntale esto, en este orden:');
+    expect(texto).toContain('1. "¿Qué medidas tiene el hueco?" (necesaria para cotizar)');
+    expect(texto).toContain('2. "¿Qué puertas preferís?" (necesaria para cotizar; sólo puede elegir entre: "Corredizas", "De abrir")');
+    expect(texto).toContain('3. "¿De qué color?" (si no la contesta, seguí; opciones para ofrecerle: "Blanco", "Gris" (puede contestar otra cosa))');
+    expect(texto).not.toContain('[variante');
+    // Sin nada cargado no agrega líneas: vale la regla general.
+    expect(formatearResultados('placard', [{ ...aMedida, materiales: [], preguntas: [] }])).not.toContain('preguntale esto');
+  });
+
   it('el catálogo de una cuenta a pedido no habla de stock', () => {
     const agent = { nombreTitular: 'Lupe', mensajes: {}, modalidadVenta: 'pedido' } as never;
     const texto = formatearCatalogo(
@@ -87,12 +116,14 @@ describe('formatearResultados', () => {
         restantes: 0,
         productos: [
           { productoId: 'p-9', nombre: 'Cortina', categoria: null, descripcion: '', precioDesdeCentavos: null, variosPrecios: false, aMedida: true },
+          { productoId: 'p-8', nombre: 'Mesa', categoria: null, descripcion: '', precioDesdeCentavos: null, variosPrecios: false, aMedida: true, materiales: ['Roble', 'Pino'] },
         ],
       },
       agent,
     );
     expect(texto).toContain('Productos a medida');
-    expect(texto).toContain('- "Cortina": a medida: se cotiza, sin precio de referencia');
+    expect(texto).toContain('- "Cortina": a medida: se cotiza, sin precio de referencia\n');
+    expect(texto).toContain('- "Mesa": a medida: se cotiza, sin precio de referencia (lo hace en "Roble", "Pino")');
     expect(texto).not.toContain('con stock');
     expect(formatearCatalogo({ tipo: 'vacio' }, agent)).toContain('ningún producto para ofrecer');
   });
@@ -317,6 +348,9 @@ describe('reglas de venta a pedido (LAU-21)', () => {
     expect(reglas).toContain(MARCA_A_PEDIDO);
     expect(reglas).toContain('Nunca hables de stock');
     expect(reglas).toContain('llamá derivar_consulta con un resumen de la solicitud');
+    expect(reglas).toContain('hacé esas preguntas en ese orden');
+    expect(reglas).toContain('Si trae materiales, ofrecé sólo esos');
+    expect(reglas).toContain('cada respuesta a las preguntas del producto');
     expect(reglas).not.toContain('crear_pedido');
     expect(reglas).not.toContain('link de pago');
   });
