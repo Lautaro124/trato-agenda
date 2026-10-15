@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -18,6 +19,16 @@ import {
 import type { Descuento, Producto, Variante } from '../generated/prisma/client.js';
 import { hashTexto, LARGOS, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
+import {
+  LARGO_MAX_OPCION,
+  LARGO_MAX_PREGUNTA,
+  leerSolicitud,
+  MAX_OPCIONES,
+  MAX_PREGUNTAS,
+  SOBRE_PREGUNTA,
+  type SobrePregunta,
+  type SolicitudADemanda,
+} from './solicitud.rules.js';
 import {
   aDescuentoDeVariante,
   aDescuentoPublico,
@@ -63,6 +74,36 @@ export class VarianteDto {
   stockMinimo?: number | null;
 }
 
+/** Una pregunta del producto a medida. Las reglas entre campos están en solicitud.rules.ts. */
+export class PreguntaSolicitudDto {
+  @IsString()
+  @MaxLength(LARGO_MAX_PREGUNTA)
+  texto!: string;
+
+  @IsIn(SOBRE_PREGUNTA)
+  sobre!: SobrePregunta;
+
+  @IsArray()
+  @ArrayMaxSize(MAX_OPCIONES)
+  @IsString({ each: true })
+  @MaxLength(LARGO_MAX_OPCION, { each: true })
+  opciones!: string[];
+
+  @IsBoolean()
+  textoLibre!: boolean;
+
+  @IsBoolean()
+  obligatoria!: boolean;
+}
+
+export class SolicitudDto {
+  @IsArray()
+  @ArrayMaxSize(MAX_PREGUNTAS)
+  @ValidateNested({ each: true })
+  @Type(() => PreguntaSolicitudDto)
+  preguntas!: PreguntaSolicitudDto[];
+}
+
 /** Body de `POST /productos` y `PUT /productos/:id`. */
 export class GuardarProductoDto {
   @IsString()
@@ -102,6 +143,13 @@ export class GuardarProductoDto {
   @ValidateNested()
   @Type(() => DescuentoProductoDto)
   descuento?: DescuentoProductoDto | null;
+
+  /** Producto a medida: sus preguntas. Igual que `descuento`: null la borra, ausente no la toca. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @ValidateNested()
+  @Type(() => SolicitudDto)
+  solicitud?: SolicitudDto | null;
 }
 
 /** Body de `PATCH /productos/variantes/:id`: la edición rápida desde la tabla. */
@@ -187,6 +235,8 @@ export type ProductoPublico = Pick<
   indexado: boolean;
   /** Cuándo se subió la foto (null = sin foto). La web la usa también para no mostrar una cacheada vieja. */
   imagenActualizada: Date | null;
+  /** Las preguntas del producto a medida (null = no se hace a medida). */
+  solicitud: SolicitudADemanda | null;
 };
 
 /**
@@ -218,6 +268,7 @@ export function aProductoPublico(
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),
     descuento: producto.descuento ? aDescuentoPublico(producto.descuento) : null,
     imagenActualizada: producto.imagen?.updatedAt ?? null,
+    solicitud: leerSolicitud(producto.solicitud),
     variantes: producto.variantes
       .filter((variante) => variante.activo)
       .map((variante) => {

@@ -21,7 +21,20 @@ export async function crearAgenteVentasPorApi(
 }
 
 export type VarianteE2E = { id: string; nombre: string; precioCentavos: number; stock: number | null; disponible: boolean };
-export type ProductoE2E = { id: string; codigo: string; nombre: string; variantes: VarianteE2E[] };
+export type PreguntaSolicitudE2E = {
+  texto: string;
+  sobre: 'tiene' | 'solicita';
+  opciones: string[];
+  textoLibre: boolean;
+  obligatoria: boolean;
+};
+export type ProductoE2E = {
+  id: string;
+  codigo: string;
+  nombre: string;
+  variantes: VarianteE2E[];
+  solicitud?: { preguntas: PreguntaSolicitudE2E[] } | null;
+};
 
 /** Un producto de variante única, cargado por API. */
 export async function crearProductoPorApi(

@@ -212,6 +212,17 @@ export function FilaProducto({
         </div>
       </div>
 
+      {producto.solicitud && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Badge tone="info">A medida</Badge>
+          <span className="text-[12px] text-muted">
+            {producto.solicitud.preguntas.length === 1
+              ? "1 pregunta para presupuestar"
+              : `${producto.solicitud.preguntas.length} preguntas para presupuestar`}
+          </span>
+        </div>
+      )}
+
       {aplicado ? (
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <Badge tone="primary">{descripcionDescuento(aplicado)}</Badge>

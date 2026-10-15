@@ -360,6 +360,11 @@ model Producto {
   descuento Descuento?
   /// La foto que el asistente le manda al cliente cuando la pide (una sola).
   imagen    ImagenProducto?
+  /// Producto a medida (LAU-22): las preguntas que el asistente le hace al
+  /// cliente para presupuestar, `{ preguntas: [{ texto, sobre: 'tiene' |
+  /// 'solicita', opciones, textoLibre, obligatoria }] }`. Null = no se hace a
+  /// medida. La forma y sus reglas están en comercio/solicitud.rules.ts.
+  solicitud Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

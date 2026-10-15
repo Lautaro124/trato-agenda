@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma, Producto } from '../generated/prisma/client.js';
+import { Prisma, type Producto } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   agruparFilasImportacion,
@@ -18,7 +18,9 @@ import {
   type ListarProductosQuery,
   type ProductoPublico,
   type ResumenImportacion,
+  type SolicitudDto,
 } from './productos.types.js';
+import { normalizarSolicitud, type SolicitudADemanda } from './solicitud.rules.js';
 
 /** De la foto sólo hace falta saber si está y de cuándo es: nunca traer los bytes a un listado. */
 const SIN_BYTES = { select: { updatedAt: true } } as const;
@@ -48,6 +50,8 @@ type ProductoAGuardar = {
   variantes: VarianteImportada[];
   /** null lo borra; undefined (la importación) no lo toca. */
   descuento?: DescuentoAGuardar | null;
+  /** Las preguntas del producto a medida. Igual que el descuento: null la borra, undefined no la toca. */
+  solicitud?: SolicitudADemanda | null;
 };
 
 type Tx = Prisma.TransactionClient;
@@ -250,6 +254,10 @@ export class ProductosService {
       categoria: datos.categoria,
       activo: true,
       textoBusqueda,
+      // Sólo si vino: la importación no la manda y no tiene que pisarla.
+      ...(datos.solicitud !== undefined && {
+        solicitud: datos.solicitud === null ? Prisma.DbNull : (datos.solicitud as unknown as Prisma.InputJsonValue),
+      }),
     };
     const producto = id
       ? await tx.producto.update({ where: { id }, data: campos })
@@ -330,7 +338,15 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
     categoria: dto.categoria?.trim() || null,
     variantes,
     descuento: dto.descuento === undefined ? undefined : dto.descuento && descuentoDesdeDto(dto.descuento),
+    solicitud: dto.solicitud === undefined ? undefined : dto.solicitud && solicitudDesdeDto(dto.solicitud),
   };
+}
+
+/** Las preguntas del producto a medida → lo que se guarda, o un 400 con el motivo. */
+function solicitudDesdeDto(dto: SolicitudDto): SolicitudADemanda {
+  const resultado = normalizarSolicitud(dto);
+  if ('error' in resultado) throw new BadRequestException(resultado.error);
+  return resultado.solicitud;
 }
 
 /** El descuento del formulario (o de una promo) → lo que se guarda, con las fechas como instantes. */

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FotoProducto } from "@/components/productos/FotoProducto";
+import { SeccionSolicitud, useSolicitudEnEdicion } from "@/components/productos/SeccionSolicitud";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -138,6 +139,7 @@ export function EditorProducto({
     producto ? desdeProducto(producto) : [nuevaVariante()],
   );
   const [descuento, setDescuento] = useState<DescuentoEnEdicion>(() => descuentoDesdeProducto(producto));
+  const solicitud = useSolicitudEnEdicion(producto?.solicitud ?? null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -149,6 +151,7 @@ export function EditorProducto({
     descripcion,
     variantes.map((v) => [v.sku, v.nombre, v.precio, v.stock, v.stockMinimo, v.disponible]),
     descuento,
+    solicitud.firma,
   ]);
   const [formularioInicial] = useState(formulario);
   const hayCambios = formulario !== formularioInicial;
@@ -197,6 +200,8 @@ export function EditorProducto({
     }
     const descuentoArmado = armarDescuento(descuento, armadas);
     if (typeof descuentoArmado === "string") return descuentoArmado;
+    const solicitudArmada = solicitud.armar();
+    if (typeof solicitudArmada === "string") return solicitudArmada;
     return {
       codigo: codigo.trim(),
       nombre: nombre.trim(),
@@ -204,6 +209,7 @@ export function EditorProducto({
       descripcion: descripcion.trim(),
       variantes: armadas,
       descuento: descuentoArmado,
+      solicitud: solicitudArmada,
     };
   };
 
@@ -424,6 +430,9 @@ export function EditorProducto({
               )}
             </fieldset>
           </div>
+
+          {/* A todo el ancho: las preguntas necesitan aire, y en pantallas grandes van sus dos bloques lado a lado. */}
+          <SeccionSolicitud estado={solicitud} />
 
           {/* Fija abajo del diálogo: con muchas variantes, guardar no obliga a bajar hasta el final.
               -bottom-5 la pega al borde (el sticky se mide desde adentro del padding del diálogo).

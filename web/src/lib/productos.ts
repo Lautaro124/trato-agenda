@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import type { Descuento, DescuentoAGuardar, DescuentoDeVariante } from "./descuentos";
+import type { SolicitudADemanda } from "./solicitud";
 
 /** Espejo de `VariantePublica` en la API. Precio en centavos, como lo guarda la base. */
 export type Variante = {
@@ -33,6 +34,8 @@ export type Producto = {
   descuento: Descuento | null;
   /** Cuándo se subió la foto; null = sin foto. */
   imagenActualizada: string | null;
+  /** Las preguntas del producto a medida; null = no se hace a medida. */
+  solicitud: SolicitudADemanda | null;
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -83,6 +86,8 @@ export type ProductoAGuardar = {
   }>;
   /** null lo borra. */
   descuento: DescuentoAGuardar | null;
+  /** null = no se hace a medida (borra las preguntas). */
+  solicitud: SolicitudADemanda | null;
 };
 
 /** Error de la API con el mensaje que ya viene en español (409, 400). */

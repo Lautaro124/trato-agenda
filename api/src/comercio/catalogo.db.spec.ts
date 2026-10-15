@@ -264,6 +264,40 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       await productos.eliminar(dueno.id, creado.id);
     });
 
+    it('las preguntas a medida se guardan con el producto, la importación no las pisa y null las borra', async () => {
+      const solicitud = {
+        preguntas: [
+          { texto: '¿De qué color?', sobre: 'solicita' as const, opciones: ['Blanco', 'Negro'], textoLibre: false, obligatoria: true },
+          { texto: '¿Qué medida tiene el hueco?', sobre: 'tiene' as const, opciones: [], textoLibre: true, obligatoria: true },
+        ],
+      };
+      const dto = { codigo: 'CORT-01', nombre: 'Cortina a medida', variantes: [{ precioCentavos: 5_000_000 }], solicitud };
+      const creado = await productos.crear(dueno.id, dto);
+      // Primero lo que el cliente tiene, después lo que pide.
+      expect(creado.solicitud?.preguntas.map((pregunta) => pregunta.texto)).toEqual([
+        '¿Qué medida tiene el hueco?',
+        '¿De qué color?',
+      ]);
+
+      await productos.importar(dueno.id, [{ codigo: 'CORT-01', nombre: 'Cortina a medida', precio: '60.000' }], true);
+      expect((await productos.obtener(dueno.id, creado.id)).solicitud).toEqual(creado.solicitud);
+
+      // Sin mandarla, la edición tampoco la toca.
+      const { solicitud: _sinTocar, ...sinSolicitud } = dto;
+      expect((await productos.actualizar(dueno.id, creado.id, sinSolicitud)).solicitud).toEqual(creado.solicitud);
+
+      await expect(
+        productos.actualizar(dueno.id, creado.id, {
+          ...dto,
+          solicitud: { preguntas: [{ ...solicitud.preguntas[0], opciones: ['Blanco'] }] },
+        }),
+      ).rejects.toThrow(/una sola opción/);
+
+      const comun = await productos.actualizar(dueno.id, creado.id, { ...dto, solicitud: null });
+      expect(comun.solicitud).toBeNull();
+      await productos.eliminar(dueno.id, creado.id);
+    });
+
     it('la búsqueda aplica la promo de la categoría y no la de otro comercio', async () => {
       const promos = await prisma.descuento.createManyAndReturn({
         data: [
