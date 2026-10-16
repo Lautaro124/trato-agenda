@@ -216,7 +216,6 @@ describe('WhatsappService — mensajes de clientes', () => {
       sendMessage: vi.fn().mockResolvedValue(undefined),
       readMessages: vi.fn().mockResolvedValue(undefined),
       sendPresenceUpdate: vi.fn().mockResolvedValue(undefined),
-      presenceSubscribe: vi.fn().mockResolvedValue(undefined),
     };
   }
 
@@ -308,9 +307,9 @@ describe('WhatsappService — mensajes de clientes', () => {
     const sock = socketDeChat();
 
     await recibirMensaje(service, sock, 'hola', 'm-1');
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS);
     await recibirMensaje(service, sock, 'y otra cosa', 'm-2');
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS);
     expect(conversationService.responder).toHaveBeenCalledOnce();
 
     terminarPrimera({ texto: 'Primera', imagenes: [] });
@@ -324,47 +323,7 @@ describe('WhatsappService — mensajes de clientes', () => {
     ]);
   });
 
-  /** Dispara un "escribiendo…" (o su fin) del cliente por el socket vigente de la cuenta. */
-  function presencia(service: WhatsappService, sock: unknown, estado: 'composing' | 'paused') {
-    const interno = service as unknown as {
-      sockets: Map<string, unknown>;
-      handlePresenceUpdate: (u: string, s: unknown, e: unknown) => void;
-    };
-    interno.sockets.set('user-1', sock);
-    interno.handlePresenceUpdate('user-1', sock, { id: JID, presences: { [JID]: { lastKnownPresence: estado } } });
-  }
-
-  it('se suscribe a la presencia del chat para enterarse de cuándo escribe', async () => {
-    const { service, conversationService } = crearServicio();
-    vi.mocked(conversationService.responder).mockResolvedValue({ texto: 'Dale', imagenes: [] });
-    const sock = socketDeChat();
-
-    await recibirMensaje(service, sock, 'hola', 'm-1');
-    await recibirMensaje(service, sock, 'otra', 'm-2');
-    await vi.runAllTimersAsync();
-
-    expect(sock.presenceSubscribe).toHaveBeenCalledOnce();
-    expect(sock.presenceSubscribe).toHaveBeenCalledWith(JID);
-  });
-
-  it('mientras el cliente escribe no contesta; cuando para, espera el silencio de siempre', async () => {
-    const { service, conversationService } = crearServicio();
-    vi.mocked(conversationService.responder).mockResolvedValue({ texto: 'Dale', imagenes: [] });
-    const sock = socketDeChat();
-
-    await recibirMensaje(service, sock, 'hola');
-    presencia(service, sock, 'composing');
-    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS * 3);
-    expect(conversationService.responder).not.toHaveBeenCalled();
-
-    presencia(service, sock, 'paused');
-    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS - 1);
-    expect(conversationService.responder).not.toHaveBeenCalled();
-    await vi.runAllTimersAsync();
-    expect(conversationService.responder).toHaveBeenCalledOnce();
-  });
-
-  it('si vuelve a escribir mientras se arma la respuesta, la descarta y contesta todo junto', async () => {
+  it('si llega otro mensaje mientras se arma la respuesta, la descarta y contesta todo junto', async () => {
     const { service, conversationService } = crearServicio();
     vi.mocked(conversationService.responder)
       .mockImplementationOnce(
@@ -386,24 +345,6 @@ describe('WhatsappService — mensajes de clientes', () => {
     expect(conversationService.responder).toHaveBeenCalledTimes(2);
     expect(vi.mocked(conversationService.responder).mock.calls[1][2]).toBe('hola\ny otra cosa');
     expect(sock.sendMessage.mock.calls.map(([, contenido]) => contenido)).toEqual([{ text: 'Te contesto las dos cosas' }]);
-  });
-
-  it('una respuesta ya lista no se le manda encima mientras escribe', async () => {
-    const { service, conversationService } = crearServicio();
-    vi.mocked(conversationService.responder).mockImplementation(async () => {
-      // Ya comprometida: el cliente empieza a escribir cuando la respuesta está por salir.
-      presencia(service, sock, 'composing');
-      return { texto: 'Listo', imagenes: [] };
-    });
-    const sock = socketDeChat();
-
-    await recibirMensaje(service, sock, 'hola');
-    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS + 10_000);
-    expect(sock.sendMessage).not.toHaveBeenCalled();
-
-    presencia(service, sock, 'paused');
-    await vi.runAllTimersAsync();
-    expect(sock.sendMessage).toHaveBeenCalledWith(JID, { text: 'Listo' });
   });
 
   it('manda las fotos que eligió el asistente antes del texto', async () => {

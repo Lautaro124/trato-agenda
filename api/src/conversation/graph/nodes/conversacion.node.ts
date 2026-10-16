@@ -62,7 +62,7 @@ export function crearNodoConversacion(deps: DepsConversacion) {
         : await modelo.invoke(mensajes);
       return { messages: [respuesta] };
     } catch (error) {
-      // El cliente siguió escribiendo y la vuelta se descartó: no es un fallo del modelo.
+      // El cliente mandó otro mensaje y la vuelta se descartó: no es un fallo del modelo.
       if (state.cancelacion?.cancelada) throw new VueltaCancelada();
       // Se responde como si fuera el turno final: sin tool calls, el router
       // manda directo a persistir y termina la vuelta.

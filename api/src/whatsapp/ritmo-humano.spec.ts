@@ -5,7 +5,6 @@ import {
   demoraDeEscritura,
   demoraRestante,
   esperaDeRafaga,
-  MAXIMO_RAFAGA_ESCRIBIENDO_MS,
   partirEnMensajes,
 } from './ritmo-humano.js';
 
@@ -59,17 +58,5 @@ describe('esperaDeRafaga', () => {
   it('cerca del tope espera sólo lo que falta, y pasado el tope sale ya', () => {
     expect(esperaDeRafaga(0, MAXIMO_RAFAGA_MS - 1_000)).toBe(1_000);
     expect(esperaDeRafaga(0, MAXIMO_RAFAGA_MS + 5_000)).toBe(0);
-  });
-
-  it('mientras escribe espera a que venza su "escribiendo", con el tope largo', () => {
-    expect(esperaDeRafaga(0, 1_000, { escribiendoHasta: 15_000, huboEscritura: true })).toBe(14_000);
-    expect(esperaDeRafaga(0, 40_000, { escribiendoHasta: 60_000, huboEscritura: true })).toBe(
-      MAXIMO_RAFAGA_ESCRIBIENDO_MS - 40_000,
-    );
-  });
-
-  it('si lo vimos escribir, el silencio después puede pasar el tope corto', () => {
-    expect(esperaDeRafaga(0, MAXIMO_RAFAGA_MS + 5_000, { huboEscritura: true })).toBe(ESPERA_RAFAGA_MS);
-    expect(esperaDeRafaga(0, MAXIMO_RAFAGA_ESCRIBIENDO_MS, { huboEscritura: true })).toBe(0);
   });
 });

@@ -41,7 +41,6 @@ import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
 import { CacheConVencimiento, MensajesEnviados, TTL_REINTENTOS_MS } from './caches.js';
 import {
   MAX_CARACTERES_RAFAGA,
-  MAXIMO_PAUSA_ESCRIBIENDO_MS,
   RENOVAR_ESCRIBIENDO_MS,
   demoraDeEscritura,
   demoraRestante,
@@ -87,11 +86,6 @@ const QUINCE_MINUTOS_MS = 15 * 60 * 1000;
 /** Cuánto esperar a que el socket nuevo hable con WhatsApp antes de pedir el código. */
 export const ESPERA_SOCKET_LISTO_MS = 20_000;
 const UNA_HORA_MS = 60 * 60 * 1000;
-/**
- * Cada cuánto se vuelve a suscribir a la presencia de un chat: sin
- * suscripción WhatsApp no avisa que el cliente está escribiendo.
- */
-const RESUSCRIBIR_PRESENCIA_MS = 10 * 60 * 1000;
 /** Cada cuánto se vuelve a preguntar la versión de WhatsApp Web, y cuánto se la espera. */
 const VIGENCIA_VERSION_WA_MS = 12 * UNA_HORA_MS;
 const ESPERA_VERSION_WA_MS = 5_000;
@@ -186,11 +180,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** Versión de WhatsApp Web con la que se conecta; se refresca cada VIGENCIA_VERSION_WA_MS. */
   private versionWa: { version: WAVersion; hasta: number } | null = null;
   private consultandoVersion: Promise<WAVersion> | null = null;
-  /** Chats a cuya presencia ("escribiendo…") ya se suscribió cada cuenta hace poco. */
-  private readonly presenciasSuscriptas = new CacheConVencimiento(RESUSCRIBIR_PRESENCIA_MS);
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
   private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
-    (clave, items, cancelacion) => this.contestarRafaga(clave, items, cancelacion),
+    (_clave, items, cancelacion) => this.contestarRafaga(items, cancelacion),
     // Sólo el userId: el JID del cliente es su teléfono y no va a los logs.
     (clave, error) =>
       this.logger.error(`Fallo procesando mensajes entrantes de ${clave.split('\n')[0]}`, error as Error),
@@ -515,33 +507,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Fallo procesando mensajes entrantes de ${userId}`, error as Error),
       );
     });
-    sock.ev.on('presence.update', (update) => this.handlePresenceUpdate(userId, sock, update));
-  }
-
-  /**
-   * "Escribiendo…" de un cliente: mientras escribe no se le contesta, y si la
-   * respuesta se estaba armando se descarta para contestar todo junto (ver
-   * `AgrupadorDeRafagas`). Sólo chats 1:1 y del socket vigente de la cuenta.
-   */
-  private handlePresenceUpdate(
-    userId: string,
-    sock: WASocket,
-    update: { id: string; presences: Record<string, { lastKnownPresence: string }> },
-  ): void {
-    if (this.sockets.get(userId) !== sock || isJidGroup(update.id)) return;
-    const presencia = (update.presences[update.id] ?? Object.values(update.presences)[0])?.lastKnownPresence;
-    if (!presencia) return;
-    this.rafagas.escribiendo(`${userId}\n${update.id}`, presencia === 'composing' || presencia === 'recording');
-  }
-
-  /** Sin suscribirse a la presencia del chat, WhatsApp no avisa cuando el cliente escribe. Cosmético: si falla, no pasa nada. */
-  private suscribirPresencia(userId: string, sock: WASocket, remoteJid: string): void {
-    const clave = `${userId}\n${remoteJid}`;
-    if (this.presenciasSuscriptas.get(clave)) return;
-    this.presenciasSuscriptas.set(clave, true);
-    void Promise.resolve()
-      .then(() => sock.presenceSubscribe(remoteJid))
-      .catch(() => undefined);
   }
 
   /**
@@ -575,7 +540,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
-      this.suscribirPresencia(userId, sock, remoteJid);
       this.rafagas.agregar(`${userId}\n${remoteJid}`, {
         userId,
         remoteJid,
@@ -595,12 +559,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * tiempo del modelo cuenta como tipeo del primero, así una respuesta lenta
    * no se demora el doble.
    *
-   * Si el cliente vuelve a escribir mientras se arma, `responder` corta con
+   * Si el cliente manda otro mensaje mientras se arma, `responder` corta con
    * VueltaCancelada y no se manda nada: el agrupador la rehace con todo junto.
-   * Si ya estaba lista (comprometida), sale igual, pero cada mensaje espera a
-   * que el cliente deje de escribir.
+   * Si ya estaba comprometida, sale igual.
    */
-  private async contestarRafaga(clave: string, items: MensajeEntrante[], cancelacion: Cancelacion): Promise<void> {
+  private async contestarRafaga(items: MensajeEntrante[], cancelacion: Cancelacion): Promise<void> {
     const { userId, remoteJid, sock } = items.at(-1)!;
     const texto = items.map((item) => item.texto).join('\n');
 
@@ -613,7 +576,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         (error: unknown) => {
           if (error instanceof VueltaCancelada) {
             this.logger.log(
-              `${PREFIJO_TIEMPOS} · ráfaga de ${userId}: descartada tras ${Date.now() - inicio}ms (el cliente siguió escribiendo)`,
+              `${PREFIJO_TIEMPOS} · ráfaga de ${userId}: descartada tras ${Date.now() - inicio}ms (llegó otro mensaje)`,
             );
           }
           throw error;
@@ -621,10 +584,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       );
       const finModelo = Date.now();
       const partes = partirEnMensajes(respuesta.texto);
-      const enSilencio = () => this.rafagas.esperarSilencio(clave, MAXIMO_PAUSA_ESCRIBIENDO_MS);
-      await enSilencio();
       await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
-      await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio, enSilencio);
+      await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio);
       const primero = items[0]!;
       this.logger.log(
         resumenDeRafaga(userId, {
@@ -654,19 +615,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     partes: string[],
     escribiendo: { renovar: () => void },
     transcurrido: number,
-    enSilencio: () => Promise<void> = () => Promise.resolve(),
   ): Promise<void> {
     const [parte, ...resto] = partes;
     if (parte === undefined) return;
     // randomInt y no Math.random: es sólo jitter de tipeo, pero así no lo marca el análisis estático.
     const espera = demoraRestante(demoraDeEscritura(parte, randomInt(0, 1001) / 1000), transcurrido);
     if (espera > 0) await esperar(espera);
-    // Si el cliente se puso a escribir, se espera a que termine: no se le tira un mensaje encima.
-    await enSilencio();
     await this.enviar(userId, sock, remoteJid, { text: parte });
     if (resto.length === 0) return;
     escribiendo.renovar();
-    return this.enviarEnOrden(userId, sock, remoteJid, resto, escribiendo, 0, enSilencio);
+    return this.enviarEnOrden(userId, sock, remoteJid, resto, escribiendo, 0);
   }
 
   /** "Escribiendo…" en el chat del cliente, renovado antes de que WhatsApp lo apague solo. */

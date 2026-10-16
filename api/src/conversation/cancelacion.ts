@@ -37,10 +37,10 @@ export class Cancelacion {
   }
 }
 
-/** La vuelta se descartó porque el cliente siguió escribiendo: no se manda nada. */
+/** La vuelta se descartó porque el cliente mandó otro mensaje: no se manda nada. */
 export class VueltaCancelada extends Error {
   constructor() {
-    super('La vuelta se descartó: el cliente siguió escribiendo.');
+    super('La vuelta se descartó: el cliente mandó otro mensaje.');
     this.name = 'VueltaCancelada';
   }
 }

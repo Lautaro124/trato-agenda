@@ -33,7 +33,7 @@ export const EstadoVentas = new StateSchema({
    * salen del catálogo). Vacía = la respuesta todavía no se rechazó en esta vuelta.
    */
   correccion: new UntrackedValue<string>(undefined, { guard: false }),
-  /** La vuelta que se puede descartar si el cliente sigue escribiendo (cancelacion.ts). Sólo por WhatsApp. */
+  /** La vuelta que se puede descartar si el cliente manda otro mensaje (cancelacion.ts). Sólo por WhatsApp. */
   cancelacion: new UntrackedValue<Cancelacion>(undefined, { guard: false }),
 });
 

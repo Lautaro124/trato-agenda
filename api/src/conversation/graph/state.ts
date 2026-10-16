@@ -33,7 +33,7 @@ export type EstadoComun = {
    */
   correccion?: string;
   contexto: { agent: Agent; conversation: Conversation; bloqueSistema: string };
-  /** La vuelta que se puede descartar si el cliente sigue escribiendo (cancelacion.ts). Sólo por WhatsApp. */
+  /** La vuelta que se puede descartar si el cliente manda otro mensaje (cancelacion.ts). Sólo por WhatsApp. */
   cancelacion?: Cancelacion;
 };
 
