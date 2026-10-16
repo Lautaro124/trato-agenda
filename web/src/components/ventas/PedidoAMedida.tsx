@@ -26,6 +26,8 @@ export type AccionesPedido = {
   guardarPresupuesto: (presupuesto: PresupuestoAGuardar) => Promise<boolean>;
   enviarPresupuesto: (presupuesto: Presupuesto) => void;
   descartarPresupuesto: (presupuesto: Presupuesto) => void;
+  /** Un borrador con la receta del producto (LAU-26). */
+  desdeReceta: () => void;
   cobrar: () => void;
 };
 
@@ -199,9 +201,16 @@ function Presupuestos({ venta, acciones }: { venta: DetalleVenta; acciones: Acci
       extra={
         abierto &&
         !editando && (
-          <Button variant="secondary" size="sm" disabled={acciones.trabajando} onClick={() => setEditando(true)}>
-            {base ? "Armar otra versión" : "Armar presupuesto"}
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            {venta.solicitud?.productoId && (
+              <Button variant="ghost" size="sm" disabled={acciones.trabajando} onClick={acciones.desdeReceta}>
+                Calcular con la receta
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" disabled={acciones.trabajando} onClick={() => setEditando(true)}>
+              {base ? "Armar otra versión" : "Armar presupuesto"}
+            </Button>
+          </div>
         )
       }
     >

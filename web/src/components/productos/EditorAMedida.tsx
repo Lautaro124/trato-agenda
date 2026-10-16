@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { DialogoProducto } from "@/components/productos/DialogoProducto";
 import { INPUT, LABEL } from "@/components/productos/EditorProducto";
 import { FotoProducto, guardarConFoto } from "@/components/productos/FotoProducto";
+import { SeccionCotizacion, useRecetaEnEdicion } from "@/components/productos/SeccionCotizacion";
 import { SeccionMateriales } from "@/components/productos/SeccionMateriales";
 import {
   EncabezadoDeSeccion,
@@ -14,6 +15,7 @@ import {
 import { VistaPreviaAMedida } from "@/components/productos/VistaPreviaAMedida";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
+import { obtenerCostos, type Insumo } from "@/lib/costos";
 import {
   centavosParaInput,
   ErrorDeApi,
@@ -73,6 +75,8 @@ export function EditorAMedida({
     productoInicial?.precioReferenciaCentavos ? centavosParaInput(productoInicial.precioReferenciaCentavos) : "",
   );
   const solicitud = useSolicitudEnEdicion(productoInicial?.solicitud ?? null);
+  const receta = useRecetaEnEdicion(productoInicial?.receta ?? null, productoInicial?.politicaCotizacion ?? "manual");
+  const [insumos, setInsumos] = useState<Insumo[] | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,6 +93,7 @@ export function EditorAMedida({
       materialesArmados,
       conDesde ? desde : null,
       solicitud.firma,
+      receta.firma,
       foto?.name ?? null,
     ]);
   const formulario = firmar(codigoPropio, fotoPendiente);
@@ -99,6 +104,17 @@ export function EditorAMedida({
     primerCampo.current?.focus();
   }, []);
 
+  // Los materiales y costos del comercio, para elegirlos en la receta.
+  useEffect(() => {
+    const ctrl = { cancelado: false };
+    obtenerCostos()
+      .then(({ insumos: cargados }) => !ctrl.cancelado && setInsumos(cargados))
+      .catch(() => !ctrl.cancelado && setInsumos([]));
+    return () => {
+      ctrl.cancelado = true;
+    };
+  }, []);
+
   // Lo que falta, dicho en el pie mientras se completa: no hace falta tocar "Guardar" para enterarse.
   const faltan = [
     ...(nombre.trim().length < 2 ? ["el nombre"] : []),
@@ -107,6 +123,7 @@ export function EditorAMedida({
     ...(solicitud.sinEscribir > 0
       ? [solicitud.sinEscribir === 1 ? "escribir 1 pregunta" : `escribir ${solicitud.sinEscribir} preguntas`]
       : []),
+    ...(receta.problema() ? ["completar la receta"] : []),
   ];
 
   /** Valida en el navegador lo mismo que la API, para no gastar un viaje en un error obvio. */
@@ -117,6 +134,8 @@ export function EditorAMedida({
     if (materialesArmados.length > MAX_MATERIALES) return `Un producto puede tener hasta ${MAX_MATERIALES} materiales.`;
     const solicitudArmada = solicitud.armar();
     if (typeof solicitudArmada === "string") return solicitudArmada;
+    const problemaReceta = receta.problema();
+    if (problemaReceta) return problemaReceta;
     return {
       codigo: codigo.trim(),
       nombre: nombre.trim(),
@@ -125,6 +144,8 @@ export function EditorAMedida({
       materiales: materialesArmados,
       precioReferenciaCentavos: desdeCentavos,
       solicitud: solicitudArmada,
+      receta: receta.receta(),
+      politicaCotizacion: receta.politica,
     };
   };
 
@@ -354,6 +375,8 @@ export function EditorAMedida({
           </section>
 
           <SeccionSolicitud numero={4} estado={solicitud} />
+
+          <SeccionCotizacion numero={5} estado={receta} insumos={insumos} preguntas={solicitud.actuales()} />
         </div>
 
         {/* La vista previa: al costado desde lg; en el celular, plegada debajo de todo. */}

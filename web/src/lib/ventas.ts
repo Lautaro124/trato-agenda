@@ -238,6 +238,11 @@ export function crearPresupuesto(id: string, presupuesto: PresupuestoAGuardar): 
   return postar(`/ventas/${encodeURIComponent(id)}/presupuestos`, presupuesto);
 }
 
+/** Un borrador calculado con la receta del producto y las respuestas del pedido. */
+export function presupuestoDesdeReceta(id: string): Promise<DetalleVenta> {
+  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos/desde-receta`);
+}
+
 export function enviarPresupuesto(id: string, presupuestoId: string): Promise<DetalleVenta & { mandado: boolean }> {
   return postar(`/ventas/${encodeURIComponent(id)}/presupuestos/${encodeURIComponent(presupuestoId)}/enviar`);
 }

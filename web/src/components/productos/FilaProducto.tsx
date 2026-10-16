@@ -299,6 +299,8 @@ function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {
     <div className="mt-3 flex flex-col gap-1.5 rounded-md bg-sunken p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="info">A medida</Badge>
+        {producto.politicaCotizacion === "automatica" && <Badge tone="success">Cotiza tu asistente</Badge>}
+        {producto.politicaCotizacion === "revision" && <Badge tone="neutral">Lo aprobás vos</Badge>}
         <span className="text-[14px] font-semibold text-ink">
           {producto.precioReferenciaCentavos
             ? `Desde ${formatearCentavos(producto.precioReferenciaCentavos)}`

@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import type { Descuento, DescuentoAGuardar, DescuentoDeVariante } from "./descuentos";
+import type { PoliticaCotizacion, Receta } from "./costos";
 import type { SolicitudADemanda } from "./solicitud";
 
 /** Espejo de `VariantePublica` en la API. Precio en centavos, como lo guarda la base. */
@@ -40,6 +41,9 @@ export type Producto = {
   precioReferenciaCentavos: number | null;
   /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
   materiales: string[];
+  /** La receta de cotización (null = no tiene: lo cotiza el dueño). */
+  receta: Receta | null;
+  politicaCotizacion: PoliticaCotizacion;
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -105,6 +109,9 @@ export type ProductoAMedidaAGuardar = ProductoBaseAGuardar & {
   /** Las preguntas para hacer: pueden ser ninguna, pero la solicitud va siempre (es lo que lo hace a medida). */
   solicitud: SolicitudADemanda;
   materiales: string[];
+  /** null = sin receta. */
+  receta: Receta | null;
+  politicaCotizacion: PoliticaCotizacion;
 };
 
 export type ProductoAGuardar = ProductoDeStockAGuardar | ProductoAMedidaAGuardar;

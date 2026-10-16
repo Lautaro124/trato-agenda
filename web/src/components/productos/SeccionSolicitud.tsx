@@ -6,12 +6,14 @@ import { cn } from "@/lib/cn";
 import {
   LARGO_MAX_OPCION,
   LARGO_MAX_PREGUNTA,
+  LARGO_MAX_UNIDAD_PREGUNTA,
   MAX_OPCIONES,
   MAX_PREGUNTAS,
   claveDeTexto,
   enUnaLinea,
   problemaDePregunta,
   problemaDeSolicitud,
+  variableDesdeTexto,
   type PreguntaSolicitud,
   type SobrePregunta,
   type SolicitudADemanda,
@@ -45,7 +47,24 @@ export type PreguntaEnEdicion = {
   revisar: boolean;
   /** Recién agregada: el foco va a su pregunta. */
   nueva: boolean;
+  /** Se contesta con un número (LAU-26): su respuesta es un dato de la receta. */
+  esNumero: boolean;
+  /** El nombre del dato ("ancho"). Sale del texto hasta que el dueño lo cambia. */
+  variable: string;
+  variablePropia: boolean;
+  unidad: string;
+  /** Tal como se escriben: "" = sin límite. */
+  min: string;
+  max: string;
 };
+
+const SIN_NUMERO = { esNumero: false, variable: "", variablePropia: false, unidad: "", min: "", max: "" } as const;
+
+/** "1,5" o "1.5" → 1.5; "" → null; lo que no es un número, NaN (y la validación lo marca). */
+function leerLimite(texto: string): number | null {
+  const limpio = texto.trim().replace(",", ".");
+  return limpio ? Number(limpio) : null;
+}
 
 function nuevaPregunta(texto = "", opciones: string[] = []): PreguntaEnEdicion {
   return {
@@ -58,6 +77,7 @@ function nuevaPregunta(texto = "", opciones: string[] = []): PreguntaEnEdicion {
     obligatoria: true,
     revisar: false,
     nueva: true,
+    ...SIN_NUMERO,
   };
 }
 
@@ -72,6 +92,16 @@ function desdeGuardada(pregunta: PreguntaSolicitud): PreguntaEnEdicion {
     obligatoria: pregunta.obligatoria,
     revisar: false,
     nueva: false,
+    ...(pregunta.numero
+      ? {
+          esNumero: true,
+          variable: pregunta.numero.variable,
+          variablePropia: true,
+          unidad: pregunta.numero.unidad,
+          min: pregunta.numero.min === null ? "" : String(pregunta.numero.min).replace(".", ","),
+          max: pregunta.numero.max === null ? "" : String(pregunta.numero.max).replace(".", ","),
+        }
+      : SIN_NUMERO),
   };
 }
 
@@ -87,6 +117,21 @@ export function opcionesDe(pregunta: PreguntaEnEdicion): string[] {
  * escribir; con dos o más elige entre ellas.
  */
 function aGuardar(pregunta: PreguntaEnEdicion): PreguntaSolicitud {
+  if (pregunta.esNumero) {
+    return {
+      texto: enUnaLinea(pregunta.texto),
+      sobre: pregunta.sobre,
+      opciones: [],
+      textoLibre: true,
+      obligatoria: pregunta.obligatoria,
+      numero: {
+        variable: pregunta.variable.trim().toLowerCase(),
+        unidad: enUnaLinea(pregunta.unidad),
+        min: leerLimite(pregunta.min),
+        max: leerLimite(pregunta.max),
+      },
+    };
+  }
   const opciones = opcionesDe(pregunta);
   return {
     texto: enUnaLinea(pregunta.texto),
@@ -97,12 +142,27 @@ function aGuardar(pregunta: PreguntaEnEdicion): PreguntaSolicitud {
   };
 }
 
+/** El dato que le toca a una pregunta de número según su texto, sin chocar con los de las otras. */
+function variableSugerida(pregunta: PreguntaEnEdicion, todas: PreguntaEnEdicion[]): string {
+  const usadas = new Set(todas.filter((p) => p.clave !== pregunta.clave && p.esNumero).map((p) => p.variable));
+  return variableDesdeTexto(pregunta.texto, usadas);
+}
+
 /** Estado de las preguntas de un producto a medida. Son opcionales: uno nuevo arranca sin ninguna. */
 export function useSolicitudEnEdicion(inicial: SolicitudADemanda | null) {
   const [preguntas, setPreguntas] = useState<PreguntaEnEdicion[]>(() => inicial?.preguntas.map(desdeGuardada) ?? []);
 
+  // Mientras el dueño no lo cambió, el dato de una pregunta de número sigue a su texto.
   const cambiar = (clave: string, cambios: Partial<PreguntaEnEdicion>) =>
-    setPreguntas((actuales) => actuales.map((p) => (p.clave === clave ? { ...p, ...cambios } : p)));
+    setPreguntas((actuales) =>
+      actuales.map((p) => {
+        if (p.clave !== clave) return p;
+        const cambiada = { ...p, ...cambios };
+        return cambiada.esNumero && !cambiada.variablePropia
+          ? { ...cambiada, variable: variableSugerida(cambiada, actuales) }
+          : cambiada;
+      }),
+    );
 
   const llena = preguntas.length >= MAX_PREGUNTAS;
 
@@ -133,6 +193,8 @@ export function useSolicitudEnEdicion(inicial: SolicitudADemanda | null) {
       setPreguntas((actuales) =>
         actuales.map((p) => (p.clave === clave ? { ...p, opciones: p.opciones.filter((_, i) => i !== indice) } : p)),
       ),
+    /** Lo que se mandaría ahora, sin marcar errores: para la receta y su vista previa. */
+    actuales: () => preguntas.map(aGuardar),
     /** Lo que se manda, o el texto del error (y las preguntas con problemas lo muestran). */
     armar: (): SolicitudADemanda | string => {
       const armadas = preguntas.map(aGuardar);
@@ -209,22 +271,87 @@ function TarjetaPregunta({
         </div>
 
         <div className="sm:pl-9">
-          <p className={LABEL}>
-            Y le da estas opciones{" "}
-            <span className="font-normal text-muted">· si no ponés ninguna, responde con sus palabras</span>
-          </p>
-          <ListaDePastillas
-            items={pregunta.opciones}
-            nombreLista="Opciones"
-            nombreNuevo="Nueva opción"
-            placeholder="+ Opción (Enter)"
-            nuevo={pregunta.nuevaOpcion}
-            largoMaximo={LARGO_MAX_OPCION}
-            llena={pregunta.opciones.length >= MAX_OPCIONES}
-            onNuevo={(texto) => estado.cambiar(pregunta.clave, { nuevaOpcion: texto })}
-            onAgregar={() => estado.agregarOpcion(pregunta.clave)}
-            onQuitar={(indice) => estado.quitarOpcion(pregunta.clave, indice)}
-          />
+          <label className="mb-3 flex min-h-[36px] items-center gap-2 text-[13.5px] text-ink">
+            <input
+              type="checkbox"
+              checked={pregunta.esNumero}
+              onChange={(e) => estado.cambiar(pregunta.clave, { esNumero: e.target.checked })}
+              className="size-4 accent-[var(--color-semantic-primary-default)]"
+            />
+            Se contesta con un número
+            <span className="text-[12.5px] text-muted">· para usarlo en la cuenta de la cotización</span>
+          </label>
+
+          {pregunta.esNumero ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <label>
+                <span className={LABEL}>Nombre del dato</span>
+                <input
+                  value={pregunta.variable}
+                  maxLength={30}
+                  placeholder="ancho"
+                  onChange={(e) =>
+                    estado.cambiar(pregunta.clave, {
+                      variable: e.target.value.toLowerCase().replace(/\s+/g, "_"),
+                      variablePropia: true,
+                    })
+                  }
+                  className={cn(INPUT, "font-mono")}
+                />
+              </label>
+              <label>
+                <span className={LABEL}>En qué unidad</span>
+                <input
+                  value={pregunta.unidad}
+                  maxLength={LARGO_MAX_UNIDAD_PREGUNTA}
+                  placeholder="cm"
+                  onChange={(e) => estado.cambiar(pregunta.clave, { unidad: e.target.value })}
+                  className={INPUT}
+                />
+              </label>
+              <label>
+                <span className={LABEL}>
+                  Mínimo <span className="font-normal text-muted">(opcional)</span>
+                </span>
+                <input
+                  inputMode="decimal"
+                  value={pregunta.min}
+                  onChange={(e) => estado.cambiar(pregunta.clave, { min: e.target.value })}
+                  className={INPUT}
+                />
+              </label>
+              <label>
+                <span className={LABEL}>
+                  Máximo <span className="font-normal text-muted">(opcional)</span>
+                </span>
+                <input
+                  inputMode="decimal"
+                  value={pregunta.max}
+                  onChange={(e) => estado.cambiar(pregunta.clave, { max: e.target.value })}
+                  className={INPUT}
+                />
+              </label>
+            </div>
+          ) : (
+            <>
+              <p className={LABEL}>
+                Y le da estas opciones{" "}
+                <span className="font-normal text-muted">· si no ponés ninguna, responde con sus palabras</span>
+              </p>
+              <ListaDePastillas
+                items={pregunta.opciones}
+                nombreLista="Opciones"
+                nombreNuevo="Nueva opción"
+                placeholder="+ Opción (Enter)"
+                nuevo={pregunta.nuevaOpcion}
+                largoMaximo={LARGO_MAX_OPCION}
+                llena={pregunta.opciones.length >= MAX_OPCIONES}
+                onNuevo={(texto) => estado.cambiar(pregunta.clave, { nuevaOpcion: texto })}
+                onAgregar={() => estado.agregarOpcion(pregunta.clave)}
+                onQuitar={(indice) => estado.quitarOpcion(pregunta.clave, indice)}
+              />
+            </>
+          )}
 
           <label className="mt-3 flex min-h-[36px] items-center gap-2 text-[13.5px] text-ink">
             <input

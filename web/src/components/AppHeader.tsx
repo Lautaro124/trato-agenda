@@ -20,7 +20,8 @@ type Tab =
   | "chat"
   | "plan"
   | "cuenta"
-  | "asistente";
+  | "asistente"
+  | "costos";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 
@@ -44,6 +45,8 @@ function pestanasDe(user: Usuario): Pestana[] {
     return [
       inicio,
       { tab: "productos", href: "/productos", label: "Productos" },
+      // A pedido (LAU-26): con qué materiales y costos cotiza el asistente.
+      ...(user.modalidadVenta === "pedido" ? [{ tab: "costos" as const, href: "/costos", label: "Costos" }] : []),
       { tab: "ventas", href: "/ventas", label: "Ventas" },
       asistente,
       plan,
@@ -217,7 +220,17 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
               >
                 Vinculación
               </Link>
-              {/* En el celular la barra de abajo no tiene lugar para "Asistente": se llega desde acá. */}
+              {/* En el celular la barra de abajo no tiene lugar para "Costos" ni "Asistente": se llega desde acá. */}
+              {user.tipoAsistente === "ventas" && user.modalidadVenta === "pedido" && (
+                <Link
+                  href="/costos"
+                  role="menuitem"
+                  onClick={() => setMenuAbierto(false)}
+                  className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "costos" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
+                >
+                  Materiales y costos
+                </Link>
+              )}
               <Link
                 href="/asistente"
                 role="menuitem"

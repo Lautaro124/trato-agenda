@@ -15,6 +15,7 @@ import {
   ETIQUETA_ESTADO,
   fechaCorta,
   marcarPagada,
+  presupuestoDesdeReceta,
   type DetalleVenta as Detalle,
 } from "@/lib/ventas";
 import { loAtendesVos, TONO_ESTADO, totalDeVenta } from "./ListaVentas";
@@ -95,6 +96,7 @@ export function DetalleVenta({
       ),
     descartarPresupuesto: (presupuesto) =>
       accion(() => descartarPresupuesto(venta.id, presupuesto.id), "¿Descartar este presupuesto sin mandarlo?"),
+    desdeReceta: () => void correr(() => presupuestoDesdeReceta(venta.id)),
     cobrar: () =>
       accion(
         () => cobrarPedido(venta.id),
