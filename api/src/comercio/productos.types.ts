@@ -20,6 +20,8 @@ import { hashTexto, LARGOS, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PES
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import {
   LARGO_MAX_OPCION,
+  LARGO_MAX_MATERIAL,
+  MAX_MATERIALES,
   LARGO_MAX_PREGUNTA,
   leerSolicitud,
   MAX_OPCIONES,
@@ -79,8 +81,10 @@ export class PreguntaSolicitudDto {
   @MaxLength(LARGO_MAX_PREGUNTA)
   texto!: string;
 
+  /** Quedó de la primera versión: sin él, la pregunta es sobre lo que el cliente pide. */
+  @IsOptional()
   @IsIn(SOBRE_PREGUNTA)
-  sobre!: SobrePregunta;
+  sobre?: SobrePregunta;
 
   @IsArray()
   @ArrayMaxSize(MAX_OPCIONES)
@@ -158,6 +162,14 @@ export class GuardarProductoDto {
   @ValidateNested()
   @Type(() => SolicitudDto)
   solicitud?: SolicitudDto | null;
+
+  /** Producto a medida: con qué materiales se hace. Ausente no los toca; [] los borra. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_MATERIALES)
+  @IsString({ each: true })
+  @MaxLength(LARGO_MAX_MATERIAL, { each: true })
+  materiales?: string[];
 }
 
 /** Body de `PATCH /productos/variantes/:id`: la edición rápida desde la tabla. */
@@ -247,6 +259,8 @@ export type ProductoPublico = Pick<
   solicitud: SolicitudADemanda | null;
   /** Precio "desde" de un producto a medida, si el dueño puso uno. */
   precioReferenciaCentavos: number | null;
+  /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
+  materiales: string[];
 };
 
 /**
@@ -280,6 +294,7 @@ export function aProductoPublico(
     imagenActualizada: producto.imagen?.updatedAt ?? null,
     solicitud: leerSolicitud(producto.solicitud),
     precioReferenciaCentavos: producto.precioReferenciaCentavos,
+    materiales: producto.materiales,
     variantes: producto.variantes
       .filter((variante) => variante.activo)
       .map((variante) => {

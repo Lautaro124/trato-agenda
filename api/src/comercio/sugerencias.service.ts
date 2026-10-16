@@ -108,6 +108,7 @@ export class SugerenciasService {
             precioDesdeCentavos: producto.precioReferenciaCentavos,
             variosPrecios: false,
             aMedida: true,
+            materiales: producto.materiales,
           },
         ];
       }
@@ -158,6 +159,7 @@ export class SugerenciasService {
         descripcion: true,
         solicitud: true,
         precioReferenciaCentavos: true,
+        materiales: true,
         variantes: {
           where: { activo: true },
           select: { id: true, precioCentavos: true, stock: true, disponible: true, activo: true },

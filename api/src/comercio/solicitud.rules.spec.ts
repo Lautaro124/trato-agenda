@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   leerSolicitud,
   MAX_OPCIONES,
+  MAX_MATERIALES,
   MAX_PREGUNTAS,
+  normalizarMateriales,
   normalizarSolicitud,
   problemaSegunModalidad,
   validarRespuestasSolicitud,
@@ -32,7 +34,7 @@ function error(entrada: Parameters<typeof normalizarSolicitud>[0]): string {
 }
 
 describe('normalizarSolicitud', () => {
-  it('limpia espacios y deja primero lo que el cliente tiene, en el orden de carga', () => {
+  it('limpia espacios y respeta el orden de carga', () => {
     const resultado = normalizarSolicitud({
       preguntas: [
         { ...COLOR, texto: '  ¿De qué   color la querés? ', opciones: [' Blanco ', 'Negro'] },
@@ -42,13 +44,18 @@ describe('normalizarSolicitud', () => {
     });
     expect(resultado).toEqual({
       solicitud: {
-        preguntas: [MEDIDA, COLOR, DETALLE],
+        preguntas: [COLOR, MEDIDA, DETALLE],
       },
     });
   });
 
-  it('pide al menos una pregunta y pone un tope', () => {
-    expect(error({ preguntas: [] })).toMatch(/al menos una pregunta/);
+  it('las preguntas son opcionales y sin "sobre" son de lo que el cliente pide', () => {
+    expect(normalizarSolicitud({ preguntas: [] })).toEqual({ solicitud: { preguntas: [] } });
+    const { sobre: _sobre, ...sinSobre } = DETALLE;
+    expect(normalizarSolicitud({ preguntas: [sinSobre] })).toEqual({ solicitud: { preguntas: [DETALLE] } });
+  });
+
+  it('pone un tope de preguntas', () => {
     const muchas = Array.from({ length: MAX_PREGUNTAS + 1 }, (_, i) => ({ ...DETALLE, texto: `Pregunta ${i}` }));
     expect(error({ preguntas: muchas })).toMatch(/hasta 15 preguntas/);
   });
@@ -76,6 +83,21 @@ describe('normalizarSolicitud', () => {
   });
 });
 
+describe('normalizarMateriales', () => {
+  it('limpia, saca vacíos y repetidos sin tildes ni mayúsculas, y respeta el orden', () => {
+    expect(normalizarMateriales([' Melamina ', 'MDF   laqueado', '', 'melamína', 'Madera'])).toEqual({
+      materiales: ['Melamina', 'MDF laqueado', 'Madera'],
+    });
+    expect(normalizarMateriales([])).toEqual({ materiales: [] });
+  });
+
+  it('pone un tope de cantidad y de largo', () => {
+    const muchos = Array.from({ length: MAX_MATERIALES + 1 }, (_, i) => `Material ${i}`);
+    expect(normalizarMateriales(muchos)).toEqual({ error: `Un producto puede tener hasta ${MAX_MATERIALES} materiales.` });
+    expect(normalizarMateriales(['x'.repeat(61)])).toHaveProperty('error');
+  });
+});
+
 describe('leerSolicitud', () => {
   it('lee lo que se guardó', () => {
     const guardada = normalizarSolicitud({ preguntas: [MEDIDA, COLOR] });
@@ -86,7 +108,8 @@ describe('leerSolicitud', () => {
     expect(leerSolicitud(null)).toBeNull();
     expect(leerSolicitud([])).toBeNull();
     expect(leerSolicitud({ preguntas: 'no' })).toBeNull();
-    expect(leerSolicitud({ preguntas: [] })).toBeNull();
+    // Sin preguntas sigue siendo a medida: el asistente pregunta lo básico.
+    expect(leerSolicitud({ preguntas: [] })).toEqual({ preguntas: [] });
     expect(leerSolicitud({ preguntas: [{ ...COLOR, opciones: [] }] })).toBeNull();
     // Un ítem roto se descarta y el resto se lee.
     expect(leerSolicitud({ preguntas: [42, { ...MEDIDA, opciones: ['Chica', 3, 'Mediana', 'Grande'] }] })).toEqual({
@@ -148,9 +171,12 @@ describe('problemaSegunModalidad', () => {
     expect(problemaSegunModalidad('stock', { variantes: 0, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toMatch(/precio/);
     expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: preguntas, precioReferencia: undefined })).toMatch(/vende con stock/);
     expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: 100 })).toMatch(/vende con stock/);
+    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined, materiales: ['Madera'] })).toMatch(/vende con stock/);
+    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined, materiales: [] })).toBeNull();
   });
 
-  it('a pedido: preguntas obligatorias, sin variantes ni descuento; el precio "desde" es opcional', () => {
+  it('a pedido: la solicitud viene (puede no tener preguntas), sin variantes ni descuento; el precio "desde" es opcional', () => {
+    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: { preguntas: [] }, precioReferencia: null, materiales: ['Madera'] })).toBeNull();
     expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: preguntas, precioReferencia: null })).toBeNull();
     expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: null, solicitud: preguntas, precioReferencia: 100 })).toBeNull();
     expect(problemaSegunModalidad('pedido', { variantes: 1, descuento: undefined, solicitud: preguntas, precioReferencia: null })).toMatch(/variantes/);

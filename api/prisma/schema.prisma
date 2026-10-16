@@ -375,12 +375,17 @@ model Producto {
   imagen    ImagenProducto?
   /// Producto a medida (LAU-22): las preguntas que el asistente le hace al
   /// cliente para presupuestar, `{ preguntas: [{ texto, sobre: 'tiene' |
-  /// 'solicita', opciones, textoLibre, obligatoria }] }`. Null = no se hace a
-  /// medida. La forma y sus reglas están en comercio/solicitud.rules.ts.
+  /// 'solicita', opciones, textoLibre, obligatoria }] }`, en el orden en que
+  /// las hace; `{ preguntas: [] }` es a medida sin preguntas propias. Null =
+  /// no se hace a medida. La forma y sus reglas están en
+  /// comercio/solicitud.rules.ts.
   solicitud Json?
   /// Precio "desde" opcional de un producto a medida (cuenta a pedido), que no
   /// tiene variantes: el precio real sale de la cotización. Null en los de stock.
   precioReferenciaCentavos Int?
+  /// Con qué materiales se hace un producto a medida: el asistente ofrece
+  /// sólo esos. Vacío en los de stock y cuando el dueño no los cargó.
+  materiales String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -10,10 +10,16 @@
  * `{ pregunta, respuesta }`, así un pedido viejo no se rompe si el dueño
  * cambia o borra la pregunta.
  *
- * Cada pregunta dice si describe lo que el cliente ya tiene (las medidas del
- * hueco, el modelo de su auto) o lo que pide (color, material). Sin opciones
- * es de respuesta escrita; con opciones, `textoLibre` deja contestar otra cosa
- * cuando ninguna le sirve.
+ * Las preguntas son opcionales (`{ preguntas: [] }` sigue siendo un producto
+ * a medida: el asistente pregunta lo básico) y van en el orden en que el dueño
+ * las cargó, que es el orden en que el asistente las hace. Sin opciones es de
+ * respuesta escrita; con opciones, `textoLibre` deja contestar otra cosa
+ * cuando ninguna le sirve. `sobre` (lo que el cliente ya tiene o lo que pide)
+ * quedó de la primera versión: la pantalla ya no lo pide y lo nuevo se guarda
+ * como `solicita`.
+ *
+ * Los materiales con los que se hace el producto (`Producto.materiales`) son
+ * una lista aparte, también opcional: el asistente ofrece sólo esos.
  */
 import type { ModalidadVenta } from '../agents/modalidad-venta.js';
 import { claveDeCampo } from './datos-cliente.rules.js';
@@ -26,6 +32,8 @@ export const MAX_OPCIONES = 12;
 export const LARGO_MIN_PREGUNTA = 3;
 export const LARGO_MAX_PREGUNTA = 120;
 export const LARGO_MAX_OPCION = 60;
+export const MAX_MATERIALES = 20;
+export const LARGO_MAX_MATERIAL = 60;
 /** Lo que se guarda de cada respuesta del cliente. */
 export const LARGO_MAX_RESPUESTA = 300;
 
@@ -43,7 +51,7 @@ export type SolicitudADemanda = { preguntas: PreguntaSolicitud[] };
 export type SolicitudEntrada = {
   preguntas: ReadonlyArray<{
     texto: string;
-    sobre: string;
+    sobre?: string;
     opciones?: readonly string[];
     textoLibre?: boolean;
     obligatoria?: boolean;
@@ -97,21 +105,20 @@ function problemaDePregunta(pregunta: PreguntaSolicitud, numero: number): string
 
 /**
  * Valida y normaliza lo que manda la pantalla. Devuelve el motivo del rechazo
- * en castellano (va tal cual en el 400). Las preguntas quedan primero las de
- * lo que el cliente tiene y después las de lo que pide, cada grupo en el
- * orden en que el dueño las cargó: es el orden en que conviene preguntarlas.
+ * en castellano (va tal cual en el 400). Ninguna pregunta es válido; el orden
+ * es el de carga. Sin `sobre`, la pregunta es sobre lo que el cliente pide.
  */
 export function normalizarSolicitud(entrada: SolicitudEntrada): { solicitud: SolicitudADemanda } | { error: string } {
-  if (entrada.preguntas.length === 0) return { error: 'Agregá al menos una pregunta para el pedido a medida.' };
   if (entrada.preguntas.length > MAX_PREGUNTAS) return { error: `Un producto puede tener hasta ${MAX_PREGUNTAS} preguntas.` };
 
   const preguntas: PreguntaSolicitud[] = [];
   const vistas = new Set<string>();
   for (const [indice, cruda] of entrada.preguntas.entries()) {
-    if (!esSobre(cruda.sobre)) return { error: `La pregunta ${indice + 1} no dice si es sobre lo que tiene o lo que pide.` };
+    const sobre = cruda.sobre ?? 'solicita';
+    if (!esSobre(sobre)) return { error: `La pregunta ${indice + 1} no dice si es sobre lo que tiene o lo que pide.` };
     const pregunta: PreguntaSolicitud = {
       texto: enUnaLinea(cruda.texto),
-      sobre: cruda.sobre,
+      sobre,
       opciones: (cruda.opciones ?? []).map(enUnaLinea),
       textoLibre: cruda.textoLibre === true,
       obligatoria: cruda.obligatoria === true,
@@ -124,11 +131,26 @@ export function normalizarSolicitud(entrada: SolicitudEntrada): { solicitud: Sol
     preguntas.push(pregunta);
   }
 
-  return {
-    solicitud: {
-      preguntas: [...preguntas.filter((p) => p.sobre === 'tiene'), ...preguntas.filter((p) => p.sobre === 'solicita')],
-    },
-  };
+  return { solicitud: { preguntas } };
+}
+
+/**
+ * Los materiales del producto, en el orden de carga: en una línea, sin vacíos
+ * ni repetidos (sin tildes ni mayúsculas, como las opciones).
+ */
+export function normalizarMateriales(lista: readonly string[]): { materiales: string[] } | { error: string } {
+  const materiales: string[] = [];
+  const vistos = new Set<string>();
+  for (const crudo of lista) {
+    const material = enUnaLinea(crudo);
+    const clave = claveDeCampo(material);
+    if (!material || !clave || vistos.has(clave)) continue;
+    if (material.length > LARGO_MAX_MATERIAL) return { error: `El material ${JSON.stringify(material)} es demasiado largo.` };
+    vistos.add(clave);
+    materiales.push(material);
+  }
+  if (materiales.length > MAX_MATERIALES) return { error: `Un producto puede tener hasta ${MAX_MATERIALES} materiales.` };
+  return { materiales };
 }
 
 /**
@@ -208,24 +230,26 @@ export function validarRespuestasSolicitud(config: SolicitudADemanda, respuestas
 /**
  * Qué formulario de producto tiene la cuenta depende de cómo vende (se elige
  * en el registro y no cambia): con stock, variantes con precio y stock; a
- * pedido, un producto a medida con sus preguntas y, si quiere, un precio
- * "desde", sin variantes ni descuento. Lo que no corresponde es un 400.
- * `undefined` es "no vino" (no toca lo guardado); `null`, "sin".
+ * pedido, un producto a medida con sus preguntas (pueden ser ninguna, pero la
+ * solicitud viene: es lo que lo marca a medida), sus materiales y, si quiere,
+ * un precio "desde", sin variantes ni descuento. Lo que no corresponde es un
+ * 400. `undefined` es "no vino" (no toca lo guardado); `null`, "sin".
  */
 export function problemaSegunModalidad(
   modalidad: ModalidadVenta,
-  producto: { variantes: number; descuento: unknown; solicitud: unknown; precioReferencia: unknown },
+  producto: { variantes: number; descuento: unknown; solicitud: unknown; precioReferencia: unknown; materiales?: unknown },
 ): string | null {
   const presente = (valor: unknown) => valor !== undefined && valor !== null;
   if (modalidad === 'stock') {
     if (producto.variantes === 0) return 'Poné el precio del producto.';
-    if (presente(producto.solicitud) || presente(producto.precioReferencia)) {
-      return 'Tu cuenta vende con stock: los productos no llevan preguntas para presupuestar.';
+    const conMateriales = Array.isArray(producto.materiales) && producto.materiales.length > 0;
+    if (presente(producto.solicitud) || presente(producto.precioReferencia) || conMateriales) {
+      return 'Tu cuenta vende con stock: los productos no llevan preguntas ni materiales para presupuestar.';
     }
     return null;
   }
   if (producto.variantes > 0) return 'Tu cuenta vende a pedido: los productos no llevan variantes ni stock.';
   if (presente(producto.descuento)) return 'Tu cuenta vende a pedido: los productos no llevan descuento.';
-  if (!presente(producto.solicitud)) return 'Agregá las preguntas para presupuestar el producto.';
+  if (!presente(producto.solicitud)) return 'Faltan las preguntas para hacer del producto (pueden ser ninguna).';
   return null;
 }

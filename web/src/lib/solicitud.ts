@@ -12,6 +12,8 @@ export const MAX_OPCIONES = 12;
 export const LARGO_MIN_PREGUNTA = 3;
 export const LARGO_MAX_PREGUNTA = 120;
 export const LARGO_MAX_OPCION = 60;
+export const MAX_MATERIALES = 20;
+export const LARGO_MAX_MATERIAL = 60;
 
 /** Espejo de `PreguntaSolicitud` en la API: sin opciones es de respuesta escrita. */
 export type PreguntaSolicitud = {
@@ -60,9 +62,8 @@ export function problemaDePregunta(pregunta: PreguntaSolicitud): string | null {
   return null;
 }
 
-/** El primer problema de toda la sección, para la alerta del pie del editor. */
+/** El primer problema de toda la sección, para la alerta del pie del editor. Ninguna pregunta es válido. */
 export function problemaDeSolicitud(preguntas: PreguntaSolicitud[]): string | null {
-  if (preguntas.length === 0) return "Agregá al menos una pregunta para el pedido a medida.";
   if (preguntas.length > MAX_PREGUNTAS) return `Un producto puede tener hasta ${MAX_PREGUNTAS} preguntas.`;
   const vistas = new Set<string>();
   for (const [indice, pregunta] of preguntas.entries()) {
@@ -76,8 +77,36 @@ export function problemaDeSolicitud(preguntas: PreguntaSolicitud[]): string | nu
   return null;
 }
 
-/** Cómo se contesta, para la pregunta plegada (las opciones ya se ven como pastillas). */
-export function resumenDeRespuesta(pregunta: PreguntaSolicitud): string | null {
-  if (pregunta.opciones.length === 0) return "Responde con sus palabras";
-  return pregunta.textoLibre ? "o escribe otra respuesta" : null;
+/** Los materiales en una línea, sin vacíos ni repetidos (igual que `normalizarMateriales` de la API). */
+export function limpiarMateriales(lista: readonly string[]): string[] {
+  const vistos = new Set<string>();
+  return lista.map(enUnaLinea).filter((material) => {
+    const clave = claveDeTexto(material);
+    if (!clave || vistos.has(clave)) return false;
+    vistos.add(clave);
+    return true;
+  });
+}
+
+/**
+ * El código que se le propone a un producto nuevo a partir del nombre
+ * ("Mesa ratona" → "MESA-RATONA"), el primero libre entre los que ya usa la
+ * cuenta (MESA-RATONA-2, -3…). El dueño lo puede cambiar.
+ */
+export function codigoDesdeNombre(nombre: string, usados: ReadonlySet<string>): string {
+  const base =
+    nombre
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 50)
+      .replace(/-+$/, "") || "PRODUCTO";
+  const ocupado = (codigo: string) => usados.has(codigo.toUpperCase());
+  if (!ocupado(base)) return base;
+  for (let n = 2; ; n += 1) {
+    const candidato = `${base}-${n}`;
+    if (!ocupado(candidato)) return candidato;
+  }
 }
