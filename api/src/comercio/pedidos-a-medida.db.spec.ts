@@ -12,6 +12,9 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 import type { MercadoPagoClient } from '../subscription/mercadopago.client.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
 import type { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
+import { CostosService } from './costos.service.js';
+import type { IndexadorService } from './indexador.service.js';
+import { ProductosService } from './productos.service.js';
 import { PedidosAMedidaService } from './pedidos-a-medida.service.js';
 import { normalizarRenglones } from './presupuesto.rules.js';
 import { HistoricoVentasService } from './historico.service.js';
@@ -34,6 +37,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
   const notificaciones = { avisar: vi.fn(), avisarAlCliente: vi.fn() };
   let ventas: VentasService;
   let pedidos: PedidosAMedidaService;
+  let costos: CostosService;
 
   const armado = (precio: number) => {
     const resultado = normalizarRenglones([{ concepto: 'Placard completo', cantidad: 1, precioUnitarioCentavos: precio }]);
@@ -63,11 +67,13 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
       config,
       notificaciones as unknown as NotificacionesService,
     );
+    costos = new CostosService(prisma);
     pedidos = new PedidosAMedidaService(
       prisma,
       ventas,
       cuentas as unknown as CuentaMercadoPagoService,
       notificaciones as unknown as NotificacionesService,
+      costos,
     );
     dueno = await crearUsuarioDePrueba(prisma);
     otro = await crearUsuarioDePrueba(prisma);
@@ -80,6 +86,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
     await prisma.venta.deleteMany({ where: { userId: dueno.id } });
     await prisma.conversation.deleteMany({ where: { userId: dueno.id } });
     await prisma.producto.deleteMany({ where: { userId: dueno.id } });
+    await prisma.insumo.deleteMany({ where: { userId: dueno.id } });
+    await prisma.configCotizacion.deleteMany({ where: { userId: dueno.id } });
     conversationId = (await prisma.conversation.create({ data: { userId: dueno.id, remoteJid } })).id;
     productoId = (
       await prisma.producto.create({
@@ -216,5 +224,131 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
     expect(listado).toMatchObject([{ tipo: 'a_medida', estado: 'a_cotizar', totalCentavos: null }]);
     expect((await historico.listar(dueno.id, { estado: 'a_cotizar' })).total).toBe(1);
     expect((await historico.listar(dueno.id, { q: 'placard' })).total).toBe(1);
+  });
+
+  describe('cotización con la receta (LAU-26)', () => {
+    const PREGUNTAS = {
+      preguntas: [
+        { texto: 'Ancho (cm)', sobre: 'solicita', opciones: [], textoLibre: true, obligatoria: true, numero: { variable: 'ancho', unidad: 'cm', min: null, max: null } },
+      ],
+    };
+
+    async function conReceta(politica: 'automatica' | 'revision' | 'manual') {
+      await prisma.agent.upsert({
+        where: { userId: dueno.id },
+        create: {
+          userId: dueno.id,
+          systemPrompt: '',
+          allowedActions: [],
+          tipoUso: 'comercio',
+          descripcion: '',
+          tipoAsistente: 'ventas',
+          modalidadVenta: 'pedido',
+          nombreTitular: 'Casa',
+          nombreBot: 'Sol',
+          tiposEvento: [],
+          horaDesde: '00:00',
+          horaHasta: '23:59',
+        },
+        update: { tipoAsistente: 'ventas', modalidadVenta: 'pedido' },
+      });
+      const melamina = await costos.crearInsumo(dueno.id, { tipo: 'material', nombre: 'Melamina', unidad: 'm', costoCentavos: 1_000_000 });
+      await costos.guardarConfig(dueno.id, {
+        extras: [{ nombre: 'Ganancia', modo: 'porcentaje', valor: 50 }],
+        redondeoCentavos: 0,
+        estimativo: true,
+        vigenciaDias: 7,
+        desgloseAlCliente: 'total',
+      });
+      await prisma.producto.update({
+        where: { id: productoId },
+        data: {
+          solicitud: PREGUNTAS,
+          receta: { renglones: [{ insumoId: melamina.id, cantidad: 'ancho ÷ 100' }], extras: [] },
+          politicaCotizacion: politica,
+        },
+      });
+      return melamina;
+    }
+
+    const respuestas = [{ pregunta: 'Ancho (cm)', respuesta: '120' }];
+
+    it('automática: arma el presupuesto, queda cotizado y devuelve el texto para el cliente', async () => {
+      await conReceta('automatica');
+      const previa = await pedidos.cotizacionPrevia(dueno.id, productoId, respuestas);
+      expect(previa?.resultado).toMatchObject({ ok: true, totalCentavos: 1_800_000 });
+      const resultado = await solicitar('120');
+      const cotizacion = await pedidos.cotizarSolicitud(resultado, previa);
+      expect(cotizacion).toMatchObject({ modo: 'automatica' });
+      expect(cotizacion.modo === 'automatica' && cotizacion.texto).toContain('*Total: $ 18.000* (es estimativo');
+      expect(cotizacion.modo === 'automatica' && cotizacion.texto).toContain('Vale por 7 días.');
+      // El desglose (y el costo de la melamina) no le llega al cliente.
+      expect(cotizacion.modo === 'automatica' && cotizacion.texto).not.toContain('Melamina');
+      const venta = await pedidos.buscar(dueno.id, resultado.venta.id);
+      expect(venta).toMatchObject({ estado: 'cotizado', totalCentavos: 1_800_000 });
+      expect(venta?.presupuestos).toMatchObject([{ origen: 'asistente', estado: 'enviado', estimativo: true }]);
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+    });
+
+    it('revisión: queda el borrador para el dueño y el pedido sigue a cotizar', async () => {
+      await conReceta('revision');
+      const previa = await pedidos.cotizacionPrevia(dueno.id, productoId, respuestas);
+      const resultado = await solicitar('120');
+      expect(await pedidos.cotizarSolicitud(resultado, previa)).toEqual({ modo: 'revision' });
+      const venta = await pedidos.buscar(dueno.id, resultado.venta.id);
+      expect(venta).toMatchObject({ estado: 'a_cotizar', totalCentavos: null });
+      expect(venta?.presupuestos).toMatchObject([{ origen: 'asistente', estado: 'borrador', totalCentavos: 1_800_000 }]);
+      expect(notificaciones.avisar).toHaveBeenCalledWith(dueno.id, expect.objectContaining({ tipo: 'presupuesto_a_revisar' }));
+    });
+
+    it('si la receta no alcanza (un insumo dado de baja), queda para el dueño con el motivo', async () => {
+      const melamina = await conReceta('automatica');
+      await costos.borrarInsumo(dueno.id, melamina.id);
+      const previa = await pedidos.cotizacionPrevia(dueno.id, productoId, respuestas);
+      expect(previa?.resultado).toMatchObject({ ok: false });
+      const resultado = await solicitar('120');
+      expect(await pedidos.cotizarSolicitud(resultado, previa)).toEqual({ modo: 'manual' });
+      expect(notificaciones.avisar).toHaveBeenCalledWith(
+        dueno.id,
+        expect.objectContaining({ tipo: 'solicitud_a_cotizar', cuerpo: expect.stringContaining('no pudo cotizarlo solo') }),
+      );
+    });
+
+    it('el dueño arma un borrador con la receta aunque el producto lo cotice él', async () => {
+      await conReceta('manual');
+      const { venta } = await solicitar('120');
+      const conBorrador = await pedidos.presupuestoDesdeReceta(dueno.id, venta.id);
+      expect(conBorrador?.presupuestos).toMatchObject([{ estado: 'borrador', totalCentavos: 1_800_000 }]);
+      expect(await pedidos.presupuestoDesdeReceta(otro.id, venta.id)).toBeNull();
+    });
+
+    it('al guardar el producto la receta se valida contra los insumos y las preguntas', async () => {
+      const melamina = await conReceta('manual');
+      const ajeno = await prisma.insumo.create({
+        data: { userId: otro.id, tipo: 'material', nombre: 'Ajeno', unidad: 'm', costoCentavos: 1 },
+      });
+      const productos = new ProductosService(prisma, { programar: vi.fn() } as unknown as IndexadorService);
+      const base = { codigo: 'PLACARD', nombre: 'Placard', solicitud: PREGUNTAS };
+      const guardar = (extra: Record<string, unknown>) => productos.actualizar(dueno.id, productoId, { ...base, ...extra } as never);
+
+      const guardado = await guardar({
+        receta: { renglones: [{ insumoId: melamina.id, cantidad: 'ancho ÷ 100' }] },
+        politicaCotizacion: 'automatica',
+      });
+      expect(guardado).toMatchObject({ politicaCotizacion: 'automatica', receta: { renglones: [{ insumoId: melamina.id }] } });
+      await expect(guardar({ receta: { renglones: [{ insumoId: ajeno.id, cantidad: '1' }] } })).rejects.toMatchObject({ status: 400 });
+      await expect(guardar({ receta: { renglones: [{ insumoId: melamina.id, cantidad: 'largo' }] } })).rejects.toMatchObject({
+        status: 400,
+      });
+      await expect(guardar({ receta: null, politicaCotizacion: 'automatica' })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it('los costos son de cada comercio', async () => {
+      await conReceta('manual');
+      await expect(costos.obtener(otro.id)).rejects.toMatchObject({ status: 409 });
+      expect((await costos.obtener(dueno.id)).insumos).toHaveLength(1);
+      const [melamina] = (await costos.obtener(dueno.id)).insumos;
+      await expect(costos.borrarInsumo(otro.id, melamina.id)).rejects.toMatchObject({ status: 409 });
+    });
   });
 });

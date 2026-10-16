@@ -22,11 +22,21 @@ import {
   type SolicitudDto,
 } from './productos.types.js';
 import {
+  leerSolicitud,
   normalizarMateriales,
   normalizarSolicitud,
   problemaSegunModalidad,
   type SolicitudADemanda,
 } from './solicitud.rules.js';
+import {
+  leerPolitica,
+  leerReceta,
+  normalizarReceta,
+  mapaDeInsumos,
+  recetaConContenido,
+  type PoliticaCotizacion,
+  type Receta,
+} from './costos.rules.js';
 
 /** De la foto sólo hace falta saber si está y de cuándo es: nunca traer los bytes a un listado. */
 const SIN_BYTES = { select: { updatedAt: true } } as const;
@@ -62,6 +72,9 @@ type ProductoAGuardar = {
   precioReferenciaCentavos?: number | null;
   /** Los materiales de un producto a medida; undefined (la importación, las cuentas con stock) no los toca. */
   materiales?: string[];
+  /** La receta de cotización (LAU-26): null la borra, undefined no la toca. Ya validada contra los insumos. */
+  receta?: Receta | null;
+  politicaCotizacion?: PoliticaCotizacion;
 };
 
 type Tx = Prisma.TransactionClient;
@@ -136,7 +149,7 @@ export class ProductosService {
     if (existente?.activo) {
       throw new ConflictException(`Ya hay un producto con el código ${dto.codigo.trim()}.`);
     }
-    const datos = desdeDto(dto, await this.modalidadDe(userId));
+    const datos = await this.conReceta(userId, desdeDto(dto, await this.modalidadDe(userId)), dto, null);
     const id = await this.prisma.$transaction((tx) => this.escribir(tx, userId, datos));
     await this.refrescarBusqueda([id]);
     return this.obtener(userId, id);
@@ -144,7 +157,7 @@ export class ProductosService {
 
   async actualizar(userId: string, id: string, dto: GuardarProductoDto): Promise<ProductoPublico> {
     const actual = await this.buscarPropio(userId, id);
-    const datos = desdeDto(dto, await this.modalidadDe(userId));
+    const datos = await this.conReceta(userId, desdeDto(dto, await this.modalidadDe(userId)), dto, actual);
     if (datos.codigo !== actual.codigo) {
       const otro = await this.prisma.producto.findUnique({
         where: { userId_codigo: { userId, codigo: datos.codigo } },
@@ -279,6 +292,10 @@ export class ProductosService {
         solicitud: datos.solicitud === null ? Prisma.DbNull : (datos.solicitud as unknown as Prisma.InputJsonValue),
       }),
       ...(datos.materiales !== undefined && { materiales: datos.materiales }),
+      ...(datos.receta !== undefined && {
+        receta: datos.receta === null ? Prisma.DbNull : (datos.receta as unknown as Prisma.InputJsonValue),
+      }),
+      ...(datos.politicaCotizacion !== undefined && { politicaCotizacion: datos.politicaCotizacion }),
     };
     const producto = id
       ? await tx.producto.update({ where: { id }, data: campos })
@@ -320,6 +337,36 @@ export class ProductosService {
     return producto.id;
   }
 
+  /**
+   * La receta y quién cotiza (LAU-26), validadas con lo que sólo sabe la base:
+   * que cada renglón use un insumo activo del dueño y que las fórmulas usen
+   * las preguntas de número del producto tal como quedan guardadas. Para que
+   * el asistente cotice solo hace falta una receta con algo que calcular.
+   */
+  private async conReceta(
+    userId: string,
+    datos: ProductoAGuardar,
+    dto: GuardarProductoDto,
+    actual: Pick<Producto, 'solicitud' | 'receta' | 'politicaCotizacion'> | null,
+  ): Promise<ProductoAGuardar> {
+    if (dto.receta === undefined && dto.politicaCotizacion === undefined) return datos;
+    const solicitud = datos.solicitud !== undefined ? datos.solicitud : leerSolicitud(actual?.solicitud ?? null);
+    let receta: Receta | null | undefined = undefined;
+    if (dto.receta === null) receta = null;
+    else if (dto.receta !== undefined) {
+      const insumos = await this.prisma.insumo.findMany({ where: { userId, activo: true } });
+      const resultado = normalizarReceta(dto.receta, { solicitud, insumos: mapaDeInsumos(insumos) });
+      if ('error' in resultado) throw new BadRequestException(resultado.error);
+      receta = resultado.receta;
+    }
+    const politica = dto.politicaCotizacion ?? leerPolitica(actual?.politicaCotizacion);
+    const final = receta !== undefined ? receta : leerReceta(actual?.receta ?? null, solicitud);
+    if (politica !== 'manual' && !recetaConContenido(final)) {
+      throw new BadRequestException('Para que el asistente cotice, cargá la receta: qué materiales y costos lleva.');
+    }
+    return { ...datos, receta, politicaCotizacion: politica };
+  }
+
   /** Cómo vende la cuenta: decide qué productos acepta. Sin asistente todavía, con stock. */
   private async modalidadDe(userId: string): Promise<ModalidadVenta> {
     const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { modalidadVenta: true } });
@@ -342,6 +389,9 @@ export class ProductosService {
 
 /** DTO del formulario → la misma forma que sale de una importación. */
 export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 'stock'): ProductoAGuardar {
+  if (modalidad !== 'pedido' && ((dto.receta !== undefined && dto.receta !== null) || (dto.politicaCotizacion ?? 'manual') !== 'manual')) {
+    throw new BadRequestException('Una cuenta con stock no cotiza: los precios salen de las variantes.');
+  }
   const problema = problemaSegunModalidad(modalidad, {
     variantes: dto.variantes?.length ?? 0,
     descuento: dto.descuento,

@@ -123,8 +123,9 @@ function crearHistorico() {
 function crearPedidosAMedida() {
   return {
     productoParaSolicitud: vi.fn().mockResolvedValue(null),
+    cotizacionPrevia: vi.fn().mockResolvedValue(null),
     registrarSolicitud: vi.fn(),
-    avisarParaCotizar: vi.fn().mockResolvedValue(undefined),
+    cotizarSolicitud: vi.fn().mockResolvedValue({ modo: 'manual' }),
     cobrar: vi.fn(),
     derivar: vi.fn(),
   };
@@ -1060,7 +1061,47 @@ describe('grafo de ventas', () => {
         nombreCliente: 'Ana',
         dePrueba: false,
       });
-      expect(pedidos.avisarParaCotizar).toHaveBeenCalledOnce();
+      expect(pedidos.cotizarSolicitud).toHaveBeenCalledOnce();
+    });
+
+    it('si la receta necesita un número que el cliente no dio, se lo pregunta antes de anotar', async () => {
+      const pedidos = crearPedidosAMedida();
+      pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-placard', nombre: 'Placard', solicitud: { preguntas: [] } });
+      pedidos.cotizacionPrevia.mockResolvedValue({
+        politica: 'automatica',
+        resultado: { ok: false, motivo: 'falta', faltan: ['Alto (cm)'] },
+      });
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: A_PEDIDO }),
+        llm: crearModelo([
+          BUSCAR_PLACARD,
+          llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: '' }, 'c2'),
+          new AIMessage('¿Y de alto?'),
+        ]),
+        busqueda: { buscar: vi.fn().mockResolvedValue([PLACARD]) },
+        pedidos,
+      });
+      expect(resultadoDe(resultado.messages, 'registrar_solicitud').content).toContain('"Alto (cm)" con un número');
+      expect(pedidos.registrarSolicitud).not.toHaveBeenCalled();
+    });
+
+    it('con cotización automática le pasa el presupuesto tal cual, y el monto pasa la verificación', async () => {
+      const pedidos = crearPedidosAMedida();
+      pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-placard', nombre: 'Placard', solicitud: { preguntas: [] } });
+      pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
+      pedidos.cotizarSolicitud.mockResolvedValue({ modo: 'automatica', texto: '*Presupuesto de Placard*\n*Total: $ 67.500*' });
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: A_PEDIDO }),
+        llm: crearModelo([
+          BUSCAR_PLACARD,
+          llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: '' }, 'c2'),
+          new AIMessage('*Presupuesto de Placard*\n*Total: $ 67.500*\n\n¿Querés que avancemos?'),
+        ]),
+        busqueda: { buscar: vi.fn().mockResolvedValue([PLACARD]) },
+        pedidos,
+      });
+      expect(resultadoDe(resultado.messages, 'registrar_solicitud').content).toContain('Total: $ 67.500');
+      expect(resultado.messages.at(-1)?.content).toContain('$ 67.500');
     });
 
     it('un producto que no salió de una búsqueda no se anota', async () => {

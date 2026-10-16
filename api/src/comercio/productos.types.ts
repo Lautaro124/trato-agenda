@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -18,11 +19,13 @@ import {
 import type { Descuento, Producto, Variante } from '../generated/prisma/client.js';
 import { hashTexto, LARGOS, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
+import { leerPolitica, leerReceta, POLITICAS_COTIZACION, type PoliticaCotizacion, type Receta } from './costos.rules.js';
 import {
   LARGO_MAX_OPCION,
   LARGO_MAX_MATERIAL,
   MAX_MATERIALES,
   LARGO_MAX_PREGUNTA,
+  LARGO_MAX_UNIDAD_PREGUNTA,
   leerSolicitud,
   MAX_OPCIONES,
   MAX_PREGUNTAS,
@@ -75,6 +78,27 @@ export class VarianteDto {
   stockMinimo?: number | null;
 }
 
+export class NumeroDePreguntaDto {
+  @IsString()
+  @MaxLength(30)
+  variable!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(LARGO_MAX_UNIDAD_PREGUNTA)
+  unidad?: string;
+
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  min?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  max?: number | null;
+}
+
 /** Una pregunta del producto a medida. Las reglas entre campos están en solicitud.rules.ts. */
 export class PreguntaSolicitudDto {
   @IsString()
@@ -97,6 +121,13 @@ export class PreguntaSolicitudDto {
 
   @IsBoolean()
   obligatoria!: boolean;
+
+  /** Pregunta de número (LAU-26): su respuesta es un dato de la receta. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @ValidateNested()
+  @Type(() => NumeroDePreguntaDto)
+  numero?: NumeroDePreguntaDto | null;
 }
 
 export class SolicitudDto {
@@ -170,6 +201,20 @@ export class GuardarProductoDto {
   @IsString({ each: true })
   @MaxLength(LARGO_MAX_MATERIAL, { each: true })
   materiales?: string[];
+
+  /**
+   * Producto a medida (LAU-26): la receta de cotización. Su forma la valida
+   * costos.rules.ts contra los insumos del dueño. null la borra, ausente no la toca.
+   */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsObject()
+  receta?: Record<string, unknown> | null;
+
+  /** Quién cotiza este producto. Ausente no lo toca. */
+  @IsOptional()
+  @IsIn(POLITICAS_COTIZACION)
+  politicaCotizacion?: PoliticaCotizacion;
 }
 
 /** Body de `PATCH /productos/variantes/:id`: la edición rápida desde la tabla. */
@@ -261,6 +306,9 @@ export type ProductoPublico = Pick<
   precioReferenciaCentavos: number | null;
   /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
   materiales: string[];
+  /** La receta de cotización (null = no tiene: lo cotiza el dueño). */
+  receta: Receta | null;
+  politicaCotizacion: PoliticaCotizacion;
 };
 
 /**
@@ -295,6 +343,8 @@ export function aProductoPublico(
     solicitud: leerSolicitud(producto.solicitud),
     precioReferenciaCentavos: producto.precioReferenciaCentavos,
     materiales: producto.materiales,
+    receta: leerReceta(producto.receta, leerSolicitud(producto.solicitud)),
+    politicaCotizacion: leerPolitica(producto.politicaCotizacion),
     variantes: producto.variantes
       .filter((variante) => variante.activo)
       .map((variante) => {

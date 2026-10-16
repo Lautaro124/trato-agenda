@@ -90,6 +90,8 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
         eventos: { create: [{ tipo: 'estado', a: 'cotizado', autor: 'dueno' }] },
       },
     });
+    await prisma.insumo.create({ data: { userId: dueno.id, tipo: 'material', nombre: 'Melamina', unidad: 'm2', costoCentavos: 100 } });
+    await prisma.configCotizacion.create({ data: { userId: dueno.id } });
     await prisma.notificacion.create({ data: { userId: dueno.id, tipo: 'pedido_manual', titulo: 'Pedido', cuerpo: 'Ana' } });
     await prisma.sugerenciaMejora.create({ data: { userId: dueno.id, tipo: 'idea', texto: 'Recordatorios el día antes' } });
     await prisma.cuentaMercadoPago.create({
@@ -133,7 +135,9 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       prisma.sugerenciaMejora.count({ where: donde }),
       prisma.presupuesto.count({ where: { ventaId: aMedida.id } }),
       prisma.eventoVenta.count({ where: { ventaId: aMedida.id } }),
+      prisma.insumo.count({ where: donde }),
+      prisma.configCotizacion.count({ where: donde }),
     ]);
-    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });

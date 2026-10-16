@@ -46,7 +46,10 @@ export type DepsCatalogo = {
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
-  pedidos: Pick<PedidosAMedidaService, 'productoParaSolicitud' | 'registrarSolicitud' | 'avisarParaCotizar' | 'cobrar' | 'derivar'>;
+  pedidos: Pick<
+    PedidosAMedidaService,
+    'productoParaSolicitud' | 'cotizacionPrevia' | 'registrarSolicitud' | 'cotizarSolicitud' | 'cobrar' | 'derivar'
+  >;
 };
 
 /** Lo que vuelve al modelo y, si es una foto aprobada, lo que la fachada le manda al cliente. */
@@ -166,6 +169,15 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     if (!respuestas.ok) {
       return `${respuestas.motivo} Preguntáselo al cliente (de a una o dos preguntas) antes de anotar la solicitud.`;
     }
+    // Si la receta del producto necesita un dato que el cliente todavía no
+    // dio, se le pregunta antes de anotar nada (y antes de molestar al dueño).
+    const previa = await deps.pedidos.cotizacionPrevia(state.ownerUserId, producto.id, respuestas.respuestas);
+    if (previa && !previa.resultado.ok && previa.resultado.faltan.length > 0) {
+      return (
+        `Para cotizarlo hace falta que el cliente conteste ${previa.resultado.faltan.map((t) => JSON.stringify(t)).join(', ')} ` +
+        'con un número. Preguntáselo y volvé a llamar registrar_solicitud con todo.'
+      );
+    }
     try {
       const resultado = await deps.pedidos.registrarSolicitud({
         userId: state.ownerUserId,
@@ -177,8 +189,12 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         resumen: String(args.resumen ?? ''),
         dePrueba: state.esPropietario,
       });
-      if (resultado.cambio) await deps.pedidos.avisarParaCotizar(resultado.venta);
-      return formatearSolicitudRegistrada(resultado, null);
+      const cotizacion = await deps.pedidos.cotizarSolicitud(resultado, previa);
+      return formatearSolicitudRegistrada(
+        resultado,
+        cotizacion.modo === 'automatica' ? { texto: cotizacion.texto } : null,
+        cotizacion.modo === 'revision',
+      );
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo anotar la solicitud: ${error.message}`;
       throw error;

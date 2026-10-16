@@ -41,7 +41,10 @@ export type DepsGrafoVentas = {
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
-  pedidos: Pick<PedidosAMedidaService, 'productoParaSolicitud' | 'registrarSolicitud' | 'avisarParaCotizar' | 'cobrar' | 'derivar'>;
+  pedidos: Pick<
+    PedidosAMedidaService,
+    'productoParaSolicitud' | 'cotizacionPrevia' | 'registrarSolicitud' | 'cotizarSolicitud' | 'cobrar' | 'derivar'
+  >;
   openRouter: OpenRouterClient;
   llm: BaseChatModel;
   checkpointer?: BaseCheckpointSaver;

@@ -23,6 +23,7 @@
  */
 import type { ModalidadVenta } from '../agents/modalidad-venta.js';
 import { claveDeCampo } from './datos-cliente.rules.js';
+import { PATRON_VARIABLE } from './formula.rules.js';
 
 export const SOBRE_PREGUNTA = ['tiene', 'solicita'] as const;
 export type SobrePregunta = (typeof SOBRE_PREGUNTA)[number];
@@ -36,6 +37,16 @@ export const MAX_MATERIALES = 20;
 export const LARGO_MAX_MATERIAL = 60;
 /** Lo que se guarda de cada respuesta del cliente. */
 export const LARGO_MAX_RESPUESTA = 300;
+export const LARGO_MAX_UNIDAD_PREGUNTA = 15;
+/** Lo más grande que puede contestar el cliente en una pregunta de número. */
+export const NUMERO_MAX_RESPUESTA = 1_000_000;
+
+/**
+ * Una pregunta de número (LAU-26): su respuesta es un dato de la receta de
+ * cotización ("ancho", "alto"), con la unidad en que se la pregunta y un
+ * rango opcional. No tiene opciones: se contesta con un número.
+ */
+export type NumeroDePregunta = { variable: string; unidad: string; min: number | null; max: number | null };
 
 export type PreguntaSolicitud = {
   texto: string;
@@ -43,6 +54,8 @@ export type PreguntaSolicitud = {
   opciones: string[];
   textoLibre: boolean;
   obligatoria: boolean;
+  /** Sólo en las de número. */
+  numero?: NumeroDePregunta;
 };
 
 export type SolicitudADemanda = { preguntas: PreguntaSolicitud[] };
@@ -55,6 +68,7 @@ export type SolicitudEntrada = {
     opciones?: readonly string[];
     textoLibre?: boolean;
     obligatoria?: boolean;
+    numero?: { variable?: string; unidad?: string; min?: number | null; max?: number | null } | null;
   }>;
 };
 
@@ -94,6 +108,22 @@ function problemaDePregunta(pregunta: PreguntaSolicitud, numero: number): string
     vistas.add(clave);
   }
 
+  if (pregunta.numero) {
+    const { variable, unidad, min, max } = pregunta.numero;
+    if (pregunta.opciones.length > 0) return `La pregunta ${cual} es de número: no lleva opciones.`;
+    if (!PATRON_VARIABLE.test(variable)) {
+      return `El dato de la pregunta ${cual} tiene que ser una palabra sin espacios ni tildes (por ejemplo "ancho").`;
+    }
+    if (unidad.length > LARGO_MAX_UNIDAD_PREGUNTA) return `La unidad de la pregunta ${cual} es demasiado larga.`;
+    for (const limite of [min, max]) {
+      if (limite !== null && (!Number.isFinite(limite) || limite < 0 || limite > NUMERO_MAX_RESPUESTA)) {
+        return `El rango de la pregunta ${cual} no es válido.`;
+      }
+    }
+    if (min !== null && max !== null && min > max) return `En la pregunta ${cual} el mínimo es mayor que el máximo.`;
+    return null;
+  }
+
   if (!pregunta.textoLibre && pregunta.opciones.length === 0) {
     return `La pregunta ${cual} no tiene opciones: agregá alguna o dejá que el cliente responda con sus palabras.`;
   }
@@ -113,21 +143,36 @@ export function normalizarSolicitud(entrada: SolicitudEntrada): { solicitud: Sol
 
   const preguntas: PreguntaSolicitud[] = [];
   const vistas = new Set<string>();
+  const variables = new Set<string>();
   for (const [indice, cruda] of entrada.preguntas.entries()) {
     const sobre = cruda.sobre ?? 'solicita';
     if (!esSobre(sobre)) return { error: `La pregunta ${indice + 1} no dice si es sobre lo que tiene o lo que pide.` };
+    const numero = cruda.numero
+      ? {
+          variable: enUnaLinea(cruda.numero.variable ?? '').toLowerCase(),
+          unidad: enUnaLinea(cruda.numero.unidad ?? ''),
+          min: typeof cruda.numero.min === 'number' ? cruda.numero.min : null,
+          max: typeof cruda.numero.max === 'number' ? cruda.numero.max : null,
+        }
+      : undefined;
     const pregunta: PreguntaSolicitud = {
       texto: enUnaLinea(cruda.texto),
       sobre,
       opciones: (cruda.opciones ?? []).map(enUnaLinea),
-      textoLibre: cruda.textoLibre === true,
+      // Una de número se contesta escribiendo: no hay opciones para elegir.
+      textoLibre: numero ? true : cruda.textoLibre === true,
       obligatoria: cruda.obligatoria === true,
+      ...(numero ? { numero } : {}),
     };
     const problema = problemaDePregunta(pregunta, indice + 1);
     if (problema) return { error: problema };
     const clave = claveDeCampo(pregunta.texto);
     if (vistas.has(clave)) return { error: `La pregunta ${JSON.stringify(pregunta.texto)} está repetida.` };
     vistas.add(clave);
+    if (numero) {
+      if (variables.has(numero.variable)) return { error: `Hay dos preguntas con el dato "${numero.variable}".` };
+      variables.add(numero.variable);
+    }
     preguntas.push(pregunta);
   }
 
@@ -163,6 +208,7 @@ export function leerSolicitud(json: unknown): SolicitudADemanda | null {
   const preguntas = json.preguntas.flatMap((item) => {
     if (!esObjeto(item) || typeof item.texto !== 'string' || typeof item.sobre !== 'string') return [];
     const opciones = Array.isArray(item.opciones) ? item.opciones.filter((o): o is string => typeof o === 'string') : [];
+    const numero = esObjeto(item.numero) && typeof item.numero.variable === 'string' ? item.numero : null;
     return [
       {
         texto: item.texto,
@@ -170,11 +216,38 @@ export function leerSolicitud(json: unknown): SolicitudADemanda | null {
         opciones,
         textoLibre: item.textoLibre === true,
         obligatoria: item.obligatoria === true,
+        ...(numero
+          ? {
+              numero: {
+                variable: numero.variable as string,
+                unidad: typeof numero.unidad === 'string' ? numero.unidad : '',
+                min: typeof numero.min === 'number' ? numero.min : null,
+                max: typeof numero.max === 'number' ? numero.max : null,
+              },
+            }
+          : {}),
       },
     ];
   });
   const resultado = normalizarSolicitud({ preguntas });
   return 'solicitud' in resultado ? resultado.solicitud : null;
+}
+
+/**
+ * Un número como lo escribe alguien: "120", "1,5", "1.5", "120 cm". Sin
+ * separador de miles (en una medida "1.200" sería ambiguo). null si no hay
+ * un número claro o es negativo o enorme.
+ */
+export function leerNumero(texto: string): number | null {
+  const encontrado = /^\s*(\d+(?:[.,]\d+)?)\s*[a-zA-Z²³°%"']*\s*$/.exec(texto);
+  if (!encontrado) return null;
+  const numero = Number(encontrado[1].replace(',', '.'));
+  return Number.isFinite(numero) && numero <= NUMERO_MAX_RESPUESTA ? numero : null;
+}
+
+/** Los datos numéricos de un producto, para las fórmulas de su receta. */
+export function variablesDeSolicitud(solicitud: SolicitudADemanda | null): string[] {
+  return (solicitud?.preguntas ?? []).flatMap((pregunta) => (pregunta.numero ? [pregunta.numero.variable] : []));
 }
 
 /**
@@ -196,10 +269,21 @@ export function validarRespuestasSolicitud(config: SolicitudADemanda, respuestas
   const validas: RespuestaSolicitud[] = [];
   const sinRespuesta: string[] = [];
   const fueraDeOpciones: PreguntaSolicitud[] = [];
+  const fueraDeRango: Array<{ pregunta: PreguntaSolicitud; unidad: string; min: number | null; max: number | null }> = [];
   for (const pregunta of config.preguntas) {
     const valor = recibidas.get(claveDeCampo(pregunta.texto));
     if (valor === undefined) {
       if (pregunta.obligatoria) sinRespuesta.push(pregunta.texto);
+      continue;
+    }
+    if (pregunta.numero) {
+      const numero = leerNumero(valor);
+      const { min, max, unidad } = pregunta.numero;
+      if (numero === null || (min !== null && numero < min) || (max !== null && numero > max)) {
+        if (pregunta.obligatoria) fueraDeRango.push({ pregunta, unidad, min, max });
+        continue;
+      }
+      validas.push({ pregunta: pregunta.texto, respuesta: String(numero) });
       continue;
     }
     const opcion = pregunta.opciones.find((o) => claveDeCampo(o) === claveDeCampo(valor));
@@ -211,17 +295,22 @@ export function validarRespuestasSolicitud(config: SolicitudADemanda, respuestas
     validas.push({ pregunta: pregunta.texto, respuesta: opcion ?? valor });
   }
 
-  if (sinRespuesta.length > 0 || fueraDeOpciones.length > 0) {
+  if (sinRespuesta.length > 0 || fueraDeOpciones.length > 0 || fueraDeRango.length > 0) {
     const partes = [
       ...(sinRespuesta.length > 0 ? [`faltan ${sinRespuesta.map((t) => JSON.stringify(t)).join(', ')}`] : []),
       ...fueraDeOpciones.map(
         (p) => `${JSON.stringify(p.texto)} sólo admite ${p.opciones.map((o) => JSON.stringify(o)).join(', ')}`,
       ),
+      ...fueraDeRango.map(({ pregunta, unidad, min, max }) => {
+        const rango =
+          min !== null && max !== null ? ` entre ${min} y ${max}` : min !== null ? ` de ${min} o más` : max !== null ? ` de hasta ${max}` : '';
+        return `${JSON.stringify(pregunta.texto)} tiene que ser un número${rango}${unidad ? ` (en ${unidad})` : ''}`;
+      }),
     ];
     return {
       ok: false,
       motivo: `La solicitud todavía no está completa: ${partes.join('; ')}.`,
-      faltantes: [...sinRespuesta, ...fueraDeOpciones.map((p) => p.texto)],
+      faltantes: [...sinRespuesta, ...fueraDeOpciones.map((p) => p.texto), ...fueraDeRango.map((f) => f.pregunta.texto)],
     };
   }
   return { ok: true, respuestas: validas };

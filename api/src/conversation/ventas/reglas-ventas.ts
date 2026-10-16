@@ -681,8 +681,18 @@ export function detalleAMedida(producto: Pick<ProductoEncontrado, 'materiales' |
     lineas.push('   - para cotizarlo preguntale esto, en este orden:');
     for (const [indice, pregunta] of preguntas.entries()) {
       const cuando = pregunta.obligatoria ? 'necesaria para cotizar' : 'si no la contesta, seguí';
-      const opciones =
-        pregunta.opciones.length === 0
+      const numero = pregunta.numero;
+      const opciones = numero
+        ? `; se contesta con un número${numero.unidad ? ` en ${JSON.stringify(numero.unidad)}` : ''}` +
+          (numero.min !== null && numero.max !== null
+            ? `, entre ${numero.min} y ${numero.max}`
+            : numero.min !== null
+              ? `, de ${numero.min} o más`
+              : numero.max !== null
+                ? `, de hasta ${numero.max}`
+                : '') +
+          ' (si te lo da en otra unidad, pedíselo en esa)'
+        : pregunta.opciones.length === 0
           ? ''
           : pregunta.textoLibre
             ? `; opciones para ofrecerle: ${listaDeTextos(pregunta.opciones)} (puede contestar otra cosa)`

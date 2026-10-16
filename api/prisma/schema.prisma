@@ -50,6 +50,8 @@ model User {
   cuentaMercadoPago CuentaMercadoPago?
   notificaciones  Notificacion[]
   sugerencias     SugerenciaMejora[]
+  insumos          Insumo[]
+  configCotizacion ConfigCotizacion?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -390,6 +392,14 @@ model Producto {
   /// Con qué materiales se hace un producto a medida: el asistente ofrece
   /// sólo esos. Vacío en los de stock y cuando el dueño no los cargó.
   materiales String[] @default([])
+  /// Producto a medida (LAU-26): cómo se cotiza solo. `{ renglones: [{ insumoId,
+  /// cantidad: "<fórmula>", cuando? }], extras: [{ nombre, modo, valor, formula?,
+  /// cuando? }] }`; las fórmulas usan las preguntas de número de `solicitud`.
+  /// Null = no tiene receta (lo cotiza el dueño). Reglas en comercio/costos.rules.ts.
+  receta Json?
+  /// "manual" (lo cotiza el dueño) | "revision" (el asistente lo arma y el dueño
+  /// lo aprueba) | "automatica" (el asistente cotiza y lo manda).
+  politicaCotizacion String @default("manual")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -735,4 +745,45 @@ model SugerenciaMejora {
 
   @@index([userId, createdAt])
   @@index([enviadaAt])
+}
+
+/// Lo que cuesta hacer algo en un comercio a pedido (LAU-26), por unidad:
+/// materiales, fabricación y máquinas, mano de obra. Las recetas de los
+/// productos lo referencian por id, así que no se borra: `activo = false`.
+model Insumo {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "material" | "proceso" | "mano_obra"
+  tipo          String
+  nombre        String
+  /// "unidad" | "m" | "m2" | "m3" | "cm" | "cm2" | "litro" | "kg" | "g" | "hora" | "minuto"
+  unidad        String
+  costoCentavos Int
+  activo        Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, tipo, nombre])
+}
+
+/// Cómo cotiza el asistente de un comercio a pedido (LAU-26): extras que se
+/// suman a toda cotización, redondeo, si es estimativo, vigencia y cuánto
+/// detalle ve el cliente. Sin fila, lo de costos.rules.ts CONFIG_POR_DEFECTO.
+model ConfigCotizacion {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// [{ nombre, modo: "fijo" | "porcentaje", valor }]
+  extras            Json    @default("[]")
+  redondeoCentavos  Int     @default(0)
+  estimativo        Boolean @default(true)
+  /// Null = el presupuesto no dice hasta cuándo vale.
+  vigenciaDias      Int?
+  /// "total" | "detallado"
+  desgloseAlCliente String  @default("total")
+
+  updatedAt DateTime @updatedAt
 }

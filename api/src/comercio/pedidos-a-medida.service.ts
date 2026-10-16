@@ -10,6 +10,9 @@ import {
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { MercadoPagoNoAutorizadoError } from '../subscription/mercadopago.client.js';
+import { CostosService } from './costos.service.js';
+import { leerPolitica, leerReceta, recetaConContenido, type PoliticaCotizacion } from './costos.rules.js';
+import { cotizar, type Cotizacion, type CotizacionFallida } from './cotizacion.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import {
   armarSolicitudDeVenta,
@@ -82,6 +85,16 @@ export type DerivarInput = {
   ahora?: Date;
 };
 
+/** Lo que da la receta antes de anotar la solicitud (null = este producto lo cotiza el dueño). */
+export type CotizacionPrevia = { politica: Exclude<PoliticaCotizacion, 'manual'>; resultado: Cotizacion | CotizacionFallida };
+
+/** Qué pasó con la cotización después de anotar la solicitud. */
+export type CotizacionDeSolicitud =
+  | { modo: 'automatica'; texto: string }
+  | { modo: 'revision' }
+  | { modo: 'manual' }
+  | { modo: 'sin_cambio' };
+
 export type NuevoPresupuestoInput = {
   renglones: RenglonPresupuesto[];
   totalCentavos: number;
@@ -117,6 +130,7 @@ export class PedidosAMedidaService {
     private readonly ventas: VentasService,
     private readonly cuentas: CuentaMercadoPagoService,
     private readonly notificaciones: NotificacionesService,
+    private readonly costos: CostosService,
   ) {}
 
   // --- Lectura -----------------------------------------------------------------
@@ -272,6 +286,121 @@ export class PedidosAMedidaService {
     if (linkViejo) await this.ventas.vencerLink(input.userId, linkViejo, ahora);
     const venta = await this.prisma.venta.findUniqueOrThrow({ where: { id: ventaId }, include: INCLUIR });
     return { venta, nueva, cambio };
+  }
+
+  /**
+   * La cotización que daría la receta del producto con estas respuestas, sin
+   * guardar nada. Sirve para saber, antes de anotar la solicitud, si le falta
+   * contestar algo que la receta necesita (y entonces el asistente pregunta).
+   */
+  async cotizacionPrevia(
+    userId: string,
+    productoId: string,
+    respuestas: RespuestaSolicitud[],
+  ): Promise<CotizacionPrevia | null> {
+    const producto = await this.prisma.producto.findFirst({
+      where: { id: productoId, userId, activo: true },
+      select: { solicitud: true, receta: true, politicaCotizacion: true },
+    });
+    if (!producto) return null;
+    const politica = leerPolitica(producto.politicaCotizacion);
+    const solicitud = leerSolicitud(producto.solicitud);
+    const receta = leerReceta(producto.receta, solicitud);
+    if (politica === 'manual' || !recetaConContenido(receta)) return null;
+    const [insumos, config] = await Promise.all([this.costos.todosLosInsumos(userId), this.costos.config(userId)]);
+    return { politica, resultado: cotizar({ receta, solicitud, insumos, config, respuestas }) };
+  }
+
+  /**
+   * Después de anotar la solicitud: si cambió y la receta pudo cotizarla, el
+   * presupuesto se arma con origen "asistente" y, según el producto, se manda
+   * (automática: lo devuelve para que el asistente lo pase tal cual) o queda
+   * para que el dueño lo apruebe. Si no, el dueño se entera de que hay que
+   * cotizarla, con el motivo cuando la receta no alcanzó.
+   */
+  async cotizarSolicitud(resultado: ResultadoSolicitud, previa: CotizacionPrevia | null): Promise<CotizacionDeSolicitud> {
+    if (!resultado.cambio) return { modo: 'sin_cambio' };
+    const { venta } = resultado;
+    if (!previa || !previa.resultado.ok) {
+      const motivo = previa && !previa.resultado.ok ? `El asistente no pudo cotizarlo solo: ${previa.resultado.motivo}` : null;
+      if (previa) {
+        await this.prisma.eventoVenta.create({
+          data: { ventaId: venta.id, tipo: 'derivacion', a: 'a_cotizar', motivo: 'sin_reglas', autor: 'asistente' },
+        });
+      }
+      await this.avisarParaCotizar(venta, motivo);
+      return { modo: 'manual' };
+    }
+    const config = await this.costos.config(venta.userId);
+    const cotizacion = previa.resultado;
+    const creado = await this.crearPresupuesto(
+      venta.userId,
+      venta.id,
+      {
+        renglones: cotizacion.renglones,
+        totalCentavos: cotizacion.totalCentavos,
+        estimativo: config.estimativo,
+        detalleAlCliente: config.desgloseAlCliente === 'detallado',
+        datos: { valores: cotizacion.valores, respuestas: leerSolicitudDeVenta(venta.solicitud)?.respuestas ?? [] },
+      },
+      'asistente',
+    );
+    if (!creado) return { modo: 'manual' };
+    if (previa.politica === 'revision') {
+      await this.avisarParaRevisar(creado.venta, cotizacion.totalCentavos);
+      return { modo: 'revision' };
+    }
+    const enviado = await this.enviarPresupuesto(venta.userId, venta.id, creado.presupuesto.id, {
+      autor: 'asistente',
+      mandarAlCliente: false,
+      vigenciaDias: config.vigenciaDias,
+    });
+    return enviado ? { modo: 'automatica', texto: enviado.texto } : { modo: 'manual' };
+  }
+
+  /**
+   * El dueño arma un presupuesto con la receta del producto y las respuestas
+   * del pedido: queda como borrador para que lo revise, edite o mande.
+   */
+  async presupuestoDesdeReceta(userId: string, ventaId: string): Promise<PedidoAMedida | null> {
+    const venta = await this.buscar(userId, ventaId);
+    if (!venta) return null;
+    const solicitud = leerSolicitudDeVenta(venta.solicitud);
+    if (!solicitud?.productoId) throw new PedidoRechazadoError('Este pedido no tiene un producto con receta.');
+    const conReceta = await this.cotizacionConReceta(userId, solicitud.productoId, solicitud.respuestas);
+    if (!conReceta) throw new PedidoRechazadoError('Ese producto no tiene receta: cargala en Productos o armá el presupuesto a mano.');
+    if (!conReceta.ok) throw new PedidoRechazadoError(`No se puede calcular con la receta: ${conReceta.motivo}`);
+    const config = await this.costos.config(userId);
+    const creado = await this.crearPresupuesto(
+      userId,
+      ventaId,
+      {
+        renglones: conReceta.renglones,
+        totalCentavos: conReceta.totalCentavos,
+        estimativo: config.estimativo,
+        detalleAlCliente: config.desgloseAlCliente === 'detallado',
+        datos: { valores: conReceta.valores, respuestas: solicitud.respuestas },
+      },
+      'asistente',
+    );
+    return creado?.venta ?? null;
+  }
+
+  /** Igual que la previa pero aunque el producto lo cotice el dueño: para el botón del panel. */
+  private async cotizacionConReceta(
+    userId: string,
+    productoId: string,
+    respuestas: RespuestaSolicitud[],
+  ): Promise<Cotizacion | CotizacionFallida | null> {
+    const producto = await this.prisma.producto.findFirst({
+      where: { id: productoId, userId },
+      select: { solicitud: true, receta: true },
+    });
+    const solicitud = leerSolicitud(producto?.solicitud ?? null);
+    const receta = leerReceta(producto?.receta ?? null, solicitud);
+    if (!recetaConContenido(receta)) return null;
+    const [insumos, config] = await Promise.all([this.costos.todosLosInsumos(userId), this.costos.config(userId)]);
+    return cotizar({ receta, solicitud, insumos, config, respuestas });
   }
 
   /** Avisa al dueño que hay una solicitud para cotizar (con el motivo, si el asistente no pudo). */

@@ -9,6 +9,8 @@ import {
   problemaSegunModalidad,
   validarRespuestasSolicitud,
   type SolicitudADemanda,
+  leerNumero,
+  variablesDeSolicitud,
 } from './solicitud.rules.js';
 
 const MEDIDA = {
@@ -183,5 +185,64 @@ describe('problemaSegunModalidad', () => {
     expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: { tipo: 'porcentaje' }, solicitud: preguntas, precioReferencia: null })).toMatch(/descuento/);
     expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: null, precioReferencia: null })).toMatch(/preguntas/);
     expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: undefined, precioReferencia: null })).toMatch(/preguntas/);
+  });
+});
+
+describe('preguntas de número (LAU-26)', () => {
+  const ancho = { texto: '¿Cuánto mide de ancho?', obligatoria: true, numero: { variable: 'Ancho', unidad: 'cm', min: 30, max: 300 } };
+
+  it('se guardan con su dato en minúsculas, sin opciones y escritas a mano', () => {
+    const resultado = normalizarSolicitud({ preguntas: [ancho] });
+    expect(resultado).toEqual({
+      solicitud: {
+        preguntas: [
+          {
+            texto: '¿Cuánto mide de ancho?',
+            sobre: 'solicita',
+            opciones: [],
+            textoLibre: true,
+            obligatoria: true,
+            numero: { variable: 'ancho', unidad: 'cm', min: 30, max: 300 },
+          },
+        ],
+      },
+    });
+    expect(leerSolicitud('solicitud' in resultado ? resultado.solicitud : null)).toEqual(
+      'solicitud' in resultado ? resultado.solicitud : null,
+    );
+    expect(variablesDeSolicitud('solicitud' in resultado ? resultado.solicitud : null)).toEqual(['ancho']);
+  });
+
+  it('rechaza un dato con espacios, repetido, con opciones o con el rango al revés', () => {
+    expect(normalizarSolicitud({ preguntas: [{ ...ancho, numero: { variable: 'el ancho' } }] })).toHaveProperty('error');
+    expect(
+      normalizarSolicitud({ preguntas: [ancho, { ...ancho, texto: '¿Y el otro ancho?' }] }),
+    ).toEqual({ error: 'Hay dos preguntas con el dato "ancho".' });
+    expect(normalizarSolicitud({ preguntas: [{ ...ancho, opciones: ['1', '2'] }] })).toHaveProperty('error');
+    expect(normalizarSolicitud({ preguntas: [{ ...ancho, numero: { variable: 'ancho', min: 10, max: 5 } }] })).toHaveProperty(
+      'error',
+    );
+  });
+
+  it('la respuesta tiene que ser un número dentro del rango y se guarda limpia', () => {
+    const config = (normalizarSolicitud({ preguntas: [ancho] }) as { solicitud: SolicitudADemanda }).solicitud;
+    expect(validarRespuestasSolicitud(config, [{ pregunta: '¿cuánto mide de ancho?', respuesta: '120,5 cm' }])).toEqual({
+      ok: true,
+      respuestas: [{ pregunta: '¿Cuánto mide de ancho?', respuesta: '120.5' }],
+    });
+    const fuera = validarRespuestasSolicitud(config, [{ pregunta: '¿Cuánto mide de ancho?', respuesta: '500' }]);
+    expect(fuera).toMatchObject({ ok: false, motivo: expect.stringContaining('tiene que ser un número entre 30 y 300 (en cm)') });
+    expect(validarRespuestasSolicitud(config, [{ pregunta: '¿Cuánto mide de ancho?', respuesta: 'bastante' }])).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it('leerNumero', () => {
+    expect(leerNumero('120')).toBe(120);
+    expect(leerNumero(' 1,5 m ')).toBe(1.5);
+    expect(leerNumero('2.4m²')).toBe(2.4);
+    expect(leerNumero('-3')).toBeNull();
+    expect(leerNumero('1.200.000')).toBeNull();
+    expect(leerNumero('unos 30')).toBeNull();
   });
 });

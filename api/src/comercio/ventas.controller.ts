@@ -161,6 +161,15 @@ export class VentasController {
     return { ...(await this.detalle(user.id, id)), ...(mandado === undefined ? {} : { mandado }) };
   }
 
+  /** Arma un borrador con la receta del producto y las respuestas del pedido (LAU-26). */
+  @Post(':id/presupuestos/desde-receta')
+  @UseGuards(JwtAuthGuard)
+  async presupuestoDesdeReceta(@CurrentUser() user: User, @Param('id') id: string): Promise<DetalleVentaPublica> {
+    const venta = await conPedido(() => this.pedidos.presupuestoDesdeReceta(user.id, id));
+    if (!venta) throw new NotFoundException('No hay un pedido a medida con ese id.');
+    return this.detalle(user.id, id);
+  }
+
   /** Habilita un borrador (del dueño o del asistente) y se lo manda al cliente por su chat. */
   @Post(':id/presupuestos/:presupuestoId/enviar')
   @UseGuards(JwtAuthGuard)
