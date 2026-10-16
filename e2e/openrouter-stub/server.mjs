@@ -104,8 +104,12 @@ function llamadaATool(model, name, args) {
 //     si las reglas dicen que hacemos envíos, "con envío" / "lo retiro"
 //     van en `entrega`, y los pares "Etiqueta: valor" separados por ";" van en
 //     `datosCliente`; si el comercio vende a pedido (las reglas traen "Vendés a
-//     pedido", reglas-ventas.ts) no hay compra que cerrar: derivar_consulta con
-//     el texto del cliente, que es la solicitud para cotizar;
+//     pedido", reglas-ventas.ts) no hay compra que cerrar: registrar_solicitud
+//     con el producto de la última búsqueda y los pares "Pregunta: respuesta"
+//     separados por ";" como respuestas;
+//   - a pedido, "una persona" / "hablar con alguien" → derivar_a_persona con el
+//     primer [pedido …] de las reglas; "dale" / "acepto" / "avancemos" →
+//     aceptar_presupuesto con el pedido que figura "cotizado";
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
 //   - "envío" / "envían" fuera de una compra → derivar_consulta;
 //   - "dónde queda" / "dirección" / "retirar" / "el local" → contesta con lo
@@ -121,8 +125,9 @@ function llamadaATool(model, name, args) {
 //     "cuánto vendí" → resumen_ventas de los últimos 7 días, "ventas de hoy" →
 //     listar_ventas de hoy;
 //   - un saludo → saludo; cualquier otra cosa → buscar_productos con el texto.
-// Con el resultado de la herramienta contesta: el primer producto encontrado,
-// la lista de ver_catalogo o de ver_descuentos sin comillas, o el texto de la
+// Con el resultado de la herramienta contesta: el primer producto encontrado
+// (uno a medida, "te lo cotizamos"), el mensaje que el código pide mandar tal
+// cual (un presupuesto), la lista de ver_catalogo o de ver_descuentos sin comillas, o el texto de la
 // herramienta tal cual (así el link de pago llega al cliente). Si el resultado
 // trae la oferta de descuentos (conOfertaDeDescuentos), suma la línea
 // "Además tenemos algunos descuentos, si querés te los paso.".
@@ -189,7 +194,17 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     if (resultado.startsWith('Resultados de') || resultado.startsWith('Ningún producto se llama como')) {
       const primero = resultado.match(/1\. "(.+?)" (?:\[producto [^\]]+\] )?\(código/)?.[1];
       const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
+      // Un producto a medida no tiene variantes con precio: se cotiza.
+      if (!precio && resultado.includes('a medida: se cotiza')) {
+        return responder(res, 200, completion(body.model, { content: `Hacemos ${primero} a medida: te lo cotizamos.${oferta}` }));
+      }
       return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.${oferta}` }));
+    }
+    // registrar_solicitud o aceptar_presupuesto con un mensaje armado por el código: va tal cual.
+    // (crear_pedido con el link propio del dueño sigue contestando "Listo: …", como siempre.)
+    const talCual = /^(Solicitud anotada|Presupuesto aceptado)/.test(resultado) && resultado.match(/Mandale al cliente exactamente este mensaje, sin agregarle ni sacarle nada: ("(?:[^"\\]|\\.)*")/)?.[1];
+    if (talCual) {
+      return responder(res, 200, completion(body.model, { content: JSON.parse(talCual) }));
     }
     if (resultado.startsWith('Listo: la foto')) {
       return responder(res, 200, completion(body.model, { content: 'Ahí te mandé la foto. ¿Es lo que buscabas?' }));
@@ -255,6 +270,24 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (categoria) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', { categoria }));
   }
+  // A pedido (LAU-27): pasar a una persona y aceptar el presupuesto vigente.
+  if (sistema.includes('Vendés a pedido') && /\b(una persona|hablar con alguien)\b/.test(ultimoUsuario)) {
+    const pedidoId = sistema.match(/\[pedido ([\w-]+)\]/)?.[1];
+    return responder(
+      res,
+      200,
+      llamadaATool(body.model, 'derivar_a_persona', {
+        ...(pedidoId ? { pedidoId } : {}),
+        motivo: 'pide_persona',
+        detalle: textoDe(mensajes[indiceUsuario]),
+      }),
+    );
+  }
+  if (sistema.includes('Vendés a pedido') && /^(dale|acepto|avancemos|si, avancemos)\b/.test(ultimoUsuario)) {
+    const pedidoId = sistema.match(/\[pedido ([\w-]+)\][^\n]*: cotizado/)?.[1];
+    if (!pedidoId) return responder(res, 200, completion(body.model, { content: 'Todavía no tenés un presupuesto para aceptar.' }));
+    return responder(res, 200, llamadaATool(body.model, 'aceptar_presupuesto', { pedidoId }));
+  }
   if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
     return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));
   }
@@ -263,7 +296,19 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const nombre = texto.match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
     if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
     if (sistema.includes('Vendés a pedido')) {
-      return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: texto }));
+      const productoId = productoDeLaUltimaBusqueda(mensajes);
+      if (!productoId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés que te cotice?' }));
+      // Las respuestas a las preguntas del producto: "Pregunta: respuesta" separadas por ";".
+      const respuestas = texto
+        .split(';')
+        .filter((pieza) => pieza.includes(':'))
+        .map((pieza) => ({ pregunta: pieza.slice(0, pieza.indexOf(':')).trim(), respuesta: pieza.slice(pieza.indexOf(':') + 1).trim() }))
+        .filter((dato) => dato.pregunta && dato.respuesta);
+      return responder(
+        res,
+        200,
+        llamadaATool(body.model, 'registrar_solicitud', { productoId, nombreCliente: nombre, respuestas, resumen: texto }),
+      );
     }
     const varianteId = varianteDeLaUltimaBusqueda(mensajes);
     if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));

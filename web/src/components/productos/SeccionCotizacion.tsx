@@ -128,7 +128,7 @@ export function useRecetaEnEdicion(inicial: Receta | null, politicaInicial: Poli
 export type RecetaEnEdicion = ReturnType<typeof useRecetaEnEdicion>;
 
 const POLITICAS: ReadonlyArray<{ valor: PoliticaCotizacion; titulo: string; detalle: string }> = [
-  { valor: "manual", titulo: "Lo cotizás vos", detalle: "Te llega la solicitud y le pasás el precio desde Ventas." },
+  { valor: "manual", titulo: "Lo cotizás vos", detalle: "Te llega la solicitud y la cotizás en Ventas." },
   {
     valor: "revision",
     titulo: "Tu asistente lo arma, vos lo aprobás",
@@ -333,15 +333,12 @@ function ProbarCotizacion({ estado, preguntas }: { estado: RecetaEnEdicion; preg
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {relevantes.map((pregunta) => (
             <label key={pregunta.texto} className="min-w-0">
-              <span className={cn(LABEL, "truncate")}>
-                {pregunta.texto}
-                {pregunta.numero?.unidad ? ` (${pregunta.numero.unidad})` : ""}
-              </span>
+              <span className={cn(LABEL, "truncate")}>{pregunta.texto}</span>
               {pregunta.numero ? (
                 <input
                   inputMode="decimal"
                   value={respuestas[pregunta.texto] ?? ""}
-                  placeholder="Ej.: 120"
+                  placeholder={pregunta.numero.unidad ? `En ${pregunta.numero.unidad}` : "Ej.: 120"}
                   onChange={(e) => setRespuestas((actuales) => ({ ...actuales, [pregunta.texto]: e.target.value }))}
                   className={INPUT}
                 />
@@ -456,7 +453,7 @@ export function SeccionCotizacion({
             <h4 className="font-display text-[15px] font-bold text-ink">Receta</h4>
             <p className="text-[12.5px] text-ink-secondary">
               {estado.politica === "manual"
-                ? "Opcional: con receta, desde Ventas podés calcular el presupuesto en un toque."
+                ? "Opcional: con receta, en Ventas calculás el presupuesto en un toque."
                 : "Qué lleva y cuánto. Las cantidades pueden usar las preguntas de número"}
               {estado.politica !== "manual" && variables.length === 0 && " (marcá alguna como “Se contesta con un número”)"}
               {estado.politica !== "manual" && "."}

@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 13 de octubre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 16 de octubre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -130,7 +130,12 @@ export default function PrivacidadPage() {
             y, si pagó con Mercado Pago, el número de operación. Si configurás que el asistente pida
             datos para el envío o para el pedido (código postal, dirección, provincia, país, email, DNI
             u otros que definas vos), también guardamos lo que el cliente conteste, sólo los datos que
-            vos elegiste pedir. Los avisos que te mostramos en el
+            vos elegiste pedir. Si vendés a pedido, además: lo que el cliente pidió (el producto,
+            sus respuestas a tus preguntas y un resumen), los presupuestos con sus versiones, el
+            historial de cada pedido, si lo atiende una persona y por qué, y lo que el cliente y vos se
+            escriban mientras el asistente está callado en ese chat; y tus materiales y costos (lo que
+            te cuesta cada cosa y cómo cotiza el asistente), que nunca se le muestran a un cliente salvo
+            que elijas mostrarle el detalle del presupuesto. Los avisos que te mostramos en el
             panel (ventas, pedidos, stock, consultas) repiten algunos de esos datos.
           </p>
           <p>
@@ -336,8 +341,10 @@ export default function PrivacidadPage() {
             <Punto>
               <Fuerte>Ventas:</Fuerte> se conservan mientras tu cuenta exista, porque son tu histórico.
               A los 12 meses de cada pedido se borran el nombre, el número de WhatsApp y los demás datos
-              que dio el cliente (dirección, email, DNI y los que hayas pedido); los productos, los
-              montos y las fechas quedan.
+              que dio el cliente (dirección, email, DNI y los que hayas pedido); en un pedido a medida,
+              también sus respuestas, el resumen de lo que pidió, el motivo escrito de la derivación y
+              las notas tuyas y de los presupuestos. Los productos, los montos, los renglones de los
+              presupuestos y las fechas quedan.
             </Punto>
             <Punto>
               <Fuerte>Avisos del panel:</Fuerte> los leídos se borran a los 90 días; los que nunca
@@ -380,9 +387,10 @@ export default function PrivacidadPage() {
               cancelamos.
             </Punto>
             <Punto>
-              Si vendías con el asistente: borramos tu catálogo, tus ventas, tus avisos y los tokens de
-              tu cuenta de Mercado Pago. Los links de pago que ya se habían mandado vencen solos en
-              menos de una hora.
+              Si vendías con el asistente: borramos tu catálogo, tus ventas (con sus presupuestos e
+              historial), tus materiales y costos, tus avisos y los tokens de tu cuenta de Mercado Pago.
+              Los links de pago que ya se habían mandado vencen solos: los de un pedido del catálogo en
+              menos de una hora, los de un presupuesto a medida en hasta tres días.
             </Punto>
             <Punto>
               Borramos las sugerencias que nos mandaste. Las que ya pasamos a Linear quedan ahí sin

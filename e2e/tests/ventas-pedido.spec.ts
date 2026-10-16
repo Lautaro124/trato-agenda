@@ -60,25 +60,32 @@ test.describe('comercio que vende a pedido (LAU-21)', () => {
     expect(cambio.status()).toBe(409);
   });
 
-  test('a pedido no cierra la compra: le pasa la solicitud al dueño', async ({ context, usuarioDev }) => {
+  test('a pedido no cierra la compra: anota la solicitud para que el dueño la cotice', async ({ context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    const { nombreTitular } = await crearAgenteVentasPorApi(context.request, {
-      modalidadVenta: 'pedido',
-      queHace: QUE_HACE,
+    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    const producto = await context.request.post(`${API_URL}/productos`, {
+      data: { codigo: 'MESA', nombre: 'Mesa a medida', descripcion: '', solicitud: { preguntas: [] }, materiales: [] },
     });
+    expect(producto.status(), await producto.text()).toBe(201);
 
-    const res = await context.request.post(`${API_URL}/conversation/test`, {
-      data: { message: 'quiero una mesa de 1,80 x 0,90 para fin de mes, soy Ana' },
-    });
-    expect(res.ok(), await res.text()).toBe(true);
-    const { reply } = (await res.json()) as { reply: string };
-    expect(reply).toContain(`le avisé a ${nombreTitular}`);
+    const decir = async (message: string) => {
+      const res = await context.request.post(`${API_URL}/conversation/test`, { data: { message } });
+      expect(res.ok(), await res.text()).toBe(true);
+      return ((await res.json()) as { reply: string }).reply;
+    };
+    await decir('mesa');
+    const reply = await decir('quiero una mesa de 1,80 x 0,90 para fin de mes, soy Ana');
+    expect(reply).toContain('Solicitud anotada');
     expect(reply).not.toContain('Pedido creado');
 
     const avisos = await context.request.get(`${API_URL}/notificaciones`);
-    const { notificaciones } = (await avisos.json()) as { notificaciones: Array<{ titulo: string; cuerpo: string }> };
-    const solicitud = notificaciones.find((aviso) => aviso.titulo === '[Prueba] Solicitud para cotizar');
-    expect(solicitud?.cuerpo).toContain('pidió una cotización: "quiero una mesa de 1,80 x 0,90 para fin de mes, soy Ana"');
+    const { notificaciones } = (await avisos.json()) as {
+      notificaciones: Array<{ titulo: string; cuerpo: string; enlace: string | null }>;
+    };
+    const solicitud = notificaciones.find((aviso) => aviso.titulo === '[Prueba] Para cotizar: Mesa a medida');
+    expect(solicitud?.cuerpo).toContain('pidió un presupuesto de "Mesa a medida"');
+    expect(solicitud?.cuerpo).toContain('quiero una mesa de 1,80 x 0,90 para fin de mes, soy Ana');
+    expect(solicitud?.enlace).toMatch(/^\/ventas\?venta=/);
   });
 
   test('a pedido sin contar qué hace la API lo rechaza', async ({ context, usuarioDev }) => {
