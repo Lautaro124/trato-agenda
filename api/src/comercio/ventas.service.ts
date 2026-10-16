@@ -11,6 +11,7 @@ import {
   MercadoPagoError,
   MercadoPagoNoAutorizadoError,
   type PagoMp,
+  type Preferencia,
 } from '../subscription/mercadopago.client.js';
 import { describirStock, hayStock, stockBajo } from './catalogo.rules.js';
 import {
@@ -104,6 +105,9 @@ type VarianteBloqueada = {
   categoria: string | null;
 };
 
+/** Estados desde los que el dueño (o el cliente) puede cancelar un pedido. */
+const ESTADOS_CANCELABLES = ['solicitado', 'a_cotizar', 'cotizado', 'pendiente_pago', 'vencida'] as const;
+
 /** Ventas de Mercado Pago que la conciliación sigue mirando después de vencida la reserva. */
 const HORAS_CONCILIACION = 24;
 
@@ -161,18 +165,11 @@ export class VentasService {
 
     if (token) {
       try {
-        const preferencia = await this.mp.crearPreferencia(token.accessToken, {
-          items: venta.items.map((item) => ({
-            id: item.varianteId ?? item.codigo,
-            title: `${item.nombreProducto}${item.nombreVariante ? ` - ${item.nombreVariante}` : ''}`.slice(0, 250),
-            quantity: item.cantidad,
-            unit_price: item.precioUnitarioCentavos / 100,
-            currency_id: venta.moneda,
-          })),
-          externalReference: venta.id,
-          notificationUrl: `${this.config.get('API_PUBLIC_URL', { infer: true })}/ventas/webhook?venta=${venta.id}`,
-          venceAt: venta.reservaVenceAt,
-        });
+        const preferencia = await this.crearPreferencia(
+          token.accessToken,
+          venta,
+          venta.reservaVenceAt ?? vencimientoDeReserva(input.medioPago, ahora),
+        );
         return await this.prisma.venta.update({
           where: { id: venta.id },
           data: { mpPreferenceId: preferencia.id, linkPago: preferencia.init_point },
@@ -191,6 +188,37 @@ export class VentasService {
     // Un pedido a cobrar a mano no avanza solo: el dueño tiene que enterarse.
     await this.avisar(input.userId, avisoPedidoManual(venta));
     return venta;
+  }
+
+  /**
+   * El link de Checkout Pro de una venta, con sus renglones y a nombre del
+   * comercio. Lo usan los pedidos del catálogo y el cobro de un presupuesto
+   * a medida (pedidos-a-medida.service.ts).
+   */
+  crearPreferencia(accessToken: string, venta: VentaConItems, venceAt: Date): Promise<Preferencia> {
+    return this.mp.crearPreferencia(accessToken, {
+      items: venta.items.map((item) => ({
+        id: item.varianteId ?? item.codigo,
+        title: `${item.nombreProducto}${item.nombreVariante ? ` - ${item.nombreVariante}` : ''}`.slice(0, 250),
+        quantity: item.cantidad,
+        unit_price: item.precioUnitarioCentavos / 100,
+        currency_id: venta.moneda,
+      })),
+      externalReference: venta.id,
+      notificationUrl: `${this.config.get('API_PUBLIC_URL', { infer: true })}/ventas/webhook?venta=${venta.id}`,
+      venceAt,
+    });
+  }
+
+  /** Corta un link que ya no se puede cobrar (presupuesto reemplazado, pedido cancelado). Best effort. */
+  async vencerLink(userId: string, mpPreferenceId: string, ahora: Date = new Date()): Promise<void> {
+    try {
+      const token = await this.cuentas.tokenDe(userId);
+      if (token) await this.mp.vencerPreferencia(token.accessToken, mpPreferenceId, ahora);
+    } catch (error) {
+      if (error instanceof MercadoPagoNoAutorizadoError) await this.desconectarPorRevocacion(userId);
+      this.logger.warn(`No se pudo vencer el link ${mpPreferenceId}: ${(error as Error).message}`);
+    }
   }
 
   private async reservar(
@@ -321,14 +349,32 @@ export class VentasService {
     return this.cancelar(venta.userId, venta.id, ahora);
   }
 
-  /** Cancela un pedido sin pagar del dueño. null si no existe, no es suyo o ya no se puede cancelar. */
-  async cancelar(userId: string, ventaId: string, ahora: Date = new Date()): Promise<VentaConItems | null> {
+  /**
+   * Cancela un pedido sin pagar del dueño (uno a medida, en cualquier etapa
+   * antes del pago). null si no existe, no es suyo o ya no se puede cancelar.
+   */
+  async cancelar(
+    userId: string,
+    ventaId: string,
+    ahora: Date = new Date(),
+    autor: 'dueno' | 'asistente' = 'dueno',
+  ): Promise<VentaConItems | null> {
+    const antes = await this.prisma.venta.findFirst({ where: { id: ventaId, userId }, select: { estado: true, tipo: true } });
+    if (!antes) return null;
     const { count } = await this.prisma.venta.updateMany({
-      where: { id: ventaId, userId, estado: { in: ['pendiente_pago', 'vencida'] } },
+      where: { id: ventaId, userId, estado: { in: [...ESTADOS_CANCELABLES] } },
       data: { estado: 'cancelada', canceladaAt: ahora },
     });
     if (count === 0) return null;
-    return this.prisma.venta.findUnique({ where: { id: ventaId }, include: { items: true } });
+    const venta = await this.prisma.venta.findUniqueOrThrow({ where: { id: ventaId }, include: { items: true } });
+    if (venta.tipo === 'a_medida') {
+      await this.prisma.eventoVenta.create({
+        data: { ventaId, tipo: 'estado', de: antes.estado, a: 'cancelada', autor },
+      });
+      // Un link de pago a medida vale días: que no se pueda pagar un pedido cancelado.
+      if (venta.mpPreferenceId) await this.vencerLink(userId, venta.mpPreferenceId, ahora);
+    }
+    return venta;
   }
 
   /**
@@ -394,6 +440,17 @@ export class VentasService {
         },
         include: { items: true },
       });
+      if (venta.tipo === 'a_medida') {
+        await tx.eventoVenta.create({
+          data: {
+            ventaId,
+            tipo: 'estado',
+            de: bloqueada.estado,
+            a: 'pagada',
+            autor: opciones.mpPaymentId ? 'mercadopago' : 'dueno',
+          },
+        });
+      }
       return { venta, nueva: true, stockBajo: conStockBajo };
     });
   }

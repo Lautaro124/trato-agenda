@@ -18,6 +18,7 @@ import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService } from '../../comercio/busqueda.service.js';
 import type { HistoricoVentasService } from '../../comercio/historico.service.js';
 import type { ImagenesService } from '../../comercio/imagenes.service.js';
+import type { PedidosAMedidaService } from '../../comercio/pedidos-a-medida.service.js';
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { VentasService } from '../../comercio/ventas.service.js';
 import type { NotificacionesService } from '../../notificaciones/notificaciones.service.js';
@@ -40,6 +41,7 @@ export type DepsGrafoVentas = {
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
+  pedidos: Pick<PedidosAMedidaService, 'productoParaSolicitud' | 'registrarSolicitud' | 'avisarParaCotizar' | 'cobrar' | 'derivar'>;
   openRouter: OpenRouterClient;
   llm: BaseChatModel;
   checkpointer?: BaseCheckpointSaver;

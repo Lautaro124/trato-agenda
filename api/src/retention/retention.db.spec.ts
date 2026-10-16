@@ -88,6 +88,54 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     });
   });
 
+  it('a los 12 meses un pedido a medida pierde lo que escribió el cliente y las notas, pero no el producto ni el total', async () => {
+    const crear = (createdAt: Date) =>
+      prisma.venta.create({
+        data: {
+          userId: dueno.id,
+          tipo: 'a_medida',
+          estado: 'cotizado',
+          nombreCliente: 'Ana',
+          totalCentavos: 500_000,
+          detalleDerivacion: 'Quiere que la llamen al 11 5555 5555',
+          notaDevolucion: 'Le pasé el precio por teléfono',
+          solicitud: {
+            productoId: 'p1',
+            nombreProducto: 'Placard',
+            respuestas: [{ pregunta: 'Dirección de instalación', respuesta: 'Corrientes 1234' }],
+            resumen: 'Placard para la casa de Ana',
+          },
+          createdAt,
+          presupuestos: {
+            create: [
+              { version: 1, origen: 'dueno', estado: 'enviado', renglones: [], totalCentavos: 500_000, nota: 'Para Ana' },
+            ],
+          },
+        },
+      });
+    const vieja = await crear(pasado(DIAS_RETENCION_DATOS_CLIENTE));
+    const nueva = await crear(reciente(DIAS_RETENCION_DATOS_CLIENTE));
+
+    await servicio['anonimizarVentas'](AHORA);
+
+    const [trasVieja, trasNueva] = await Promise.all(
+      [vieja.id, nueva.id].map((id) => prisma.venta.findUniqueOrThrow({ where: { id }, include: { presupuestos: true } })),
+    );
+    expect(trasVieja).toMatchObject({
+      nombreCliente: null,
+      detalleDerivacion: null,
+      notaDevolucion: null,
+      totalCentavos: 500_000,
+      solicitud: { productoId: 'p1', nombreProducto: 'Placard', respuestas: [], resumen: '' },
+    });
+    expect(trasVieja.presupuestos[0]).toMatchObject({ nota: null, totalCentavos: 500_000 });
+    expect(trasNueva).toMatchObject({
+      detalleDerivacion: 'Quiere que la llamen al 11 5555 5555',
+      solicitud: { resumen: 'Placard para la casa de Ana' },
+    });
+    expect(trasNueva.presupuestos[0].nota).toBe('Para Ana');
+  });
+
   it('borra los avisos leídos a los 90 días y los no leídos a los 12 meses', async () => {
     const leidoViejo = await aviso(pasado(DIAS_RETENCION_AVISOS_LEIDOS), true);
     const leidoNuevo = await aviso(reciente(DIAS_RETENCION_AVISOS_LEIDOS), true);

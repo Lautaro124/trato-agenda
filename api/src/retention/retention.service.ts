@@ -128,18 +128,43 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
    * DNI, email…) de quien compró.
    */
   private async anonimizarVentas(ahora: Date = new Date()): Promise<number> {
+    const limite = fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora);
     const { count } = await this.prisma.venta.updateMany({
       where: {
-        createdAt: { lt: fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora) },
+        createdAt: { lt: limite },
         OR: [
           { nombreCliente: { not: null } },
           { telefonoCliente: { not: null } },
           { datosCliente: { not: Prisma.DbNull } },
+          { detalleDerivacion: { not: null } },
+          { notaDevolucion: { not: null } },
         ],
       },
-      data: { nombreCliente: null, telefonoCliente: null, datosCliente: Prisma.DbNull },
+      data: {
+        nombreCliente: null,
+        telefonoCliente: null,
+        datosCliente: Prisma.DbNull,
+        detalleDerivacion: null,
+        notaDevolucion: null,
+      },
     });
-    return count;
+    // Un pedido a medida guarda lo que escribió el cliente (resumen y
+    // respuestas): queda sólo qué producto era. Y los presupuestos pierden la
+    // nota y los datos con que se calcularon; los renglones y el total quedan.
+    const aMedida = await this.prisma.$executeRaw`
+      UPDATE "Venta"
+      SET "solicitud" = jsonb_build_object('productoId', "solicitud"->'productoId', 'nombreProducto', "solicitud"->'nombreProducto', 'respuestas', '[]'::jsonb, 'resumen', '')
+      WHERE "createdAt" < ${limite} AND "solicitud" IS NOT NULL
+        AND ("solicitud"->>'resumen' <> '' OR jsonb_array_length(COALESCE("solicitud"->'respuestas', '[]'::jsonb)) > 0)
+    `;
+    await this.prisma.presupuesto.updateMany({
+      where: {
+        venta: { createdAt: { lt: limite } },
+        OR: [{ nota: { not: null } }, { datos: { not: Prisma.DbNull } }],
+      },
+      data: { nota: null, datos: Prisma.DbNull },
+    });
+    return count + aMedida;
   }
 
   /**

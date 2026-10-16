@@ -234,6 +234,10 @@ model Message {
 
   /// "user" | "assistant" | "tool"
   role    String
+  /// Forma OpenAI ({ content, tool_calls? }). Mientras un pedido está en
+  /// atención humana el asistente no corre: lo que escribe el cliente se guarda
+  /// con `enAtencionHumana: true` y lo que contesta el dueño desde su teléfono
+  /// como "assistant" con `humano: true`.
   content Json
 
   createdAt DateTime @default(now())
@@ -508,16 +512,42 @@ model Venta {
   /// al vender (como ItemVenta). Misma retención que el nombre.
   datosCliente Json?
 
-  /// "pendiente_pago" | "pagada" | "cancelada" | "vencida"
-  estado    String @default("pendiente_pago")
-  /// "mercadopago" | "manual"
-  medioPago String
+  /// "stock" (productos del catálogo con variantes) | "a_medida" (una
+  /// solicitud que se cotiza: LAU-24/26/27). Las reglas de los a medida están
+  /// en comercio/pedido-a-medida.rules.ts.
+  tipo String @default("stock")
 
-  totalCentavos Int
+  /// "solicitado" | "a_cotizar" | "cotizado" (sólo a medida) | "pendiente_pago"
+  /// | "pagada" | "cancelada" | "vencida"
+  estado    String @default("pendiente_pago")
+  /// "mercadopago" | "manual". Null en un a medida que todavía no se cobra.
+  medioPago String?
+
+  /// Null en un a medida sin cotizar: nunca un cero inventado.
+  totalCentavos Int?
   moneda        String @default("ARS")
 
-  /// Hasta cuándo retiene el stock mientras está pendiente de pago.
-  reservaVenceAt DateTime
+  /// Hasta cuándo retiene el stock mientras está pendiente de pago. En un a
+  /// medida es hasta cuándo vale el link (o el cobro a coordinar); null
+  /// mientras no se cobra.
+  reservaVenceAt DateTime?
+
+  /// Sólo a medida: la foto de lo que pidió el cliente, `{ productoId,
+  /// nombreProducto, respuestas: [{ pregunta, respuesta }], resumen }`. Se
+  /// anonimiza el resumen a los 12 meses, como el nombre.
+  solicitud Json?
+
+  /// "asistente" | "humana" (LAU-27). En "humana" el asistente no contesta en
+  /// ese chat mientras el pedido siga abierto.
+  atencion          String    @default("asistente")
+  derivadaAt        DateTime?
+  /// "falta_info" | "excepcion" | "pide_persona" | "sin_reglas" | "dueno" | "otro"
+  motivoDerivacion  String?
+  /// Por qué, en palabras del asistente o del dueño. Misma retención que el nombre.
+  detalleDerivacion String?
+  /// Cuándo se le devolvió el chat al asistente, y lo que el dueño dejó anotado.
+  devueltaAt        DateTime?
+  notaDevolucion    String?
 
   /// Preferencia de Checkout Pro creada con el token del comercio.
   mpPreferenceId String?
@@ -536,7 +566,9 @@ model Venta {
   /// es un pedido real, pero no cuenta en el histórico ni en los totales.
   dePrueba Boolean @default(false)
 
-  items ItemVenta[]
+  items        ItemVenta[]
+  presupuestos Presupuesto[]
+  eventos      EventoVenta[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -544,6 +576,61 @@ model Venta {
   @@index([userId, createdAt])
   @@index([estado, reservaVenceAt])
   @@index([conversationId])
+  @@index([userId, atencion])
+}
+
+/// Un presupuesto de un pedido a medida. Cada cambio es una versión nueva: la
+/// anterior queda "reemplazado", y la que se cobra es la única "enviado".
+/// Reglas en comercio/presupuesto.rules.ts.
+model Presupuesto {
+  id      String @id @default(cuid())
+  ventaId String
+  venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+
+  version Int
+  /// "asistente" (lo calculó la receta) | "dueno" (lo armó o editó a mano)
+  origen  String
+  /// "borrador" | "enviado" | "reemplazado" | "descartado"
+  estado  String @default("borrador")
+
+  /// [{ concepto, tipo: material|proceso|mano_obra|extra|otro, cantidad,
+  /// unidad, precioUnitarioCentavos, subtotalCentavos }], foto del momento.
+  renglones     Json
+  totalCentavos Int
+  moneda        String  @default("ARS")
+  /// Si es estimativo (el precio final puede cambiar) o definitivo.
+  estimativo    Boolean @default(false)
+  /// Si el cliente ve los renglones o sólo el total.
+  detalleAlCliente Boolean @default(false)
+  /// Lo que el dueño le agrega al cliente (plazo, condiciones). Nunca lo inventa el asistente.
+  nota          String?
+  /// Fase 2: las respuestas y valores con que se calculó.
+  datos         Json?
+
+  enviadoAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([ventaId, version])
+}
+
+/// El historial de un pedido: cada cambio de estado, derivación, devolución,
+/// presupuesto y cobro, con quién lo hizo y por qué.
+model EventoVenta {
+  id      String @id @default(cuid())
+  ventaId String
+  venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+
+  /// "estado" | "derivacion" | "devolucion" | "presupuesto" | "cobro"
+  tipo   String
+  de     String?
+  a      String?
+  motivo String?
+  /// "asistente" | "dueno" | "sistema" | "mercadopago"
+  autor  String
+
+  createdAt DateTime @default(now())
+
+  @@index([ventaId, createdAt])
 }
 
 /// Renglón de una venta. Guarda una foto del producto (código, nombres,
@@ -605,7 +692,8 @@ model Notificacion {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// "venta_pagada" | "pedido_manual" | "stock_bajo" | "stock_agotado" |
-  /// "consulta_derivada" | "mercadopago_desconectado" | "whatsapp_desconectado"
+  /// "consulta_derivada" | "mercadopago_desconectado" | "whatsapp_desconectado" |
+  /// "solicitud_a_cotizar" | "presupuesto_a_revisar" | "pedido_derivado" | "presupuesto_aceptado"
   tipo   String
   titulo String
   cuerpo String

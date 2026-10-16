@@ -13,6 +13,9 @@ import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js'
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
 import type { SugerenciasService } from '../../../comercio/sugerencias.service.js';
+import type { PedidosAMedidaService } from '../../../comercio/pedidos-a-medida.service.js';
+import { MOTIVOS_DEL_ASISTENTE, type MotivoDelAsistente } from '../../../comercio/pedido-a-medida.rules.js';
+import { validarRespuestasSolicitud, type RespuestaSolicitud } from '../../../comercio/solicitud.rules.js';
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import { leerModalidad } from '../../../agents/modalidad-venta.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
@@ -21,6 +24,9 @@ import type { ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import { hayDescuentosVigentes } from '../../../comercio/descuentos.rules.js';
 import {
   conOfertaDeDescuentos,
+  formatearCobroAMedida,
+  formatearDerivacion,
+  formatearSolicitudRegistrada,
   formatearCatalogo,
   formatearDescuentos,
   formatearListadoVentas,
@@ -40,6 +46,7 @@ export type DepsCatalogo = {
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
+  pedidos: Pick<PedidosAMedidaService, 'productoParaSolicitud' | 'registrarSolicitud' | 'avisarParaCotizar' | 'cobrar' | 'derivar'>;
 };
 
 /** Lo que vuelve al modelo y, si es una foto aprobada, lo que la fachada le manda al cliente. */
@@ -60,7 +67,14 @@ export const MENSAJE_CATALOGO_CAIDO =
   'No pude consultar el catálogo en este momento. Pedile disculpas al cliente y decile que en un rato lo vuelva a intentar.';
 
 /** Las herramientas que cambian algo afuera del hilo (cancelacion.ts). */
-const CON_EFECTO = new Set(['crear_pedido', 'cancelar_pedido', 'derivar_consulta']);
+const CON_EFECTO = new Set([
+  'crear_pedido',
+  'cancelar_pedido',
+  'derivar_consulta',
+  'registrar_solicitud',
+  'aceptar_presupuesto',
+  'derivar_a_persona',
+]);
 
 export function crearNodoCatalogo(deps: DepsCatalogo) {
   const logger = new Logger('CatalogoNode');
@@ -140,6 +154,73 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     return `Listo, le avisé a ${titular}. ${decile}`;
   }
 
+  /**
+   * Anota la solicitud a medida. Las respuestas se validan acá contra las
+   * preguntas del producto (la validación no tiene la base): si falta una
+   * necesaria, vuelve al modelo con lo que falta y no se anota nada.
+   */
+  async function registrarSolicitud(state: EstadoVentasValue, args: Args): Promise<string> {
+    const producto = await deps.pedidos.productoParaSolicitud(state.ownerUserId, String(args.productoId));
+    if (!producto) return 'Ese producto ya no está en el catálogo. Volvé a buscarlo.';
+    const respuestas = validarRespuestasSolicitud(producto.solicitud, args.respuestas);
+    if (!respuestas.ok) {
+      return `${respuestas.motivo} Preguntáselo al cliente (de a una o dos preguntas) antes de anotar la solicitud.`;
+    }
+    try {
+      const resultado = await deps.pedidos.registrarSolicitud({
+        userId: state.ownerUserId,
+        conversationId: state.contexto.conversation.id,
+        remoteJid: state.remoteJid,
+        nombreCliente: String(args.nombreCliente),
+        producto: { id: producto.id, nombre: producto.nombre },
+        respuestas: respuestas.respuestas as RespuestaSolicitud[],
+        resumen: String(args.resumen ?? ''),
+        dePrueba: state.esPropietario,
+      });
+      if (resultado.cambio) await deps.pedidos.avisarParaCotizar(resultado.venta);
+      return formatearSolicitudRegistrada(resultado, null);
+    } catch (error) {
+      if (error instanceof PedidoRechazadoError) return `No se pudo anotar la solicitud: ${error.message}`;
+      throw error;
+    }
+  }
+
+  async function aceptarPresupuesto(state: EstadoVentasValue, args: Args): Promise<string> {
+    try {
+      const venta = await deps.pedidos.cobrar(state.ownerUserId, String(args.pedidoId), {
+        autor: 'asistente',
+        conversationId: state.contexto.conversation.id,
+      });
+      return formatearCobroAMedida(state.contexto.agent, venta);
+    } catch (error) {
+      if (error instanceof PedidoRechazadoError) return `No se pudo generar el cobro: ${error.message}`;
+      throw error;
+    }
+  }
+
+  async function derivarAPersona(state: EstadoVentasValue, args: Args): Promise<string> {
+    const motivo = (MOTIVOS_DEL_ASISTENTE as readonly string[]).includes(String(args.motivo))
+      ? (args.motivo as MotivoDelAsistente)
+      : 'otro';
+    try {
+      const venta = await deps.pedidos.derivar({
+        userId: state.ownerUserId,
+        ventaId: typeof args.pedidoId === 'string' ? args.pedidoId : null,
+        conversationId: state.contexto.conversation.id,
+        remoteJid: state.remoteJid,
+        nombreCliente: state.contexto.conversation.nombreCliente,
+        motivo,
+        detalle: String(args.detalle ?? ''),
+        autor: 'asistente',
+        dePrueba: state.esPropietario,
+      });
+      return formatearDerivacion(venta);
+    } catch (error) {
+      if (error instanceof PedidoRechazadoError) return `No se pudo pasar a una persona: ${error.message}`;
+      throw error;
+    }
+  }
+
   /** listar_ventas y resumen_ventas (sólo el dueño). */
   async function historicoDeVentas(state: EstadoVentasValue, operacion: OperacionPendiente): Promise<string> {
     const { args } = operacion;
@@ -207,6 +288,12 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         return crearPedido(state, args);
       case 'derivar_consulta':
         return derivarConsulta(state, args);
+      case 'registrar_solicitud':
+        return registrarSolicitud(state, args);
+      case 'aceptar_presupuesto':
+        return aceptarPresupuesto(state, args);
+      case 'derivar_a_persona':
+        return derivarAPersona(state, args);
       case 'listar_ventas':
       case 'resumen_ventas':
         return historicoDeVentas(state, operacion);

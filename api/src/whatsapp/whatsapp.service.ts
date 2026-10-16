@@ -28,6 +28,7 @@ import { Observable, ReplaySubject, map } from 'rxjs';
 import { Limitador } from '../auth/limitador.js';
 import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
+import { PedidosAMedidaService } from '../comercio/pedidos-a-medida.service.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
@@ -196,6 +197,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly subscriptionService: SubscriptionService,
     private readonly imagenes: ImagenesService,
     private readonly notificaciones: NotificacionesService,
+    private readonly pedidos: PedidosAMedidaService,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
@@ -530,13 +532,30 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     for (const mensaje of upsert.messages) {
       const remoteJid = mensaje.key.remoteJid;
-      if (!remoteJid || mensaje.key.fromMe || isJidGroup(remoteJid)) continue;
+      if (!remoteJid || isJidGroup(remoteJid)) continue;
 
       const texto = mensaje.message?.conversation ?? mensaje.message?.extendedTextMessage?.text;
+      if (mensaje.key.fromMe) {
+        // Lo que el dueño contesta desde su teléfono: sólo se guarda en un chat en atención humana.
+        if (texto) await this.guardarRespuestaDelDueno(userId, sock, remoteJid, mensaje.key.id, texto);
+        continue;
+      }
       if (!texto) continue;
 
       if (!(await this.subscriptionService.asistenteActivo(userId))) {
         this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
+        continue;
+      }
+
+      // Un pedido de este chat lo atiende una persona (LAU-27): el asistente no
+      // contesta, ni marca leído, ni muestra "escribiendo…". El mensaje queda
+      // guardado para que el dueño lo vea en Ventas y el asistente al retomar.
+      if (await this.pedidos.enAtencionHumana(userId, remoteJid)) {
+        await this.pedidos
+          .guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'cliente')
+          .catch((error: unknown) =>
+            this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
+          );
         continue;
       }
 
@@ -549,6 +568,30 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         enviadoEn: timestampEnMs(mensaje.messageTimestamp),
         recibidoEn: Date.now(),
       });
+    }
+  }
+
+  /**
+   * Un mensaje que el dueño escribió desde su teléfono en el chat de un
+   * cliente. Si ese chat está en atención humana, se guarda: es la mitad de la
+   * charla que el asistente no vio. Se descartan su propio chat (los códigos
+   * de acceso) y lo que salió del asistente (`enviados`), que vuelve como eco.
+   */
+  private async guardarRespuestaDelDueno(
+    userId: string,
+    sock: WASocket,
+    remoteJid: string,
+    id: string | null | undefined,
+    texto: string,
+  ): Promise<void> {
+    if (this.enviados.buscar(userId, id)) return;
+    const telefono = estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
+    if (telefono && remoteJid === jidPropio(telefono)) return;
+    try {
+      if (!(await this.pedidos.enAtencionHumana(userId, remoteJid))) return;
+      await this.pedidos.guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'dueno');
+    } catch (error) {
+      this.logger.error(`No se pudo guardar una respuesta del dueño ${userId}: ${(error as Error).message}`);
     }
   }
 
@@ -582,6 +625,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           throw error;
         },
       );
+      // Mientras esperaba la ráfaga, el chat pasó a una persona: no se contesta nada.
+      if (respuesta.enAtencionHumana) return;
       const finModelo = Date.now();
       const partes = partirEnMensajes(respuesta.texto);
       await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);

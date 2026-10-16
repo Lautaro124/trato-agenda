@@ -36,6 +36,9 @@ export const ACCIONES_VENTAS = {
   cancelar_pedido: 'Cancelar el pedido sin pagar de esta conversación y liberar su reserva.',
   derivar_consulta: 'Avisarle al dueño una consulta que el asistente no puede responder.',
   enviar_imagen_producto: 'Mandarle al cliente la foto de un producto cuando la pide.',
+  registrar_solicitud: 'Anotar lo que pide el cliente de un producto a medida como pedido para cotizar.',
+  aceptar_presupuesto: 'Generar el cobro de un presupuesto que el cliente aceptó.',
+  derivar_a_persona: 'Pasarle el pedido a una persona del equipo; el asistente deja de contestar en ese chat.',
 } as const;
 
 export type AccionVentasId = keyof typeof ACCIONES_VENTAS;

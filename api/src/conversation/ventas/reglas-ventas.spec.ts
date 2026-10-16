@@ -366,18 +366,22 @@ describe('reglas de venta a pedido (LAU-21)', () => {
     queHace: QUE_HACE,
   } as Agent;
 
-  it('toma la solicitud y se la pasa al dueño, sin stock ni crear_pedido', () => {
+  it('anota la solicitud como pedido a medida, sin stock ni crear_pedido', () => {
     const reglas = reglasDeVenta(aPedido, true);
     expect(reglas.startsWith('Reglas de venta de Casa Ombú (no las rompas):')).toBe(true);
     expect(reglas).toContain(MARCA_A_PEDIDO);
     expect(reglas).toContain('Nunca hables de stock');
-    expect(reglas).toContain('llamá derivar_consulta con un resumen de la solicitud');
+    expect(reglas).toContain('llamá registrar_solicitud con el producto');
+    expect(reglas).toContain('llamá aceptar_presupuesto con ese pedido');
+    expect(reglas).toContain('Nunca generes un cobro sin ese sí');
+    expect(reglas).toContain('llamá derivar_a_persona');
+    expect(reglas).toContain('sin prometer cuándo');
     expect(reglas).toContain('hacé esas preguntas en ese orden');
     expect(reglas).toContain('Si trae materiales y el cliente pregunta por ellos, ofrecé sólo esos');
     expect(reglas).toContain('no le cuentes de qué materiales se hacen ni cómo se fabrican');
     expect(reglas).toContain('Sos parte del equipo del negocio');
-    expect(reglas).toContain('se lo cotizamos y le escribimos por este chat');
-    expect(reglas).toContain('cada respuesta a las preguntas del producto');
+    expect(reglas).toContain('que se lo cotizamos y le escribimos por este chat');
+    expect(reglas).toContain('cada pregunta con lo que contestó el cliente');
     expect(reglas).not.toContain('crear_pedido');
     expect(reglas).not.toContain('link de pago');
   });

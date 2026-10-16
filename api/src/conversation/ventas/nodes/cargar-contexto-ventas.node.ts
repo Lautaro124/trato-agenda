@@ -14,7 +14,10 @@ import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../../graph/sal
 import type { AgentConUser } from '../../graph/state.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-historial.js';
 import type { Agent, Conversation } from '../../../generated/prisma/client.js';
+import { leerModalidad } from '../../../agents/modalidad-venta.js';
+import type { PedidoAMedida } from '../../../comercio/pedidos-a-medida.service.js';
 import {
+  bloqueAtencionHumana,
   bloqueCatalogo,
   bloqueLocal,
   bloquePedidos,
@@ -34,6 +37,34 @@ export type DepsContextoVentas = {
 };
 
 const logger = new Logger('CargarContextoVentasNode');
+
+/** Pedidos a medida que entran al contexto: los abiertos más los últimos cerrados. */
+const PEDIDOS_A_MEDIDA_EN_CONTEXTO = 5;
+
+/**
+ * Lo que se habló mientras el chat lo atendió una persona, si se lo
+ * devolvieron al asistente dentro de la ventana que ve: los mensajes de
+ * entonces no están en el hilo de LangGraph (el asistente no corría).
+ */
+async function ultimaDevolucion(prisma: PrismaService, conversationId: string, desde: Date) {
+  const venta = await prisma.venta.findFirst({
+    where: { conversationId, devueltaAt: { not: null, gte: desde }, derivadaAt: { not: null } },
+    orderBy: { devueltaAt: 'desc' },
+    select: { derivadaAt: true, devueltaAt: true, notaDevolucion: true },
+  });
+  if (!venta?.derivadaAt || !venta.devueltaAt) return null;
+  const mensajes = await prisma.message.findMany({
+    where: {
+      conversationId,
+      role: { in: ['user', 'assistant'] },
+      createdAt: { gte: venta.derivadaAt, lte: venta.devueltaAt },
+    },
+    select: { role: true, content: true },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+  });
+  return { nota: venta.notaDevolucion, mensajes: mensajes.reverse() };
+}
 
 /**
  * Si el cliente ya eligió todo o sigue definiendo, según Jev. Sólo hace falta
@@ -58,12 +89,17 @@ async function etapaDeCompra(
   }
 }
 
-/** En ventas sí hay a quién derivar: derivar_consulta le avisa al dueño. */
+/**
+ * En ventas sí hay a quién derivar: derivar_consulta le avisa al dueño, y a
+ * pedido derivar_a_persona le pasa el chat a alguien del equipo.
+ */
 function naturalidadVentas(agent: Agent): string {
   const titular = agent.nombreTitular || 'este negocio';
   return reglasDeNaturalidad(
     titular,
-    'que si prefiere hablar con alguien del equipo, se lo pasás con derivar_consulta y le escribimos por este chat',
+    leerModalidad(agent) === 'pedido'
+      ? 'que si prefiere hablar con alguien del equipo, se lo pasás con derivar_a_persona y sigue esa persona por este chat'
+      : 'que si prefiere hablar con alguien del equipo, se lo pasás con derivar_consulta y le escribimos por este chat',
   );
 }
 
@@ -111,13 +147,16 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     }
 
     const historial = prepararHistorial(state.messages, new Date(), deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS);
+
     const guardada = await deps.prisma.conversation.findUniqueOrThrow({
       where: { userId_remoteJid: { userId: state.ownerUserId, remoteJid: state.remoteJid } },
     });
     // Mismo criterio que la agenda: con historial fuera de la ventana, tampoco el resumen.
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
-    const [grupos, totalProductos, cuentaMp, pedidos, etapa] = await Promise.all([
+    const aPedido = leerModalidad(agent) === 'pedido';
+    const ventanaMs = deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS;
+    const [grupos, totalProductos, cuentaMp, pedidos, etapa, pedidosAMedida, devolucion] = await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
         where: { userId: state.ownerUserId, activo: true, categoria: { not: null } },
@@ -127,20 +166,31 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       deps.prisma.producto.count({ where: { userId: state.ownerUserId, activo: true } }),
       deps.prisma.cuentaMercadoPago.findUnique({ where: { userId: state.ownerUserId }, select: { id: true } }),
       deps.prisma.venta.findMany({
-        where: { conversationId: conversation.id },
+        where: { conversationId: conversation.id, tipo: 'stock' },
         include: { items: true },
         orderBy: { createdAt: 'desc' },
         take: 3,
       }),
       etapaDeCompra(deps, agent, historial.visibles, conversation),
+      aPedido
+        ? (deps.prisma.venta.findMany({
+            where: { conversationId: conversation.id, tipo: 'a_medida' },
+            include: { items: true, presupuestos: { orderBy: { version: 'asc' } } },
+            orderBy: { createdAt: 'desc' },
+            take: PEDIDOS_A_MEDIDA_EN_CONTEXTO,
+          }) as Promise<PedidoAMedida[]>)
+        : Promise.resolve([] as PedidoAMedida[]),
+      ultimaDevolucion(deps.prisma, conversation.id, new Date(Date.now() - ventanaMs)),
     ]);
     const mpConectado = cuentaMp !== null;
     const categorias = grupos.map((grupo) => ({ nombre: grupo.categoria as string, cantidad: grupo._count._all }));
 
+    const atencionHumana = bloqueAtencionHumana(devolucion);
     const contexto: ContextoVentas = {
       agent,
       conversation,
       mpConectado,
+      pedidosAMedida,
       bloqueSistema:
         `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, {
           mpConectado,
@@ -148,7 +198,9 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
           etapa,
           pistaEmoji: pistaDeEmoji(historial.visibles),
         })}\n\n` +
-        `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n${bloquePedidos(agent, mpConectado, pedidos)}`,
+        `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n` +
+        `${bloquePedidos(agent, mpConectado, pedidos, new Date(), pedidosAMedida)}` +
+        (atencionHumana ? `\n\n${atencionHumana}` : ''),
     };
 
     return {

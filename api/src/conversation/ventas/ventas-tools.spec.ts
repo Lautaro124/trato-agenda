@@ -17,6 +17,19 @@ describe('accionesDeVentas', () => {
     expect(acciones).toContain('derivar_consulta');
     expect(acciones).toContain('buscar_productos');
   });
+
+  it('a pedido tiene las de los pedidos a medida aunque el agente se haya guardado sin ellas (LAU-27)', () => {
+    const acciones = accionesDeVentas(['buscar_productos', 'derivar_consulta'], 'pedido');
+    expect(acciones).toEqual(expect.arrayContaining(['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona']));
+    expect(new Set(acciones).size).toBe(acciones.length);
+  });
+
+  it('con stock no tiene las de los pedidos a medida aunque estén guardadas', () => {
+    const acciones = accionesDeVentas([...ACCIONES_VENTAS_IDS], 'stock');
+    for (const accion of ['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona']) {
+      expect(acciones).not.toContain(accion);
+    }
+  });
 });
 
 describe('herramientasDeVentas', () => {

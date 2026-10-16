@@ -5,6 +5,7 @@
 import { claveDia, fechaEnDia } from '../conversation/graph/agenda-rules.js';
 import { formatearCentavos } from './catalogo.rules.js';
 import { leerDatosDeVenta, resumenDeDatos } from './datos-cliente.rules.js';
+import { leerSolicitudDeVenta } from './pedido-a-medida.rules.js';
 import { estadoVisible, fechaYHora, type EstadoVenta } from './ventas.rules.js';
 
 /** Días que muestra el histórico si no se pide otro rango. */
@@ -98,6 +99,9 @@ export const ENCABEZADOS_CSV = [
 const ETIQUETA_ENTREGA: Record<string, string> = { envio: 'envío', retiro: 'retira' };
 
 const ETIQUETA_ESTADO: Record<EstadoVenta, string> = {
+  solicitado: 'solicitado',
+  a_cotizar: 'a cotizar',
+  cotizado: 'cotizado',
   pendiente_pago: 'pendiente de pago',
   pagada: 'pagada',
   cancelada: 'cancelada',
@@ -107,11 +111,13 @@ const ETIQUETA_ESTADO: Record<EstadoVenta, string> = {
 export type VentaParaCsv = {
   createdAt: Date;
   estado: string;
-  reservaVenceAt: Date;
+  reservaVenceAt: Date | null;
   nombreCliente: string | null;
   telefonoCliente: string | null;
-  medioPago: string;
-  totalCentavos: number;
+  medioPago: string | null;
+  totalCentavos: number | null;
+  /** Sólo a medida: de ahí sale el producto mientras no hay renglones cobrados. */
+  solicitud?: unknown;
   pagadaAt: Date | null;
   mpPaymentId: string | null;
   dePrueba: boolean;
@@ -119,6 +125,17 @@ export type VentaParaCsv = {
   datosCliente: unknown;
   items: Array<{ cantidad: number; nombreProducto: string; nombreVariante: string }>;
 };
+
+/** Los renglones cobrados, o el producto a medida que se pidió si todavía no se cobra. */
+function productosDeVenta(venta: VentaParaCsv): string {
+  if (venta.items.length > 0) {
+    return venta.items
+      .map((item) => `${item.cantidad} × ${item.nombreProducto}${item.nombreVariante ? ` (${item.nombreVariante})` : ''}`)
+      .join(', ');
+  }
+  const solicitud = leerSolicitudDeVenta(venta.solicitud);
+  return solicitud?.nombreProducto ? `a medida: ${solicitud.nombreProducto}` : '';
+}
 
 /** El CSV entero, con BOM para que Excel lea bien las tildes. */
 export function ventasACsv(ventas: VentaParaCsv[], ahora: Date = new Date()): string {
@@ -128,11 +145,9 @@ export function ventasACsv(ventas: VentaParaCsv[], ahora: Date = new Date()): st
       ETIQUETA_ESTADO[estadoVisible(venta, ahora)],
       venta.nombreCliente,
       venta.telefonoCliente ? `+${venta.telefonoCliente}` : '',
-      venta.medioPago === 'mercadopago' ? 'Mercado Pago' : 'a coordinar',
-      venta.items
-        .map((item) => `${item.cantidad} × ${item.nombreProducto}${item.nombreVariante ? ` (${item.nombreVariante})` : ''}`)
-        .join(', '),
-      formatearCentavos(venta.totalCentavos),
+      venta.medioPago === 'mercadopago' ? 'Mercado Pago' : venta.medioPago ? 'a coordinar' : '',
+      productosDeVenta(venta),
+      venta.totalCentavos === null ? '' : formatearCentavos(venta.totalCentavos),
       venta.pagadaAt ? fechaYHora(venta.pagadaAt) : '',
       venta.mpPaymentId,
       venta.dePrueba ? 'sí' : '',

@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { esAccionDeVentas, type AccionVentasId } from '../../agents/agent-catalog.js';
 import { leerModalidad, type ModalidadVenta } from '../../agents/modalidad-venta.js';
+import { MOTIVOS_DEL_ASISTENTE } from '../../comercio/pedido-a-medida.rules.js';
 import type { Agent } from '../../generated/prisma/client.js';
 import type { EsquemaHerramienta } from '../conversation-tools.js';
 
@@ -75,6 +76,42 @@ export const esquemaEnviarImagen = z.object({
     .describe('El id de producto entre corchetes de una búsqueda de esta charla, de uno que diga "tiene foto".'),
 });
 
+export const esquemaRegistrarSolicitud = z.object({
+  productoId: z
+    .string()
+    .describe('El id de producto entre corchetes de una búsqueda de esta charla, de uno "a medida".'),
+  nombreCliente: z.string().describe('Nombre de la persona. Obligatorio: si no lo sabés, preguntáselo antes.'),
+  respuestas: z
+    .array(
+      z.object({
+        pregunta: z.string().describe('La pregunta tal cual figura en "para cotizarlo preguntale esto".'),
+        respuesta: z.string().describe('Lo que contestó el cliente, sin cambiarlo (en una pregunta de número, sólo el número).'),
+      }),
+    )
+    .describe('Cada pregunta del producto con lo que contestó el cliente.'),
+  resumen: z
+    .string()
+    .describe('Qué quiere el cliente en una o dos frases, con lo que no entra en las preguntas (para cuándo, detalles).'),
+});
+
+export const esquemaAceptarPresupuesto = z.object({
+  pedidoId: z.string().describe('El id entre corchetes del pedido cotizado, tal cual figura en "Pedidos a medida".'),
+});
+
+export const esquemaDerivarAPersona = z.object({
+  pedidoId: z
+    .string()
+    .optional()
+    .describe('Opcional: el id entre corchetes del pedido, si es sobre uno de "Pedidos a medida".'),
+  motivo: z
+    .enum(MOTIVOS_DEL_ASISTENTE)
+    .describe(
+      '"pide_persona" si quiere hablar con alguien; "falta_info" si para avanzar hace falta algo que vos no podés ' +
+        'conseguir; "excepcion" si pide algo fuera de lo habitual; "otro" si no es ninguno.',
+    ),
+  detalle: z.string().describe('Qué pasa, en una frase, para que la persona del equipo no le tenga que preguntar de nuevo.'),
+});
+
 export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
   buscar_productos: {
     name: 'buscar_productos',
@@ -136,6 +173,31 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
       'el producto o una foto, y sólo con productos que la búsqueda marcó "tiene foto". Una llamada por producto.',
     schema: esquemaEnviarImagen,
   },
+  registrar_solicitud: {
+    name: 'registrar_solicitud',
+    description:
+      'Anota lo que pide el cliente de un producto a medida como un pedido para cotizar, con sus respuestas a las ' +
+      'preguntas del producto. Usala cuando ya tenés las respuestas necesarias y el nombre. Devuelve qué decirle: ' +
+      'el presupuesto si se pudo calcular, o que se lo pasamos por este chat. Si cambia algo de lo que pidió, ' +
+      'llamala de nuevo con las respuestas nuevas.',
+    schema: esquemaRegistrarSolicitud,
+  },
+  aceptar_presupuesto: {
+    name: 'aceptar_presupuesto',
+    description:
+      'El cliente aceptó el presupuesto de un pedido cotizado: genera el link de pago (o lo deja a coordinar). ' +
+      'Usala sólo cuando dijo que sí a un presupuesto que ya tiene.',
+    schema: esquemaAceptarPresupuesto,
+  },
+  derivar_a_persona: {
+    name: 'derivar_a_persona',
+    description:
+      'Le pasa el pedido a una persona del equipo con todo lo hablado. Después de esto vos no contestás más en ' +
+      'este chat hasta que te lo devuelvan: decile al cliente que sigue alguien del equipo por acá, sin prometer ' +
+      'cuándo. Usala si pide hablar con alguien, si hace falta algo que no podés resolver o si pide algo fuera de ' +
+      'lo habitual.',
+    schema: esquemaDerivarAPersona,
+  },
 };
 
 /**
@@ -158,7 +220,7 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
     schema: z.object({
       ...esquemaRango,
       estado: z
-        .enum(['pendiente_pago', 'pagada', 'cancelada', 'vencida'])
+        .enum(['solicitado', 'a_cotizar', 'cotizado', 'pendiente_pago', 'pagada', 'cancelada', 'vencida'])
         .optional()
         .describe('Opcional: sólo las de un estado.'),
     }),
@@ -183,11 +245,18 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
 const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = ['ver_catalogo', 'ver_descuentos', 'enviar_imagen_producto'];
 
 /**
- * Lo que cierra o deshace una compra. A pedido (LAU-21) el asistente no
- * cierra nada: toma la solicitud y se la pasa al dueño con derivar_consulta,
- * así que estas herramientas ni se le muestran al modelo ni se aceptan.
+ * Lo que cierra o deshace una compra del catálogo. A pedido (LAU-21) no hay
+ * stock que reservar: la solicitud se anota con registrar_solicitud, así que
+ * estas herramientas ni se le muestran al modelo ni se aceptan.
  */
 const ACCIONES_SOLO_CON_STOCK: AccionVentasId[] = ['crear_pedido', 'cancelar_pedido'];
+
+/**
+ * Lo que sólo existe a pedido (LAU-24/26/27): anotar la solicitud, cobrar un
+ * presupuesto aceptado y pasarle el pedido a una persona. Llegaron después de
+ * los primeros asistentes: las tiene toda cuenta a pedido, sin migrar nada.
+ */
+const ACCIONES_SOLO_A_PEDIDO: AccionVentasId[] = ['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona'];
 
 /**
  * Las acciones de ventas que tiene un agente. `ver_catalogo`,
@@ -201,7 +270,11 @@ export function accionesDeVentas(allowedActions: string[], modalidad: ModalidadV
   if (acciones.includes('buscar_productos')) {
     for (const accion of ACCIONES_CON_LA_BUSQUEDA) if (!acciones.includes(accion)) acciones.push(accion);
   }
-  return modalidad === 'pedido' ? acciones.filter((accion) => !ACCIONES_SOLO_CON_STOCK.includes(accion)) : acciones;
+  if (modalidad !== 'pedido') return acciones.filter((accion) => !ACCIONES_SOLO_A_PEDIDO.includes(accion));
+  return [
+    ...acciones.filter((accion) => !ACCIONES_SOLO_CON_STOCK.includes(accion) && !ACCIONES_SOLO_A_PEDIDO.includes(accion)),
+    ...ACCIONES_SOLO_A_PEDIDO,
+  ];
 }
 
 /** Herramientas visibles para un agente de ventas: las habilitadas + las del dueño si corresponde. */

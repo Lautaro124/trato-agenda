@@ -5,6 +5,7 @@
  */
 import { MessagesValue, StateSchema, UntrackedValue } from '@langchain/langgraph';
 import { z } from 'zod';
+import type { PedidoAMedida } from '../../comercio/pedidos-a-medida.service.js';
 import type { Conversation } from '../../generated/prisma/client.js';
 import type { Cancelacion } from '../cancelacion.js';
 import type { AgentConUser, OperacionPendiente } from '../graph/state.js';
@@ -16,6 +17,8 @@ export type ContextoVentas = {
   bloqueSistema: string;
   /** Si el comercio conectó Mercado Pago: define el medio de pago por defecto de crear_pedido. */
   mpConectado: boolean;
+  /** Pedidos a medida de la conversación (a pedido): los que pueden nombrar aceptar_presupuesto y derivar_a_persona. */
+  pedidosAMedida: PedidoAMedida[];
 };
 
 export const EstadoVentas = new StateSchema({

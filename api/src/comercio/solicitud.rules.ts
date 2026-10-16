@@ -65,7 +65,7 @@ export type ResultadoRespuestas =
   | { ok: true; respuestas: RespuestaSolicitud[] }
   | { ok: false; motivo: string; faltantes: string[] };
 
-function esObjeto(valor: unknown): valor is Record<string, unknown> {
+export function esObjeto(valor: unknown): valor is Record<string, unknown> {
   return typeof valor === 'object' && valor !== null && !Array.isArray(valor);
 }
 
@@ -74,7 +74,7 @@ function esSobre(valor: unknown): valor is SobrePregunta {
 }
 
 /** Un texto del dueño en una sola línea: un salto de línea en el prompt se lee como otra regla. */
-function enUnaLinea(texto: string): string {
+export function enUnaLinea(texto: string): string {
   return texto.replace(/\s+/g, ' ').trim();
 }
 

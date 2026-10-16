@@ -76,6 +76,20 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
         },
       },
     });
+    // Un pedido a medida con su presupuesto y su historial (LAU-27).
+    const aMedida = await prisma.venta.create({
+      data: {
+        userId: dueno.id,
+        conversationId: conversacion.id,
+        tipo: 'a_medida',
+        estado: 'cotizado',
+        totalCentavos: 500_000,
+        presupuestos: {
+          create: [{ version: 1, origen: 'dueno', estado: 'enviado', renglones: [], totalCentavos: 500_000 }],
+        },
+        eventos: { create: [{ tipo: 'estado', a: 'cotizado', autor: 'dueno' }] },
+      },
+    });
     await prisma.notificacion.create({ data: { userId: dueno.id, tipo: 'pedido_manual', titulo: 'Pedido', cuerpo: 'Ana' } });
     await prisma.sugerenciaMejora.create({ data: { userId: dueno.id, tipo: 'idea', texto: 'Recordatorios el día antes' } });
     await prisma.cuentaMercadoPago.create({
@@ -117,7 +131,9 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       prisma.whatsappSession.count({ where: donde }),
       prisma.whatsappClave.count({ where: donde }),
       prisma.sugerenciaMejora.count({ where: donde }),
+      prisma.presupuesto.count({ where: { ventaId: aMedida.id } }),
+      prisma.eventoVenta.count({ where: { ventaId: aMedida.id } }),
     ]);
-    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });

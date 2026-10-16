@@ -1,3 +1,4 @@
+import { enAtencionHumana, MENSAJE_ATENCION_HUMANA_PRUEBA } from '../comercio/pedido-a-medida.rules.js';
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { GraphRecursionError } from '@langchain/langgraph';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -75,7 +76,12 @@ export type OpcionesDeVuelta = {
 };
 
 /** Lo que se le contesta al cliente: el texto y, del asistente de ventas, las fotos a mandar antes. */
-export type RespuestaConversacion = { texto: string; imagenes: ImagenAEnviar[] };
+export type RespuestaConversacion = {
+  texto: string;
+  imagenes: ImagenAEnviar[];
+  /** El chat lo atiende una persona (LAU-27): el asistente no corrió y no hay que mandar nada. */
+  enAtencionHumana?: boolean;
+};
 
 /**
  * Fachada del runtime conversacional. La lógica vive en los grafos de
@@ -132,6 +138,15 @@ export class ConversationService {
     });
 
     const esVentas = tipoAsistenteDe(agent) === 'ventas';
+    if (esVentas && (await this.enAtencionHumana(conversation.id))) {
+      // La ráfaga ya estaba esperando cuando el chat pasó a una persona: se
+      // guarda lo que escribió el cliente y el asistente no contesta.
+      if (esConversacionDePrueba(remoteJid)) return soloTexto(MENSAJE_ATENCION_HUMANA_PRUEBA);
+      await this.prisma.message.create({
+        data: { conversationId: conversation.id, role: 'user', content: { content: texto, enAtencionHumana: true } },
+      });
+      return { texto: '', imagenes: [], enAtencionHumana: true };
+    }
     const grafo = (esVentas ? this.grafoVentas : this.grafoAgenda) as unknown as GrafoInvocable;
     const desde = await this.retomarDescartada(grafo, conversation.id);
     const config = {
@@ -177,6 +192,16 @@ export class ConversationService {
       this.logger.error(`El grafo falló en la conversación ${conversation.id}`, error as Error);
       return soloTexto(MENSAJE_DISCULPA_GENERICO);
     }
+  }
+
+  /** ¿Algún pedido abierto de esta conversación lo atiende una persona? */
+  private async enAtencionHumana(conversationId: string): Promise<boolean> {
+    const venta = await this.prisma.venta.findFirst({
+      where: { conversationId, atencion: 'humana' },
+      select: { atencion: true, estado: true },
+      orderBy: { derivadaAt: 'desc' },
+    });
+    return venta !== null && enAtencionHumana(venta);
   }
 
   /**

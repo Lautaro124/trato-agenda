@@ -56,7 +56,13 @@ const MATE: ProductoEncontrado = {
 };
 
 function crearPrisma(
-  opciones: { totalProductos?: number; mpConectado?: boolean; pedidos?: unknown[]; agent?: Record<string, unknown> } = {},
+  opciones: {
+    totalProductos?: number;
+    mpConectado?: boolean;
+    pedidos?: unknown[];
+    pedidosAMedida?: unknown[];
+    agent?: Record<string, unknown>;
+  } = {},
 ) {
   return {
     agent: { findUnique: vi.fn().mockResolvedValue(opciones.agent ?? AGENT) },
@@ -66,8 +72,17 @@ function crearPrisma(
       count: vi.fn().mockResolvedValue(opciones.totalProductos ?? 12),
     },
     cuentaMercadoPago: { findUnique: vi.fn().mockResolvedValue(opciones.mpConectado ? { id: 'mp-1' } : null) },
-    venta: { findMany: vi.fn().mockResolvedValue(opciones.pedidos ?? []) },
-    message: { create: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(1) },
+    venta: {
+      findMany: vi.fn().mockImplementation((args: { where?: { tipo?: string } }) =>
+        Promise.resolve(args?.where?.tipo === 'a_medida' ? (opciones.pedidosAMedida ?? []) : (opciones.pedidos ?? [])),
+      ),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    message: {
+      create: vi.fn().mockResolvedValue({}),
+      count: vi.fn().mockResolvedValue(1),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   } as unknown as PrismaService;
 }
 
@@ -102,6 +117,16 @@ function crearHistorico() {
       porDia: [],
       topProductos: [{ codigo: 'MATE', nombreProducto: 'Mate', unidades: 2, cobradoCentavos: 1_600_000 }],
     }),
+  };
+}
+
+function crearPedidosAMedida() {
+  return {
+    productoParaSolicitud: vi.fn().mockResolvedValue(null),
+    registrarSolicitud: vi.fn(),
+    avisarParaCotizar: vi.fn().mockResolvedValue(undefined),
+    cobrar: vi.fn(),
+    derivar: vi.fn(),
   };
 }
 
@@ -154,6 +179,7 @@ function correr(
     ventas?: ReturnType<typeof crearVentas>;
     notificaciones?: ReturnType<typeof crearNotificaciones>;
     historico?: ReturnType<typeof crearHistorico>;
+    pedidos?: ReturnType<typeof crearPedidosAMedida>;
     imagenes?: Pick<ImagenesService, 'estadoDeFoto'>;
     decisiones?: { ordenar: Mock<(pedido: unknown) => Promise<string[]>>; configurado: boolean };
   },
@@ -167,6 +193,7 @@ function correr(
     notificaciones: deps.notificaciones ?? crearNotificaciones(),
     historico: deps.historico ?? crearHistorico(),
     imagenes: deps.imagenes ?? { estadoDeFoto: vi.fn() },
+    pedidos: deps.pedidos ?? crearPedidosAMedida(),
     openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
     checkpointer: new MemorySaver(),
   });
@@ -228,6 +255,7 @@ describe('grafo de ventas', () => {
       notificaciones: crearNotificaciones(),
       historico: crearHistorico(),
       imagenes: { estadoDeFoto: vi.fn() },
+      pedidos: crearPedidosAMedida(),
       openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
       checkpointer: new MemorySaver(),
     });
@@ -270,7 +298,9 @@ describe('grafo de ventas', () => {
     const llm = crearModelo([new AIMessage('Hola.')]);
     await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
     const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
-    expect(herramientas.map((h) => h.name)).toEqual(ACCIONES_VENTAS_IDS);
+    // Las de los pedidos a medida sólo existen a pedido.
+    const aPedido = ['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona'];
+    expect(herramientas.map((h) => h.name)).toEqual(ACCIONES_VENTAS_IDS.filter((id) => !aPedido.includes(id)));
   });
 
   it('busca en el catálogo y le devuelve al modelo precios, stock e ids de variante', async () => {
@@ -957,6 +987,150 @@ describe('grafo de ventas', () => {
       });
       expect(ventas.cancelarUltimoPendiente).toHaveBeenCalledWith('conv-1');
       expect(toolMessages(cancelacion.messages)[0].content).toContain('Pedido cancelado y reserva liberada');
+    });
+  });
+
+  describe('a pedido: pedidos a medida (LAU-27)', () => {
+    const A_PEDIDO = { ...AGENT, modalidadVenta: 'pedido', queHace: 'Muebles de melamina a medida para toda la casa.' };
+    const PLACARD: ProductoEncontrado = {
+      productoId: 'p-placard',
+      codigo: 'PLACARD',
+      nombre: 'Placard',
+      categoria: null,
+      descripcion: 'A medida',
+      tieneImagen: false,
+      variantes: [],
+      aMedida: true,
+      precioReferenciaCentavos: null,
+      materiales: [],
+      preguntas: [{ texto: 'Ancho (cm)', sobre: 'solicita', opciones: [], textoLibre: true, obligatoria: true }],
+    } as unknown as ProductoEncontrado;
+    const BUSCAR_PLACARD = llamada('buscar_productos', { consulta: 'placard' }, 'call-busqueda');
+    const SOLICITUD = { preguntas: [{ texto: 'Ancho (cm)', sobre: 'solicita', opciones: [], textoLibre: true, obligatoria: true }] };
+    const PEDIDO = {
+      id: 'v-1',
+      tipo: 'a_medida',
+      estado: 'a_cotizar',
+      atencion: 'asistente',
+      totalCentavos: null,
+      reservaVenceAt: null,
+      linkPago: null,
+      createdAt: new Date('2026-10-15T10:00:00-03:00'),
+      solicitud: { productoId: 'p-placard', nombreProducto: 'Placard', respuestas: [], resumen: '' },
+      items: [],
+      presupuestos: [],
+    };
+
+    it('las herramientas de stock no están y las de pedidos a medida sí', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ agent: A_PEDIDO }), llm, busqueda: { buscar: vi.fn() } });
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      const nombres = herramientas.map((h) => h.name);
+      expect(nombres).toEqual(expect.arrayContaining(['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona']));
+      expect(nombres).not.toContain('crear_pedido');
+    });
+
+    it('registrar_solicitud valida contra las preguntas del producto y anota el pedido', async () => {
+      const pedidos = crearPedidosAMedida();
+      pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-placard', nombre: 'Placard', solicitud: SOLICITUD });
+      pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: A_PEDIDO }),
+        llm: crearModelo([
+          BUSCAR_PLACARD,
+          llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: 'Un placard' }, 'c2'),
+          llamada(
+            'registrar_solicitud',
+            { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [{ pregunta: 'ancho (cm)', respuesta: '120' }], resumen: 'Un placard' },
+            'c3',
+          ),
+          new AIMessage('Listo, te lo cotizamos.'),
+        ]),
+        busqueda: { buscar: vi.fn().mockResolvedValue([PLACARD]) },
+        pedidos,
+      });
+
+      const [incompleta, anotada] = toolMessages(resultado.messages).filter((m) => m.name === 'registrar_solicitud');
+      expect(incompleta.content).toContain('La solicitud todavía no está completa: faltan "Ancho (cm)"');
+      expect(anotada.content).toContain('Solicitud anotada [pedido v-1]');
+      expect(pedidos.registrarSolicitud).toHaveBeenCalledOnce();
+      expect(pedidos.registrarSolicitud.mock.calls[0][0]).toMatchObject({
+        producto: { id: 'p-placard', nombre: 'Placard' },
+        respuestas: [{ pregunta: 'Ancho (cm)', respuesta: '120' }],
+        nombreCliente: 'Ana',
+        dePrueba: false,
+      });
+      expect(pedidos.avisarParaCotizar).toHaveBeenCalledOnce();
+    });
+
+    it('un producto que no salió de una búsqueda no se anota', async () => {
+      const pedidos = crearPedidosAMedida();
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: A_PEDIDO }),
+        llm: crearModelo([
+          llamada('registrar_solicitud', { productoId: 'p-inventado', nombreCliente: 'Ana', respuestas: [], resumen: '' }),
+          new AIMessage('.'),
+        ]),
+        busqueda: { buscar: vi.fn() },
+        pedidos,
+      });
+      expect(resultadoDe(resultado.messages, 'registrar_solicitud').content).toContain('no salió de ninguna búsqueda');
+      expect(pedidos.productoParaSolicitud).not.toHaveBeenCalled();
+    });
+
+    it('aceptar_presupuesto sólo cobra un pedido de la charla con presupuesto mandado', async () => {
+      const cotizado = {
+        ...PEDIDO,
+        estado: 'cotizado',
+        totalCentavos: 5_900_000,
+        presupuestos: [{ id: 'pr-1', estado: 'enviado', version: 1, estimativo: false }],
+      };
+      const pedidos = crearPedidosAMedida();
+      pedidos.cobrar.mockResolvedValue({ ...cotizado, estado: 'pendiente_pago', linkPago: 'https://mp/pagar/v-1', reservaVenceAt: null });
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: A_PEDIDO, pedidosAMedida: [cotizado, { ...PEDIDO, id: 'v-2' }] }),
+        llm: crearModelo([
+          llamada('aceptar_presupuesto', { pedidoId: 'v-ajeno' }, 'c1'),
+          llamada('aceptar_presupuesto', { pedidoId: 'v-2' }, 'c2'),
+          llamada('aceptar_presupuesto', { pedidoId: 'v-1' }, 'c3'),
+          new AIMessage('Te paso el link.'),
+        ]),
+        busqueda: { buscar: vi.fn() },
+        pedidos,
+      });
+      const [ajeno, sinPresupuesto, cobrado] = toolMessages(resultado.messages).filter((m) => m.name === 'aceptar_presupuesto');
+      expect(ajeno.content).toContain('no es de esta conversación');
+      expect(sinPresupuesto.content).toContain('todavía no tiene un presupuesto');
+      expect(cobrado.content).toContain('https://mp/pagar/v-1');
+      expect(pedidos.cobrar).toHaveBeenCalledWith('user-1', 'v-1', { autor: 'asistente', conversationId: CONVERSATION.id });
+    });
+
+    it('derivar_a_persona pasa el chat a una persona y no promete plazos', async () => {
+      const pedidos = crearPedidosAMedida();
+      pedidos.derivar.mockResolvedValue(PEDIDO);
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: A_PEDIDO, pedidosAMedida: [PEDIDO] }),
+        llm: crearModelo([
+          llamada('derivar_a_persona', { pedidoId: 'v-1', motivo: 'pide_persona', detalle: 'Quiere hablar con alguien' }),
+          new AIMessage('Ya te escribe alguien del equipo por acá.'),
+        ]),
+        busqueda: { buscar: vi.fn() },
+        pedidos,
+      });
+      expect(pedidos.derivar.mock.calls[0][0]).toMatchObject({
+        ventaId: 'v-1',
+        motivo: 'pide_persona',
+        detalle: 'Quiere hablar con alguien',
+        autor: 'asistente',
+      });
+      expect(resultadoDe(resultado.messages, 'derivar_a_persona').content).toContain('No prometas cuándo');
+    });
+
+    it('el prompt trae los pedidos a medida de la charla con su id', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ agent: A_PEDIDO, pedidosAMedida: [PEDIDO] }), llm, busqueda: { buscar: vi.fn() } });
+      expect(sistemaDe(llm)).toContain('[pedido v-1] "Placard"');
+      expect(sistemaDe(llm)).toContain('derivar_a_persona');
     });
   });
 

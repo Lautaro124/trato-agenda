@@ -14,6 +14,7 @@ import { EmbeddingsClient } from './embeddings.client.js';
 import { IndexadorService } from './indexador.service.js';
 import { ProductosController } from './productos.controller.js';
 import { MercadoPagoController } from './mercadopago.controller.js';
+import { PedidosAMedidaService } from './pedidos-a-medida.service.js';
 import { ProductosService } from './productos.service.js';
 import { SugerenciasService } from './sugerencias.service.js';
 import { VentasController } from './ventas.controller.js';
@@ -42,8 +43,10 @@ import { VentasService } from './ventas.service.js';
     DecisionesClient,
     SugerenciasService,
     ImagenesService,
+    PedidosAMedidaService,
   ],
   exports: [
+    PedidosAMedidaService,
     BusquedaService,
     DecisionesClient,
     SugerenciasService,
