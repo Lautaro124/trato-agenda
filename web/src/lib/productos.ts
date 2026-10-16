@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import type { Descuento, DescuentoAGuardar, DescuentoDeVariante } from "./descuentos";
+import type { SolicitudADemanda } from "./solicitud";
 
 /** Espejo de `VariantePublica` en la API. Precio en centavos, como lo guarda la base. */
 export type Variante = {
@@ -24,8 +25,6 @@ export type Producto = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
-  /** Se hace por encargo: el asistente no cuenta materiales ni fabricación salvo que se lo pregunten. */
-  aMedida: boolean;
   activo: boolean;
   updatedAt: string;
   /** true cuando el asistente ya lo encuentra también por significado. */
@@ -35,6 +34,12 @@ export type Producto = {
   descuento: Descuento | null;
   /** Cuándo se subió la foto; null = sin foto. */
   imagenActualizada: string | null;
+  /** Las preguntas del producto a medida; null = no se hace a medida. */
+  solicitud: SolicitudADemanda | null;
+  /** Precio "desde" de un producto a medida, si el dueño puso uno. */
+  precioReferenciaCentavos: number | null;
+  /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
+  materiales: string[];
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -67,15 +72,20 @@ export type ProductoEncontrado = {
     hayStock: boolean;
     stock: string;
   }>;
+  /** Producto a medida: sin variantes, se cotiza. */
+  aMedida?: boolean;
+  precioReferenciaCentavos?: number | null;
 };
 
-/** Body de alta/edición: el mismo shape que `GuardarProductoDto`. */
-export type ProductoAGuardar = {
+type ProductoBaseAGuardar = {
   codigo: string;
   nombre: string;
   descripcion: string;
   categoria: string | null;
-  aMedida: boolean;
+};
+
+/** Body de alta/edición en una cuenta con stock (`GuardarProductoDto`). */
+export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
   variantes: Array<{
     sku?: string;
     nombre: string;
@@ -87,6 +97,17 @@ export type ProductoAGuardar = {
   /** null lo borra. */
   descuento: DescuentoAGuardar | null;
 };
+
+/** Body de un producto a medida (cuenta a pedido): sin variantes, stock ni descuento. */
+export type ProductoAMedidaAGuardar = ProductoBaseAGuardar & {
+  /** null = sin precio de referencia. */
+  precioReferenciaCentavos: number | null;
+  /** Las preguntas para hacer: pueden ser ninguna, pero la solicitud va siempre (es lo que lo hace a medida). */
+  solicitud: SolicitudADemanda;
+  materiales: string[];
+};
+
+export type ProductoAGuardar = ProductoDeStockAGuardar | ProductoAMedidaAGuardar;
 
 /** Error de la API con el mensaje que ya viene en español (409, 400). */
 export class ErrorDeApi extends Error {}

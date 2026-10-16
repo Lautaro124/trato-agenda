@@ -7,6 +7,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import { esAccionValida } from '../../../agents/agent-catalog.js';
+import type { Agent } from '../../../generated/prisma/client.js';
 import { resumenDeError } from '../../../agents/openrouter.client.js';
 import { avisarASentry } from '../../../observabilidad/aviso-a-sentry.js';
 import { VueltaCancelada } from '../../cancelacion.js';
@@ -20,9 +21,10 @@ export type DepsConversacion = {
   llm: BaseChatModel;
   /**
    * Qué herramientas ve el modelo. Por defecto las de la agenda; el grafo de
-   * ventas pasa las suyas (ventas-tools.ts).
+   * ventas pasa las suyas (ventas-tools.ts), que además dependen de la
+   * modalidad de venta del agente.
    */
-  herramientas?: (allowedActions: string[], esPropietario: boolean) => EsquemaHerramienta[];
+  herramientas?: (allowedActions: string[], esPropietario: boolean, agent: Agent) => EsquemaHerramienta[];
 };
 
 /** Herramientas visibles para este agente: las habilitadas + las del dueño si corresponde. */
@@ -43,7 +45,7 @@ export function crearNodoConversacion(deps: DepsConversacion) {
 
   return async (state: EstadoComun): Promise<{ messages: BaseMessage[] }> => {
     const { contexto } = state;
-    const herramientas = elegirHerramientas(contexto.agent.allowedActions, state.esPropietario);
+    const herramientas = elegirHerramientas(contexto.agent.allowedActions, state.esPropietario, contexto.agent);
     const modelo =
       herramientas.length > 0 && deps.llm.bindTools
         ? deps.llm.bindTools(herramientas)

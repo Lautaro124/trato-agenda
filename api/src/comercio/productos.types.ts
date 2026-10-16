@@ -1,9 +1,9 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -18,6 +18,18 @@ import {
 import type { Descuento, Producto, Variante } from '../generated/prisma/client.js';
 import { hashTexto, LARGOS, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
+import {
+  LARGO_MAX_OPCION,
+  LARGO_MAX_MATERIAL,
+  MAX_MATERIALES,
+  LARGO_MAX_PREGUNTA,
+  leerSolicitud,
+  MAX_OPCIONES,
+  MAX_PREGUNTAS,
+  SOBRE_PREGUNTA,
+  type SobrePregunta,
+  type SolicitudADemanda,
+} from './solicitud.rules.js';
 import {
   aDescuentoDeVariante,
   aDescuentoPublico,
@@ -63,6 +75,38 @@ export class VarianteDto {
   stockMinimo?: number | null;
 }
 
+/** Una pregunta del producto a medida. Las reglas entre campos están en solicitud.rules.ts. */
+export class PreguntaSolicitudDto {
+  @IsString()
+  @MaxLength(LARGO_MAX_PREGUNTA)
+  texto!: string;
+
+  /** Quedó de la primera versión: sin él, la pregunta es sobre lo que el cliente pide. */
+  @IsOptional()
+  @IsIn(SOBRE_PREGUNTA)
+  sobre?: SobrePregunta;
+
+  @IsArray()
+  @ArrayMaxSize(MAX_OPCIONES)
+  @IsString({ each: true })
+  @MaxLength(LARGO_MAX_OPCION, { each: true })
+  opciones!: string[];
+
+  @IsBoolean()
+  textoLibre!: boolean;
+
+  @IsBoolean()
+  obligatoria!: boolean;
+}
+
+export class SolicitudDto {
+  @IsArray()
+  @ArrayMaxSize(MAX_PREGUNTAS)
+  @ValidateNested({ each: true })
+  @Type(() => PreguntaSolicitudDto)
+  preguntas!: PreguntaSolicitudDto[];
+}
+
 /** Body de `POST /productos` y `PUT /productos/:id`. */
 export class GuardarProductoDto {
   @IsString()
@@ -86,17 +130,21 @@ export class GuardarProductoDto {
   @MaxLength(LARGOS.categoria)
   categoria?: string | null;
 
-  /** Ausente no lo toca: un cliente viejo que no lo manda no se lo pisa. */
+  /** Obligatorias (al menos una) en una cuenta con stock; un producto a medida no lleva. */
   @IsOptional()
-  @IsBoolean()
-  aMedida?: boolean;
-
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(MAX_VARIANTES)
   @ValidateNested({ each: true })
   @Type(() => VarianteDto)
-  variantes!: VarianteDto[];
+  variantes?: VarianteDto[];
+
+  /** Precio "desde" de un producto a medida. null = sin precio de referencia. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsInt()
+  @Min(1)
+  @Max(PRECIO_MAX_PESOS * 100)
+  precioReferenciaCentavos?: number | null;
 
   /**
    * El descuento propio del producto. null lo borra; ausente no lo toca (así
@@ -107,6 +155,21 @@ export class GuardarProductoDto {
   @ValidateNested()
   @Type(() => DescuentoProductoDto)
   descuento?: DescuentoProductoDto | null;
+
+  /** Producto a medida: sus preguntas. Igual que `descuento`: null la borra, ausente no la toca. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @ValidateNested()
+  @Type(() => SolicitudDto)
+  solicitud?: SolicitudDto | null;
+
+  /** Producto a medida: con qué materiales se hace. Ausente no los toca; [] los borra. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_MATERIALES)
+  @IsString({ each: true })
+  @MaxLength(LARGO_MAX_MATERIAL, { each: true })
+  materiales?: string[];
 }
 
 /** Body de `PATCH /productos/variantes/:id`: la edición rápida desde la tabla. */
@@ -183,7 +246,7 @@ export type VariantePublica = Pick<
 
 export type ProductoPublico = Pick<
   Producto,
-  'id' | 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'aMedida' | 'activo' | 'updatedAt'
+  'id' | 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'activo' | 'updatedAt'
 > & {
   variantes: VariantePublica[];
   /** El descuento propio del producto (el del formulario), vigente o no. */
@@ -192,6 +255,12 @@ export type ProductoPublico = Pick<
   indexado: boolean;
   /** Cuándo se subió la foto (null = sin foto). La web la usa también para no mostrar una cacheada vieja. */
   imagenActualizada: Date | null;
+  /** Las preguntas del producto a medida (null = no se hace a medida). */
+  solicitud: SolicitudADemanda | null;
+  /** Precio "desde" de un producto a medida, si el dueño puso uno. */
+  precioReferenciaCentavos: number | null;
+  /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
+  materiales: string[];
 };
 
 /**
@@ -218,12 +287,14 @@ export function aProductoPublico(
     nombre: producto.nombre,
     descripcion: producto.descripcion,
     categoria: producto.categoria,
-    aMedida: producto.aMedida,
     activo: producto.activo,
     updatedAt: producto.updatedAt,
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),
     descuento: producto.descuento ? aDescuentoPublico(producto.descuento) : null,
     imagenActualizada: producto.imagen?.updatedAt ?? null,
+    solicitud: leerSolicitud(producto.solicitud),
+    precioReferenciaCentavos: producto.precioReferenciaCentavos,
+    materiales: producto.materiales,
     variantes: producto.variantes
       .filter((variante) => variante.activo)
       .map((variante) => {

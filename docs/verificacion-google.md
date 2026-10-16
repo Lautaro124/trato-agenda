@@ -162,6 +162,11 @@ con la config de cuenta).
   diaria idempotente (`retention.service.ts`).
 - Los eventos ya creados en el calendario del titular **no** se borran: son
   suyos. Está dicho así en `/privacidad`.
+- Sugerencias de mejora (LAU-14, `api/src/mejoras/`): el dueño manda texto
+  (lista blanca, sin links ni archivos) que se copia a Linear con el id interno
+  de la cuenta, sin teléfono ni email. Nunca datos de Google ni de clientes.
+  Nuestra copia se borra a los **90 días** de enviada; el borrado de cuenta la
+  borra por cascade.
 
 ## Borrador de respuesta a Google
 

@@ -5,7 +5,12 @@ import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
-import { DIAS_RETENCION_AVISOS_LEIDOS, DIAS_RETENCION_DATOS_CLIENTE, fechaLimite } from './retention.rules.js';
+import {
+  DIAS_RETENCION_AVISOS_LEIDOS,
+  DIAS_RETENCION_DATOS_CLIENTE,
+  DIAS_RETENCION_SUGERENCIAS,
+  fechaLimite,
+} from './retention.rules.js';
 import { RetentionService } from './retention.service.js';
 
 const AHORA = new Date();
@@ -95,5 +100,21 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     expect(quedan.map(({ id }) => id).sort()).toEqual([leidoNuevo.id, sinLeerMedio.id].sort());
     expect(quedan.map(({ id }) => id)).not.toContain(leidoViejo.id);
     expect(quedan.map(({ id }) => id)).not.toContain(sinLeerViejo.id);
+  });
+
+  it('borra las sugerencias ya enviadas a Linear a los 90 días y nunca las pendientes', async () => {
+    const sugerencia = (enviadaAt: Date | null, createdAt: Date) =>
+      prisma.sugerenciaMejora.create({
+        data: { userId: dueno.id, tipo: 'idea', texto: 'Recordatorios el día antes', enviadaAt, createdAt },
+      });
+    const enviadaVieja = await sugerencia(pasado(DIAS_RETENCION_SUGERENCIAS), pasado(DIAS_RETENCION_SUGERENCIAS));
+    const enviadaNueva = await sugerencia(reciente(DIAS_RETENCION_SUGERENCIAS), pasado(DIAS_RETENCION_SUGERENCIAS));
+    const pendienteVieja = await sugerencia(null, pasado(DIAS_RETENCION_DATOS_CLIENTE));
+
+    await servicio['purgarSugerencias'](AHORA);
+
+    const quedan = await prisma.sugerenciaMejora.findMany({ where: { userId: dueno.id }, select: { id: true } });
+    expect(quedan.map(({ id }) => id).sort()).toEqual([enviadaNueva.id, pendienteVieja.id].sort());
+    expect(quedan.map(({ id }) => id)).not.toContain(enviadaVieja.id);
   });
 });

@@ -9,6 +9,8 @@ export async function crearAgenteVentasPorApi(
     local?: Record<string, unknown>;
     haceEnvios?: boolean;
     datosCliente?: Array<{ tipo: string; etiqueta?: string; obligatorio: boolean }>;
+    modalidadVenta?: 'stock' | 'pedido';
+    queHace?: string;
   } = {},
 ): Promise<{ nombreTitular: string }> {
   const nombreTitular = `Mates E2E ${sufijo()}`;
@@ -21,7 +23,23 @@ export async function crearAgenteVentasPorApi(
 }
 
 export type VarianteE2E = { id: string; nombre: string; precioCentavos: number; stock: number | null; disponible: boolean };
-export type ProductoE2E = { id: string; codigo: string; nombre: string; variantes: VarianteE2E[] };
+export type PreguntaSolicitudE2E = {
+  texto: string;
+  sobre: 'tiene' | 'solicita';
+  opciones: string[];
+  textoLibre: boolean;
+  obligatoria: boolean;
+};
+export type ProductoE2E = {
+  id: string;
+  codigo: string;
+  nombre: string;
+  variantes: VarianteE2E[];
+  solicitud?: { preguntas: PreguntaSolicitudE2E[] } | null;
+  precioReferenciaCentavos?: number | null;
+  materiales?: string[];
+  imagenActualizada?: string | null;
+};
 
 /** Un producto de variante única, cargado por API. */
 export async function crearProductoPorApi(

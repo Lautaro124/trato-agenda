@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
+import { EditorAMedida } from "@/components/productos/EditorAMedida";
 import { EditorProducto } from "@/components/productos/EditorProducto";
 import { FilaProducto } from "@/components/productos/FilaProducto";
 import { ImportarProductos } from "@/components/productos/ImportarProductos";
@@ -37,13 +38,18 @@ export default function ProductosPage() {
   return (
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="productos" user={user} />
-      <Catalogo />
+      <Catalogo aPedido={user.modalidadVenta === "pedido"} />
       <MobileTabBar active="productos" />
     </div>
   );
 }
 
-function Catalogo() {
+/**
+ * `aPedido`: la cuenta vende a medida (se eligió en el registro y no cambia).
+ * Ahí los productos se cargan de a uno con su formulario a medida: sin
+ * planillas ni promociones, que son de precio y stock.
+ */
+function Catalogo({ aPedido }: Readonly<{ aPedido: boolean }>) {
   const [consulta, setConsulta] = useState("");
   const [consultaAplicada, setConsultaAplicada] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -56,6 +62,10 @@ function Catalogo() {
   const [importando, setImportando] = useState(false);
 
   const recargar = useCallback(() => setRecargas((n) => n + 1), []);
+  const alGuardar = () => {
+    setEditando(null);
+    recargar();
+  };
 
   // La búsqueda espera a que se deje de tipear; el setState va en el callback
   // del timer, no en el cuerpo del efecto.
@@ -113,14 +123,18 @@ function Catalogo() {
               Tus productos
             </h1>
             <p className="text-sm leading-[1.6] text-ink-secondary">
-              Lo que tu asistente puede vender: precio, stock y descuentos por variante. Editá lo que quieras y tocá “Guardar cambios”; valen desde el próximo mensaje.
+              {aPedido
+                ? "Lo que hacés a medida y lo que tu asistente le pregunta al cliente para que puedas presupuestarlo. Los cambios valen desde el próximo mensaje."
+                : "Lo que tu asistente puede vender: precio, stock y descuentos por variante. Editá lo que quieras y tocá “Guardar cambios”; valen desde el próximo mensaje."}
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setImportando(true)}>
-              Importar planilla
-            </Button>
-            <Button onClick={() => setEditando("nuevo")}>Nuevo producto</Button>
+            {!aPedido && (
+              <Button variant="secondary" onClick={() => setImportando(true)}>
+                Importar planilla
+              </Button>
+            )}
+            <Button onClick={() => setEditando("nuevo")}>{aPedido ? "Nuevo producto a medida" : "Nuevo producto"}</Button>
           </div>
         </div>
 
@@ -130,13 +144,23 @@ function Catalogo() {
             {importando && <ImportarProductos onCerrar={() => setImportando(false)} onImportado={recargar} />}
 
             {catalogoVacio && !importando ? (
-              <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
-                <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos</p>
-                <p className="mb-4 text-sm text-ink-secondary">
-                  Lo más rápido es subir tu lista en una planilla (CSV o Excel). También podés cargarlos de a uno.
-                </p>
-                <Button onClick={() => setImportando(true)}>Importar planilla</Button>
-              </div>
+              aPedido ? (
+                <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
+                  <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos a medida</p>
+                  <p className="mb-4 text-sm text-ink-secondary">
+                    Cargá lo que hacés, en qué materiales y lo que tu asistente le pregunta al cliente para que lo cotices.
+                  </p>
+                  <Button onClick={() => setEditando("nuevo")}>Cargar mi primer producto</Button>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
+                  <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos</p>
+                  <p className="mb-4 text-sm text-ink-secondary">
+                    Lo más rápido es subir tu lista en una planilla (CSV o Excel). También podés cargarlos de a uno.
+                  </p>
+                  <Button onClick={() => setImportando(true)}>Importar planilla</Button>
+                </div>
+              )
             ) : (
               <>
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -181,6 +205,7 @@ function Catalogo() {
                       {listado.productos.map((producto) => (
                         <FilaProducto
                           key={producto.id}
+                          aPedido={aPedido}
                           producto={producto}
                           onCambio={reemplazar}
                           onEditar={() => setEditando(producto)}
@@ -215,23 +240,29 @@ function Catalogo() {
           {!catalogoVacio && (
             <aside aria-label="Herramientas del catálogo" className="flex flex-col gap-4 lg:sticky lg:top-5">
               <ProbarBusqueda />
-              <Promociones categorias={categorias} onCambio={recargar} />
+              {!aPedido && <Promociones categorias={categorias} onCambio={recargar} />}
             </aside>
           )}
         </div>
       </div>
 
-      {editando && (
-        <EditorProducto
-          producto={editando === "nuevo" ? null : editando}
-          onCerrar={() => setEditando(null)}
-          onGuardado={() => {
-            setEditando(null);
-            recargar();
-          }}
-          onFotoCambiada={recargar}
-        />
-      )}
+      {editando &&
+        (aPedido ? (
+          <EditorAMedida
+            producto={editando === "nuevo" ? null : editando}
+            codigosUsados={new Set(listado?.productos.map((producto) => producto.codigo.toUpperCase()) ?? [])}
+            onCerrar={() => setEditando(null)}
+            onGuardado={alGuardar}
+            onFotoCambiada={recargar}
+          />
+        ) : (
+          <EditorProducto
+            producto={editando === "nuevo" ? null : editando}
+            onCerrar={() => setEditando(null)}
+            onGuardado={alGuardar}
+            onFotoCambiada={recargar}
+          />
+        ))}
     </main>
   );
 }

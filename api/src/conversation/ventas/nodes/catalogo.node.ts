@@ -14,6 +14,7 @@ import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
 import type { SugerenciasService } from '../../../comercio/sugerencias.service.js';
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
+import { leerModalidad } from '../../../agents/modalidad-venta.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import type { ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
@@ -133,6 +134,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         telefonoCliente: telefonoDeJid(state.remoteJid),
         resumen: String(args.resumen),
         dePrueba: state.esPropietario,
+        aPedido: leerModalidad(agent) === 'pedido',
       }),
     );
     return `Listo, le avisé a ${titular}. ${decile}`;

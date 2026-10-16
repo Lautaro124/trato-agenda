@@ -283,4 +283,123 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       }
     });
   });
+
+  describe('productos a medida (cuenta a pedido)', () => {
+    let taller: User;
+    const solicitud = {
+      preguntas: [
+        { texto: '¿De qué color?', sobre: 'solicita' as const, opciones: ['Blanco', 'Negro'], textoLibre: false, obligatoria: true },
+        { texto: '¿Qué medida tiene el hueco?', sobre: 'tiene' as const, opciones: [], textoLibre: true, obligatoria: true },
+      ],
+    };
+    const dto = { codigo: 'CORT-01', nombre: 'Cortina a medida', precioReferenciaCentavos: 5_000_000, solicitud };
+
+    beforeAll(async () => {
+      taller = await crearUsuarioDePrueba(prisma);
+      await prisma.agent.create({
+        data: {
+          userId: taller.id,
+          tipoAsistente: 'ventas',
+          modalidadVenta: 'pedido',
+          nombreBot: 'Lu',
+          descripcion: 'Cortinas',
+          tipoUso: 'comercio',
+          systemPrompt: 'Tomá pedidos.',
+          allowedActions: ['buscar_productos'],
+          horaDesde: '00:00',
+          horaHasta: '23:59',
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.user.deleteMany({ where: { id: taller.id } });
+    });
+
+    it('se guarda sin variantes, con sus preguntas y el precio "desde", y la búsqueda lo encuentra', async () => {
+      const creado = await productos.crear(taller.id, dto);
+      expect(creado.variantes).toEqual([]);
+      expect(creado.precioReferenciaCentavos).toBe(5_000_000);
+      // En el orden en que el dueño las cargó.
+      expect(creado.solicitud?.preguntas.map((pregunta) => pregunta.texto)).toEqual(['¿De qué color?', '¿Qué medida tiene el hueco?']);
+      expect(creado.materiales).toEqual([]);
+
+      const [encontrado] = await busqueda.buscar(taller.id, 'CORT-01');
+      expect(encontrado).toMatchObject({ nombre: 'Cortina a medida', aMedida: true, precioReferenciaCentavos: 5_000_000, variantes: [] });
+
+      const sinPrecio = await productos.actualizar(taller.id, creado.id, { ...dto, precioReferenciaCentavos: null });
+      expect(sinPrecio.precioReferenciaCentavos).toBeNull();
+    });
+
+    it('las preguntas son opcionales y los materiales lo hacen encontrable', async () => {
+      const placard = await productos.crear(taller.id, {
+        codigo: 'PLAC-01',
+        nombre: 'Placard',
+        solicitud: { preguntas: [] },
+        materiales: [' Melamina ', 'melamina', 'Roble macizo'],
+      });
+      expect(placard.solicitud).toEqual({ preguntas: [] });
+      expect(placard.materiales).toEqual(['Melamina', 'Roble macizo']);
+
+      const [encontrado] = await busqueda.buscar(taller.id, 'roble macizo');
+      expect(encontrado).toMatchObject({ productoId: placard.id, aMedida: true, materiales: ['Melamina', 'Roble macizo'], preguntas: [] });
+
+      // Sin materiales en el body, un producto a medida queda sin materiales (como el precio "desde").
+      const sinMateriales = await productos.actualizar(taller.id, placard.id, {
+        codigo: 'PLAC-01',
+        nombre: 'Placard',
+        solicitud: { preguntas: [] },
+      });
+      expect(sinMateriales.materiales).toEqual([]);
+    });
+
+    it('rechaza variantes, descuento o un producto sin solicitud, y no importa planillas', async () => {
+      await expect(
+        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ precioCentavos: 100 }] }),
+      ).rejects.toThrow(/no llevan variantes/);
+      await expect(
+        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', descuento: { tipo: 'porcentaje', valor: 10 } }),
+      ).rejects.toThrow(/no llevan descuento/);
+      await expect(productos.crear(taller.id, { codigo: 'CORT-02', nombre: 'Sin preguntas' })).rejects.toThrow(/preguntas/);
+      await expect(
+        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', solicitud: { preguntas: [{ ...solicitud.preguntas[0], opciones: ['Blanco'] }] } }),
+      ).rejects.toThrow(/una sola opción/);
+      await expect(productos.importar(taller.id, [{ codigo: 'X', nombre: 'Algo', precio: '1' }], false)).rejects.toThrow(
+        /de a uno/,
+      );
+    });
+
+    it('un producto con variantes de antes no edita stock, y al guardarlo a medida las pierde', async () => {
+      // Cargado cuando la cuenta todavía vendía con stock (o por planilla): queda con su variante.
+      const viejo = await prisma.producto.create({
+        data: {
+          userId: taller.id,
+          codigo: 'CORT-VIEJA',
+          nombre: 'Cortina vieja',
+          textoBusqueda: 'cortina vieja',
+          variantes: { create: { sku: 'CORT-VIEJA', nombre: '', precioCentavos: 100_000, stock: 3 } },
+        },
+        include: { variantes: true },
+      });
+
+      await expect(productos.actualizarVariante(taller.id, viejo.variantes[0].id, { stock: 9 })).rejects.toThrow(
+        /vende a pedido/,
+      );
+      expect((await prisma.variante.findUniqueOrThrow({ where: { id: viejo.variantes[0].id } })).stock).toBe(3);
+
+      const aMedida = await productos.actualizar(taller.id, viejo.id, { ...dto, codigo: 'CORT-VIEJA' });
+      expect(aMedida.variantes).toEqual([]);
+      expect(aMedida.solicitud?.preguntas).toHaveLength(2);
+    });
+
+    it('una cuenta con stock no acepta preguntas, materiales ni precio de referencia', async () => {
+      await expect(
+        productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], solicitud }),
+      ).rejects.toThrow(/vende con stock/);
+      await expect(
+        productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], materiales: ['Roble'] }),
+      ).rejects.toThrow(/vende con stock/);
+      await expect(productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa' })).rejects.toThrow(/precio/);
+    });
+  });
 });

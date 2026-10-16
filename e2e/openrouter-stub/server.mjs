@@ -56,6 +56,11 @@ function textoDe(mensaje) {
 // `reglasDeAgenda` en api/src/conversation/graph/nodes/cargar-contexto.node.ts.
 // Este stub lee el titular y el primer tipo de turno de ahí en vez de una
 // convención propia, así no depende de cómo se generó el agente.
+// "dónde" / "dirección" se contesta con el bloque del lugar de atención
+// (bloqueLugar, graph/lugar.ts): la dirección, que es en su casa y se pasa al
+// agendar, que no hay lugar fijo, o que lo consulte con el titular. Después de
+// una herramienta repite su resultado, así que la línea "Lugar: …" que agrega
+// el nodo calendar al agendar llega a la respuesta.
 
 /** "YYYY-MM-DD" del día hábil siguiente a hoy, en la zona del negocio. */
 function proximoDiaHabil() {
@@ -98,7 +103,9 @@ function llamadaATool(model, name, args) {
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
 //     si las reglas dicen que hacemos envíos, "con envío" / "lo retiro"
 //     van en `entrega`, y los pares "Etiqueta: valor" separados por ";" van en
-//     `datosCliente`;
+//     `datosCliente`; si el comercio vende a pedido (las reglas traen "Vendés a
+//     pedido", reglas-ventas.ts) no hay compra que cerrar: derivar_consulta con
+//     el texto del cliente, que es la solicitud para cotizar;
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
 //   - "envío" / "envían" fuera de una compra → derivar_consulta;
 //   - "dónde queda" / "dirección" / "retirar" / "el local" → contesta con lo
@@ -143,6 +150,15 @@ function varianteDeLaUltimaBusqueda(mensajes) {
     if (id) return id;
   }
   return null;
+}
+
+/** Lo que contesta el asistente de turnos sobre dónde atiende, leído del bloque que arma bloqueLugar. */
+function respuestaDelLugar(sistema) {
+  const direccion = sistema.match(/Lugar de atención de [^\n]*\n(?:- [^\n]*\n)*?- Dirección: "((?:[^"\\]|\\.)*)"\./)?.[1];
+  if (direccion) return `Es en ${direccion}.`;
+  if (sistema.includes('atiende en su casa')) return 'Es en su casa: la dirección te la paso apenas quede agendado tu turno.';
+  if (sistema.includes('no atiende en un lugar fijo')) return 'No tenemos un lugar fijo: lo coordinamos por acá.';
+  return 'Eso consultalo directamente con el titular.';
 }
 
 /** Lo que contesta el asistente sobre el local, leído del bloque que arma bloqueLocal. */
@@ -246,6 +262,9 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const texto = textoDe(mensajes[indiceUsuario]);
     const nombre = texto.match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
     if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
+    if (sistema.includes('Vendés a pedido')) {
+      return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: texto }));
+    }
     const varianteId = varianteDeLaUltimaBusqueda(mensajes);
     if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
     const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
@@ -307,6 +326,10 @@ function conversar(body, res) {
 
   if (ultimoUsuario.includes('cancel')) {
     return responder(res, 200, llamadaATool(body.model, 'cancelar_turno', {}));
+  }
+
+  if (ultimoUsuario.includes('donde') || ultimoUsuario.includes('direccion')) {
+    return responder(res, 200, completion(body.model, { content: respuestaDelLugar(sistema) }));
   }
 
   if (ultimoUsuario.includes('movelo') || ultimoUsuario.includes('reprogram')) {

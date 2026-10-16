@@ -6,6 +6,7 @@
  */
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
+import { leerModalidad } from '../../../agents/modalidad-venta.js';
 import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
@@ -61,7 +62,8 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
 }
 
 function esquemaPara(state: EstadoVentasValue, nombre: string): EsquemaHerramienta | undefined {
-  if (esAccionDeVentas(nombre) && accionesDeVentas(state.contexto.agent.allowedActions).includes(nombre)) {
+  const { agent } = state.contexto;
+  if (esAccionDeVentas(nombre) && accionesDeVentas(agent.allowedActions, leerModalidad(agent)).includes(nombre)) {
     return ESQUEMAS_VENTAS[nombre];
   }
   if (state.esPropietario) return ESQUEMAS_PROPIETARIO_VENTAS[nombre];

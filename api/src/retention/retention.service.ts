@@ -7,6 +7,7 @@ import {
   DIAS_RETENCION_AVISOS_LEIDOS,
   DIAS_RETENCION_DATOS_CLIENTE,
   DIAS_RETENCION_MENSAJES,
+  DIAS_RETENCION_SUGERENCIAS,
   fechaLimite,
   fechaLimiteHoras,
   HORAS_ALTA_PENDIENTE,
@@ -56,10 +57,12 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       const ventas = await this.anonimizarVentas();
       const avisos = await this.purgarAvisos();
       const altas = await this.descartarAltasPendientes();
-      if (mensajes > 0 || anonimizadas > 0 || ventas > 0 || avisos > 0 || altas > 0) {
+      const sugerencias = await this.purgarSugerencias();
+      if (mensajes > 0 || anonimizadas > 0 || ventas > 0 || avisos > 0 || altas > 0 || sugerencias > 0) {
         this.logger.log(
           `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
-            `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas.`,
+            `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas, ` +
+            `${sugerencias} sugerencias ya enviadas borradas.`,
         );
       }
     } catch (error) {
@@ -152,6 +155,14 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
           { createdAt: { lt: fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora) } },
         ],
       },
+    });
+    return count;
+  }
+
+  /** Sugerencias de mejora que ya están en Linear hace más de `DIAS_RETENCION_SUGERENCIAS`. */
+  private async purgarSugerencias(ahora: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.sugerenciaMejora.deleteMany({
+      where: { enviadaAt: { lt: fechaLimite(DIAS_RETENCION_SUGERENCIAS, ahora) } },
     });
     return count;
   }

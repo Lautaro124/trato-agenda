@@ -30,6 +30,8 @@ export type Usuario = {
   debePonerPassword: boolean;
   /** Qué hace su asistente: define la navegación. null antes del onboarding. */
   tipoAsistente: "agenda" | "ventas" | null;
+  /** Cómo vende un asistente de ventas: decide qué formulario de producto tiene. null si no vende. */
+  modalidadVenta: "stock" | "pedido" | null;
 };
 
 /**

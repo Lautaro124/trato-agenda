@@ -26,6 +26,7 @@ import {
   type TipoTitular,
   type TipoUso,
 } from './agent-catalog.js';
+import { MAX_QUE_HACE, MODALIDADES_VENTA, leerModalidad, type ModalidadVenta } from './modalidad-venta.js';
 import { PRECIO_MAX } from './precio.js';
 import {
   CAPACIDAD_MAX,
@@ -50,8 +51,10 @@ import {
   LARGO_MIN_DIRECCION,
   leerLocal,
   MAX_FRANJAS,
+  TIPOS_LUGAR,
   type DiaSemana,
   type LocalPresencial,
+  type TipoLugar,
 } from './local.js';
 
 /** "HH:MM" en formato 24hs. */
@@ -104,6 +107,55 @@ export class TipoEventoDto {
   horarios?: HorarioGrupalDto[];
 }
 
+/** Una franja de atención del local: un día y su horario. */
+export class FranjaLocalDto {
+  @IsIn(DIAS_SEMANA)
+  dia!: DiaSemana;
+
+  @Matches(HORA_HHMM)
+  desde!: string;
+
+  @Matches(HORA_HHMM)
+  hasta!: string;
+}
+
+/**
+ * El local a la calle de un comercio, o dónde da los turnos un asistente de
+ * agenda. Que cierre después de abrir, que las franjas de un día no se pisen
+ * y lo que exige cada tipo de asistente lo mira normalizarLocal (local.ts).
+ */
+export class LocalPresencialDto {
+  @IsBoolean()
+  tieneLocal!: boolean;
+
+  /** Sólo agenda: local o consultorio, o su casa. Ventas lo descarta. */
+  @IsOptional()
+  @IsIn(TIPOS_LUGAR)
+  lugar?: TipoLugar;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(LARGO_MIN_DIRECCION)
+  @MaxLength(LARGO_MAX_DIRECCION)
+  direccion?: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(LARGO_MAX_ENLACE)
+  enlaceUbicacion?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_FRANJAS)
+  @ValidateNested({ each: true })
+  @Type(() => FranjaLocalDto)
+  horarios?: FranjaLocalDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  retiroEnLocal?: boolean;
+}
+
 export class GenerateAgentDto {
   @IsIn(TIPOS_TITULAR)
   tipoTitular!: TipoTitular;
@@ -133,6 +185,12 @@ export class GenerateAgentDto {
   @MinLength(2)
   @MaxLength(40)
   nombreBot!: string;
+
+  /** El paso "Dónde atendés" (LAU-17). Sin él (un cliente viejo de la API) no se pisa lo guardado. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LocalPresencialDto)
+  local?: LocalPresencialDto;
 }
 
 /** Un dato que el asistente de ventas le pide al cliente (datos-cliente.rules.ts). */
@@ -151,49 +209,6 @@ export class CampoClienteDto {
 
   @IsBoolean()
   obligatorio!: boolean;
-}
-
-/** Una franja de atención del local: un día y su horario. */
-export class FranjaLocalDto {
-  @IsIn(DIAS_SEMANA)
-  dia!: DiaSemana;
-
-  @Matches(HORA_HHMM)
-  desde!: string;
-
-  @Matches(HORA_HHMM)
-  hasta!: string;
-}
-
-/**
- * El local a la calle de un comercio. Que cierre después de abrir y que las
- * franjas de un día no se pisen lo mira normalizarLocal (local.ts).
- */
-export class LocalPresencialDto {
-  @IsBoolean()
-  tieneLocal!: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(LARGO_MIN_DIRECCION)
-  @MaxLength(LARGO_MAX_DIRECCION)
-  direccion?: string;
-
-  @IsOptional()
-  @IsUrl({ protocols: ['https'], require_protocol: true })
-  @MaxLength(LARGO_MAX_ENLACE)
-  enlaceUbicacion?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(MAX_FRANJAS)
-  @ValidateNested({ each: true })
-  @Type(() => FranjaLocalDto)
-  horarios?: FranjaLocalDto[];
-
-  @IsOptional()
-  @IsBoolean()
-  retiroEnLocal?: boolean;
 }
 
 /** Body de `POST /agents/generate-ventas`: el onboarding del asistente de ventas. */
@@ -225,6 +240,31 @@ export class GenerarAgenteVentasDto {
   @ValidateNested()
   @Type(() => LocalPresencialDto)
   local?: LocalPresencialDto;
+
+  /** El paso "Cómo vendés" (LAU-21). Sin él queda lo guardado, o "stock". */
+  @IsOptional()
+  @IsIn(MODALIDADES_VENTA)
+  modalidadVenta?: ModalidadVenta;
+
+  /** El paso "Qué hacés": obligatorio a pedido (lo exige problemaDeModalidad). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_QUE_HACE * 2)
+  queHace?: string;
+}
+
+/**
+ * Body de `PUT /agents/me/modalidad`. Sin `queHace` queda el que estaba
+ * guardado; a pedido tiene que haber uno, venga o ya esté.
+ */
+export class ActualizarModalidadDto {
+  @IsIn(MODALIDADES_VENTA)
+  modalidadVenta!: ModalidadVenta;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_QUE_HACE * 2)
+  queHace?: string;
 }
 
 /** Body de `PUT /agents/me/datos-cliente`: reemplaza la configuración entera. */
@@ -312,7 +352,9 @@ export type AgentPublico = Pick<
   | 'createdAt'
   | 'updatedAt'
   | 'haceEnvios'
+  | 'queHace'
 > & {
+  modalidadVenta: ModalidadVenta;
   tiposEvento: TipoEvento[];
   tipoAsistente: TipoAsistente;
   mensajes: MensajesAgente;
@@ -334,8 +376,10 @@ export function aAgentPublico(agent: Agent): AgentPublico {
     tiposEvento: leerTiposEvento(agent),
     haceEnvios: agent.haceEnvios,
     datosCliente: leerConfigDatosCliente(agent).campos,
+    modalidadVenta: leerModalidad(agent),
+    queHace: agent.queHace,
     mensajes: leerMensajes(agent),
-    local: leerLocal(agent),
+    local: leerLocal(agent, tipoAsistenteDe(agent)),
     allowedActions: agent.allowedActions,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,

@@ -21,7 +21,35 @@ export type PerfilWizard = {
   /** Label del preset de franja ("Mañana", "Tarde", …). */
   preset: { label: string; desde: string; hasta: string };
   nombreBot: string;
+  /** El paso "¿Dónde atendés?"; sin esto, un local en `LUGAR_POR_DEFECTO`. */
+  lugar?: LugarWizard;
 };
+
+/** Una respuesta del paso "¿Dónde atendés?" (LAU-17). */
+export type LugarWizard =
+  | { opcion: 'local' | 'casa'; direccion: string; enlaceUbicacion?: string }
+  | { opcion: 'ninguno' };
+
+export const LUGAR_POR_DEFECTO: LugarWizard = { opcion: 'local', direccion: 'Av. Santa Fe 1234, CABA' };
+
+const OPCION_LUGAR: Record<LugarWizard['opcion'], RegExp> = {
+  local: /^En un local o consultorio/,
+  casa: /^En mi casa/,
+  ninguno: /^No tengo un lugar fijo/,
+};
+
+/** Cómo queda guardado en `Agent.local` (lo que devuelve GET /agents/me). */
+export function localEsperado(lugar: LugarWizard = LUGAR_POR_DEFECTO): PayloadAgente['local'] {
+  if (lugar.opcion === 'ninguno') return { tieneLocal: false, horarios: [], retiroEnLocal: false };
+  return {
+    tieneLocal: true,
+    lugar: lugar.opcion,
+    direccion: lugar.direccion,
+    ...(lugar.enlaceUbicacion ? { enlaceUbicacion: lugar.enlaceUbicacion } : {}),
+    horarios: [],
+    retiroEnLocal: false,
+  };
+}
 
 /** Lo que tiene que quedar persistido después de completar el wizard con este perfil. */
 export function payloadEsperado(perfil: PerfilWizard): PayloadAgente {
@@ -33,6 +61,7 @@ export function payloadEsperado(perfil: PerfilWizard): PayloadAgente {
     horaDesde: perfil.preset.desde,
     horaHasta: perfil.preset.hasta,
     nombreBot: perfil.nombreBot,
+    local: localEsperado(perfil.lugar),
   };
 }
 
@@ -131,15 +160,37 @@ async function nombrarAsistente(page: Page, perfil: PerfilWizard): Promise<void>
 }
 
 /**
- * Paso "¿Cómo atendés?": elige la forma de atender y sigue. "Uno a uno"
- * viene elegido, así que los recorridos de turnos individuales sólo siguen.
+ * Paso "¿Dónde atendés?" (LAU-17): elige el lugar, escribe la dirección si
+ * hace falta y sigue. Sin dirección el botón queda trabado.
  */
-export async function elegirAtencion(page: Page, atencion: 'Uno a uno' | 'En grupo' | 'Las dos cosas' = 'Uno a uno'): Promise<void> {
+export async function elegirLugar(page: Page, lugar: LugarWizard = LUGAR_POR_DEFECTO): Promise<void> {
+  await expect(page.getByRole('heading', { name: '¿Dónde atendés a tus clientes?' })).toBeVisible();
+  const opcion = page.getByRole('radio', { name: OPCION_LUGAR[lugar.opcion] });
+  await opcion.click();
+  await expect(opcion).toHaveAttribute('aria-checked', 'true');
+  if (lugar.opcion !== 'ninguno') {
+    await visible(page.getByLabel('Dirección', { exact: true })).fill(lugar.direccion);
+    if (lugar.enlaceUbicacion) await visible(page.getByLabel(/^Link de Google Maps/)).fill(lugar.enlaceUbicacion);
+  }
+  await botonContinuar(page).click();
+}
+
+/**
+ * Paso "¿Cómo atendés?": elige la forma de atender y sigue, y completa el paso
+ * que viene después, "¿Dónde atendés?". "Uno a uno" viene elegido, así que los
+ * recorridos de turnos individuales sólo siguen.
+ */
+export async function elegirAtencion(
+  page: Page,
+  atencion: 'Uno a uno' | 'En grupo' | 'Las dos cosas' = 'Uno a uno',
+  lugar: LugarWizard = LUGAR_POR_DEFECTO,
+): Promise<void> {
   await expect(page.getByRole('heading', { name: '¿Cómo atendés a tus clientes?' })).toBeVisible();
   const opcion = page.getByRole('radio', { name: new RegExp(`^${atencion}`) });
   await opcion.click();
   await expect(opcion).toHaveAttribute('aria-checked', 'true');
   await botonContinuar(page).click();
+  await elegirLugar(page, lugar);
 }
 
 /** La pregunta del primer paso: sirve para saber que el wizard ya cargó. */
@@ -168,7 +219,7 @@ export async function completarWizard(page: Page, perfil: PerfilWizard): Promise
   ).fill(perfil.nombreTitular);
   await botonContinuar(page).click();
 
-  await elegirAtencion(page);
+  await elegirAtencion(page, 'Uno a uno', perfil.lugar);
 
   await page.getByRole('radio', { name: ETIQUETA_USO[perfil.tipoUso], exact: true }).click();
   await cargarTiposDeEvento(page, perfil);

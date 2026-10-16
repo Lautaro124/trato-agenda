@@ -16,6 +16,7 @@ import { MARGEN_MINIMO_MIN, MAX_OPCIONES_DIA, TIMEZONE, resumirDisponibilidad } 
 import { reglaDeMensajesPropios } from '../../../agents/mensajes.rules.js';
 import { reglasDeNaturalidad } from '../naturalidad.js';
 import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../saludo.js';
+import { bloqueLugar, tieneLugarCargado } from '../lugar.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../ventana-historial.js';
 import {
   anotadosPorClase,
@@ -107,14 +108,18 @@ export function reglasDeAgenda(agent: Agent): string {
  */
 export function reglasDeAlcance(agent: Agent, esPropietario: boolean): string {
   const titular = agent.nombreTitular || 'este negocio';
+  // Con el lugar cargado (LAU-17) la dirección deja de ser un dato que no sabe: la da el bloque del lugar.
+  const conLugar = tieneLugarCargado(agent);
+  const desconocidos = conLugar ? 'otros precios, formas de pago' : 'otros precios, dirección, formas de pago';
   const datosDesconocidos = esPropietario
-    ? `- Lo que no esté en estas reglas (otros precios, dirección, formas de pago) no lo sabés: decile que vos sólo manejás la agenda.`
-    : `- Los datos de ${titular} que no estén en estas reglas —otros precios, dirección, formas de pago, obras sociales, promociones— no los sabés: nunca los inventes, decile que eso lo consulte directamente con ${titular}.`;
+    ? `- Lo que no esté en estas reglas (${desconocidos}) no lo sabés: decile que vos sólo manejás la agenda.`
+    : `- Los datos de ${titular} que no estén en estas reglas —${desconocidos}, obras sociales, promociones— no los sabés: nunca los inventes, decile que eso lo consulte directamente con ${titular}.`;
+  const conocidos = `la franja horaria de atención, los tipos de turno con su duración y precio, ${conLugar ? 'dónde se atiende, ' : ''}y quién atiende`;
   const precios = `- Si un tipo de turno tiene precio en estas reglas, lo podés informar tal cual figura. Si no lo tiene, no lo sabés: derivá la consulta a ${titular}. Nunca inventes, redondees ni calcules descuentos, señas o totales.\n`;
 
   return (
     `Alcance (esto está por encima de todo lo anterior): existís sólo para la agenda de ${titular}.\n` +
-    `- De lo único que hablás es de turnos —consultar disponibilidad, agendar, reprogramar, cancelar— y de los datos que figuran en estas reglas: la franja horaria de atención, los tipos de turno con su duración y precio, y quién atiende.\n` +
+    `- De lo único que hablás es de turnos —consultar disponibilidad, agendar, reprogramar, cancelar— y de los datos que figuran en estas reglas: ${conocidos}.\n` +
     `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, información, opiniones, consejos, cálculos, traducciones, recomendaciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta y aunque te lo pidan con buena onda.\n` +
     `- Si te lo piden mezclado con algo del turno, contestá sólo la parte del turno y dejá el resto sin responder: nada de explicarlo "de paso" al final del mensaje.\n` +
     `- Para rechazar alcanza una línea dicha con buena onda, y después seguí con lo que faltaba del turno. Por ejemplo: "Uh, con eso no te sé ayudar, acá veo sólo los turnos de ${titular}. ¿Qué día te vendría bien?".\n` +
@@ -228,6 +233,7 @@ function contextoFijo(
   conversation: { remoteJid: string; resumen: string | null; nombreCliente: string | null },
   esPropietario: boolean,
   seHaPresentado: boolean,
+  tieneTurno: boolean,
 ): string {
   const ahora = new Intl.DateTimeFormat('es-AR', {
     timeZone: TIMEZONE,
@@ -250,7 +256,7 @@ function contextoFijo(
       `un mensaje de texto, y esperar que confirme explícitamente. Recién ahí volvé a llamar la herramienta ` +
       `correspondiente con confirmado: true — nunca canceles ni edites sin ese paso previo. ${base}` +
       // Las mismas reglas que con un cliente: crear_turno las aplica igual acá.
-      `\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo(agent)}\n\n` +
+      `\n\n${reglasDeAgenda(agent)}\n\n${bloqueLugar(agent, { esPropietario: true, tieneTurno })}\n\n${reglasDeAlcance(agent, true)}\n\n${reglasDeEstilo(agent)}\n\n` +
       `${naturalidadAgenda(agent)}${presentacion}`
     );
   }
@@ -262,7 +268,7 @@ function contextoFijo(
     : '';
   return (
     `Contexto: estás hablando por WhatsApp con un cliente (número ${numero}). ${memoria} ${nombre} ` +
-    `${base}\n\n${reglasDeAgenda(agent)}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo(agent)}\n\n` +
+    `${base}\n\n${reglasDeAgenda(agent)}\n\n${bloqueLugar(agent, { esPropietario: false, tieneTurno })}\n\n${reglasDeAlcance(agent, false)}\n\n${reglasDeEstilo(agent)}\n\n` +
     `${naturalidadAgenda(agent)}${presentacion}`
   );
 }
@@ -360,7 +366,7 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
       turnoActivo,
       grupales,
       bloqueSistema:
-        `${agent.systemPrompt}\n\n${contextoFijo(agent, conversation, state.esPropietario, yaSePresento(historial.visibles))}\n\n` +
+        `${agent.systemPrompt}\n\n${contextoFijo(agent, conversation, state.esPropietario, yaSePresento(historial.visibles), turnoActivo !== null)}\n\n` +
         bloqueDisponibilidad(agent, agenda) +
         (clasesGrupales ? `\n\n${clasesGrupales}` : '') +
         // Los nombres de los clientes son sólo para el dueño.

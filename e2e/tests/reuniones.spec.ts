@@ -1,5 +1,21 @@
-import { agenteActual, crearAgentePorApi, eventosProximos, expect, horaBA, test } from './fixtures';
+import type { Page } from '@playwright/test';
+import { agenteActual, crearAgentePorApi, eventosProximos, expect, horaBA, test, visible } from './fixtures';
 import { elegirDuracion, selectorDuracion, tarjetaEvento } from './onboarding';
+
+/** La fila de un horario grupal ("Horario 1 de Taller: Lun 18:00"). */
+function horario(page: Page, nombre: string, numero: number) {
+  return visible(page.getByRole('button', { name: new RegExp(`^Horario ${numero} de ${nombre}: `) }));
+}
+
+/** Agrega un horario grupal con un día y una hora, y lo cierra con "Listo". */
+async function cargarHorario(page: Page, nombre: string, numero: number, dia: string, hora: string): Promise<void> {
+  await visible(page.getByRole('button', { name: `Agregar horario a ${nombre}`, exact: true })).click();
+  await visible(page.getByRole('group', { name: `Días del horario ${numero} de ${nombre}`, exact: true }))
+    .getByRole('button', { name: dia, exact: true })
+    .click();
+  await visible(page.getByLabel(`Hora del horario ${numero} de ${nombre}`, { exact: true })).fill(hora);
+  await visible(page.getByRole('button', { name: 'Listo', exact: true })).click();
+}
 
 test.describe('editar reuniones después del onboarding', () => {
   test('cambia duración y precio, persiste y el asistente lo usa en el próximo turno', async ({ page, context, usuarioDev }) => {
@@ -124,10 +140,11 @@ test.describe('editar reuniones después del onboarding', () => {
     await capacidad.fill('3');
     await expect(capacidad).toHaveAttribute('aria-invalid', 'false');
 
-    // El primer horario viene cargado (lunes 18:00); se suma el jueves a las 19:30.
-    await page.getByRole('button', { name: 'Agregar horario a Taller' }).click();
-    await page.getByLabel('Día del horario 2 de Taller', { exact: true }).selectOption('jue');
-    await page.getByLabel('Hora del horario 2 de Taller', { exact: true }).selectOption('19:30');
+    // Sin horarios tampoco: se cargan los lunes a las 18:00 y los jueves a las 19:30.
+    await expect(page.getByText('Agregá al menos un horario.')).toBeVisible();
+    await expect(guardar).toBeDisabled();
+    await cargarHorario(page, 'Taller', 1, 'Lunes', '18:00');
+    await cargarHorario(page, 'Taller', 2, 'Jueves', '19:30');
     await expect(guardar).toBeEnabled();
     await guardar.click();
     await expect(page.getByText('Listo: tu asistente ya usa estas reuniones.')).toBeVisible();
@@ -149,8 +166,10 @@ test.describe('editar reuniones después del onboarding', () => {
     await page.reload();
     await expect(modalidad('Taller').getByRole('radio', { name: 'Grupal' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByLabel('Capacidad de Taller', { exact: true })).toHaveValue('3');
-    await expect(page.getByLabel('Día del horario 2 de Taller', { exact: true })).toHaveValue('jue');
-    await expect(page.getByLabel('Hora del horario 2 de Taller', { exact: true })).toHaveValue('19:30');
+    await expect(horario(page, 'Taller', 1)).toContainText('Lun');
+    await expect(horario(page, 'Taller', 1)).toContainText('18:00');
+    await expect(horario(page, 'Taller', 2)).toContainText('Jue');
+    await expect(horario(page, 'Taller', 2)).toContainText('19:30');
     await expect(modalidad('Control').getByRole('radio', { name: 'Individual' })).toHaveAttribute('aria-checked', 'true');
 
     // Volver a "Individual" borra capacidad y horarios.
@@ -180,7 +199,9 @@ test.describe('editar reuniones después del onboarding', () => {
     await expect(tarjetaEvento(page, 'Estudio')).toHaveAttribute('aria-pressed', 'true');
     await expect(estudio.getByRole('radio', { name: 'Grupal' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByLabel('Capacidad de Estudio', { exact: true })).toBeVisible();
-    await expect(page.getByLabel('Día del horario 1 de Estudio', { exact: true })).toHaveValue('lun');
+    // Arranca sin horarios: se agregan con el mismo editor que el paso de clases.
+    await expect(page.getByRole('button', { name: 'Agregar horario a Estudio', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Horario 1 de Estudio/ })).toHaveCount(0);
   });
 
   test('sin agente manda al onboarding',async ({ page, usuarioDev }) => {

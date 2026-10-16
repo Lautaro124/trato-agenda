@@ -37,7 +37,6 @@ const MATE: ProductoEncontrado = {
   nombre: 'Mate de calabaza',
   categoria: 'Mates',
   descripcion: 'Curado, con virola de alpaca',
-  aMedida: false,
   tieneImagen: false,
   variantes: [
     {

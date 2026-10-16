@@ -74,6 +74,27 @@ function PedidoDeDatos({ ob }: { ob: Onboarding }) {
   );
 }
 
+/** Ventas a pedido (LAU-21): cuenta qué hace el comercio y toma la solicitud para que la coticen. */
+function EjemploAPedido({ ob }: { ob: Onboarding }) {
+  const queHace = ob.modalidadVenta.queHace.replace(/\s+/g, " ").trim();
+  const titular = ob.nombreTitular.trim() || "el negocio";
+  return (
+    <>
+      <DelCliente>Hola, ¿qué hacen?</DelCliente>
+      <DelAsistente>
+        {ob.presentacion}{" "}
+        {queHace ? (queHace.length > 220 ? `${queHace.slice(0, 217)}…` : queHace) : "Contame qué necesitás y lo vemos."}
+      </DelAsistente>
+      {ob.pasoId !== "modalidad" && (
+        <>
+          <DelCliente>Necesito una mesa de 1,80 x 0,90 para fin de mes</DelCliente>
+          <DelAsistente>Perfecto, ya le paso tu pedido a {titular} para que te lo cotice. Te escribe por acá con el precio.</DelAsistente>
+        </>
+      )}
+    </>
+  );
+}
+
 /** Lo que contestaría el asistente si le preguntan por el local, con lo cargado hasta ahora. */
 function respuestaDelLocal(ob: Onboarding): string {
   const { local } = ob;
@@ -135,10 +156,16 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
           <EjemploDeAtencion grupal={ob.atencion !== "individual"} />
         ) : ob.esVentas ? (
           <>
-            <DelCliente>Hola, ¿tenés mates de calabaza?</DelCliente>
-            <DelAsistente>
-              {ob.presentacion} Sí, tengo el mate de calabaza curado a $ 8.000. ¿Te lo reservo?
-            </DelAsistente>
+            {ob.modalidadVenta.aPedido ? (
+              <EjemploAPedido ob={ob} />
+            ) : (
+              <>
+                <DelCliente>Hola, ¿tenés mates de calabaza?</DelCliente>
+                <DelAsistente>
+                  {ob.presentacion} Sí, tengo el mate de calabaza curado a $ 8.000. ¿Te lo reservo?
+                </DelAsistente>
+              </>
+            )}
             {(paso === "local" || paso === "datos" || paso === "asistente") && (
               <>
                 <DelCliente>¿Puedo pasar a buscarlo?</DelCliente>
@@ -150,6 +177,12 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
         ) : (
           <>
             <DelAsistente>{ob.saludo}</DelAsistente>
+            {paso === "lugar" && (
+              <>
+                <DelCliente>¿Dónde atendés?</DelCliente>
+                <DelAsistente>{ob.saludoLugar}</DelAsistente>
+              </>
+            )}
             {conTurnos && (
               <DelAsistente>
                 {ob.saludoEventos}
@@ -157,6 +190,12 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
               </DelAsistente>
             )}
             {conClases && <DelAsistente>{ob.saludoClases}</DelAsistente>}
+            {paso === "clases" && ob.ejemploReservaClase && (
+              <>
+                <DelCliente>{ob.ejemploReservaClase.cliente}</DelCliente>
+                <DelAsistente>{ob.ejemploReservaClase.asistente}</DelAsistente>
+              </>
+            )}
             {paso === "asistente" && <DelCliente>Quiero un turno para el jueves a la tarde</DelCliente>}
           </>
         )}

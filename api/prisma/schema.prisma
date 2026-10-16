@@ -49,6 +49,7 @@ model User {
   ventas          Venta[]
   cuentaMercadoPago CuentaMercadoPago?
   notificaciones  Notificacion[]
+  sugerencias     SugerenciaMejora[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -154,10 +155,11 @@ model Agent {
   /// datos están en src/agents/mensajes.rules.ts; lo que falta queda en "auto".
   mensajes Json @default("{}")
 
-  /// Sólo ventas: el local a la calle del comercio, si tiene.
+  /// Dónde se atiende. Ventas: el local a la calle del comercio, si tiene.
   /// { tieneLocal, direccion?, enlaceUbicacion?, horarios: [{ dia, desde, hasta }], retiroEnLocal }.
-  /// Null = nunca lo cargó (el asistente deriva esas consultas al dueño). La
-  /// forma y sus reglas están en src/agents/local.ts.
+  /// Agenda (LAU-17): { tieneLocal, lugar: "local" | "casa", direccion, enlaceUbicacion? }
+  /// (tieneLocal false = sin lugar fijo). Null = nunca lo cargó (el asistente
+  /// deriva esas consultas al dueño). La forma y sus reglas están en src/agents/local.ts.
   local Json?
 
   /// Modelo de OpenRouter usado para generar esta config. Null si se generó
@@ -176,6 +178,17 @@ model Agent {
   /// Sólo ventas: qué datos le pide el asistente al cliente antes de crear el
   /// pedido. [{ tipo, etiqueta?, obligatorio }] (comercio/datos-cliente.rules.ts).
   datosCliente Json @default("[]")
+
+  /// Sólo ventas (LAU-21): "stock" | "pedido". Con stock el asistente dice
+  /// precio y stock y cierra el pedido; a pedido no habla de stock ni cierra
+  /// la compra: toma la solicitud y se la pasa al dueño para que la cotice.
+  /// Las reglas están en src/agents/modalidad-venta.ts.
+  modalidadVenta String @default("stock")
+
+  /// Sólo ventas a pedido: qué hace el comercio, en sus palabras (30–600
+  /// caracteres). Es columna propia y no `descripcion`, que la regenera el backend.
+  /// Null = nunca lo cargó.
+  queHace String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -338,9 +351,6 @@ model Producto {
   nombre      String
   descripcion String  @default("")
   categoria   String?
-  /// Se hace por encargo: el asistente no cuenta materiales ni fabricación
-  /// salvo que se lo pregunten (REGLA_A_MEDIDA en reglas-ventas.ts).
-  aMedida     Boolean @default(false)
 
   /// Baja lógica: un producto borrado deja de venderse pero sus ventas
   /// guardan igual su snapshot.
@@ -363,6 +373,19 @@ model Producto {
   descuento Descuento?
   /// La foto que el asistente le manda al cliente cuando la pide (una sola).
   imagen    ImagenProducto?
+  /// Producto a medida (LAU-22): las preguntas que el asistente le hace al
+  /// cliente para presupuestar, `{ preguntas: [{ texto, sobre: 'tiene' |
+  /// 'solicita', opciones, textoLibre, obligatoria }] }`, en el orden en que
+  /// las hace; `{ preguntas: [] }` es a medida sin preguntas propias. Null =
+  /// no se hace a medida. La forma y sus reglas están en
+  /// comercio/solicitud.rules.ts.
+  solicitud Json?
+  /// Precio "desde" opcional de un producto a medida (cuenta a pedido), que no
+  /// tiene variantes: el precio real sale de la cotización. Null en los de stock.
+  precioReferenciaCentavos Int?
+  /// Con qué materiales se hace un producto a medida: el asistente ofrece
+  /// sólo esos. Vacío en los de stock y cuando el dueño no los cargó.
+  materiales String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -599,4 +622,29 @@ model Notificacion {
   @@index([userId, leidaAt])
   @@index([userId, createdAt])
   @@index([userId, clave])
+}
+
+/// Sugerencia de mejora que manda el dueño desde el panel (LAU-14). Se guarda
+/// siempre primero y después se copia a Linear; si Linear falla queda
+/// pendiente (`enviadaAt` null) y la reintenta el barrido de MejorasService.
+/// El usuario no ve en qué estado está. Reglas en mejoras/mejoras.rules.ts.
+model SugerenciaMejora {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "idea" | "problema" | "otro"
+  tipo  String
+  /// Ya normalizado y validado: solo texto (lista blanca), sin links ni HTML.
+  texto String
+
+  /// Identificador del issue en Linear (ej. "LAU-31"). Null mientras está pendiente.
+  linearIssueId String?
+  /// Intentos fallidos de mandarla a Linear; el barrido deja de probar en 10.
+  intentos      Int       @default(0)
+  enviadaAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([enviadaAt])
 }

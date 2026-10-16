@@ -6,6 +6,8 @@
  */
 import { z } from 'zod';
 import { esAccionDeVentas, type AccionVentasId } from '../../agents/agent-catalog.js';
+import { leerModalidad, type ModalidadVenta } from '../../agents/modalidad-venta.js';
+import type { Agent } from '../../generated/prisma/client.js';
 import type { EsquemaHerramienta } from '../conversation-tools.js';
 
 export const esquemaBuscarProductos = z.object({
@@ -181,24 +183,35 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
 const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = ['ver_catalogo', 'ver_descuentos', 'enviar_imagen_producto'];
 
 /**
+ * Lo que cierra o deshace una compra. A pedido (LAU-21) el asistente no
+ * cierra nada: toma la solicitud y se la pasa al dueño con derivar_consulta,
+ * así que estas herramientas ni se le muestran al modelo ni se aceptan.
+ */
+const ACCIONES_SOLO_CON_STOCK: AccionVentasId[] = ['crear_pedido', 'cancelar_pedido'];
+
+/**
  * Las acciones de ventas que tiene un agente. `ver_catalogo`,
  * `ver_descuentos` y `enviar_imagen_producto` llegaron después de que se crearan los primeros
  * asistentes, y su `allowedActions` está guardado sin ellas: las tiene todo
  * agente que puede buscar en el catálogo, sin migrar ni regenerar nada (lo
  * mismo que los bloques de reglas que viven en código).
  */
-export function accionesDeVentas(allowedActions: string[]): AccionVentasId[] {
+export function accionesDeVentas(allowedActions: string[], modalidad: ModalidadVenta = 'stock'): AccionVentasId[] {
   const acciones = allowedActions.filter(esAccionDeVentas);
   if (acciones.includes('buscar_productos')) {
     for (const accion of ACCIONES_CON_LA_BUSQUEDA) if (!acciones.includes(accion)) acciones.push(accion);
   }
-  return acciones;
+  return modalidad === 'pedido' ? acciones.filter((accion) => !ACCIONES_SOLO_CON_STOCK.includes(accion)) : acciones;
 }
 
 /** Herramientas visibles para un agente de ventas: las habilitadas + las del dueño si corresponde. */
-export function herramientasDeVentas(allowedActions: string[], esPropietario: boolean): EsquemaHerramienta[] {
+export function herramientasDeVentas(
+  allowedActions: string[],
+  esPropietario: boolean,
+  agent?: Pick<Agent, 'modalidadVenta'>,
+): EsquemaHerramienta[] {
   return [
-    ...accionesDeVentas(allowedActions).map((id) => ESQUEMAS_VENTAS[id]),
+    ...accionesDeVentas(allowedActions, agent ? leerModalidad(agent) : 'stock').map((id) => ESQUEMAS_VENTAS[id]),
     ...(esPropietario ? Object.values(ESQUEMAS_PROPIETARIO_VENTAS) : []),
   ];
 }
