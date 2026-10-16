@@ -115,8 +115,8 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
   derivar_consulta: {
     name: 'derivar_consulta',
     description:
-      'Le avisa al dueño del negocio una consulta que vos no podés responder (un producto que no está en el ' +
-      'catálogo, envíos, formas de pago, un reclamo). Después decile al cliente que el negocio le responde por ' +
+      'Le pasa al equipo del negocio una consulta que vos no podés responder (un producto que no está en el ' +
+      'catálogo, envíos, formas de pago, un reclamo). Después decile al cliente que en un rato le escribimos por ' +
       'este chat. No la uses para cosas que no tienen que ver con el negocio: esas se rechazan.',
     schema: z.object({
       resumen: z.string().describe('Qué necesita el cliente, en una o dos frases, sin datos que no te dio.'),

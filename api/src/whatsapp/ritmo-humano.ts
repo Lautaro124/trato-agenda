@@ -64,7 +64,35 @@ export function partirEnMensajes(texto: string, maximo = MAX_PARTES): string[] {
   return [...partes.slice(0, maximo - 1), partes.slice(maximo - 1).join('\n\n')];
 }
 
-/** Cuánto esperar antes de vaciar una ráfaga: el silencio pedido, sin pasarse del tope desde el primer mensaje. */
-export function esperaDeRafaga(desde: number, ahora: number): number {
-  return Math.max(0, Math.min(ESPERA_RAFAGA_MS, desde + MAXIMO_RAFAGA_MS - ahora));
+/**
+ * Si el cliente está escribiendo ("escribiendo…" en su chat) se lo espera,
+ * pero WhatsApp no siempre avisa cuando para: un "escribiendo" sin novedades
+ * en ESCRIBIENDO_VENCE_MS se toma como que paró.
+ */
+export const ESCRIBIENDO_VENCE_MS = 20_000;
+/** Tope de espera de una ráfaga en la que el cliente estuvo escribiendo: más largo, pero con tope igual. */
+export const MAXIMO_RAFAGA_ESCRIBIENDO_MS = 45_000;
+/**
+ * Veces que se descarta una respuesta a medio armar porque el cliente siguió
+ * escribiendo. Cada vez es una llamada al modelo que paga el dueño; pasado el
+ * tope ya no se descarta, sólo se frena el envío mientras escribe.
+ */
+export const MAX_CANCELACIONES_POR_RAFAGA = 2;
+/** Lo más que se frena el envío de una respuesta ya lista porque el cliente está escribiendo. */
+export const MAXIMO_PAUSA_ESCRIBIENDO_MS = 20_000;
+
+/**
+ * Cuánto esperar antes de vaciar una ráfaga. Mientras el cliente escribe
+ * (`escribiendoHasta` en el futuro), hasta que venza su "escribiendo"; si no,
+ * el silencio pedido. Nunca más allá del tope desde el primer mensaje, que es
+ * más largo si en esta ráfaga lo vimos escribir (`huboEscritura`).
+ */
+export function esperaDeRafaga(
+  desde: number,
+  ahora: number,
+  escritura: { escribiendoHasta?: number; huboEscritura?: boolean } = {},
+): number {
+  const tope = desde + (escritura.huboEscritura ? MAXIMO_RAFAGA_ESCRIBIENDO_MS : MAXIMO_RAFAGA_MS) - ahora;
+  const escribiendo = (escritura.escribiendoHasta ?? 0) - ahora;
+  return Math.max(0, Math.min(escribiendo > 0 ? escribiendo : ESPERA_RAFAGA_MS, tope));
 }

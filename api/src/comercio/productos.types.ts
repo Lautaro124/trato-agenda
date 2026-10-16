@@ -86,6 +86,11 @@ export class GuardarProductoDto {
   @MaxLength(LARGOS.categoria)
   categoria?: string | null;
 
+  /** Ausente no lo toca: un cliente viejo que no lo manda no se lo pisa. */
+  @IsOptional()
+  @IsBoolean()
+  aMedida?: boolean;
+
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(MAX_VARIANTES)
@@ -178,7 +183,7 @@ export type VariantePublica = Pick<
 
 export type ProductoPublico = Pick<
   Producto,
-  'id' | 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'activo' | 'updatedAt'
+  'id' | 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'aMedida' | 'activo' | 'updatedAt'
 > & {
   variantes: VariantePublica[];
   /** El descuento propio del producto (el del formulario), vigente o no. */
@@ -213,6 +218,7 @@ export function aProductoPublico(
     nombre: producto.nombre,
     descripcion: producto.descripcion,
     categoria: producto.categoria,
+    aMedida: producto.aMedida,
     activo: producto.activo,
     updatedAt: producto.updatedAt,
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),

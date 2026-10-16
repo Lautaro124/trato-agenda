@@ -45,6 +45,8 @@ type ProductoAGuardar = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
+  /** undefined (la importación, o un cliente que no lo manda) no lo toca. */
+  aMedida?: boolean;
   variantes: VarianteImportada[];
   /** null lo borra; undefined (la importación) no lo toca. */
   descuento?: DescuentoAGuardar | null;
@@ -248,6 +250,7 @@ export class ProductosService {
       nombre: datos.nombre,
       descripcion: datos.descripcion,
       categoria: datos.categoria,
+      ...(datos.aMedida === undefined ? {} : { aMedida: datos.aMedida }),
       activo: true,
       textoBusqueda,
     };
@@ -328,6 +331,7 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
     nombre: dto.nombre.trim(),
     descripcion: (dto.descripcion ?? '').trim(),
     categoria: dto.categoria?.trim() || null,
+    aMedida: dto.aMedida,
     variantes,
     descuento: dto.descuento === undefined ? undefined : dto.descuento && descuentoDesdeDto(dto.descuento),
   };

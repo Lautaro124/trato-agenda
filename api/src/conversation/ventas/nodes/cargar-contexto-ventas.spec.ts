@@ -11,6 +11,15 @@ describe('contextoFijoVentas', () => {
 
     expect(contexto).toContain('la persona que atiende el WhatsApp de Mates del Sur');
     expect(contexto).toContain('sos un asistente automático');
-    expect(contexto).toContain('le avisás a Mates del Sur con derivar_consulta');
+    expect(contexto).toContain('se lo pasás con derivar_consulta y le escribimos por este chat');
+  });
+
+  it('suma la pista de emoji al bloque de estilo', () => {
+    const contexto = contextoFijoVentas(agent, conversation, false, {
+      mpConectado: true,
+      yaSePresento: true,
+      pistaEmoji: '\nEmojis en este mensaje: ninguno.',
+    });
+    expect(contexto).toContain('no repitas lo que el cliente ya te dijo.\nEmojis en este mensaje: ninguno.');
   });
 });

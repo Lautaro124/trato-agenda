@@ -80,6 +80,15 @@ function claveDe(clase: Clase): string {
   return claveClase(clase.tipo, clase.inicio);
 }
 
+/** Las herramientas que escriben en el calendario o en los turnos (cancelacion.ts). */
+const CON_EFECTO = new Set([
+  'crear_turno',
+  'reprogramar_turno',
+  'cancelar_turno',
+  'cancelar_evento_calendario',
+  'editar_evento_calendario',
+]);
+
 export function crearNodoCalendar(deps: DepsCalendar) {
   const logger = new Logger('CalendarNode');
 
@@ -425,6 +434,8 @@ export function crearNodoCalendar(deps: DepsCalendar) {
   }
 
   return async (state: EstadoConversacionValue): Promise<EstadoConversacionUpdate> => {
+    // Un turno o un evento escritos no se deshacen: desde acá la vuelta ya no se descarta.
+    if (state.pendientes.some((operacion) => CON_EFECTO.has(operacion.nombre))) state.cancelacion?.comprometer();
     let agenda = state.agenda;
     let contexto = state.contexto;
     const mensajes: ToolMessage[] = [];

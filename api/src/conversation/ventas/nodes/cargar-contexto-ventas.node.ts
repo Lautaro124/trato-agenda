@@ -3,9 +3,13 @@
  * `Conversation` y un resumen del catálogo (categorías y cantidad, nunca los
  * productos), y arma el system prompt con las reglas que viven en código.
  */
+import { Logger } from '@nestjs/common';
+import type { BaseMessage } from '@langchain/core/messages';
+import type { DecisionesClient } from '../../../comercio/decisiones.client.js';
+import { leerConfigDatosCliente, pideDatos, type EtapaDeCompra } from '../../../comercio/datos-cliente.rules.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
 import { TIMEZONE } from '../../graph/agenda-rules.js';
-import { reglasDeNaturalidad } from '../../graph/naturalidad.js';
+import { pistaDeEmoji, reglasDeNaturalidad } from '../../graph/naturalidad.js';
 import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../../graph/saludo.js';
 import type { AgentConUser } from '../../graph/state.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-historial.js';
@@ -18,20 +22,48 @@ import {
   reglasDeEstiloVentas,
   reglasDeVenta,
 } from '../reglas-ventas.js';
+import { estadoDeLaCharla, etapaDesdeOrden, pedidoDeEtapa } from '../etapa-de-compra.js';
 import type { ContextoVentas, EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 export type DepsContextoVentas = {
   prisma: PrismaService;
   /** Hasta cuánto para atrás ve el modelo el historial (HISTORIAL_IA_VENTANA). Por defecto, 14 días. */
   ventanaHistorialMs?: number;
+  /** Jev (etapa-de-compra.ts). Sin él, o si falla, la regla de datos de siempre. */
+  decisiones?: Pick<DecisionesClient, 'ordenar' | 'configurado'>;
 };
+
+const logger = new Logger('CargarContextoVentasNode');
+
+/**
+ * Si el cliente ya eligió todo o sigue definiendo, según Jev. Sólo hace falta
+ * cuando el comercio pide datos; null (sin Jev, primer mensaje o falla) deja
+ * la regla de siempre. Un fallo va a logger.error, como en
+ * SugerenciasService: que llegue a Sentry, nunca al cliente.
+ */
+async function etapaDeCompra(
+  deps: DepsContextoVentas,
+  agent: Agent,
+  mensajes: BaseMessage[],
+  conversation: Pick<Conversation, 'id' | 'nombreCliente'>,
+): Promise<EtapaDeCompra | null> {
+  if (!deps.decisiones?.configurado || !pideDatos(leerConfigDatosCliente(agent))) return null;
+  const estado = estadoDeLaCharla(mensajes, conversation.nombreCliente);
+  if (!estado) return null;
+  try {
+    return etapaDesdeOrden(await deps.decisiones.ordenar(pedidoDeEtapa(estado)));
+  } catch (error) {
+    logger.error(`Jev no pudo decidir la etapa de compra de la conversación ${conversation.id}: ${(error as Error).message}`);
+    return null;
+  }
+}
 
 /** En ventas sí hay a quién derivar: derivar_consulta le avisa al dueño. */
 function naturalidadVentas(agent: Agent): string {
   const titular = agent.nombreTitular || 'este negocio';
   return reglasDeNaturalidad(
     titular,
-    `que si prefiere hablar con alguien del negocio, le avisás a ${titular} con derivar_consulta y le escribe por este chat`,
+    'que si prefiere hablar con alguien del equipo, se lo pasás con derivar_consulta y le escribimos por este chat',
   );
 }
 
@@ -39,7 +71,7 @@ export function contextoFijoVentas(
   agent: Agent,
   conversation: Pick<Conversation, 'remoteJid' | 'resumen' | 'nombreCliente'>,
   esPropietario: boolean,
-  opciones: { mpConectado: boolean; yaSePresento: boolean },
+  opciones: { mpConectado: boolean; yaSePresento: boolean; etapa?: EtapaDeCompra | null; pistaEmoji?: string },
   ahora: Date = new Date(),
 ): string {
   const fecha = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, dateStyle: 'full', timeStyle: 'short' }).format(
@@ -48,8 +80,8 @@ export function contextoFijoVentas(
   const base = `Fecha y hora actual: ${fecha} (zona horaria ${TIMEZONE}).`;
   const presentacion = bloqueDeSaludo(agent, opciones.yaSePresento);
   const reglas =
-    `${reglasDeVenta(agent, opciones.mpConectado)}\n\n${reglasDeAlcanceVentas(agent, esPropietario)}\n\n` +
-    `${reglasDeEstiloVentas(agent)}\n\n${naturalidadVentas(agent)}${presentacion}`;
+    `${reglasDeVenta(agent, opciones.mpConectado, opciones.etapa ?? null)}\n\n${reglasDeAlcanceVentas(agent, esPropietario)}\n\n` +
+    `${reglasDeEstiloVentas(agent)}${opciones.pistaEmoji ?? ''}\n\n${naturalidadVentas(agent)}${presentacion}`;
 
   if (esPropietario) {
     return (
@@ -85,7 +117,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     // Mismo criterio que la agenda: con historial fuera de la ventana, tampoco el resumen.
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
-    const [grupos, totalProductos, cuentaMp, pedidos] = await Promise.all([
+    const [grupos, totalProductos, cuentaMp, pedidos, etapa] = await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
         where: { userId: state.ownerUserId, activo: true, categoria: { not: null } },
@@ -100,6 +132,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
         orderBy: { createdAt: 'desc' },
         take: 3,
       }),
+      etapaDeCompra(deps, agent, historial.visibles, conversation),
     ]);
     const mpConectado = cuentaMp !== null;
     const categorias = grupos.map((grupo) => ({ nombre: grupo.categoria as string, cantidad: grupo._count._all }));
@@ -109,7 +142,12 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       conversation,
       mpConectado,
       bloqueSistema:
-        `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, { mpConectado, yaSePresento: yaSePresento(historial.visibles) })}\n\n` +
+        `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, {
+          mpConectado,
+          yaSePresento: yaSePresento(historial.visibles),
+          etapa,
+          pistaEmoji: pistaDeEmoji(historial.visibles),
+        })}\n\n` +
         `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n${bloquePedidos(agent, mpConectado, pedidos)}`,
     };
 

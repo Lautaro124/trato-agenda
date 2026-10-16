@@ -338,6 +338,9 @@ model Producto {
   nombre      String
   descripcion String  @default("")
   categoria   String?
+  /// Se hace por encargo: el asistente no cuenta materiales ni fabricación
+  /// salvo que se lo pregunten (REGLA_A_MEDIDA en reglas-ventas.ts).
+  aMedida     Boolean @default(false)
 
   /// Baja lógica: un producto borrado deja de venderse pero sus ventas
   /// guardan igual su snapshot.

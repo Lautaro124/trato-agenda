@@ -6,6 +6,7 @@
 import { MessagesValue, StateSchema, UntrackedValue } from '@langchain/langgraph';
 import { z } from 'zod';
 import type { Conversation } from '../../generated/prisma/client.js';
+import type { Cancelacion } from '../cancelacion.js';
 import type { AgentConUser, OperacionPendiente } from '../graph/state.js';
 
 /** Lo que `cargar_contexto_ventas` deja listo para el resto del grafo. */
@@ -32,6 +33,8 @@ export const EstadoVentas = new StateSchema({
    * salen del catálogo). Vacía = la respuesta todavía no se rechazó en esta vuelta.
    */
   correccion: new UntrackedValue<string>(undefined, { guard: false }),
+  /** La vuelta que se puede descartar si el cliente sigue escribiendo (cancelacion.ts). Sólo por WhatsApp. */
+  cancelacion: new UntrackedValue<Cancelacion>(undefined, { guard: false }),
 });
 
 export type EstadoVentasValue = typeof EstadoVentas.State;

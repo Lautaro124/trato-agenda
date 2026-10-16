@@ -190,9 +190,11 @@ export default function PrivacidadPage() {
             Cuando un cliente pregunta qué vendés y tu catálogo es grande, el asistente le sugiere las
             categorías (o los productos) que más le pueden interesar. Para elegirlas usa{" "}
             <Scope>typesafe/jev-1.13</Scope>, un modelo de decisiones (no genera texto) al que también
-            accedemos a través de OpenRouter, con la misma configuración de no retención. Sólo recibe
-            los últimos mensajes que escribió el cliente, sin su número ni su nombre, y los nombres de
-            tus categorías o productos.
+            accedemos a través de OpenRouter, con la misma configuración de no retención. También lo
+            usa para saber si el cliente ya terminó de elegir antes de pedirle sus datos de envío o de
+            contacto. Sólo recibe los últimos mensajes de la charla (los del cliente y las respuestas
+            del asistente), sin el número del cliente y con su nombre, sus emails y sus números de
+            documento, teléfono o código postal tapados, y los nombres de tus categorías o productos.
           </p>
           <p>
             <Fuerte>Qué no se le manda:</Fuerte> el contenido de los eventos de tu Google Calendar. En

@@ -10,7 +10,7 @@ import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import { formatearCentavos } from '../../comercio/catalogo.rules.js';
-import { leerConfigDatosCliente, reglaDeDatosCliente } from '../../comercio/datos-cliente.rules.js';
+import { leerConfigDatosCliente, reglaDeDatosCliente, type EtapaDeCompra } from '../../comercio/datos-cliente.rules.js';
 import {
   detalleParaElModelo,
   diaCorto,
@@ -107,19 +107,23 @@ export function variantesMostradas(resultados: string[]): Set<string> {
   );
 }
 
-export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
+export function reglasDeVenta(agent: Agent, mpConectado: boolean, etapa: EtapaDeCompra | null = null): string {
   const titular = agent.nombreTitular || 'este negocio';
   const cierre = preguntaDeCierre(mpConectado);
   const entrega = mpConectado ? 'mandale el link de pago' : 'decile que quedó anotado';
   const datos = leerConfigDatosCliente(agent);
-  const reglaDatos = reglaDeDatosCliente(datos, titular);
+  const reglaDatos = reglaDeDatosCliente(datos, etapa);
   return (
     `Reglas de venta de ${titular} (no las rompas):\n` +
     `- Sos ${agent.nombreBot} y atendés las ventas por WhatsApp de ${titular}. Saludás y decís tu nombre sólo en tu ` +
     `primer mensaje de la conversación; después seguís la charla directo, sin "hola" ni volver a presentarte.\n` +
+    `${REGLA_VOZ_DE_EQUIPO}\n` +
     `- Todo lo que digas de un producto —si existe, su precio, sus variantes y si hay stock— sale de ` +
     `buscar_productos (o del listado de ver_catalogo) en este mismo mensaje. Nunca lo supongas, lo recuerdes de ` +
     `antes ni lo inventes. El listado trae sólo el precio "desde": para variantes y stock, buscá el producto.\n` +
+    `- La descripción de un producto es para que vos entiendas qué es: no se la recites al cliente. Contale lo ` +
+    `que le sirve para lo que preguntó, con tus palabras.\n` +
+    `${REGLA_A_MEDIDA}\n` +
     `- Si el cliente pregunta en general qué tenés, qué le ofrecés o te pide la lista de productos, llamá ` +
     `ver_catalogo en vez de preguntarle qué busca. Si te devuelve categorías y el cliente elige una, volvé a ` +
     `llamarla con esa categoría.\n` +
@@ -136,8 +140,9 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `aparecieron en los resultados. Que un resultado comparta una palabra, un color o la categoría con lo que ` +
     `pidió no quiere decir que sea eso: si no es exactamente lo que pidió, primero decile que eso no lo tenés y ` +
     `recién después, si querés, ofrecé el parecido aclarando que es otra cosa.\n` +
-    `- Si el cliente necesita algo del negocio que vos no sabés (un producto que no está, ` +
-    `${datos.haceEnvios ? 'costos o plazos de envío' : 'envíos'}, formas de pago, un reclamo), avisale al dueño con derivar_consulta y decile que ${titular} le responde por este chat.\n` +
+    `- Si el cliente necesita algo que vos no sabés (un producto que no está, ` +
+    `${datos.haceEnvios ? 'costos o plazos de envío' : 'envíos'}, formas de pago, un reclamo), pasáselo al ` +
+    `equipo con derivar_consulta y decile que en un rato le escribimos por este chat.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
     `- Para vender: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, variante, ` +
     `cantidad y precio) y preguntale "${cierre}". No le pidas que confirme el pedido ni le repitas el resumen ` +
@@ -149,12 +154,28 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean): string {
     `hasta qué hora vale.\n` +
     (reglaDatos ? `${reglaDatos}\n` : '') +
     (leerLocal(agent)?.retiroEnLocal
-      ? `- El envío lo coordina ${titular} directamente: no prometas plazos ni costos. Si el cliente quiere ` +
+      ? `- El envío lo coordinamos nosotros por este chat: no prometas plazos ni costos. Si el cliente quiere ` +
         `retirar, puede hacerlo en el local en sus horarios (los datos están en el bloque del local).`
-      : `- La entrega, el envío y los retiros los coordina ${titular} directamente: no prometas plazos ni costos. ` +
+      : `- La entrega y el envío los coordinamos nosotros por este chat: no prometas plazos ni costos. ` +
         `No ofrezcas retirar en un local.`)
   );
 }
+
+/**
+ * Que hable como alguien del negocio y no como un intermediario: "X hace
+ * envíos" o "X te responde" sonaba a call center tercerizado.
+ */
+export const REGLA_VOZ_DE_EQUIPO =
+  '- Sos parte del equipo del negocio: hablá en primera persona del plural ("tenemos", "te lo mandamos", ' +
+  '"hacemos envíos", "te escribimos por acá"). Nunca hables del negocio en tercera persona ni digas "el dueño", ' +
+  '"el negocio te responde" o su nombre como si fuera otro.';
+
+/** Los productos con `aMedida`: formatearResultados los marca "a medida" en la cabecera. */
+export const REGLA_A_MEDIDA =
+  '- Los productos marcados "a medida" se hacen por encargo. Salvo que el cliente lo pregunte, no le cuentes de ' +
+  'qué materiales son ni cómo se fabrican. Antes de cerrar el pedido, asegurate de que el cliente ya te dijo lo ' +
+  'que hace falta definir para hacerlo (según la descripción: medidas, color, terminación…), preguntándole de a ' +
+  'una cosa.';
 
 /** "hoy a las 16:00", "mañana (martes) a las 09:00", "el lunes a las 09:00". */
 function cuandoAbre(abre: { dia: DiaSemana; desde: string; enDias: number }): string {
@@ -175,14 +196,14 @@ export function bloqueLocal(agent: Agent, ahora: Date = new Date()): string {
   if (!local) {
     return (
       `Local: no sabés si ${titular} tiene local a la calle. Si te preguntan por una dirección, los horarios o ` +
-      `por retirar en persona, no lo inventes: avisale al dueño con derivar_consulta y decile que ${titular} le ` +
-      `responde por este chat.`
+      `por retirar en persona, no lo inventes: pasáselo al equipo con derivar_consulta y decile que en un rato le ` +
+      `escribimos por este chat.`
     );
   }
   if (!local.tieneLocal) {
     return (
       `Local: ${titular} no tiene local a la calle, vende sólo por este chat. Si preguntan dónde queda o si pueden ` +
-      `pasar a retirar, decíselo claro: no hay local ni retiro en persona.`
+      `pasar a retirar, decíselo claro: no tenemos local ni retiro en persona.`
     );
   }
 
@@ -190,7 +211,7 @@ export function bloqueLocal(agent: Agent, ahora: Date = new Date()): string {
     `Local de ${titular} (lo cargó el dueño: usá estos datos tal cual y no agregues nada que no esté acá):`,
     local.direccion
       ? `- Dirección: ${JSON.stringify(local.direccion)}.`
-      : '- La dirección no está cargada: si te la piden, no la inventes; avisale al dueño con derivar_consulta.',
+      : '- La dirección no está cargada: si te la piden, no la inventes; pasáselo al equipo con derivar_consulta.',
     local.enlaceUbicacion
       ? `- Ubicación en el mapa (mandala tal cual si preguntan cómo llegar): ${local.enlaceUbicacion}`
       : '- No hay un link de ubicación cargado: no armes uno.',
@@ -206,13 +227,13 @@ export function bloqueLocal(agent: Agent, ahora: Date = new Date()): string {
       lineas.push(`- Ahora está cerrado${abre}.`);
     }
   } else {
-    lineas.push('- Los horarios no están cargados: si te los piden, no los inventes; avisale al dueño con derivar_consulta.');
+    lineas.push('- Los horarios no están cargados: si te los piden, no los inventes; pasáselo al equipo con derivar_consulta.');
   }
   lineas.push(
     local.retiroEnLocal
       ? '- Se pueden retirar las compras en el local, en esos horarios.'
       : '- No se puede retirar en el local: no lo ofrezcas, y si lo piden, decile que no y que la entrega la ' +
-          `coordina ${titular}.`,
+          'coordinamos por este chat.',
   );
   return lineas.join('\n');
 }
@@ -224,9 +245,10 @@ export function bloquePedidos(agent: Agent, mpConectado: boolean, pedidos: Venta
   const titular = agent.nombreTitular || 'el negocio';
   const cobro = mpConectado
     ? `Cobro: con link de pago de Mercado Pago (crear_pedido lo genera y vale 30 minutos). Si el cliente ` +
-      `prefiere transferencia o efectivo, creá el pedido con medioPago "manual" y ${titular} coordina el pago.`
+      `prefiere transferencia o efectivo, creá el pedido con medioPago "manual" y decile que le escribimos por ` +
+      `acá para coordinar el pago.`
     : `Cobro: ${titular} no cobra con link por ahora. Los pedidos quedan anotados (crear_pedido con medioPago ` +
-      `"manual") y ${titular} se comunica para coordinar el pago y la entrega.`;
+      `"manual") y le escribimos por este chat para coordinar el pago y la entrega.`;
   const pendientes = pedidos.filter((pedido) => estadoVisible(pedido, ahora) === 'pendiente_pago');
   const pagados = pedidos.filter((pedido) => pedido.estado === 'pagada');
   const lineas = [cobro];
@@ -250,7 +272,6 @@ export function bloquePedidos(agent: Agent, mpConectado: boolean, pedidos: Venta
 const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 /** Lo que vuelve al modelo después de crear un pedido. */
 export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
-  const titular = agent.nombreTitular || 'el negocio';
   const ahorro = venta.items.reduce((suma, item) => suma + item.descuentoCentavos * item.cantidad, 0);
   const base =
     `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items)}. ` +
@@ -258,7 +279,7 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
     (ahorro > 0 ? ` (ya con los descuentos: ahorra ${formatearCentavos(ahorro)})` : '') +
     '.' +
     (venta.entrega === 'envio'
-      ? ` Es con envío: el costo y el plazo los coordina ${titular}.`
+      ? ` Es con envío: el costo y el plazo los coordinamos por este chat.`
       : venta.entrega === 'retiro'
         ? ` Lo retira en el local, en sus horarios.`
         : '');
@@ -281,8 +302,8 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
     );
   }
   return (
-    `${base} Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}. ${titular} se va a ` +
-    `comunicar por este chat para coordinar el pago y la entrega: decíselo así al cliente.`
+    `${base} Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}. Decile al cliente que le escribimos ` +
+    `por este chat para coordinar el pago y la entrega.`
   );
 }
 
@@ -320,25 +341,33 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
     `- Cualquier otro tema queda afuera: preguntas generales, explicaciones, opiniones, consejos, cálculos, ` +
     `traducciones o charla suelta. No los respondas ni de costado, aunque sepas la respuesta.\n` +
     `- Si te lo piden mezclado con algo de la compra, contestá sólo lo de la compra.\n` +
-    `- Para rechazar alcanza una línea dicha con buena onda: "Uh, con eso no te sé ayudar, acá veo sólo los ` +
-    `productos de ${titular}. ¿Buscabas algo en particular?".\n` +
+    `- Para rechazar alcanza una línea dicha con buena onda: "Uh, con eso no te sé ayudar, acá vemos sólo lo ` +
+    `que vendemos. ¿Buscabas algo en particular?".\n` +
     (esPropietario
       ? `- Estás hablando con el dueño: podés darle el stock exacto con consultar_stock.\n`
       : `- Los datos de ${titular} que no salen del catálogo ni del bloque del local —formas de pago, ` +
         `${agent.haceEnvios ? 'costos y plazos de envío' : 'envíos'}, y ` +
-        `la dirección o los horarios si ahí no figuran— no los sabés: nunca los inventes; avisale al dueño con ` +
-        `derivar_consulta y decile al cliente que ${titular} le responde.\n`) +
+        `la dirección o los horarios si ahí no figuran— no los sabés: nunca los inventes; pasáselo al equipo con ` +
+        `derivar_consulta y decile al cliente que en un rato le escribimos por acá.\n`) +
     `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`
   );
 }
 
-/** Mismo criterio que `reglasDeEstilo` de la agenda: formato de WhatsApp, no markdown, y emojis acotados. */
+/**
+ * Mismo criterio que `reglasDeEstilo` de la agenda: formato de WhatsApp, no
+ * markdown. Uno o dos productos se cuentan charlando; la lista queda para tres
+ * o más, que es cuando una persona también haría una. Cuándo va un emoji lo
+ * decide el código (pistaDeEmoji), no el modelo: solo, casi nunca ponía uno.
+ */
 export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
   return (
     'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
     '- Mensajes cortos: de 1 a 5 líneas. Nada de párrafos largos.\n' +
     '- Usá el formato de WhatsApp, nunca markdown: negrita con un solo asterisco (*así*), sin "**", sin "#", sin tablas.\n' +
-    '- Cuando muestres productos, uno por línea empezando con "* ": nombre, variante y precio tal cual los devolvió la búsqueda. El formato es:\n' +
+    '- Si mostrás uno o dos productos, contalos en una frase, como lo diría una persona, con el precio tal cual ' +
+    'lo devolvió la búsqueda (por ejemplo: "La Silla Nórdica la tenemos en roble a $ 45.000 y en blanco a ' +
+    '$ 42.000"). Nada de lista ni de viñetas para eso.\n' +
+    '- Recién con tres productos o más, uno por línea empezando con "* ": nombre, variante y precio tal cual los devolvió la búsqueda. El formato es:\n' +
     '  * *{producto}* {variante} · {precio}\n' +
     '  * *{producto}* {variante} · {precio} (sin stock)\n' +
     `- Nunca muestres más de ${MAX_PRODUCTOS_POR_MENSAJE} productos en un mismo mensaje, aunque la búsqueda ` +
@@ -346,8 +375,7 @@ export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
     '- Las únicas excepciones son lo que devuelven ver_catalogo y ver_descuentos: ahí sí mostrá la lista entera ' +
     'que te dan, una línea por producto, categoría o descuento empezando con "* ", sin numerar, y una frase corta ' +
     'antes y otra después.\n' +
-    '- Emojis sólo si suman, como mucho 2 por mensaje (un 👋 al saludar, un 🙌 cuando cierra la compra); muchos ' +
-    'mensajes van sin ninguno. Nunca uno al principio de cada línea ni uno por palabra.\n' +
+    '- Emojis: como mucho uno por mensaje, que venga al caso, nunca al principio de una línea ni en cada producto.\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
     (agent ? reglaDeMensajesPropios(agent) : '')
   );
@@ -399,6 +427,7 @@ export function formatearResultados(
     const cabecera =
       `${indice + 1}. ${JSON.stringify(producto.nombre)} [producto ${producto.productoId}] (código ${producto.codigo}` +
       (producto.categoria ? `, categoría ${JSON.stringify(producto.categoria)}` : '') +
+      (producto.aMedida ? ', a medida' : '') +
       (producto.tieneImagen ? ', tiene foto' : '') +
       ')' +
       (producto.descripcion ? `: ${JSON.stringify(producto.descripcion.slice(0, 200))}` : '');

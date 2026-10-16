@@ -9,6 +9,7 @@ import { Logger } from '@nestjs/common';
 import { esAccionValida } from '../../../agents/agent-catalog.js';
 import { resumenDeError } from '../../../agents/openrouter.client.js';
 import { avisarASentry } from '../../../observabilidad/aviso-a-sentry.js';
+import { VueltaCancelada } from '../../cancelacion.js';
 import { MENSAJE_DISCULPA_GENERICO, MENSAJE_FUERA_DE_ALCANCE } from '../../mensajes.js';
 import { clasificarFalloDelModelo } from '../../respuesta-sin-choices.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO, type EsquemaHerramienta } from '../../conversation-tools.js';
@@ -52,12 +53,15 @@ export function crearNodoConversacion(deps: DepsConversacion) {
     // cortados: un hilo que quedó roto ya no hace fallar cada mensaje siguiente.
     const sistema = state.correccion ? `${contexto.bloqueSistema}\n\n${state.correccion}` : contexto.bloqueSistema;
     try {
-      const respuesta = await modelo.invoke([
-        new SystemMessage(sistema),
-        ...mensajesVisibles(state.messages, state.inicioVisible ?? 0),
-      ]);
+      const mensajes = [new SystemMessage(sistema), ...mensajesVisibles(state.messages, state.inicioVisible ?? 0)];
+      // Con la señal, descartar la vuelta corta también el pedido al proveedor, no sólo el grafo.
+      const respuesta = state.cancelacion
+        ? await modelo.invoke(mensajes, { signal: state.cancelacion.signal })
+        : await modelo.invoke(mensajes);
       return { messages: [respuesta] };
     } catch (error) {
+      // El cliente siguió escribiendo y la vuelta se descartó: no es un fallo del modelo.
+      if (state.cancelacion?.cancelada) throw new VueltaCancelada();
       // Se responde como si fuera el turno final: sin tool calls, el router
       // manda directo a persistir y termina la vuelta.
       const fallo = clasificarFalloDelModelo(error);

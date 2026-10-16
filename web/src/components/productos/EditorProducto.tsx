@@ -134,6 +134,7 @@ export function EditorProducto({
   const [nombre, setNombre] = useState(producto?.nombre ?? "");
   const [categoria, setCategoria] = useState(producto?.categoria ?? "");
   const [descripcion, setDescripcion] = useState(producto?.descripcion ?? "");
+  const [aMedida, setAMedida] = useState(producto?.aMedida ?? false);
   const [variantes, setVariantes] = useState<VarianteEnEdicion[]>(
     producto ? desdeProducto(producto) : [nuevaVariante()],
   );
@@ -147,6 +148,7 @@ export function EditorProducto({
     nombre,
     categoria,
     descripcion,
+    aMedida,
     variantes.map((v) => [v.sku, v.nombre, v.precio, v.stock, v.stockMinimo, v.disponible]),
     descuento,
   ]);
@@ -202,6 +204,7 @@ export function EditorProducto({
       nombre: nombre.trim(),
       categoria: categoria.trim() || null,
       descripcion: descripcion.trim(),
+      aMedida,
       variantes: armadas,
       descuento: descuentoArmado,
     };
@@ -294,6 +297,23 @@ export function EditorProducto({
                   className={INPUT}
                 />
               </div>
+
+              <label className="flex items-start justify-between gap-3 text-[14px] font-semibold text-ink">
+                <span>
+                  Se hace a medida
+                  <span className="mt-0.5 block text-[12.5px] leading-[1.5] font-normal text-ink-secondary">
+                    El asistente no cuenta materiales ni cómo se fabrica, salvo que el cliente lo pregunte.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={aMedida}
+                  onChange={(e) => setAMedida(e.target.checked)}
+                  aria-label="Se hace a medida"
+                  className="mt-0.5 size-5 shrink-0 accent-[var(--color-semantic-primary-default)]"
+                />
+              </label>
 
               <FotoProducto
                 productoId={producto?.id ?? null}

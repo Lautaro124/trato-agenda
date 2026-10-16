@@ -96,7 +96,7 @@ function llamadaATool(model, name, args) {
 // del último mensaje del cliente:
 //   - "quiero …" / "lo compro" (con "soy <Nombre>") → crear_pedido con la
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
-//     si las reglas dicen que el negocio hace envíos, "con envío" / "lo retiro"
+//     si las reglas dicen que hacemos envíos, "con envío" / "lo retiro"
 //     van en `entrega`, y los pares "Etiqueta: valor" separados por ";" van en
 //     `datosCliente`;
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
@@ -250,7 +250,7 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
     const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
     const pedido = { nombreCliente: nombre, items: [{ varianteId, cantidad }] };
-    if (sistema.includes(' hace envíos.')) {
+    if (sistema.includes('Hacemos envíos')) {
       if (ultimoUsuario.includes('con envio')) pedido.entrega = 'envio';
       else if (ultimoUsuario.includes('retiro')) pedido.entrega = 'retiro';
     }

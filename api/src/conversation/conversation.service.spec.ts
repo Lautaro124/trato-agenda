@@ -1,6 +1,17 @@
-import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages';
-import { GraphRecursionError } from '@langchain/langgraph';
+import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import {
+  END,
+  GraphRecursionError,
+  MemorySaver,
+  MessagesValue,
+  START,
+  StateGraph,
+  StateSchema,
+  UntrackedValue,
+} from '@langchain/langgraph';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { Cancelacion, VueltaCancelada } from './cancelacion.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { GrafoConversacion } from './conversation.providers.js';
 import { ConversationService, jidDePrueba } from './conversation.service.js';
@@ -196,5 +207,104 @@ describe('ConversationService.responder', () => {
       CONFIG,
     );
     expect((await caido.responder('user-1', '54911@s.whatsapp.net', 'hola')).imagenes).toEqual([]);
+  });
+});
+
+describe('ConversationService — vuelta descartada', () => {
+  /**
+   * Un grafo de verdad (con checkpointer) que imita al de la conversación:
+   * cargar_contexto deja el mensaje en el hilo y conversacion espera al modelo,
+   * que se corta si la vuelta se descarta.
+   */
+  function grafoReal() {
+    const Estado = new StateSchema({
+      messages: MessagesValue,
+      ownerUserId: z.string(),
+      remoteJid: z.string(),
+      esPropietario: z.boolean().default(false),
+      cancelacion: new UntrackedValue<Cancelacion>(undefined, { guard: false }),
+    });
+    let modeloPendiente = false;
+    const grafo = new StateGraph(Estado)
+      .addNode('cargar_contexto', () => ({}))
+      .addNode('conversacion', async (state) => {
+        const ultimo = String(state.messages.at(-1)?.content);
+        if (modeloPendiente) {
+          await new Promise<void>((_resolve, reject) =>
+            state.cancelacion?.signal.addEventListener('abort', () => reject(new VueltaCancelada())),
+          );
+        }
+        return { messages: [new AIMessage(`respuesta a: ${ultimo}`)] };
+      })
+      .addNode('persistir', (state) => {
+        state.cancelacion?.comprometer();
+        return {};
+      })
+      .addEdge(START, 'cargar_contexto')
+      .addEdge('cargar_contexto', 'conversacion')
+      .addEdge('conversacion', 'persistir')
+      .addEdge('persistir', END)
+      .compile({ checkpointer: new MemorySaver() });
+    return { grafo, demorarModelo: (valor: boolean) => (modeloPendiente = valor) };
+  }
+
+  it('la rehace desde antes de la vuelta descartada: el mensaje del cliente no queda dos veces', async () => {
+    const { grafo, demorarModelo } = grafoReal();
+    const service = new ConversationService(crearPrisma(), grafo as never, crearGrafo('no es de ventas') as never, CONFIG);
+    const jid = '54911@s.whatsapp.net';
+
+    await service.responder('user-1', jid, 'hola');
+
+    demorarModelo(true);
+    const cancelacion = new Cancelacion();
+    const descartada = service.responder('user-1', jid, '¿tenés mesas?', { cancelacion });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(cancelacion.cancelar()).toBe(true);
+    await expect(descartada).rejects.toBeInstanceOf(VueltaCancelada);
+
+    demorarModelo(false);
+    const respuesta = await service.responder('user-1', jid, '¿tenés mesas?\nde 1,80');
+
+    expect(respuesta.texto).toBe('respuesta a: ¿tenés mesas?\nde 1,80');
+    const estado = await grafo.getState({ configurable: { thread_id: 'conv-1' } });
+    expect((estado.values.messages as BaseMessage[]).map((mensaje) => mensaje.content)).toEqual([
+      'hola',
+      'respuesta a: hola',
+      '¿tenés mesas?\nde 1,80',
+      'respuesta a: ¿tenés mesas?\nde 1,80',
+    ]);
+  });
+
+  it('con el hilo vacío antes de la vuelta descartada, lo borra y siembra de nuevo', async () => {
+    const { grafo, demorarModelo } = grafoReal();
+    const service = new ConversationService(crearPrisma(), grafo as never, crearGrafo('no es de ventas') as never, CONFIG);
+    const jid = '54911@s.whatsapp.net';
+
+    demorarModelo(true);
+    const cancelacion = new Cancelacion();
+    const descartada = service.responder('user-1', jid, 'hola', { cancelacion });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    cancelacion.cancelar();
+    await expect(descartada).rejects.toBeInstanceOf(VueltaCancelada);
+
+    demorarModelo(false);
+    await service.responder('user-1', jid, 'hola\nquería una mesa');
+
+    const estado = await grafo.getState({ configurable: { thread_id: 'conv-1' } });
+    expect((estado.values.messages as BaseMessage[]).map((mensaje) => mensaje.content)).toEqual([
+      'hola\nquería una mesa',
+      'respuesta a: hola\nquería una mesa',
+    ]);
+  });
+
+  it('una vez comprometida, cancelar no hace nada y la respuesta sale', async () => {
+    const { grafo } = grafoReal();
+    const service = new ConversationService(crearPrisma(), grafo as never, crearGrafo('no es de ventas') as never, CONFIG);
+    const cancelacion = new Cancelacion();
+
+    const respuesta = await service.responder('user-1', '54911@s.whatsapp.net', 'hola', { cancelacion });
+
+    expect(respuesta.texto).toBe('respuesta a: hola');
+    expect(cancelacion.cancelar()).toBe(false);
   });
 });

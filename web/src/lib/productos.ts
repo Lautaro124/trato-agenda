@@ -24,6 +24,8 @@ export type Producto = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
+  /** Se hace por encargo: el asistente no cuenta materiales ni fabricación salvo que se lo pregunten. */
+  aMedida: boolean;
   activo: boolean;
   updatedAt: string;
   /** true cuando el asistente ya lo encuentra también por significado. */
@@ -73,6 +75,7 @@ export type ProductoAGuardar = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
+  aMedida: boolean;
   variantes: Array<{
     sku?: string;
     nombre: string;

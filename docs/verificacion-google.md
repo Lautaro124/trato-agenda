@@ -115,8 +115,10 @@ People).
 `POLITICA_DE_PROVEEDOR` en `api/src/agents/openrouter.client.ts`, importada
 también por `api/src/conversation/llm.provider.ts`, `api/src/comercio/embeddings.client.ts`
 y `api/src/comercio/decisiones.client.ts` (Jev, `typesafe/jev-1.13`, el modelo de
-decisiones con el que el asistente de ventas ordena las categorías que sugiere; sólo
-recibe los mensajes del cliente y nombres del catálogo, nunca datos de Google),
+decisiones con el que el asistente de ventas ordena las categorías que sugiere y decide
+si el cliente ya terminó de elegir antes de pedirle sus datos; sólo recibe los últimos
+mensajes de la charla, sin el número del cliente y con su nombre, emails y números largos
+tapados (`etapa-de-compra.ts`), y nombres del catálogo, nunca datos de Google),
 viaja en **toda** llamada:
 
 ```json

@@ -58,6 +58,9 @@ type Ofrecer = (resultado: string) => Promise<string>;
 export const MENSAJE_CATALOGO_CAIDO =
   'No pude consultar el catálogo en este momento. Pedile disculpas al cliente y decile que en un rato lo vuelva a intentar.';
 
+/** Las herramientas que cambian algo afuera del hilo (cancelacion.ts). */
+const CON_EFECTO = new Set(['crear_pedido', 'cancelar_pedido', 'derivar_consulta']);
+
 export function crearNodoCatalogo(deps: DepsCatalogo) {
   const logger = new Logger('CatalogoNode');
 
@@ -221,6 +224,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
   }
 
   return async (state: EstadoVentasValue): Promise<EstadoVentasUpdate> => {
+    // Un pedido o un aviso al dueño no se deshacen: desde acá la vuelta ya no se descarta.
+    if (state.pendientes.some((operacion) => CON_EFECTO.has(operacion.nombre))) state.cancelacion?.comprometer();
     const mensajes: ToolMessage[] = [];
     const ofrecer = crearOferta(state);
     // Una por una y en orden, a propósito: la oferta va en el primer resultado

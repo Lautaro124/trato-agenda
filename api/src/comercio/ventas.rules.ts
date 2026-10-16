@@ -160,6 +160,6 @@ export function mensajePagoAprobado(
   }
   return (
     `¡Listo${nombre ? `, ${nombre}` : ''}! Tu pago de ${formatearCentavos(venta.totalCentavos)} fue aprobado. ` +
-    `${titular} te escribe por acá para coordinar la entrega.`
+    'Te escribimos por acá para coordinar la entrega.'
   );
 }

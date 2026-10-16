@@ -65,6 +65,8 @@ export type ProductoEncontrado = {
   nombre: string;
   categoria: string | null;
   descripcion: string;
+  /** Se hace por encargo (Producto.aMedida). */
+  aMedida: boolean;
   variantes: VarianteEncontrada[];
   /**
    * true si sólo lo trajo la búsqueda por significado (embeddings): ninguna
@@ -242,6 +244,7 @@ export class BusquedaService {
           nombre: producto.nombre,
           categoria: producto.categoria,
           descripcion: producto.descripcion,
+          aMedida: producto.aMedida,
           tieneImagen: producto.imagen !== null,
           variantes: producto.variantes.map((variante) => {
             const reservadasVariante = reservadas.get(variante.id) ?? 0;

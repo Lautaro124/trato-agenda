@@ -196,6 +196,7 @@ export function FilaProducto({
           <p className="text-[12.5px] text-muted">
             {producto.codigo}
             {producto.categoria ? ` · ${producto.categoria}` : ""}
+            {producto.aMedida && " · a medida"}
             {!producto.indexado && " · indexando para el asistente…"}
           </p>
           {producto.descripcion && (

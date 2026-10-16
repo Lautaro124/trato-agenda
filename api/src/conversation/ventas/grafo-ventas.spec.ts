@@ -1,7 +1,7 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import { ACCIONES_VENTAS_IDS } from '../../agents/agent-catalog.js';
 import { construirConfiguracionVentas } from '../../agents/agent-template-ventas.js';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
@@ -11,6 +11,7 @@ import type { DescuentoAplicado, DescuentosVigentes } from '../../comercio/descu
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
+import { conMarcaDeLlegada } from '../graph/ventana-historial.js';
 import { LIMITE_RECURSION_VENTAS, construirGrafoVentas } from './grafo-ventas.factory.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../comercio/imagenes.rules.js';
 import { imagenesDeLaVuelta } from './imagenes-de-la-vuelta.js';
@@ -36,6 +37,7 @@ const MATE: ProductoEncontrado = {
   nombre: 'Mate de calabaza',
   categoria: 'Mates',
   descripcion: 'Curado, con virola de alpaca',
+  aMedida: false,
   tieneImagen: false,
   variantes: [
     {
@@ -154,8 +156,10 @@ function correr(
     notificaciones?: ReturnType<typeof crearNotificaciones>;
     historico?: ReturnType<typeof crearHistorico>;
     imagenes?: Pick<ImagenesService, 'estadoDeFoto'>;
+    decisiones?: { ordenar: Mock<(pedido: unknown) => Promise<string[]>>; configurado: boolean };
   },
   esPropietario = false,
+  mensajes: BaseMessage[] = [new HumanMessage('¿tenés mates?')],
 ) {
   const grafo = construirGrafoVentas({
     ...deps,
@@ -168,7 +172,7 @@ function correr(
     checkpointer: new MemorySaver(),
   });
   return grafo.invoke(
-    { messages: [new HumanMessage('¿tenés mates?')], ownerUserId: 'user-1', remoteJid: CONVERSATION.remoteJid, esPropietario },
+    { messages: mensajes, ownerUserId: 'user-1', remoteJid: CONVERSATION.remoteJid, esPropietario },
     { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION_VENTAS },
   );
 }
@@ -781,8 +785,51 @@ describe('grafo de ventas', () => {
         expect(ventas.crearPedido).not.toHaveBeenCalled();
         expect(toolMessages(resultado.messages)[1].content).toContain('si lo quiere con envío o si lo retira');
         const sistema = sistemaDe(llm);
-        expect(sistema).toContain('Mates del Sur hace envíos');
+        expect(sistema).toContain('Hacemos envíos');
         expect(sistema).toContain('"Código postal" (obligatorio), "Entre calles" (opcional)');
+      });
+
+      describe('Jev decide si ya es momento de pedir los datos', () => {
+        // Con la marca de llegada: sin ella quedarían fuera de la ventana de historial.
+        const charla = [
+          conMarcaDeLlegada(new HumanMessage('quiero una mesa a medida'), new Date()),
+          new AIMessage('¡Dale! ¿De qué largo la necesitás?'),
+          new HumanMessage('1,80'),
+        ];
+
+        it('mientras sigue definiendo, las reglas no le piden datos', async () => {
+          const decisiones = { configurado: true, ordenar: vi.fn().mockResolvedValue(['defining', 'ready']) };
+          const llm = crearModelo([new AIMessage('¿Y en qué color?')]);
+
+          await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), decisiones }, false, charla);
+
+          const [pedido] = decisiones.ordenar.mock.calls[0] as [{ estado: string }];
+          expect(pedido.estado).toContain('Shop: ¡Dale! ¿De qué largo la necesitás?');
+          expect(pedido.estado).toContain('Customer: 1,80');
+          expect(sistemaDe(llm)).toContain('no le pidas datos de contacto ni de envío');
+          expect(sistemaDe(llm)).not.toContain('"Código postal" (obligatorio)');
+        });
+
+        it('cuando ya eligió todo, pide los datos', async () => {
+          const decisiones = { configurado: true, ordenar: vi.fn().mockResolvedValue(['ready', 'defining']) };
+          const llm = crearModelo([new AIMessage('¿Lo querés con envío o lo retirás?')]);
+
+          await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), decisiones }, false, charla);
+
+          expect(sistemaDe(llm)).toContain('El cliente ya eligió todo');
+          expect(sistemaDe(llm)).toContain('"Código postal" (obligatorio)');
+        });
+
+        it('si Jev falla queda la regla de siempre, y si el comercio no pide datos ni lo consulta', async () => {
+          const falla = { configurado: true, ordenar: vi.fn().mockRejectedValue(new Error('timeout')) };
+          const llm = crearModelo([new AIMessage('¿En qué color?')]);
+          await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), decisiones: falla }, false, charla);
+          expect(sistemaDe(llm)).toContain('te dijo que no quiere nada más (nunca antes)');
+
+          const sinDatos = { configurado: true, ordenar: vi.fn() };
+          await correr({ prisma: crearPrisma(), llm: crearModelo([new AIMessage('Dale')]), busqueda: buscaMate(), decisiones: sinDatos }, false, charla);
+          expect(sinDatos.ordenar).not.toHaveBeenCalled();
+        });
       });
 
       it('con envío exige los obligatorios y guarda lo que contestó con la etiqueta del comercio', async () => {
@@ -849,7 +896,7 @@ describe('grafo de ventas', () => {
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), ventas }, true);
 
       expect(ventas.crearPedido).toHaveBeenCalledWith(expect.objectContaining({ medioPago: 'manual', dePrueba: true }));
-      expect(resultadoDe(resultado.messages, 'crear_pedido').content).toContain('Mates del Sur se va a comunicar por este chat');
+      expect(resultadoDe(resultado.messages, 'crear_pedido').content).toContain('le escribimos por este chat para coordinar el pago');
       expect(sistemaDe(llm)).toContain('no cobra con link por ahora');
     });
 

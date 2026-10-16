@@ -25,7 +25,7 @@ import type { PrismaService } from '../../prisma/prisma.service.js';
 import { LIMITE_RECURSION } from '../graph/graph.factory.js';
 import { crearNodoConversacion } from '../graph/nodes/conversacion.node.js';
 import { crearNodoPersistir } from '../graph/nodes/persistir.node.js';
-import { crearNodoCargarContextoVentas } from './nodes/cargar-contexto-ventas.node.js';
+import { crearNodoCargarContextoVentas, type DepsContextoVentas } from './nodes/cargar-contexto-ventas.node.js';
 import { crearNodoCatalogo } from './nodes/catalogo.node.js';
 import { crearNodoValidacionVentas } from './nodes/validacion-ventas.node.js';
 import { crearNodoVerificarRespuesta } from './nodes/verificar-respuesta.node.js';
@@ -45,6 +45,8 @@ export type DepsGrafoVentas = {
   checkpointer?: BaseCheckpointSaver;
   /** Hasta cuánto para atrás ve el modelo el historial de un chat (HISTORIAL_IA_VENTANA). Por defecto, 14 días. */
   ventanaHistorialMs?: number;
+  /** Jev, para saber si ya es momento de pedir los datos del cliente. Sin él, la regla de siempre. */
+  decisiones?: DepsContextoVentas['decisiones'];
 };
 
 /**

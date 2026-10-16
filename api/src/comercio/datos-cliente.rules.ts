@@ -270,29 +270,51 @@ function listarCampos(campos: CampoCliente[]): string {
 }
 
 /**
+ * En qué punto de la compra está el cliente, según Jev (etapa-de-compra.ts):
+ * `lista` cuando ya eligió todo, `eligiendo` mientras sigue definiendo.
+ */
+export type EtapaDeCompra = 'lista' | 'eligiendo';
+
+/**
  * El renglón de las reglas de venta sobre la entrega y los datos, o null si
  * el comercio no pide nada. Las etiquetas van con `JSON.stringify` porque
  * algunas las escribió el dueño: el modelo las lee como dato.
+ *
+ * `etapa` es lo que decidió Jev: mientras el cliente sigue eligiendo, no se
+ * le piden datos (el modelo los pedía apenas aparecía un producto). Sin
+ * decisión (null) queda la regla de siempre, con el "recién cuando" explícito.
  */
-export function reglaDeDatosCliente(config: ConfigDatosCliente, titular: string): string | null {
+export function reglaDeDatosCliente(config: ConfigDatosCliente, etapa: EtapaDeCompra | null = null): string | null {
   if (!pideDatos(config)) return null;
+  if (etapa === 'eligiendo') {
+    // Que hacemos envíos lo sabe igual: si lo pregunta, lo puede contestar.
+    const envios = config.haceEnvios ? (config.puedeRetirar ? 'Hacemos envíos y también se puede retirar. ' : 'Hacemos envíos. ') : '';
+    return (
+      `- ${envios}El cliente todavía está eligiendo o definiendo lo que quiere: en este mensaje no le pidas ` +
+      'datos de contacto ni de envío, ni le preguntes si es con envío o retiro. Seguí ayudándolo a elegir.'
+    );
+  }
+  const cuando =
+    etapa === 'lista'
+      ? 'El cliente ya eligió todo'
+      : 'Recién cuando el cliente ya eligió todo y te dijo que no quiere nada más (nunca antes)';
   const comoMandarlos =
     'Mandalos en "datosCliente" de crear_pedido, cada uno con el nombre del dato tal cual figura acá. Sin los ' +
     'obligatorios no se puede crear el pedido; si no quiere dar uno opcional, seguí sin él. Si ya te los dio en ' +
     'esta charla no se los vuelvas a pedir, y no le pidas ningún dato que no esté en esta lista.';
   const lineas: string[] = [];
   const pedirTodo =
-    `- Cuando el cliente ya eligió todo, antes de crear el pedido pedile en un solo mensaje (puede ser la única ` +
+    `- ${cuando}: antes de crear el pedido pedile en un solo mensaje (puede ser la única ` +
     `pregunta con varias cosas): ${listarCampos(config.campos)}. ${comoMandarlos}`;
   if (config.haceEnvios && !config.puedeRetirar) {
     lineas.push(
-      `- ${titular} hace envíos y no tiene retiro: todos los pedidos van con envío, así que no le preguntes si ` +
+      '- Hacemos envíos y no hay retiro: todos los pedidos van con envío, así que no le preguntes si ' +
         'lo retira. Mandá entrega "envio" en crear_pedido.',
     );
     if (config.campos.length > 0) lineas.push(pedirTodo);
   } else if (config.haceEnvios) {
     lineas.push(
-      `- ${titular} hace envíos. Cuando el cliente ya eligió todo, antes de crear el pedido preguntale si lo ` +
+      `- Hacemos envíos. ${cuando}: antes de crear el pedido preguntale si lo ` +
         'quiere con envío o si lo retira, y mandá la respuesta en "entrega" de crear_pedido ("envio" o "retiro").',
     );
     if (config.campos.length > 0) {

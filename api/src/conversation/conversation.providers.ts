@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { OpenRouterClient } from '../agents/openrouter.client.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { BusquedaService } from '../comercio/busqueda.service.js';
+import { DecisionesClient } from '../comercio/decisiones.client.js';
 import type { Env } from '../config/env.js';
 import { HistoricoVentasService } from '../comercio/historico.service.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
@@ -58,6 +59,7 @@ export const grafoVentasProvider = {
     LLM_CONVERSACION,
     CheckpointerService,
     ConfigService,
+    DecisionesClient,
   ],
   useFactory: (
     prisma: PrismaService,
@@ -71,6 +73,7 @@ export const grafoVentasProvider = {
     llm: BaseChatModel,
     checkpointer: CheckpointerService,
     config: ConfigService<Env, true>,
+    decisiones: DecisionesClient,
   ): GrafoVentas =>
     construirGrafoVentas({
       prisma,
@@ -84,5 +87,6 @@ export const grafoVentasProvider = {
       llm,
       checkpointer: checkpointer.saver,
       ventanaHistorialMs: config.get('HISTORIAL_IA_VENTANA_MS', { infer: true }),
+      decisiones,
     }),
 };

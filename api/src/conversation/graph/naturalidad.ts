@@ -1,3 +1,5 @@
+import type { AIMessage, BaseMessage } from '@langchain/core/messages';
+
 /**
  * Que el asistente suene a la persona que atiende el WhatsApp del negocio y no
  * a un bot. Lo usan los dos grafos (agenda y ventas) y, como las otras reglas,
@@ -45,4 +47,31 @@ export function reglasDeNaturalidad(titular: string, derivar: string): string {
     `serio si está hablando con una persona o con un bot, nunca lo niegues ni digas que sos una persona: ` +
     `contale con naturalidad que sos un asistente automático que atiende el WhatsApp de ${titular} y ${derivar}.`
   );
+}
+
+/** Respuestas seguidas sin emoji después de las que el próximo mensaje lleva uno. */
+export const MENSAJES_SIN_EMOJI = 2;
+
+const EMOJI = /\p{Extended_Pictographic}/u;
+
+/**
+ * Cuándo va un emoji, decidido en código: el modelo, con la regla de "sólo si
+ * suma", casi nunca ponía uno, y pedirle "cada tanto" no lo hace contar. Mira
+ * las respuestas que le llegaron al cliente (las del asistente sin tool calls):
+ * si la última tenía, esta va sin; si las últimas MENSAJES_SIN_EMOJI no
+ * tenían, esta lleva uno; si no, queda a su criterio. Sale más o menos uno
+ * cada tres mensajes. Vacío en el primer mensaje, que ya trae el saludo.
+ */
+export function pistaDeEmoji(mensajes: BaseMessage[]): string {
+  const respuestas = mensajes
+    .filter((mensaje) => mensaje.getType() === 'ai' && !((mensaje as AIMessage).tool_calls?.length ?? 0))
+    .map((mensaje) => (typeof mensaje.content === 'string' ? mensaje.content : JSON.stringify(mensaje.content)))
+    .filter((texto) => texto.trim().length > 0);
+  if (respuestas.length === 0) return '';
+  if (EMOJI.test(respuestas.at(-1)!)) return '\nEmojis en este mensaje: ninguno (ya usaste uno en el anterior).';
+  const ultimas = respuestas.slice(-MENSAJES_SIN_EMOJI);
+  if (ultimas.length === MENSAJES_SIN_EMOJI && ultimas.every((texto) => !EMOJI.test(texto))) {
+    return '\nEmojis en este mensaje: sumá uno solo que venga al caso, en medio o al final de una frase.';
+  }
+  return '';
 }

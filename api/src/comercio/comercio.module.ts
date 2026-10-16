@@ -45,6 +45,7 @@ import { VentasService } from './ventas.service.js';
   ],
   exports: [
     BusquedaService,
+    DecisionesClient,
     SugerenciasService,
     ProductosService,
     VentasService,

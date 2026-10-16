@@ -115,9 +115,9 @@ describe('fechaYHora', () => {
 });
 
 describe('mensajePagoAprobado', () => {
-  it('le dice al cliente, por su nombre de pila, que su pago se aprobó y quién sigue', () => {
+  it('le dice al cliente, por su nombre de pila, que su pago se aprobó y que le escribimos', () => {
     expect(mensajePagoAprobado({ nombreCliente: ' Juan Pérez ', totalCentavos: 1_600_000 }, 'Mates del Sur')).toBe(
-      '¡Listo, Juan! Tu pago de $ 16.000 fue aprobado. Mates del Sur te escribe por acá para coordinar la entrega.',
+      '¡Listo, Juan! Tu pago de $ 16.000 fue aprobado. Te escribimos por acá para coordinar la entrega.',
     );
   });
 
@@ -132,7 +132,7 @@ describe('mensajePagoAprobado', () => {
 
   it('sin nombre del cliente ni del negocio igual se entiende', () => {
     expect(mensajePagoAprobado({ nombreCliente: null, totalCentavos: 50 }, null)).toBe(
-      '¡Listo! Tu pago de $ 0,50 fue aprobado. El negocio te escribe por acá para coordinar la entrega.',
+      '¡Listo! Tu pago de $ 0,50 fue aprobado. Te escribimos por acá para coordinar la entrega.',
     );
   });
 });
