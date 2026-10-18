@@ -16,22 +16,27 @@ import { cotizar, type Cotizacion, type CotizacionFallida } from './cotizacion.r
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import {
   armarSolicitudDeVenta,
-  cambioMaterial,
+  cambioDeSolicitud,
   enAtencionHumana,
   ETIQUETA_MOTIVO,
   LARGO_MAX_DETALLE_DERIVACION,
   LARGO_MAX_NOTA,
   leerSolicitudDeVenta,
   MAX_A_MEDIDA_ABIERTOS,
+  itemDeCobro,
+  renglonDeVariante,
+  resumenDeVariante,
   transicionPermitida,
   vencimientoDeCobroAMedida,
   type MotivoDerivacion,
   type SolicitudDeVenta,
+  type VarianteDeSolicitud,
 } from './pedido-a-medida.rules.js';
 import {
   cierreDelPresupuesto,
   LARGO_MAX_NOTA_PRESUPUESTO,
   leerRenglones,
+  TOTAL_MAX_CENTAVOS,
   textoDelPresupuesto,
   type OrigenPresupuesto,
   type RenglonPresupuesto,
@@ -59,8 +64,32 @@ export type RegistrarSolicitudInput = {
   producto: { id: string; nombre: string };
   respuestas: RespuestaSolicitud[];
   resumen: string;
+  /** La versión de precio fijo que el cliente usó de base, con lo que quiere distinto. */
+  variante?: VarianteDeSolicitud | null;
+  cambios?: string | null;
   dePrueba: boolean;
   ahora?: Date;
+};
+
+/** Una versión de precio fijo pedida tal cual: se cobra ese precio, sin cotizar. */
+export type PedirVarianteInput = {
+  userId: string;
+  conversationId: string | null;
+  remoteJid: string | null;
+  nombreCliente: string;
+  varianteId: string;
+  cantidad: number;
+  dePrueba: boolean;
+  ahora?: Date;
+};
+
+/** Una variante fija de un producto a medida activo de la cuenta, con lo que hace falta para pedirla. */
+export type VarianteParaPedir = {
+  productoId: string;
+  nombreProducto: string;
+  varianteId: string;
+  nombreVariante: string;
+  precioCentavos: number;
 };
 
 export type ResultadoSolicitud = {
@@ -113,6 +142,9 @@ const COTIZABLES: ReadonlySet<string> = new Set(['solicitado', 'a_cotizar', 'cot
 const INCLUIR = { items: true, presupuestos: { orderBy: { version: 'asc' } } } as const satisfies Prisma.VentaInclude;
 
 type Tx = Prisma.TransactionClient;
+
+/** Las columnas de montos son `Int` de Postgres. */
+const MAX_INT_POSTGRES = 2_147_483_647;
 
 /**
  * Pedidos a medida (LAU-24/26/27/28): la solicitud del cliente, sus
@@ -222,6 +254,7 @@ export class PedidosAMedidaService {
    * Registra lo que pidió el cliente como pedido a medida "a cotizar". Si la
    * conversación ya tiene uno abierto del mismo producto, lo actualiza: un
    * cambio en las respuestas invalida el presupuesto que hubiera (y su link).
+   * Uno de una versión pedida tal cual (pedirVariante) no cuenta: queda como está.
    */
   async registrarSolicitud(input: RegistrarSolicitudInput): Promise<ResultadoSolicitud> {
     const ahora = input.ahora ?? new Date();
@@ -232,6 +265,8 @@ export class PedidosAMedidaService {
       nombreProducto: input.producto.nombre,
       respuestas: input.respuestas,
       resumen: input.resumen,
+      variante: input.variante ?? null,
+      cambios: input.cambios ?? null,
     });
 
     const { ventaId, nueva, cambio, linkViejo } = await this.prisma.$transaction(async (tx) => {
@@ -245,11 +280,15 @@ export class PedidosAMedidaService {
             orderBy: { createdAt: 'desc' },
           })
         : [];
-      const existente = abiertas.find((venta) => leerSolicitudDeVenta(venta.solicitud)?.productoId === input.producto.id);
+      // Una versión pedida tal cual ya tiene su precio y su cobro: es otro pedido, no se reabre.
+      const existente = abiertas.find((venta) => {
+        const anterior = leerSolicitudDeVenta(venta.solicitud);
+        return anterior?.productoId === input.producto.id && !(anterior.variante && !anterior.cambios);
+      });
 
       if (existente) {
         const anterior = leerSolicitudDeVenta(existente.solicitud);
-        const cambio = !anterior || cambioMaterial(anterior.respuestas, solicitud.respuestas);
+        const cambio = !anterior || cambioDeSolicitud(anterior, solicitud);
         if (!cambio) return { ventaId: existente.id, nueva: false, cambio: false, linkViejo: null };
         await this.reabrirParaCotizar(tx, existente.id, existente.estado as EstadoVenta, 'asistente');
         await tx.venta.update({
@@ -286,6 +325,133 @@ export class PedidosAMedidaService {
     if (linkViejo) await this.ventas.vencerLink(input.userId, linkViejo, ahora);
     const venta = await this.prisma.venta.findUniqueOrThrow({ where: { id: ventaId }, include: INCLUIR });
     return { venta, nueva, cambio };
+  }
+
+  /**
+   * Una variante fija (activa) de un producto a medida activo de la cuenta, o
+   * null. Una variante de un producto con stock no sirve: esa se vende con
+   * crear_pedido.
+   */
+  async varianteParaPedir(userId: string, varianteId: string): Promise<VarianteParaPedir | null> {
+    const variante = await this.prisma.variante.findFirst({
+      where: { id: varianteId, activo: true, producto: { userId, activo: true } },
+      select: { id: true, nombre: true, precioCentavos: true, producto: { select: { id: true, nombre: true, solicitud: true } } },
+    });
+    if (!variante || !leerSolicitud(variante.producto.solicitud)) return null;
+    return {
+      productoId: variante.producto.id,
+      nombreProducto: variante.producto.nombre,
+      varianteId: variante.id,
+      nombreVariante: variante.nombre,
+      precioCentavos: variante.precioCentavos,
+    };
+  }
+
+  /**
+   * El cliente pide tal cual una versión de precio fijo: es el mismo pedido a
+   * medida de siempre, pero ya cotizado con ese precio. Se anota, se arma y
+   * manda el presupuesto (origen asistente, un renglón) y se cobra con
+   * `cobrar` (link de Mercado Pago o a coordinar), así el webhook, la
+   * conciliación y el panel no necesitan nada nuevo. Si en la conversación ya
+   * hay uno igual esperando el pago, se devuelve ese en vez de duplicarlo.
+   */
+  async pedirVariante(input: PedirVarianteInput): Promise<PedidoAMedida> {
+    const ahora = input.ahora ?? new Date();
+    const nombreCliente = input.nombreCliente.trim();
+    if (!nombreCliente) throw new PedidoRechazadoError('Falta el nombre de la persona: preguntáselo antes.');
+    const elegida = await this.varianteParaPedir(input.userId, input.varianteId);
+    if (!elegida) {
+      throw new PedidoRechazadoError('Esa versión ya no está en el catálogo. Volvé a buscar el producto.');
+    }
+    const variante: VarianteDeSolicitud = {
+      id: elegida.varianteId,
+      nombre: elegida.nombreVariante,
+      precioCentavos: elegida.precioCentavos,
+      cantidad: input.cantidad,
+    };
+    const total = variante.precioCentavos * variante.cantidad;
+    if (total <= 0 || total > TOTAL_MAX_CENTAVOS || total > MAX_INT_POSTGRES) {
+      throw new PedidoRechazadoError('Ese pedido no se puede cobrar así: pasáselo al equipo con derivar_a_persona.');
+    }
+    const solicitud = armarSolicitudDeVenta({
+      productoId: elegida.productoId,
+      nombreProducto: elegida.nombreProducto,
+      respuestas: [],
+      resumen: `${variante.cantidad > 1 ? `${variante.cantidad} × ` : ''}${variante.nombre}, tal cual`,
+      variante,
+      cambios: null,
+    });
+
+    const { ventaId, yaEstaba } = await this.prisma.$transaction(async (tx) => {
+      const abiertas = input.conversationId
+        ? await tx.venta.findMany({
+            where: {
+              conversationId: input.conversationId,
+              tipo: 'a_medida',
+              estado: { in: ['solicitado', 'a_cotizar', 'cotizado', 'pendiente_pago', 'vencida'] },
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : [];
+      const igual = abiertas.find((venta) => {
+        const anterior = leerSolicitudDeVenta(venta.solicitud);
+        return (
+          anterior?.variante?.id === variante.id &&
+          anterior.variante.cantidad === variante.cantidad &&
+          !anterior.cambios &&
+          estadoVisible(venta, ahora) === 'pendiente_pago'
+        );
+      });
+      if (igual) return { ventaId: igual.id, yaEstaba: true };
+      if (abiertas.length >= MAX_A_MEDIDA_ABIERTOS) {
+        throw new PedidoRechazadoError(
+          `Este cliente ya tiene ${abiertas.length} pedidos a medida abiertos. Que avance o cancele alguno antes de pedir otro.`,
+        );
+      }
+      const venta = await tx.venta.create({
+        data: {
+          userId: input.userId,
+          conversationId: input.conversationId,
+          tipo: 'a_medida',
+          estado: 'a_cotizar',
+          nombreCliente,
+          telefonoCliente: input.remoteJid ? telefonoDeJid(input.remoteJid) : null,
+          solicitud,
+          dePrueba: input.dePrueba,
+          eventos: { create: { tipo: 'estado', de: null, a: 'a_cotizar', autor: 'asistente' } },
+        },
+      });
+      if (input.conversationId) {
+        await tx.conversation.update({ where: { id: input.conversationId }, data: { nombreCliente } });
+      }
+      return { ventaId: venta.id, yaEstaba: false };
+    });
+    if (yaEstaba) return this.prisma.venta.findUniqueOrThrow({ where: { id: ventaId }, include: INCLUIR });
+
+    const creado = await this.crearPresupuesto(
+      input.userId,
+      ventaId,
+      {
+        renglones: [renglonDeVariante(variante)],
+        totalCentavos: total,
+        estimativo: false,
+        detalleAlCliente: false,
+        datos: { variante: { id: variante.id, cantidad: variante.cantidad } },
+      },
+      'asistente',
+    );
+    if (!creado) throw new PedidoRechazadoError('No se pudo anotar el pedido.');
+    await this.enviarPresupuesto(input.userId, ventaId, creado.presupuesto.id, {
+      autor: 'asistente',
+      mandarAlCliente: false,
+      vigenciaDias: null,
+      ahora,
+    });
+    return this.cobrar(input.userId, ventaId, {
+      autor: 'asistente',
+      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+      ahora,
+    });
   }
 
   /**
@@ -412,6 +578,7 @@ export class PedidosAMedidaService {
         ...this.avisable(venta, solicitud),
         resumen: solicitud?.resumen ?? '',
         motivo,
+        variante: resumenDeVariante(solicitud) || null,
       }),
     );
   }
@@ -713,15 +880,16 @@ export class PedidosAMedidaService {
         throw new PedidoRechazadoError('El pedido cambió mientras tanto: volvé a mirarlo.');
       }
       await tx.itemVenta.deleteMany({ where: { ventaId } });
+      const item = itemDeCobro(solicitud, vigente);
       await tx.itemVenta.create({
         data: {
           ventaId,
-          varianteId: null,
+          varianteId: item.varianteId,
           codigo: producto?.codigo ?? 'A-MEDIDA',
           nombreProducto: solicitud?.nombreProducto ?? 'Pedido a medida',
-          nombreVariante: `Presupuesto v${vigente.version}`,
-          precioUnitarioCentavos: vigente.totalCentavos,
-          cantidad: 1,
+          nombreVariante: item.nombreVariante,
+          precioUnitarioCentavos: item.precioUnitarioCentavos,
+          cantidad: item.cantidad,
           subtotalCentavos: vigente.totalCentavos,
         },
       });

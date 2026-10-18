@@ -114,7 +114,7 @@ export class ProductosService {
       this.prisma.producto.count({ where }),
       this.prisma.producto.findMany({
         where,
-        include: { variantes: { orderBy: { createdAt: 'asc' } }, descuento: true, imagen: SIN_BYTES },
+        include: { variantes: { orderBy: { createdAt: 'asc' }, include: { imagen: SIN_BYTES } }, descuento: true, imagen: SIN_BYTES },
         orderBy: [{ nombre: 'asc' }, { codigo: 'asc' }],
         skip: (pagina - 1) * POR_PAGINA,
         take: POR_PAGINA,
@@ -174,9 +174,9 @@ export class ProductosService {
       where: { id: varianteId, activo: true, producto: { userId, activo: true } },
     });
     if (!variante) throw new NotFoundException('No existe esa variante.');
-    // Una cuenta a pedido puede tener productos con variantes de antes: no se les edita stock ni precio.
+    // A pedido las variantes son fijas, sin stock: se editan desde el producto, nunca sueltas.
     if ((await this.modalidadDe(userId)) === 'pedido') {
-      throw new ConflictException('Tu cuenta vende a pedido: los productos no llevan variantes ni stock.');
+      throw new ConflictException('Tu cuenta vende a pedido: las versiones se editan desde el producto y no llevan stock.');
     }
 
     await this.prisma.variante.update({
@@ -193,13 +193,15 @@ export class ProductosService {
 
   /**
    * Baja lógica: deja de venderse, pero las ventas que lo nombran siguen
-   * intactas. La foto sí se borra, para que no ocupe lugar ni cupo.
+   * intactas. Las fotos (la suya y las de sus variantes) sí se borran, para
+   * que no ocupen lugar ni cupo.
    */
   async eliminar(userId: string, id: string): Promise<void> {
     await this.buscarPropio(userId, id);
     await this.prisma.$transaction([
       this.prisma.producto.update({ where: { id }, data: { activo: false } }),
       this.prisma.imagenProducto.deleteMany({ where: { productoId: id, userId } }),
+      this.prisma.imagenVariante.deleteMany({ where: { userId, variante: { productoId: id } } }),
     ]);
   }
 
@@ -207,7 +209,7 @@ export class ProductosService {
     const [producto, promociones] = await Promise.all([
       this.prisma.producto.findFirst({
         where: { id, userId },
-        include: { variantes: { orderBy: { createdAt: 'asc' } }, descuento: true, imagen: SIN_BYTES },
+        include: { variantes: { orderBy: { createdAt: 'asc' }, include: { imagen: SIN_BYTES } }, descuento: true, imagen: SIN_BYTES },
       }),
       descuentosActivos(this.prisma, userId, []),
     ]);
@@ -320,10 +322,13 @@ export class ProductosService {
         update: valores,
       });
     }
+    const quedan = datos.variantes.map((variante) => variante.sku);
     await tx.variante.updateMany({
-      where: { productoId: producto.id, sku: { notIn: datos.variantes.map((variante) => variante.sku) } },
+      where: { productoId: producto.id, sku: { notIn: quedan } },
       data: { activo: false },
     });
+    // La foto de una variante que se fue no ocupa cupo (como la de un producto borrado).
+    await tx.imagenVariante.deleteMany({ where: { userId, variante: { productoId: producto.id, sku: { notIn: quedan } } } });
 
     if (datos.descuento === null) {
       await tx.descuento.deleteMany({ where: { productoId: producto.id, userId } });
@@ -398,8 +403,12 @@ export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 's
     solicitud: dto.solicitud,
     precioReferencia: dto.precioReferenciaCentavos,
     materiales: dto.materiales,
+    conStock: (dto.variantes ?? []).some(
+      (variante) => (variante.stock ?? null) !== null || (variante.stockMinimo ?? null) !== null,
+    ),
   });
   if (problema) throw new BadRequestException(problema);
+  const aPedido = modalidad === 'pedido';
   const codigo = dto.codigo.trim();
   const variantes = (dto.variantes ?? []).map((variante) => {
     const nombre = (variante.nombre ?? '').trim();
@@ -409,9 +418,13 @@ export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 's
       precioCentavos: variante.precioCentavos,
       stock: variante.stock ?? null,
       stockMinimo: variante.stockMinimo ?? null,
-      disponible: variante.disponible ?? true,
+      // Una variante fija (a pedido) no se agota: se hace cuando la piden.
+      disponible: aPedido ? true : (variante.disponible ?? true),
     };
   });
+  if (aPedido && variantes.some((variante) => !variante.nombre)) {
+    throw new BadRequestException('Poné el nombre de cada versión con precio fijo (por ejemplo "Roble 1,20 m").');
+  }
   const skus = new Set(variantes.map((variante) => variante.sku));
   if (skus.size !== variantes.length) {
     throw new BadRequestException('Dos variantes del producto tienen el mismo SKU.');

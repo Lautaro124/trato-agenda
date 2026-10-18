@@ -416,7 +416,7 @@ describe('WhatsappService — mensajes de clientes', () => {
     await recibirMensaje(service, sock);
     await vi.runAllTimersAsync();
 
-    expect(imagenes.paraEnviar).toHaveBeenCalledWith('user-1', 'p-1');
+    expect(imagenes.paraEnviar).toHaveBeenCalledWith('user-1', 'p-1', undefined);
     expect(sock.sendMessage.mock.calls).toEqual([
       [JID, { image: datos, mimetype: 'image/jpeg', caption: 'Mate de calabaza' }],
       [JID, { text: '¿Es lo que buscabas?' }],

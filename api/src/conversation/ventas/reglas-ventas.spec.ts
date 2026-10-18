@@ -22,6 +22,7 @@ import {
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
   reglasDeVenta,
+  REGLA_FOTOS_A_PEDIDO,
   variantesMostradas,
   yaSeHablaronDescuentos,
 } from './reglas-ventas.js';
@@ -78,6 +79,43 @@ describe('formatearResultados', () => {
     expect(formatearStockDueno('cortina', [aMedida])).toContain('se cotiza, desde $ 50.000, sin stock');
   });
 
+  it('un producto a medida con versiones de precio fijo las lista con su id, precio y foto, y sigue cotizándose', () => {
+    const variante = (varianteId: string, nombre: string, precioCentavos: number, tieneImagen: boolean) => ({
+      varianteId,
+      sku: varianteId,
+      nombre,
+      precioCentavos,
+      precioFinalCentavos: precioCentavos,
+      descuento: null,
+      hayStock: true,
+      stock: 'disponible',
+      unidades: null,
+      reservadas: 0,
+      stockMinimo: null,
+      tieneImagen,
+    });
+    const mesa: ProductoEncontrado = {
+      productoId: 'p-7',
+      codigo: 'MESA-01',
+      nombre: 'Mesa ratona',
+      categoria: null,
+      descripcion: '',
+      variantes: [variante('v-1', 'Roble 1,20 m', 18_000_000, true), variante('v-2', 'Paraíso "claro"', 15_000_000, false)],
+      tieneImagen: true,
+      aMedida: true,
+      precioReferenciaCentavos: null,
+      preguntas: [],
+    };
+    const texto = formatearResultados('mesa', [mesa]);
+    expect(texto).toContain('versiones con precio fijo (si la quiere tal cual, se pide con pedir_variante');
+    expect(texto).toContain('   - "Roble 1,20 m" [variante v-1]: $ 180.000, precio fijo, tiene foto');
+    expect(texto).toContain('   - "Paraíso \\"claro\\"" [variante v-2]: $ 150.000, precio fijo\n');
+    expect(texto).toContain('a medida: se cotiza, sin precio de referencia (si le quiere cambiar algo a una versión o quiere algo propio)');
+    // Los ids de versión son los que después acepta pedir_variante.
+    expect([...variantesMostradas([texto])]).toEqual(['v-1', 'v-2']);
+    expect(formatearStockDueno('mesa', [mesa])).toContain('Roble 1,20 m (SKU v-1): $ 180.000, precio fijo, sin stock');
+  });
+
   it('un producto a medida trae sus materiales y las preguntas para cotizar, en orden y como dato', () => {
     const aMedida: ProductoEncontrado = {
       productoId: 'p-9',
@@ -122,9 +160,10 @@ describe('formatearResultados', () => {
       agent,
     );
     expect(texto).toContain('Productos a medida');
-    expect(texto).toContain('- "Cortina": a medida: se cotiza, sin precio de referencia\n');
+    expect(texto).toContain('- "Cortina" [producto p-9]: a medida: se cotiza, sin precio de referencia\n');
     // Los materiales no van en el listado, que se le muestra tal cual al cliente.
-    expect(texto).toContain('- "Mesa": a medida: se cotiza, sin precio de referencia');
+    expect(texto).toContain('- "Mesa" [producto p-8]: a medida: se cotiza, sin precio de referencia');
+    expect(texto).toContain('sin los ids entre corchetes');
     expect(texto).not.toContain('Roble');
     expect(texto).not.toContain('con stock');
     expect(formatearCatalogo({ tipo: 'vacio' }, agent)).toContain('ningún producto para ofrecer');
@@ -383,7 +422,27 @@ describe('reglas de venta a pedido (LAU-21)', () => {
     expect(reglas).toContain('que se lo cotizamos y le escribimos por este chat');
     expect(reglas).toContain('cada pregunta con lo que contestó el cliente');
     expect(reglas).not.toContain('crear_pedido');
-    expect(reglas).not.toContain('link de pago');
+  });
+
+  it('las versiones con precio fijo: tal cual se cobran con pedir_variante; con cambios, se cotizan', () => {
+    const reglas = reglasDeVenta(aPedido, true);
+    expect(reglas).toContain('versiones con precio fijo');
+    expect(reglas).toContain('¿Querés algo más antes de que te pase el link de pago?');
+    expect(reglas).toContain('llamá pedir_variante con esa versión y mandale el link de pago tal cual');
+    expect(reglas).toContain('llamá registrar_solicitud con varianteBaseId (esa versión) y cambios');
+    expect(reglas).toContain('ese precio deja de valer');
+    // Sin Mercado Pago no promete un link.
+    const sinMp = reglasDeVenta(aPedido, false);
+    expect(sinMp).toContain('¿Querés algo más o te lo anoto así?');
+    expect(sinMp).not.toContain('link de pago');
+  });
+
+  it('a pedido manda las fotos solo, al mostrar y al elegir', () => {
+    const reglas = reglasDeVenta(aPedido, true);
+    expect(reglas).toContain(REGLA_FOTOS_A_PEDIDO);
+    expect(reglas).toContain('sin esperar a que te las pidan');
+    // Con stock sigue igual: sólo si las pide.
+    expect(reglasDeVenta({ ...aPedido, modalidadVenta: 'stock' } as Agent, true)).not.toContain(REGLA_FOTOS_A_PEDIDO);
   });
 
   it('lo que hace el comercio va como dato, escapado', () => {

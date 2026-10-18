@@ -98,13 +98,32 @@ export function transicionPermitida(tipo: string, de: EstadoVenta, a: EstadoVent
   return TRANSICIONES[leerTipoVenta(tipo)][de]?.includes(a) ?? false;
 }
 
+/**
+ * La versión de precio fijo de la que sale el pedido: la que eligió tal cual
+ * (pedir_variante) o la que usó de base para pedir cambios. Foto del nombre y
+ * del precio al pedir, como `ItemVenta`.
+ */
+export type VarianteDeSolicitud = { id: string; nombre: string; precioCentavos: number; cantidad: number };
+
 /** La foto de lo que pidió el cliente, guardada en `Venta.solicitud`. */
 export type SolicitudDeVenta = {
   productoId: string | null;
   nombreProducto: string | null;
   respuestas: RespuestaSolicitud[];
   resumen: string;
+  /** null si no salió de una versión de precio fijo. */
+  variante: VarianteDeSolicitud | null;
+  /** Lo que el cliente quiere distinto de esa versión (null = la quiere tal cual, o no hay versión). */
+  cambios: string | null;
 };
+
+function leerVarianteDeSolicitud(valor: unknown): VarianteDeSolicitud | null {
+  if (!esObjeto(valor) || typeof valor.id !== 'string' || typeof valor.nombre !== 'string') return null;
+  const { precioCentavos, cantidad } = valor;
+  if (typeof precioCentavos !== 'number' || !Number.isInteger(precioCentavos) || precioCentavos < 0) return null;
+  if (typeof cantidad !== 'number' || !Number.isInteger(cantidad) || cantidad < 1) return null;
+  return { id: valor.id, nombre: valor.nombre, precioCentavos, cantidad };
+}
 
 /** Lee `Venta.solicitud` sin confiar en la forma: lo que no cierra queda afuera. */
 export function leerSolicitudDeVenta(valor: unknown): SolicitudDeVenta | null {
@@ -116,11 +135,14 @@ export function leerSolicitudDeVenta(valor: unknown): SolicitudDeVenta | null {
     )
     .slice(0, MAX_RESPUESTAS)
     .map((dato) => ({ pregunta: dato.pregunta, respuesta: dato.respuesta }));
+  const variante = leerVarianteDeSolicitud(valor.variante);
   return {
     productoId: typeof valor.productoId === 'string' ? valor.productoId : null,
     nombreProducto: typeof valor.nombreProducto === 'string' ? valor.nombreProducto : null,
     respuestas,
     resumen: typeof valor.resumen === 'string' ? valor.resumen : '',
+    variante,
+    cambios: variante && typeof valor.cambios === 'string' && valor.cambios.trim() ? valor.cambios : null,
   };
 }
 
@@ -130,7 +152,13 @@ export function armarSolicitudDeVenta(datos: {
   nombreProducto: string | null;
   respuestas: RespuestaSolicitud[];
   resumen: string;
+  variante?: VarianteDeSolicitud | null;
+  cambios?: string | null;
 }): SolicitudDeVenta {
+  const variante = datos.variante
+    ? { ...datos.variante, nombre: enUnaLinea(datos.variante.nombre).slice(0, 120) }
+    : null;
+  const cambios = variante && datos.cambios ? enUnaLinea(datos.cambios).slice(0, LARGO_MAX_RESPUESTA) || null : null;
   return {
     productoId: datos.productoId,
     nombreProducto: datos.nombreProducto,
@@ -139,12 +167,25 @@ export function armarSolicitudDeVenta(datos: {
       respuesta: enUnaLinea(dato.respuesta).slice(0, LARGO_MAX_RESPUESTA),
     })),
     resumen: enUnaLinea(datos.resumen).slice(0, LARGO_MAX_RESUMEN),
+    variante,
+    cambios,
   };
 }
 
 /** "ancho: 120; color: Blanco", para el presupuesto y los avisos. */
 export function resumenDeRespuestas(respuestas: RespuestaSolicitud[]): string {
   return respuestas.map((dato) => `${dato.pregunta}: ${dato.respuesta}`).join('; ');
+}
+
+/**
+ * La versión de base y lo que cambia, en una línea para el dueño: "Base: Roble
+ * 1,20 m · Cambios: 1,50 m de largo". Vacío si no salió de una versión.
+ */
+export function resumenDeVariante(solicitud: Pick<SolicitudDeVenta, 'variante' | 'cambios'> | null): string {
+  if (!solicitud?.variante) return '';
+  const { nombre, cantidad } = solicitud.variante;
+  const cual = `${cantidad > 1 ? `${cantidad} × ` : ''}${nombre}`;
+  return solicitud.cambios ? `Base: ${cual} · Cambios: ${solicitud.cambios}` : `Versión: ${cual} (tal cual, precio fijo)`;
 }
 
 /**
@@ -159,6 +200,69 @@ export function cambioMaterial(antes: RespuestaSolicitud[], despues: RespuestaSo
         .sort(([a], [b]) => a.localeCompare(b)),
     );
   return clave(antes) !== clave(despues);
+}
+
+/** Como `cambioMaterial`, pero también cuenta otra versión de base u otros cambios pedidos. */
+export function cambioDeSolicitud(
+  antes: Pick<SolicitudDeVenta, 'respuestas' | 'variante' | 'cambios'>,
+  despues: Pick<SolicitudDeVenta, 'respuestas' | 'variante' | 'cambios'>,
+): boolean {
+  const normal = (texto: string | null) => enUnaLinea(texto ?? '').toLowerCase();
+  return (
+    cambioMaterial(antes.respuestas, despues.respuestas) ||
+    (antes.variante?.id ?? null) !== (despues.variante?.id ?? null) ||
+    (antes.variante?.cantidad ?? null) !== (despues.variante?.cantidad ?? null) ||
+    normal(antes.cambios) !== normal(despues.cambios)
+  );
+}
+
+/**
+ * El renglón del presupuesto de una versión pedida tal cual: su precio por la
+ * cantidad, calculado acá y nunca por el modelo.
+ */
+export function renglonDeVariante(variante: VarianteDeSolicitud): {
+  concepto: string;
+  tipo: 'otro';
+  cantidad: number;
+  unidad: string;
+  precioUnitarioCentavos: number;
+  subtotalCentavos: number;
+} {
+  return {
+    concepto: enUnaLinea(variante.nombre).slice(0, 120),
+    tipo: 'otro',
+    cantidad: variante.cantidad,
+    unidad: 'u',
+    precioUnitarioCentavos: variante.precioCentavos,
+    subtotalCentavos: variante.precioCentavos * variante.cantidad,
+  };
+}
+
+/**
+ * Lo que queda en `ItemVenta` al cobrar un pedido a medida. Una versión
+ * pedida tal cual, cobrada a su precio, figura como esa variante (con su id,
+ * su nombre y la cantidad), así el histórico dice qué se vendió; cualquier
+ * otro caso es un renglón con el presupuesto.
+ */
+export function itemDeCobro(
+  solicitud: SolicitudDeVenta | null,
+  presupuesto: { version: number; totalCentavos: number },
+): { varianteId: string | null; nombreVariante: string; precioUnitarioCentavos: number; cantidad: number } {
+  const variante = solicitud?.variante;
+  if (variante && !solicitud.cambios && variante.precioCentavos * variante.cantidad === presupuesto.totalCentavos) {
+    return {
+      varianteId: variante.id,
+      nombreVariante: variante.nombre,
+      precioUnitarioCentavos: variante.precioCentavos,
+      cantidad: variante.cantidad,
+    };
+  }
+  return {
+    varianteId: null,
+    nombreVariante: `Presupuesto v${presupuesto.version}`,
+    precioUnitarioCentavos: presupuesto.totalCentavos,
+    cantidad: 1,
+  };
 }
 
 /** Lo que contesta el banco de pruebas del Home cuando el chat lo atiende el dueño. */

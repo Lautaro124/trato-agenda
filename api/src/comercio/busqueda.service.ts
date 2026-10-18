@@ -58,6 +58,8 @@ export type VarianteEncontrada = {
   unidades: number | null;
   reservadas: number;
   stockMinimo: number | null;
+  /** Variante fija de un producto a medida con foto propia (enviar_imagen_producto con su id). */
+  tieneImagen?: boolean;
 };
 
 export type ProductoEncontrado = {
@@ -75,7 +77,11 @@ export type ProductoEncontrado = {
   soloParecido?: boolean;
   /** Si tiene foto para mandarle al cliente (enviar_imagen_producto). */
   tieneImagen: boolean;
-  /** Producto a medida (cuenta a pedido): sin variantes, se cotiza. */
+  /**
+   * Producto a medida (cuenta a pedido): se cotiza. Sus variantes, si tiene,
+   * son versiones con precio cerrado que el cliente pide tal cual, sin stock
+   * ni descuento.
+   */
   aMedida?: boolean;
   /** Su precio "desde", si el dueño puso uno. */
   precioReferenciaCentavos?: number | null;
@@ -225,7 +231,7 @@ export class BusquedaService {
       this.prisma.producto.findMany({
         where: { id: { in: ids }, userId, activo: true },
         include: {
-          variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' } },
+          variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' }, include: { imagen: { select: { id: true } } } },
           // Sólo si existe: los bytes nunca vienen en una búsqueda.
           imagen: { select: { id: true } },
         },
@@ -243,8 +249,9 @@ export class BusquedaService {
 
     return ids.flatMap((id) => {
       const producto = porId.get(id);
-      // Sin variantes sólo vale un producto a medida: no tiene precio ni stock, se cotiza.
-      const solicitud = producto && producto.variantes.length === 0 ? leerSolicitud(producto.solicitud) : null;
+      // Sin variantes sólo vale un producto a medida: no tiene precio ni stock, se cotiza. Con
+      // variantes también puede serlo: son sus versiones de precio fijo.
+      const solicitud = producto ? leerSolicitud(producto.solicitud) : null;
       const aMedida = solicitud !== null;
       if (!producto || (producto.variantes.length === 0 && !aMedida)) return [];
       return [
@@ -265,7 +272,8 @@ export class BusquedaService {
             : {}),
           variantes: producto.variantes.map((variante) => {
             const reservadasVariante = reservadas.get(variante.id) ?? 0;
-            const descuento = mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);
+            // A medida no hay descuentos: la versión vale lo que dice.
+            const descuento = aMedida ? null : mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);
             return {
               varianteId: variante.id,
               sku: variante.sku,
@@ -278,6 +286,7 @@ export class BusquedaService {
               unidades: unidadesDisponibles(variante, reservadasVariante),
               reservadas: reservadasVariante,
               stockMinimo: variante.stockMinimo,
+              ...(aMedida ? { tieneImagen: variante.imagen !== null } : {}),
             };
           }),
         },

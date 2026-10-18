@@ -19,10 +19,10 @@ import {
   LARGO_MAX_RESUMEN,
   MAX_RESPUESTAS,
 } from '../../../comercio/pedido-a-medida.rules.js';
-import { LARGO_MAX_RESPUESTA } from '../../../comercio/solicitud.rules.js';
+import { LARGO_MAX_RESPUESTA, MAX_CANTIDAD_VARIANTE_FIJA } from '../../../comercio/solicitud.rules.js';
 import { estadoVisible } from '../../../comercio/ventas.rules.js';
 import { MAX_BUSQUEDAS_POR_MENSAJE, productosMostrados, variantesMostradas } from '../reglas-ventas.js';
-import { HERRAMIENTA_IMAGEN, imagenesDeLaVuelta } from '../imagenes-de-la-vuelta.js';
+import { claveDeFoto, fotosMandadas, HERRAMIENTA_IMAGEN, imagenesDeLaVuelta } from '../imagenes-de-la-vuelta.js';
 import { accionesDeVentas, ESQUEMAS_PROPIETARIO_VENTAS, ESQUEMAS_VENTAS } from '../ventas-tools.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
@@ -49,6 +49,8 @@ export type HistorialValidacion = {
    * las pida de a una, en varias idas y vueltas.
    */
   fotosEnElMensaje: Set<string>;
+  /** A pedido: fotos (claveDeFoto) que ya le llegaron al cliente en la parte de la charla que ve el modelo. */
+  fotosYaMandadas: Set<string>;
 };
 
 /** Cuenta las búsquedas de esta vuelta y junta las variantes que se le mostraron al modelo. */
@@ -65,9 +67,12 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
     // Por el contenido y no por el nombre: los ToolMessage sembrados desde la tabla Message no lo traen.
     variantesVistas: variantesMostradas(resultados.map(textoDe)),
     productosVistos: productosMostrados(resultados.map(textoDe)),
-    fotosEnElMensaje: new Set(
-      imagenesDeLaVuelta(state.messages.slice(state.indiceDesde ?? 0)).map((imagen) => imagen.productoId),
-    ),
+    fotosEnElMensaje: new Set(imagenesDeLaVuelta(state.messages.slice(state.indiceDesde ?? 0)).map(claveDeFoto)),
+    // A pedido el asistente las manda solo: ahí se corta repetir una. Con stock sólo salen cuando las piden.
+    fotosYaMandadas:
+      leerModalidad(state.contexto.agent) === 'pedido'
+        ? fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0))
+        : new Set(),
   };
 }
 
@@ -148,9 +153,20 @@ export function validarLlamadaVentas(
     if (!productoId || productoId.length > MAX_LARGO_ID) {
       return { ok: false, motivo: 'Falta el id del producto: usá el que figura entre corchetes en la búsqueda.' };
     }
+    const varianteId = typeof args.varianteId === 'string' ? args.varianteId.trim() : '';
+    if (varianteId && !historial.variantesVistas.has(varianteId)) {
+      return {
+        ok: false,
+        motivo: 'Esa versión no salió de ninguna búsqueda de esta charla: usá el id entre corchetes de la versión, o mandá sólo el producto.',
+      };
+    }
+    const clave = claveDeFoto({ productoId, ...(varianteId ? { varianteId } : {}) });
     const fotos = historial.fotosEnElMensaje;
-    if (fotos.has(productoId)) {
+    if (fotos.has(clave)) {
       return { ok: false, motivo: 'Esa foto ya sale con esta respuesta: no la pidas de nuevo.' };
+    }
+    if (historial.fotosYaMandadas.has(clave)) {
+      return { ok: false, motivo: 'Esa foto ya se la mandaste en esta charla: no se la mandes de nuevo, seguí la conversación.' };
     }
     if (fotos.size >= MAX_IMAGENES_POR_MENSAJE) {
       return {
@@ -161,8 +177,27 @@ export function validarLlamadaVentas(
       };
     }
     // Se anota acá y no al aprobar en el nodo: dos pedidos de foto en la misma respuesta también cuentan.
-    fotos.add(productoId);
-    return { ok: true, operacion: { ...llamada, args: { productoId } } };
+    fotos.add(clave);
+    return { ok: true, operacion: { ...llamada, args: { productoId, ...(varianteId ? { varianteId } : {}) } } };
+  }
+
+  if (llamada.nombre === 'pedir_variante') {
+    const varianteId = String(args.varianteId ?? '').trim();
+    if (!varianteId || varianteId.length > MAX_LARGO_ID || !historial.variantesVistas.has(varianteId)) {
+      return {
+        ok: false,
+        motivo:
+          'Esa versión no salió de ninguna búsqueda de esta charla. Buscá el producto con buscar_productos y usá el ' +
+          'id que figura entre corchetes como [variante …] en sus versiones con precio fijo.',
+      };
+    }
+    const cantidad = Number(args.cantidad);
+    if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > MAX_CANTIDAD_VARIANTE_FIJA) {
+      return { ok: false, motivo: `La cantidad tiene que ser un número entero entre 1 y ${MAX_CANTIDAD_VARIANTE_FIJA}.` };
+    }
+    const nombreCliente = String(args.nombreCliente ?? '').trim() || state.contexto.conversation.nombreCliente?.trim() || '';
+    if (!nombreCliente) return { ok: false, motivo: 'Falta el nombre de la persona: preguntáselo antes de pedirlo.' };
+    return { ok: true, operacion: { ...llamada, args: { varianteId, cantidad, nombreCliente } } };
   }
 
   if (llamada.nombre === 'registrar_solicitud') {
@@ -183,7 +218,28 @@ export function validarLlamadaVentas(
       .slice(0, MAX_RESPUESTAS)
       .map((dato) => ({ pregunta: dato.pregunta.slice(0, 120), respuesta: dato.respuesta.slice(0, LARGO_MAX_RESPUESTA) }));
     const resumen = String(args.resumen ?? '').trim().slice(0, LARGO_MAX_RESUMEN);
-    return { ok: true, operacion: { ...llamada, args: { productoId, nombreCliente, respuestas, resumen } } };
+    const varianteBaseId = typeof args.varianteBaseId === 'string' ? args.varianteBaseId.trim() : '';
+    const cambios = typeof args.cambios === 'string' ? args.cambios.trim().slice(0, LARGO_MAX_RESPUESTA) : '';
+    if (varianteBaseId && !historial.variantesVistas.has(varianteBaseId)) {
+      return {
+        ok: false,
+        motivo: 'Esa versión no salió de ninguna búsqueda de esta charla: usá el id entre corchetes de la versión, o no mandes ninguna.',
+      };
+    }
+    if (varianteBaseId && !cambios) {
+      return {
+        ok: false,
+        motivo:
+          'Con varianteBaseId contá en cambios qué quiere distinto. Si la quiere tal cual, no es una solicitud: usá pedir_variante.',
+      };
+    }
+    return {
+      ok: true,
+      operacion: {
+        ...llamada,
+        args: { productoId, nombreCliente, respuestas, resumen, ...(varianteBaseId ? { varianteBaseId, cambios } : {}) },
+      },
+    };
   }
 
   if (llamada.nombre === 'aceptar_presupuesto') {

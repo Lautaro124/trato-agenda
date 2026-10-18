@@ -74,6 +74,21 @@ export const esquemaEnviarImagen = z.object({
   productoId: z
     .string()
     .describe('El id de producto entre corchetes de una búsqueda de esta charla, de uno que diga "tiene foto".'),
+  varianteId: z
+    .string()
+    .optional()
+    .describe(
+      'Opcional: el id entre corchetes de una versión con precio fijo de ese producto, si el cliente eligió esa ' +
+        'versión. Si la versión no tiene foto propia, va la del producto.',
+    ),
+});
+
+export const esquemaPedirVariante = z.object({
+  varianteId: z
+    .string()
+    .describe('El id entre corchetes de una versión con precio fijo de una búsqueda de esta charla, nunca uno inventado.'),
+  cantidad: z.number().int().describe('Cuántas quiere de esa versión (1 si no dijo).'),
+  nombreCliente: z.string().describe('Nombre de la persona. Obligatorio: si no lo sabés, preguntáselo antes.'),
 });
 
 export const esquemaRegistrarSolicitud = z.object({
@@ -92,6 +107,14 @@ export const esquemaRegistrarSolicitud = z.object({
   resumen: z
     .string()
     .describe('Qué quiere el cliente en una o dos frases, con lo que no entra en las preguntas (para cuándo, detalles).'),
+  varianteBaseId: z
+    .string()
+    .optional()
+    .describe('Sólo si eligió una versión con precio fijo y le quiere cambiar algo: el id entre corchetes de esa versión.'),
+  cambios: z
+    .string()
+    .optional()
+    .describe('Junto con varianteBaseId: qué quiere distinto de esa versión, con sus palabras.'),
 });
 
 export const esquemaAceptarPresupuesto = z.object({
@@ -169,8 +192,9 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
   enviar_imagen_producto: {
     name: 'enviar_imagen_producto',
     description:
-      'Le manda al cliente la foto de un producto, junto con tu respuesta. Usala sólo cuando el cliente pide ver ' +
-      'el producto o una foto, y sólo con productos que la búsqueda marcó "tiene foto". Una llamada por producto.',
+      'Le manda al cliente la foto de un producto (o de una de sus versiones con precio fijo), junto con tu ' +
+      'respuesta. Usala cuando el cliente pide ver el producto o una foto, o cuando las reglas de venta dicen que ' +
+      'la mandes sola, y sólo con lo que la búsqueda marcó "tiene foto". Una llamada por foto.',
     schema: esquemaEnviarImagen,
   },
   registrar_solicitud: {
@@ -181,6 +205,14 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
       'el presupuesto si se pudo calcular, o que se lo pasamos por este chat. Si cambia algo de lo que pidió, ' +
       'llamala de nuevo con las respuestas nuevas.',
     schema: esquemaRegistrarSolicitud,
+  },
+  pedir_variante: {
+    name: 'pedir_variante',
+    description:
+      'Pide tal cual una versión con precio fijo de un producto a medida y genera el cobro: devuelve el link de pago ' +
+      '(o lo deja a coordinar). Usala cuando el cliente eligió una versión sin cambiarle nada y te dijo que no quiere ' +
+      'nada más. El precio lo pone el sistema. Si le quiere cambiar algo, no es esta: es registrar_solicitud.',
+    schema: esquemaPedirVariante,
   },
   aceptar_presupuesto: {
     name: 'aceptar_presupuesto',
@@ -252,11 +284,17 @@ const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = ['ver_catalogo', 'ver_descuen
 const ACCIONES_SOLO_CON_STOCK: AccionVentasId[] = ['crear_pedido', 'cancelar_pedido'];
 
 /**
- * Lo que sólo existe a pedido (LAU-24/26/27): anotar la solicitud, cobrar un
- * presupuesto aceptado y pasarle el pedido a una persona. Llegaron después de
+ * Lo que sólo existe a pedido (LAU-24/26/27): anotar la solicitud, pedir una
+ * versión de precio fijo, cobrar un presupuesto aceptado y pasarle el pedido a
+ * una persona. Llegaron después de
  * los primeros asistentes: las tiene toda cuenta a pedido, sin migrar nada.
  */
-const ACCIONES_SOLO_A_PEDIDO: AccionVentasId[] = ['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona'];
+const ACCIONES_SOLO_A_PEDIDO: AccionVentasId[] = [
+  'registrar_solicitud',
+  'pedir_variante',
+  'aceptar_presupuesto',
+  'derivar_a_persona',
+];
 
 /**
  * Las acciones de ventas que tiene un agente. `ver_catalogo`,

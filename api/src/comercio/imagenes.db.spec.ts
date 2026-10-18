@@ -69,7 +69,7 @@ describe.skipIf(!hayBaseDePrueba)('fotos de productos (Postgres real)', () => {
     await expect(imagenes.obtener(otro.id, ids[0])).rejects.toBeInstanceOf(NotFoundException);
     await expect(imagenes.guardar(otro.id, ids[0], await foto())).rejects.toBeInstanceOf(NotFoundException);
     expect(await imagenes.paraEnviar(otro.id, ids[0])).toBeNull();
-    expect(await imagenes.estadoDeFoto(dueno.id, ids[0])).toEqual({ nombre: 'Producto 0', tieneFoto: true });
+    expect(await imagenes.estadoDeFoto(dueno.id, ids[0])).toEqual({ nombre: 'Producto 0', tieneFoto: true, deVariante: false });
 
     const listado = await productos.listar(dueno.id, {});
     expect(listado.productos[0].imagenActualizada).toBeInstanceOf(Date);
@@ -115,5 +115,52 @@ describe.skipIf(!hayBaseDePrueba)('fotos de productos (Postgres real)', () => {
     await imagenes.guardar(dueno.id, ids[1], await foto());
     await prisma.user.delete({ where: { id: dueno.id } });
     expect(await prisma.imagenProducto.count({ where: { userId: dueno.id } })).toBe(0);
+  });
+
+  it('la foto de una variante fija: va esa al elegirla, si no la del producto, y cuenta para el mismo cupo', async () => {
+    const { dueno, ids } = await duenoConProductos(1);
+    const otro = await crearUsuarioDePrueba(prisma);
+    usuarios.push(otro);
+    const [roble, paraiso] = await Promise.all(
+      ['Roble', 'Paraíso'].map((nombre) =>
+        prisma.variante.create({ data: { productoId: ids[0], sku: `P-0-${nombre}`, nombre, precioCentavos: 100 } }),
+      ),
+    );
+
+    await imagenes.guardar(dueno.id, ids[0], await foto());
+    await imagenes.guardarDeVariante(dueno.id, ids[0], roble.id, await foto());
+    await expect(imagenes.guardarDeVariante(otro.id, ids[0], roble.id, await foto())).rejects.toBeInstanceOf(NotFoundException);
+    await expect(imagenes.obtenerDeVariante(otro.id, ids[0], roble.id)).rejects.toBeInstanceOf(NotFoundException);
+    expect(await imagenes.uso(dueno.id)).toMatchObject({ usadas: 2 });
+
+    expect(await imagenes.estadoDeFoto(dueno.id, ids[0], roble.id)).toEqual({
+      nombre: 'Producto 0 · Roble',
+      tieneFoto: true,
+      deVariante: true,
+    });
+    expect(await imagenes.estadoDeFoto(dueno.id, ids[0], paraiso.id)).toEqual({ nombre: 'Producto 0', tieneFoto: true, deVariante: false });
+    expect(await imagenes.estadoDeFoto(dueno.id, ids[0], 'otra')).toBeNull();
+    expect((await imagenes.paraEnviar(dueno.id, ids[0], roble.id))?.nombre).toBe('Producto 0 · Roble');
+    expect(await imagenes.paraEnviar(otro.id, ids[0], roble.id)).toBeNull();
+
+    const [listado] = (await productos.listar(dueno.id, {})).productos;
+    expect(listado.variantes.find((v) => v.id === roble.id)?.imagenActualizada).toBeInstanceOf(Date);
+    expect(listado.variantes.find((v) => v.id === paraiso.id)?.imagenActualizada).toBeNull();
+
+    // El cupo es uno solo entre productos y variantes.
+    const otros = await Promise.all(
+      Array.from({ length: MAX_IMAGENES_POR_CUENTA - 2 }, (_, i) =>
+        prisma.producto.create({ data: { userId: dueno.id, codigo: `R-${i}`, nombre: `Relleno ${i}` } }),
+      ),
+    );
+    await conFotosDePrueba(
+      dueno,
+      otros.map((producto) => producto.id),
+    );
+    await expect(imagenes.guardarDeVariante(dueno.id, ids[0], paraiso.id, await foto())).rejects.toBeInstanceOf(ConflictException);
+
+    // Dar de baja el producto se lleva también las fotos de sus variantes.
+    await productos.eliminar(dueno.id, ids[0]);
+    expect(await prisma.imagenVariante.count({ where: { userId: dueno.id } })).toBe(0);
   });
 });

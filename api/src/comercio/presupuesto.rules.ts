@@ -167,6 +167,9 @@ export function textoDelPresupuesto(
 ): string {
   const producto = solicitud?.nombreProducto ? ` de ${solicitud.nombreProducto}` : '';
   const lineas = [`*Presupuesto${producto}*`];
+  if (solicitud?.variante && solicitud.cambios) {
+    lineas.push(`Sobre ${solicitud.variante.nombre}, con estos cambios: ${solicitud.cambios}.`);
+  }
   if (solicitud && solicitud.respuestas.length > 0) lineas.push(`Lo que nos pediste: ${resumenDeRespuestas(solicitud.respuestas)}.`);
   if (presupuesto.detalleAlCliente) for (const renglon of presupuesto.renglones) lineas.push(`* ${lineaDeRenglon(renglon)}`);
   lineas.push(

@@ -28,7 +28,8 @@ export class ConversationController {
    * Banco de pruebas del Home: le habla al mismo agente que WhatsApp, de verdad.
    * Con la prueba vencida el agente tampoco contesta acá, pero devolvemos un
    * texto en vez de silencio porque quien escribe es el dueño, no un cliente.
-   * Las fotos vuelven como ids: la web las pide a `GET /productos/:id/imagen`.
+   * Las fotos vuelven como ids: la web las pide a `GET /productos/:id/imagen`
+   * (o a la de la variante, con `varianteId`).
    */
   @Post('test')
   async test(

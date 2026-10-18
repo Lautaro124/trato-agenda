@@ -92,8 +92,9 @@ export class SugerenciasService {
   /**
    * Los productos activos con al menos una variante con stock (descontadas
    * las reservas vigentes), con el precio de la más barata que se puede
-   * vender, y los productos a medida (sin variantes, con su precio de
-   * referencia). Del más nuevo al más viejo: es el orden determinista.
+   * vender, y los productos a medida (con su precio de referencia y el de su
+   * versión fija más barata, si tiene). Del más nuevo al más viejo: es el
+   * orden determinista.
    */
   async panorama(userId: string): Promise<ProductoPanorama[]> {
     const { productos, descuentos, ahora } = await this.conStock(userId);
@@ -109,6 +110,9 @@ export class SugerenciasService {
             variosPrecios: false,
             aMedida: true,
             materiales: producto.materiales,
+            varianteFijaDesdeCentavos: producto.preciosFijos.length > 0 ? Math.min(...producto.preciosFijos) : null,
+            variantesFijas: producto.preciosFijos.length,
+            tieneImagen: producto.tieneImagen,
           },
         ];
       }
@@ -160,6 +164,7 @@ export class SugerenciasService {
         solicitud: true,
         precioReferenciaCentavos: true,
         materiales: true,
+        imagen: { select: { id: true } },
         variantes: {
           where: { activo: true },
           select: { id: true, precioCentavos: true, stock: true, disponible: true, activo: true },
@@ -177,13 +182,21 @@ export class SugerenciasService {
       productos.flatMap((producto) => producto.variantes.map((variante) => variante.id)),
     );
     return {
-      productos: productos.map(({ variantes, solicitud, ...producto }) => ({
-        ...producto,
-        aMedida: variantes.length === 0 && leerSolicitud(solicitud) !== null,
-        preciosConStock: variantes
-          .filter((variante) => hayStock(variante, 1, reservadas.get(variante.id) ?? 0))
-          .map((variante) => variante.precioCentavos),
-      })),
+      productos: productos.map(({ variantes, solicitud, imagen, ...producto }) => {
+        // A medida las variantes son versiones de precio fijo: no tienen stock ni descuento que aplicar.
+        const aMedida = leerSolicitud(solicitud) !== null;
+        return {
+          ...producto,
+          aMedida,
+          tieneImagen: imagen !== null,
+          preciosFijos: aMedida ? variantes.map((variante) => variante.precioCentavos) : [],
+          preciosConStock: aMedida
+            ? []
+            : variantes
+                .filter((variante) => hayStock(variante, 1, reservadas.get(variante.id) ?? 0))
+                .map((variante) => variante.precioCentavos),
+        };
+      }),
       descuentos,
       ahora: new Date(),
     };

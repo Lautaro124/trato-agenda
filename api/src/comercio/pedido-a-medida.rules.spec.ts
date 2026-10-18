@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   armarSolicitudDeVenta,
+  cambioDeSolicitud,
   cambioMaterial,
   enAtencionHumana,
   estaAbierto,
   HORAS_LINK_A_MEDIDA,
+  itemDeCobro,
   leerSolicitudDeVenta,
+  renglonDeVariante,
+  resumenDeVariante,
   transicionPermitida,
   vencimientoDeCobroAMedida,
 } from './pedido-a-medida.rules.js';
@@ -98,6 +102,8 @@ describe('la solicitud guardada', () => {
       nombreProducto: null,
       respuestas: [],
       resumen: '',
+      variante: null,
+      cambios: null,
     });
     expect(leerSolicitudDeVenta(null)).toBeNull();
   });
@@ -111,5 +117,59 @@ describe('la solicitud guardada', () => {
     expect(cambioMaterial(antes, [{ pregunta: 'ancho', respuesta: '120' }, { pregunta: 'color', respuesta: 'BLANCO' }])).toBe(false);
     expect(cambioMaterial(antes, [{ pregunta: 'Ancho', respuesta: '140' }, antes[1]])).toBe(true);
     expect(cambioMaterial(antes, [antes[0]])).toBe(true);
+  });
+});
+
+describe('versiones de precio fijo en la solicitud', () => {
+  const roble = { id: 'v-1', nombre: 'Roble 1,20 m', precioCentavos: 18_000_000, cantidad: 2 };
+  const tal = armarSolicitudDeVenta({ productoId: 'p-1', nombreProducto: 'Mesa', respuestas: [], resumen: '', variante: roble });
+  const conCambios = armarSolicitudDeVenta({
+    productoId: 'p-1',
+    nombreProducto: 'Mesa',
+    respuestas: [],
+    resumen: '',
+    variante: { ...roble, cantidad: 1 },
+    cambios: '  de 1,50 m\n de largo ',
+  });
+
+  it('guarda la versión y los cambios en una línea, y los lee sin confiar en la forma', () => {
+    expect(tal.variante).toEqual(roble);
+    expect(tal.cambios).toBeNull();
+    expect(conCambios.cambios).toBe('de 1,50 m de largo');
+    expect(leerSolicitudDeVenta(conCambios)).toEqual(conCambios);
+    // Cambios sin versión no tienen sentido, y una versión rota no se lee.
+    expect(armarSolicitudDeVenta({ productoId: null, nombreProducto: null, respuestas: [], resumen: '', cambios: 'algo' }).cambios).toBeNull();
+    expect(leerSolicitudDeVenta({ variante: { id: 'v', nombre: 'X', precioCentavos: -1, cantidad: 1 }, cambios: 'x' })).toMatchObject({
+      variante: null,
+      cambios: null,
+    });
+  });
+
+  it('otra versión, otra cantidad u otros cambios son un cambio de la solicitud', () => {
+    expect(cambioDeSolicitud(tal, tal)).toBe(false);
+    expect(cambioDeSolicitud(tal, { ...tal, variante: { ...roble, cantidad: 3 } })).toBe(true);
+    expect(cambioDeSolicitud(tal, { ...tal, variante: { ...roble, id: 'v-2' } })).toBe(true);
+    expect(cambioDeSolicitud(conCambios, { ...conCambios, cambios: 'DE 1,50 M DE LARGO' })).toBe(false);
+    expect(cambioDeSolicitud(conCambios, { ...conCambios, cambios: 'de 1,80 m' })).toBe(true);
+  });
+
+  it('el renglón y el ítem cobrado de una versión tal cual llevan su precio y su cantidad', () => {
+    expect(renglonDeVariante(roble)).toMatchObject({ concepto: 'Roble 1,20 m', cantidad: 2, subtotalCentavos: 36_000_000 });
+    expect(itemDeCobro(tal, { version: 1, totalCentavos: 36_000_000 })).toEqual({
+      varianteId: 'v-1',
+      nombreVariante: 'Roble 1,20 m',
+      precioUnitarioCentavos: 18_000_000,
+      cantidad: 2,
+    });
+    // Recotizada por el dueño, o con cambios: es un presupuesto.
+    expect(itemDeCobro(tal, { version: 2, totalCentavos: 30_000_000 })).toMatchObject({ varianteId: null, nombreVariante: 'Presupuesto v2', cantidad: 1 });
+    expect(itemDeCobro(conCambios, { version: 1, totalCentavos: 18_000_000 })).toMatchObject({ varianteId: null });
+    expect(itemDeCobro(null, { version: 1, totalCentavos: 100 })).toMatchObject({ varianteId: null, precioUnitarioCentavos: 100 });
+  });
+
+  it('le cuenta al dueño de qué versión salió', () => {
+    expect(resumenDeVariante(tal)).toBe('Versión: 2 × Roble 1,20 m (tal cual, precio fijo)');
+    expect(resumenDeVariante(conCambios)).toBe('Base: Roble 1,20 m · Cambios: de 1,50 m de largo');
+    expect(resumenDeVariante(null)).toBe('');
   });
 });

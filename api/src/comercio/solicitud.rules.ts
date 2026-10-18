@@ -316,17 +316,30 @@ export function validarRespuestasSolicitud(config: SolicitudADemanda, respuestas
   return { ok: true, respuestas: validas };
 }
 
+/** Lo más que puede pedir un cliente de una variante fija, como una línea de un pedido con stock. */
+export const MAX_CANTIDAD_VARIANTE_FIJA = 50;
+
 /**
  * Qué formulario de producto tiene la cuenta depende de cómo vende (se elige
  * en el registro y no cambia): con stock, variantes con precio y stock; a
  * pedido, un producto a medida con sus preguntas (pueden ser ninguna, pero la
- * solicitud viene: es lo que lo marca a medida), sus materiales y, si quiere,
- * un precio "desde", sin variantes ni descuento. Lo que no corresponde es un
- * 400. `undefined` es "no vino" (no toca lo guardado); `null`, "sin".
+ * solicitud viene: es lo que lo marca a medida), sus materiales, si quiere un
+ * precio "desde" y, también si quiere, variantes fijas: versiones con precio
+ * cerrado que el cliente pide tal cual, sin stock ni descuento. Lo que no
+ * corresponde es un 400. `undefined` es "no vino" (no toca lo guardado);
+ * `null`, "sin".
  */
 export function problemaSegunModalidad(
   modalidad: ModalidadVenta,
-  producto: { variantes: number; descuento: unknown; solicitud: unknown; precioReferencia: unknown; materiales?: unknown },
+  producto: {
+    variantes: number;
+    descuento: unknown;
+    solicitud: unknown;
+    precioReferencia: unknown;
+    materiales?: unknown;
+    /** Alguna variante trae stock o stock mínimo. */
+    conStock?: boolean;
+  },
 ): string | null {
   const presente = (valor: unknown) => valor !== undefined && valor !== null;
   if (modalidad === 'stock') {
@@ -337,7 +350,7 @@ export function problemaSegunModalidad(
     }
     return null;
   }
-  if (producto.variantes > 0) return 'Tu cuenta vende a pedido: los productos no llevan variantes ni stock.';
+  if (producto.conStock) return 'Tu cuenta vende a pedido: las variantes tienen precio fijo pero no llevan stock.';
   if (presente(producto.descuento)) return 'Tu cuenta vende a pedido: los productos no llevan descuento.';
   if (!presente(producto.solicitud)) return 'Faltan las preguntas para hacer del producto (pueden ser ninguna).';
   return null;

@@ -18,7 +18,6 @@ import type { OpenRouterClient } from '../../agents/openrouter.client.js';
 import type { BusquedaService } from '../../comercio/busqueda.service.js';
 import type { HistoricoVentasService } from '../../comercio/historico.service.js';
 import type { ImagenesService } from '../../comercio/imagenes.service.js';
-import type { PedidosAMedidaService } from '../../comercio/pedidos-a-medida.service.js';
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { VentasService } from '../../comercio/ventas.service.js';
 import type { NotificacionesService } from '../../notificaciones/notificaciones.service.js';
@@ -27,7 +26,7 @@ import { LIMITE_RECURSION } from '../graph/graph.factory.js';
 import { crearNodoConversacion } from '../graph/nodes/conversacion.node.js';
 import { crearNodoPersistir } from '../graph/nodes/persistir.node.js';
 import { crearNodoCargarContextoVentas, type DepsContextoVentas } from './nodes/cargar-contexto-ventas.node.js';
-import { crearNodoCatalogo } from './nodes/catalogo.node.js';
+import { crearNodoCatalogo, type DepsCatalogo } from './nodes/catalogo.node.js';
 import { crearNodoValidacionVentas } from './nodes/validacion-ventas.node.js';
 import { crearNodoVerificarRespuesta } from './nodes/verificar-respuesta.node.js';
 import { EstadoVentas, type EstadoVentasValue } from './state.js';
@@ -41,10 +40,7 @@ export type DepsGrafoVentas = {
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
-  pedidos: Pick<
-    PedidosAMedidaService,
-    'productoParaSolicitud' | 'cotizacionPrevia' | 'registrarSolicitud' | 'cotizarSolicitud' | 'cobrar' | 'derivar'
-  >;
+  pedidos: DepsCatalogo['pedidos'];
   openRouter: OpenRouterClient;
   llm: BaseChatModel;
   checkpointer?: BaseCheckpointSaver;

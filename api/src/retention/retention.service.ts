@@ -148,14 +148,17 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
         notaDevolucion: null,
       },
     });
-    // Un pedido a medida guarda lo que escribió el cliente (resumen y
-    // respuestas): queda sólo qué producto era. Y los presupuestos pierden la
+    // Un pedido a medida guarda lo que escribió el cliente (resumen,
+    // respuestas y los cambios que pidió a una versión): queda sólo qué
+    // producto y qué versión de precio fijo era. Y los presupuestos pierden la
     // nota y los datos con que se calcularon; los renglones y el total quedan.
     const aMedida = await this.prisma.$executeRaw`
       UPDATE "Venta"
       SET "solicitud" = jsonb_build_object('productoId', "solicitud"->'productoId', 'nombreProducto', "solicitud"->'nombreProducto', 'respuestas', '[]'::jsonb, 'resumen', '')
+        || jsonb_strip_nulls(jsonb_build_object('variante', "solicitud"->'variante'))
       WHERE "createdAt" < ${limite} AND "solicitud" IS NOT NULL
-        AND ("solicitud"->>'resumen' <> '' OR jsonb_array_length(COALESCE("solicitud"->'respuestas', '[]'::jsonb)) > 0)
+        AND ("solicitud"->>'resumen' <> '' OR jsonb_array_length(COALESCE("solicitud"->'respuestas', '[]'::jsonb)) > 0
+          OR COALESCE("solicitud"->>'cambios', '') <> '')
     `;
     await this.prisma.presupuesto.updateMany({
       where: {

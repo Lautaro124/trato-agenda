@@ -20,7 +20,8 @@ import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import { leerModalidad } from '../../../agents/modalidad-venta.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
-import type { ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
+import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
+import { mensajesVisibles } from '../../graph/ventana-historial.js';
 import { hayDescuentosVigentes } from '../../../comercio/descuentos.rules.js';
 import {
   conOfertaDeDescuentos,
@@ -48,7 +49,14 @@ export type DepsCatalogo = {
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
   pedidos: Pick<
     PedidosAMedidaService,
-    'productoParaSolicitud' | 'cotizacionPrevia' | 'registrarSolicitud' | 'cotizarSolicitud' | 'cobrar' | 'derivar'
+    | 'productoParaSolicitud'
+    | 'cotizacionPrevia'
+    | 'registrarSolicitud'
+    | 'cotizarSolicitud'
+    | 'cobrar'
+    | 'derivar'
+    | 'varianteParaPedir'
+    | 'pedirVariante'
   >;
 };
 
@@ -75,6 +83,7 @@ const CON_EFECTO = new Set([
   'cancelar_pedido',
   'derivar_consulta',
   'registrar_solicitud',
+  'pedir_variante',
   'aceptar_presupuesto',
   'derivar_a_persona',
 ]);
@@ -178,6 +187,14 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         'con un número. Preguntáselo y volvé a llamar registrar_solicitud con todo.'
       );
     }
+    // La versión de base tiene que ser de este mismo producto.
+    const base =
+      typeof args.varianteBaseId === 'string'
+        ? await deps.pedidos.varianteParaPedir(state.ownerUserId, args.varianteBaseId)
+        : null;
+    if (typeof args.varianteBaseId === 'string' && base?.productoId !== producto.id) {
+      return 'Esa versión no es de este producto. Usá el id entre corchetes de una de sus versiones con precio fijo, o no mandes ninguna.';
+    }
     try {
       const resultado = await deps.pedidos.registrarSolicitud({
         userId: state.ownerUserId,
@@ -187,6 +204,12 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         producto: { id: producto.id, nombre: producto.nombre },
         respuestas: respuestas.respuestas as RespuestaSolicitud[],
         resumen: String(args.resumen ?? ''),
+        ...(base
+          ? {
+              variante: { id: base.varianteId, nombre: base.nombreVariante, precioCentavos: base.precioCentavos, cantidad: 1 },
+              cambios: String(args.cambios ?? ''),
+            }
+          : {}),
         dePrueba: state.esPropietario,
       });
       const cotizacion = await deps.pedidos.cotizarSolicitud(resultado, previa);
@@ -197,6 +220,25 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       );
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo anotar la solicitud: ${error.message}`;
+      throw error;
+    }
+  }
+
+  /** Una versión de precio fijo pedida tal cual: el pedido sale cotizado y con su cobro. */
+  async function pedirVariante(state: EstadoVentasValue, args: Args): Promise<string> {
+    try {
+      const venta = await deps.pedidos.pedirVariante({
+        userId: state.ownerUserId,
+        conversationId: state.contexto.conversation.id,
+        remoteJid: state.remoteJid,
+        nombreCliente: String(args.nombreCliente),
+        varianteId: String(args.varianteId),
+        cantidad: Number(args.cantidad),
+        dePrueba: state.esPropietario,
+      });
+      return formatearCobroAMedida(state.contexto.agent, venta, true);
+    } catch (error) {
+      if (error instanceof PedidoRechazadoError) return `No se pudo anotar el pedido: ${error.message}`;
       throw error;
     }
   }
@@ -262,19 +304,32 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
 
   async function enviarImagen(state: EstadoVentasValue, args: Args): Promise<Resultado> {
     const productoId = String(args.productoId);
-    const foto = await deps.imagenes.estadoDeFoto(state.ownerUserId, productoId);
+    const varianteId = typeof args.varianteId === 'string' ? args.varianteId : undefined;
+    const foto = await deps.imagenes.estadoDeFoto(state.ownerUserId, productoId, varianteId);
     if (!foto) {
-      return 'Ese producto no está en el catálogo. Usá el id entre corchetes de una búsqueda de esta charla.';
+      return varianteId
+        ? 'Esa versión no es de ese producto (o ya no está). Usá los ids entre corchetes de una búsqueda de esta charla.'
+        : 'Ese producto no está en el catálogo. Usá el id entre corchetes de una búsqueda de esta charla.';
     }
     const nombre = JSON.stringify(foto.nombre);
     if (!foto.tieneFoto) {
       return `${nombre} no tiene foto. Decíselo al cliente y contale cómo es con lo que dice el catálogo.`;
     }
+    const imagen: ImagenAEnviar = { productoId, nombre: foto.nombre, ...(foto.deVariante && varianteId ? { varianteId } : {}) };
+    // Una versión sin foto propia manda la del producto: a pedido, si esa ya le llegó, no se repite.
+    if (
+      !imagen.varianteId &&
+      varianteId &&
+      leerModalidad(state.contexto.agent) === 'pedido' &&
+      fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)).has(claveDeFoto(imagen))
+    ) {
+      return `Esa versión no tiene foto propia y la de ${nombre} ya se la mandaste: no la repitas, seguí la charla.`;
+    }
     return {
       texto:
         `Listo: la foto de ${nombre} le llega al cliente junto con tu respuesta. No la describas ni pegues ` +
         'links: seguí la charla (por ejemplo, preguntale si es lo que buscaba).',
-      imagen: { productoId, nombre: foto.nombre },
+      imagen,
     };
   }
 
@@ -306,6 +361,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         return derivarConsulta(state, args);
       case 'registrar_solicitud':
         return registrarSolicitud(state, args);
+      case 'pedir_variante':
+        return pedirVariante(state, args);
       case 'aceptar_presupuesto':
         return aceptarPresupuesto(state, args);
       case 'derivar_a_persona':

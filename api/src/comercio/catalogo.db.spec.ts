@@ -353,10 +353,42 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(sinMateriales.materiales).toEqual([]);
     });
 
-    it('rechaza variantes, descuento o un producto sin solicitud, y no importa planillas', async () => {
+    it('guarda variantes fijas con precio y sin stock, y la búsqueda las trae', async () => {
+      const mesa = await productos.crear(taller.id, {
+        ...dto,
+        codigo: 'MESA-01',
+        nombre: 'Mesa ratona',
+        variantes: [
+          { nombre: 'Roble 1,20 m', precioCentavos: 18_000_000 },
+          { nombre: 'Paraíso 1,00 m', precioCentavos: 15_000_000, disponible: false },
+        ],
+      });
+      expect(mesa.variantes.map((v) => [v.nombre, v.precioCentavos, v.stock, v.disponible])).toEqual([
+        ['Roble 1,20 m', 18_000_000, null, true],
+        ['Paraíso 1,00 m', 15_000_000, null, true],
+      ]);
+
+      const [encontrado] = await busqueda.buscar(taller.id, 'MESA-01');
+      expect(encontrado).toMatchObject({ productoId: mesa.id, aMedida: true });
+      expect(encontrado.variantes.map((v) => v.nombre)).toEqual(['Roble 1,20 m', 'Paraíso 1,00 m']);
+
+      // Reenviando el sku, la variante (y su foto) sigue siendo la misma.
+      const editado = await productos.actualizar(taller.id, mesa.id, {
+        ...dto,
+        codigo: 'MESA-01',
+        nombre: 'Mesa ratona',
+        variantes: [{ sku: mesa.variantes[0].sku, nombre: 'Roble 1,30 m', precioCentavos: 19_000_000 }],
+      });
+      expect(editado.variantes.map((v) => [v.id, v.nombre])).toEqual([[mesa.variantes[0].id, 'Roble 1,30 m']]);
+    });
+
+    it('rechaza variantes con stock o sin nombre, descuento o un producto sin solicitud, y no importa planillas', async () => {
+      await expect(
+        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ nombre: 'Chica', precioCentavos: 100, stock: 3 }] }),
+      ).rejects.toThrow(/no llevan stock/);
       await expect(
         productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ precioCentavos: 100 }] }),
-      ).rejects.toThrow(/no llevan variantes/);
+      ).rejects.toThrow(/nombre de cada versión/);
       await expect(
         productos.crear(taller.id, { ...dto, codigo: 'CORT-02', descuento: { tipo: 'porcentaje', valor: 10 } }),
       ).rejects.toThrow(/no llevan descuento/);

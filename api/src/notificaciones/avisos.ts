@@ -144,14 +144,16 @@ function deQue(pedido: Pick<PedidoAMedidaAvisable, 'nombreProducto'>): string {
 
 /** Una solicitud a medida que espera precio: la armás vos desde Ventas. */
 export function avisoSolicitudACotizar(
-  pedido: PedidoAMedidaAvisable & { resumen: string; motivo?: string | null },
+  pedido: PedidoAMedidaAvisable & { resumen: string; motivo?: string | null; variante?: string | null },
 ): Aviso {
   const resumen = pedido.resumen.slice(0, LARGO_MAX_CONSULTA);
+  const variante = pedido.variante ? pedido.variante.slice(0, LARGO_MAX_CONSULTA) : '';
   return {
     tipo: 'solicitud_a_cotizar',
     titulo: `${prueba(pedido)}Para cotizar${pedido.nombreProducto ? `: ${pedido.nombreProducto}` : ''}`,
     cuerpo:
       `${quien(pedido)} pidió un presupuesto${deQue(pedido)}${resumen ? `: "${resumen}"` : ''}. ` +
+      (variante ? `${variante}. ` : '') +
       (pedido.motivo ? `${pedido.motivo} ` : '') +
       'Armalo y mandáselo desde Ventas.',
     enlace: `/ventas?venta=${pedido.ventaId}`,

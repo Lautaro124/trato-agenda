@@ -6,7 +6,7 @@
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
-import type { User } from '../generated/prisma/client.js';
+import { Prisma, type User } from '../generated/prisma/client.js';
 import type { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { MercadoPagoClient } from '../subscription/mercadopago.client.js';
@@ -349,6 +349,80 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
       expect((await costos.obtener(dueno.id)).insumos).toHaveLength(1);
       const [melamina] = (await costos.obtener(dueno.id)).insumos;
       await expect(costos.borrarInsumo(otro.id, melamina.id)).rejects.toMatchObject({ status: 409 });
+    });
+  });
+
+  describe('versiones con precio fijo', () => {
+    let roble: string;
+    beforeEach(async () => {
+      roble = (
+        await prisma.variante.create({ data: { productoId, sku: 'PLACARD-ROBLE', nombre: 'Roble 2 puertas', precioCentavos: 9_000_000 } })
+      ).id;
+    });
+
+    const pedir = (cantidad = 2) =>
+      pedidos.pedirVariante({
+        userId: dueno.id,
+        conversationId,
+        remoteJid,
+        nombreCliente: 'Ana',
+        varianteId: roble,
+        cantidad,
+        dePrueba: false,
+      });
+
+    it('tal cual sale cotizada a su precio y con el cobro, y el ítem es la variante', async () => {
+      const venta = await pedir();
+      // Sin Mercado Pago queda a coordinar, como cualquier presupuesto aceptado.
+      expect(venta).toMatchObject({ tipo: 'a_medida', estado: 'pendiente_pago', medioPago: 'manual', totalCentavos: 18_000_000 });
+      expect(venta.presupuestos).toHaveLength(1);
+      expect(venta.presupuestos[0]).toMatchObject({ origen: 'asistente', estado: 'enviado', totalCentavos: 18_000_000 });
+      expect(venta.items).toEqual([
+        expect.objectContaining({ varianteId: roble, nombreVariante: 'Roble 2 puertas', cantidad: 2, precioUnitarioCentavos: 9_000_000 }),
+      ]);
+      expect(venta.solicitud).toMatchObject({ variante: { id: roble, cantidad: 2 }, cambios: null });
+
+      // Pedirla igual otra vez devuelve el mismo pedido, no uno nuevo.
+      expect((await pedir()).id).toBe(venta.id);
+      expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(1);
+
+      // Pagarla no toca stock: la variante no lo controla.
+      await ventas.marcarPagada(venta.id);
+      expect((await prisma.variante.findUniqueOrThrow({ where: { id: roble } })).stock).toBeNull();
+    });
+
+    it('sólo de un producto a medida activo de la cuenta', async () => {
+      await expect(
+        pedidos.pedirVariante({ userId: otro.id, conversationId, remoteJid, nombreCliente: 'Ana', varianteId: roble, cantidad: 1, dePrueba: false }),
+      ).rejects.toBeInstanceOf(PedidoRechazadoError);
+      await prisma.producto.update({ where: { id: productoId }, data: { solicitud: Prisma.DbNull } });
+      await expect(pedir()).rejects.toThrow(/ya no está en el catálogo/);
+    });
+
+    it('con cambios queda para cotizar, con la base y lo que cambia; otros cambios la reabren', async () => {
+      const base = { id: roble, nombre: 'Roble 2 puertas', precioCentavos: 9_000_000, cantidad: 1 };
+      const pedirCon = (cambios: string) =>
+        pedidos.registrarSolicitud({
+          userId: dueno.id,
+          conversationId,
+          remoteJid,
+          nombreCliente: 'Ana',
+          producto: { id: productoId, nombre: 'Placard' },
+          respuestas: [],
+          resumen: 'El de roble pero más alto',
+          variante: base,
+          cambios,
+          dePrueba: false,
+        });
+      // La misma versión pedida tal cual antes sigue esperando su pago: la solicitud es otro pedido.
+      const tal = await pedir(1);
+      const { venta } = await pedirCon('de 2,40 m de alto');
+      expect(venta.id).not.toBe(tal.id);
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: tal.id } })).estado).toBe('pendiente_pago');
+      expect(venta).toMatchObject({ estado: 'a_cotizar', totalCentavos: null });
+      expect(venta.solicitud).toMatchObject({ variante: { id: roble }, cambios: 'de 2,40 m de alto' });
+      expect((await pedirCon('de 2,40 m de alto')).cambio).toBe(false);
+      expect((await pedirCon('de 2,60 m de alto')).cambio).toBe(true);
     });
   });
 });

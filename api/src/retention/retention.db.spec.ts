@@ -104,6 +104,8 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
             nombreProducto: 'Placard',
             respuestas: [{ pregunta: 'Dirección de instalación', respuesta: 'Corrientes 1234' }],
             resumen: 'Placard para la casa de Ana',
+            variante: { id: 'v1', nombre: 'Blanco 2 puertas', precioCentavos: 400_000, cantidad: 1 },
+            cambios: 'Que tenga la manija de Ana',
           },
           createdAt,
           presupuestos: {
@@ -126,7 +128,14 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
       detalleDerivacion: null,
       notaDevolucion: null,
       totalCentavos: 500_000,
-      solicitud: { productoId: 'p1', nombreProducto: 'Placard', respuestas: [], resumen: '' },
+    });
+    // Queda qué producto y qué versión era; lo que escribió el cliente (también los cambios), no.
+    expect(trasVieja.solicitud).toEqual({
+      productoId: 'p1',
+      nombreProducto: 'Placard',
+      respuestas: [],
+      resumen: '',
+      variante: { id: 'v1', nombre: 'Blanco 2 puertas', precioCentavos: 400_000, cantidad: 1 },
     });
     expect(trasVieja.presupuestos[0]).toMatchObject({ nota: null, totalCentavos: 500_000 });
     expect(trasNueva).toMatchObject({

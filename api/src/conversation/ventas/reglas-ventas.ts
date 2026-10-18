@@ -127,7 +127,7 @@ export function productosMostrados(resultados: string[]): Set<string> {
 export const MARCA_A_PEDIDO = 'Vendés a pedido';
 
 export function reglasDeVenta(agent: Agent, mpConectado: boolean, etapa: EtapaDeCompra | null = null): string {
-  if (leerModalidad(agent) === 'pedido') return reglasAPedido(agent, etapa);
+  if (leerModalidad(agent) === 'pedido') return reglasAPedido(agent, mpConectado, etapa);
   const titular = agent.nombreTitular || 'este negocio';
   const cierre = preguntaDeCierre(mpConectado);
   const entrega = mpConectado ? 'mandale el link de pago' : 'decile que quedó anotado';
@@ -200,13 +200,23 @@ export const REGLA_A_MEDIDA =
   'cómo se fabrican: la descripción y los materiales son para que vos sepas. Si pregunta, contestá con eso.';
 
 /**
+ * A pedido el cliente elige mirando: las fotos van solas, sin que las pida.
+ * El tope por mensaje y las repetidas las corta la validación.
+ */
+export const REGLA_FOTOS_A_PEDIDO =
+  '- Las fotos mandalas sin esperar a que te las pidan: cuando le muestres productos que dicen "tiene foto", ' +
+  'mandale con enviar_imagen_producto la de cada uno que le nombrás (hasta 3). Cuando elija un producto o una ' +
+  'versión, mandale la de esa versión (con su varianteId) o, si no tiene, la del producto, salvo que ya se la ' +
+  'hayas mandado en esta charla. No las describas: seguí la charla.';
+
+/**
  * Las reglas de un comercio que vende a pedido (LAU-21): no hay stock que
  * informar ni compra que cerrar. El asistente toma la solicitud con el detalle
  * que haga falta y se la pasa al dueño con derivar_consulta, que es quien la
  * cotiza. Lo que hace el comercio va con `JSON.stringify`: es texto del dueño
  * y el modelo lo tiene que leer como dato, no como instrucciones.
  */
-function reglasAPedido(agent: Agent, etapa: EtapaDeCompra | null): string {
+function reglasAPedido(agent: Agent, mpConectado: boolean, etapa: EtapaDeCompra | null): string {
   const titular = agent.nombreTitular || 'este negocio';
   const queHace = leerQueHace(agent);
   const datos = leerConfigDatosCliente(agent);
@@ -227,7 +237,17 @@ function reglasAPedido(agent: Agent, etapa: EtapaDeCompra | null): string {
     `${titular} hace. Si trae un precio, decilo sólo como referencia y aclará que el precio final se lo pasamos ` +
     `al cotizar. Nunca inventes ni calcules un precio, un descuento, un plazo de entrega o un costo de envío.\n` +
     `- Si lo que pide no tiene nada que ver con lo que hace ${titular}, decíselo con buena onda; si dudás, ` +
-    `tomalo igual y que lo vea el equipo.\n` +
+    `tomalo igual y que lo vea el equipo.\n` +    `- Si el producto trae "versiones con precio fijo", ofrecéselas (las que le sirvan, hasta 3) y aclarale que ` +
+    `también se lo hacemos a medida. Si elige una tal cual, decile en una frase qué le anotás (versión, cantidad y ` +
+    `precio) y preguntale "${preguntaDeCierre(mpConectado)}". Cuando te diga que no quiere nada más, llamá ` +
+    `pedir_variante con esa versión y ${mpConectado ? 'mandale el link de pago tal cual te lo devuelva' : 'pasale lo que te devuelva'}. ` +
+    `Ahí no hace falta cotizar nada: el precio es ese.\n` +
+    `- Si elige una versión pero le quiere cambiar algo (medida, material, color, un detalle), ya no es la versión ` +
+    `de precio fijo: decile que ese precio deja de valer y que se lo cotizamos. Hacé sólo las preguntas del ` +
+    `producto que tienen que ver con lo que cambia y llamá registrar_solicitud con varianteBaseId (esa versión) y ` +
+    `cambios (lo que quiere distinto, con sus palabras).\n` +
+    `- Si no quiere ninguna versión y quiere algo propio, seguí con las preguntas para cotizar como siempre.\n` +
+    `${REGLA_FOTOS_A_PEDIDO}\n` +
     `- Para tomar la solicitud, si el producto del catálogo trae "para cotizarlo preguntale esto", hacé esas ` +
     `preguntas en ese orden, ofreciendo las opciones que trae cada una; saltá las que el cliente ya contestó y ` +
     `no pases la solicitud sin las necesarias. Si trae materiales y el cliente pregunta por ellos, ofrecé sólo ` +
@@ -598,11 +618,15 @@ export function formatearResultados(
       (producto.tieneImagen ? ', tiene foto' : '') +
       ')' +
       (producto.descripcion ? `: ${JSON.stringify(producto.descripcion.slice(0, 200))}` : '');
-    // Un producto a medida no tiene variantes: se cotiza. Sin el formato "[variante …]:", que es para crear_pedido.
+    // Un producto a medida se cotiza; sus variantes, si tiene, son versiones de precio fijo que se piden con
+    // pedir_variante (el formato "[variante …]:" es el que lee variantesMostradas).
     if (producto.aMedida) {
-      return [cabecera, `   - ${precioAMedida(producto.precioReferenciaCentavos ?? null)}`, ...detalleAMedida(producto)].join(
-        '\n',
-      );
+      return [
+        cabecera,
+        ...versionesFijas(producto.variantes),
+        `   - ${precioAMedida(producto.precioReferenciaCentavos ?? null)}${producto.variantes.length > 0 ? ' (si le quiere cambiar algo a una versión o quiere algo propio)' : ''}`,
+        ...detalleAMedida(producto),
+      ].join('\n');
     }
     const variantes = producto.variantes.map(
       (variante) =>
@@ -657,6 +681,23 @@ export function precioAMedida(precioReferenciaCentavos: number | null): string {
     : `a medida: se cotiza, desde ${formatearCentavos(precioReferenciaCentavos)}`;
 }
 
+/**
+ * Las versiones de precio fijo de un producto a medida, para el modelo. El
+ * precio va seguido de ", " como el de las variantes con stock: así lo leen el
+ * chequeo de precios y el stub de las e2e.
+ */
+export function versionesFijas(variantes: ProductoEncontrado['variantes']): string[] {
+  if (variantes.length === 0) return [];
+  return [
+    '   - versiones con precio fijo (si la quiere tal cual, se pide con pedir_variante y se cobra ese precio):',
+    ...variantes.map(
+      (variante) =>
+        `   - ${JSON.stringify(variante.nombre)} [variante ${variante.varianteId}]: ${formatearCentavos(variante.precioCentavos)}, ` +
+        `precio fijo${variante.tieneImagen ? ', tiene foto' : ''}`,
+    ),
+  ];
+}
+
 /** Una lista de textos del dueño, cada uno como dato. */
 function listaDeTextos(textos: readonly string[]): string {
   return textos.map((texto) => JSON.stringify(texto)).join(', ');
@@ -706,7 +747,16 @@ export function detalleAMedida(producto: Pick<ProductoEncontrado, 'materiales' |
 function lineaDeProducto(producto: ProductoPanorama): string {
   if (producto.aMedida) {
     // Sin los materiales: el listado se le muestra tal cual al cliente, y de eso sólo se habla si pregunta.
-    return `- ${JSON.stringify(producto.nombre)}: ${precioAMedida(producto.precioDesdeCentavos)}`;
+    // El id y la foto son para mandarle las fotos de lo que le mostrás; el id no se le muestra.
+    const versiones =
+      producto.variantesFijas && producto.varianteFijaDesdeCentavos != null
+        ? `; ${producto.variantesFijas === 1 ? '1 versión' : `${producto.variantesFijas} versiones`} con precio fijo ` +
+          `desde ${formatearCentavos(producto.varianteFijaDesdeCentavos)}`
+        : '';
+    return (
+      `- ${JSON.stringify(producto.nombre)} [producto ${producto.productoId}]${producto.tieneImagen ? ' (tiene foto)' : ''}: ` +
+      `${precioAMedida(producto.precioDesdeCentavos)}${versiones}`
+    );
   }
   const precio = formatearCentavos(producto.precioDesdeCentavos ?? 0); // con stock siempre tiene
   const desde = producto.variosPrecios ? `desde ${precio}` : precio;
@@ -758,8 +808,9 @@ export function formatearCatalogo(
           : '';
       if (aPedido) {
         return (
-          `Productos a medida${de} (mostrale la lista entera, en este orden; se cotizan, y "desde" es el precio de ` +
-          `referencia que puso el dueño, no el precio final):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
+          `Productos a medida${de} (mostrale la lista entera, en este orden, sin los ids entre corchetes; se ` +
+          `cotizan, y "desde" es el precio de referencia que puso el dueño, no el precio final; las versiones con ` +
+          `precio fijo se ven buscando el producto):\n${resultado.productos.map(lineaDeProducto).join('\n')}${resto}`
         );
       }
       return (
@@ -900,7 +951,14 @@ export function formatearStockDueno(consulta: string, productos: ProductoEncontr
   return productos
     .map((producto) => {
       if (producto.aMedida) {
-        return `${JSON.stringify(producto.nombre)} (código ${producto.codigo})\n   - ${precioAMedida(producto.precioReferenciaCentavos ?? null)}, sin stock`;
+        const versiones = producto.variantes.map(
+          (variante) => `   - ${variante.nombre} (SKU ${variante.sku}): ${formatearCentavos(variante.precioCentavos)}, precio fijo, sin stock`,
+        );
+        return [
+          `${JSON.stringify(producto.nombre)} (código ${producto.codigo})`,
+          ...versiones,
+          `   - ${precioAMedida(producto.precioReferenciaCentavos ?? null)}, sin stock`,
+        ].join('\n');
       }
       const variantes = producto.variantes.map((variante) => {
         const unidades =
@@ -1002,10 +1060,15 @@ export function formatearSolicitudRegistrada(
   );
 }
 
-/** Lo que vuelve al modelo después de aceptar_presupuesto. */
-export function formatearCobroAMedida(agent: Agent, venta: VentaConItems): string {
+/**
+ * Lo que vuelve al modelo después de aceptar_presupuesto o de pedir_variante
+ * (una versión de precio fijo pedida tal cual: no hubo presupuesto que aceptar).
+ */
+export function formatearCobroAMedida(agent: Agent, venta: VentaConItems, deVariante = false): string {
   const total = formatearCentavos(venta.totalCentavos ?? 0);
-  const base = `Presupuesto aceptado [pedido ${venta.id}] ${nombreDePedido(venta)}: total ${total}.`;
+  const base = deVariante
+    ? `Pedido anotado [pedido ${venta.id}] ${nombreDePedido(venta)}: total ${total}, el precio fijo de esa versión.`
+    : `Presupuesto aceptado [pedido ${venta.id}] ${nombreDePedido(venta)}: total ${total}.`;
   if (venta.linkPago) {
     const propio = mensajePropio(agent, 'linkPago');
     if (propio) {

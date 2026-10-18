@@ -64,6 +64,8 @@ describe('el texto que lee el cliente', () => {
     nombreProducto: 'Placard',
     respuestas: [{ pregunta: 'Ancho', respuesta: '120' }],
     resumen: '',
+    variante: null,
+    cambios: null,
   };
 
   it('sólo el total por defecto, con lo que pidió y la pregunta para avanzar', () => {
@@ -76,6 +78,15 @@ describe('el texto que lee el cliente', () => {
       '*Presupuesto de Placard*\nLo que nos pediste: Ancho: 120.\n*Total: $ 59.000*\n\n' +
         '¿Querés que avancemos? Si me decís que sí, te paso el link de pago.',
     );
+  });
+
+  it('sobre una versión con cambios, le recuerda al cliente de cuál partió y qué cambia', () => {
+    const texto = textoDelPresupuesto(
+      { renglones, totalCentavos: 5_900_000, estimativo: false, detalleAlCliente: false, nota: null },
+      { ...solicitud, variante: { id: 'v-1', nombre: 'Blanco 2 puertas', precioCentavos: 4_000_000, cantidad: 1 }, cambios: 'con 3 puertas' },
+      cierreDelPresupuesto(true),
+    );
+    expect(texto).toContain('Sobre Blanco 2 puertas, con estos cambios: con 3 puertas.');
   });
 
   it('con detalle muestra cada renglón; estimativo, vigencia y nota sólo si están', () => {

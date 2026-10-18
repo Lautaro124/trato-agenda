@@ -287,6 +287,8 @@ export type VariantePublica = Pick<
   /** Lo que paga hoy el cliente: `precioCentavos` menos el mejor descuento vigente. */
   precioFinalCentavos: number;
   descuento: DescuentoDeVariante | null;
+  /** Cuándo se subió su foto propia (sólo variantes fijas de un producto a medida; null = sin foto). */
+  imagenActualizada: Date | null;
 };
 
 export type ProductoPublico = Pick<
@@ -318,17 +320,17 @@ export type ProductoPublico = Pick<
  */
 export function aProductoPublico(
   producto: Producto & {
-    variantes: Variante[];
+    variantes: Array<Variante & { imagen?: { updatedAt: Date } | null }>;
     descuento?: Descuento | null;
     imagen?: { updatedAt: Date } | null;
   },
   promociones: DescuentoParaAplicar[] = [],
   ahora: Date = new Date(),
 ): ProductoPublico {
-  const candidatos = [
-    ...(producto.descuento ? [producto.descuento] : []),
-    ...promociones.filter((promocion) => promocion.productoId === null),
-  ];
+  // Un producto a medida no lleva descuento: sus variantes fijas valen lo que dicen.
+  const candidatos = leerSolicitud(producto.solicitud)
+    ? []
+    : [...(producto.descuento ? [producto.descuento] : []), ...promociones.filter((promocion) => promocion.productoId === null)];
   return {
     id: producto.id,
     codigo: producto.codigo,
@@ -360,6 +362,7 @@ export function aProductoPublico(
           activo: variante.activo,
           precioFinalCentavos: aplicado?.precioFinalCentavos ?? variante.precioCentavos,
           descuento: aDescuentoDeVariante(aplicado),
+          imagenActualizada: variante.imagen?.updatedAt ?? null,
         };
       }),
   };

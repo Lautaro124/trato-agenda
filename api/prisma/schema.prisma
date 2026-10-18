@@ -46,6 +46,7 @@ model User {
   productos       Producto[]
   descuentos      Descuento[]
   imagenesProducto ImagenProducto[]
+  imagenesVariante ImagenVariante[]
   ventas          Venta[]
   cuentaMercadoPago CuentaMercadoPago?
   notificaciones  Notificacion[]
@@ -434,6 +435,8 @@ model Variante {
   activo Boolean @default(true)
 
   itemsVenta ItemVenta[]
+  /// La foto propia de una variante fija de un producto a medida, si tiene.
+  imagen     ImagenVariante?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -487,6 +490,29 @@ model ImagenProducto {
 
   datos Bytes
   /// Tamaño de `datos`, para el uso de la cuenta sin leer los bytes.
+  bytes Int
+  ancho Int
+  alto  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+/// La foto de una variante fija de un producto a medida: el asistente la manda
+/// cuando el cliente elige esa versión. Mismo formato y mismo cupo por cuenta
+/// que ImagenProducto (comercio/imagenes.rules.ts); aparte para no tocar el
+/// producto único de esa tabla.
+model ImagenVariante {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  varianteId String   @unique
+  variante   Variante @relation(fields: [varianteId], references: [id], onDelete: Cascade)
+
+  datos Bytes
   bytes Int
   ancho Int
   alto  Int

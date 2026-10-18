@@ -128,6 +128,8 @@ function crearPedidosAMedida() {
     cotizarSolicitud: vi.fn().mockResolvedValue({ modo: 'manual' }),
     cobrar: vi.fn(),
     derivar: vi.fn(),
+    varianteParaPedir: vi.fn().mockResolvedValue(null),
+    pedirVariante: vi.fn(),
   };
 }
 
@@ -300,7 +302,7 @@ describe('grafo de ventas', () => {
     await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
     const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
     // Las de los pedidos a medida sólo existen a pedido.
-    const aPedido = ['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona'];
+    const aPedido = ['registrar_solicitud', 'pedir_variante', 'aceptar_presupuesto', 'derivar_a_persona'];
     expect(herramientas.map((h) => h.name)).toEqual(ACCIONES_VENTAS_IDS.filter((id) => !aPedido.includes(id)));
   });
 
@@ -662,7 +664,7 @@ describe('grafo de ventas', () => {
 
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
 
-      expect(imagenes.estadoDeFoto).toHaveBeenCalledWith('user-1', 'p-1');
+      expect(imagenes.estadoDeFoto).toHaveBeenCalledWith('user-1', 'p-1', undefined);
       const tool = resultadoDe(resultado.messages, 'enviar_imagen_producto');
       expect(tool.content).toContain('le llega al cliente junto con tu respuesta');
       expect(tool.artifact).toEqual({ productoId: 'p-1', nombre: 'Mate de calabaza' });
@@ -694,15 +696,16 @@ describe('grafo de ventas', () => {
             { id: 'f3', name: 'enviar_imagen_producto', args: { productoId: 'p-2' } },
           ],
         }),
-        // En otra ida y vuelta de la misma respuesta: ya van dos.
+        // En otra ida y vuelta de la misma respuesta: ya van dos, entra la tercera y no la cuarta.
         llamada('enviar_imagen_producto', { productoId: 'p-3' }, 'f4'),
+        llamada('enviar_imagen_producto', { productoId: 'p-4' }, 'f5'),
         new AIMessage('Ahí van.'),
       ]);
 
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
 
-      expect(imagenes.estadoDeFoto).toHaveBeenCalledTimes(2);
-      expect(imagenesDeLaVuelta(resultado.messages).map((imagen) => imagen.productoId)).toEqual(['p-1', 'p-2']);
+      expect(imagenes.estadoDeFoto).toHaveBeenCalledTimes(3);
+      expect(imagenesDeLaVuelta(resultado.messages).map((imagen) => imagen.productoId)).toEqual(['p-1', 'p-2', 'p-3']);
       const rechazos = toolMessages(resultado.messages).filter((mensaje) => !mensaje.artifact);
       expect(rechazos.map((mensaje) => mensaje.content)).toEqual([
         expect.stringContaining('ya sale con esta respuesta'),
@@ -1029,6 +1032,154 @@ describe('grafo de ventas', () => {
       const nombres = herramientas.map((h) => h.name);
       expect(nombres).toEqual(expect.arrayContaining(['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona']));
       expect(nombres).not.toContain('crear_pedido');
+    });
+
+    describe('versiones con precio fijo', () => {
+      const versión = (varianteId: string, nombre: string, precioCentavos: number, tieneImagen = false) => ({
+        varianteId,
+        sku: varianteId,
+        nombre,
+        precioCentavos,
+        precioFinalCentavos: precioCentavos,
+        descuento: null,
+        hayStock: true,
+        stock: 'disponible',
+        unidades: null,
+        reservadas: 0,
+        stockMinimo: null,
+        tieneImagen,
+      });
+      const MESA = {
+        ...PLACARD,
+        productoId: 'p-mesa',
+        codigo: 'MESA',
+        nombre: 'Mesa ratona',
+        tieneImagen: true,
+        preguntas: [],
+        variantes: [versión('v-roble', 'Roble 1,20 m', 18_000_000, true), versión('v-pino', 'Pino 1,00 m', 12_000_000)],
+      } as unknown as ProductoEncontrado;
+      const BUSCAR_MESA = llamada('buscar_productos', { consulta: 'mesa' }, 'call-busqueda');
+      const buscaMesa = () => ({ buscar: vi.fn().mockResolvedValue([MESA]) });
+      const PEDIDO_VARIANTE = {
+        ...PEDIDO,
+        id: 'v-9',
+        estado: 'pendiente_pago',
+        totalCentavos: 36_000_000,
+        linkPago: 'https://mp/pagar/v-9',
+        reservaVenceAt: new Date('2099-01-01T15:30:00-03:00'),
+        solicitud: {
+          productoId: 'p-mesa',
+          nombreProducto: 'Mesa ratona',
+          respuestas: [],
+          resumen: '',
+          variante: { id: 'v-roble', nombre: 'Roble 1,20 m', precioCentavos: 18_000_000, cantidad: 2 },
+          cambios: null,
+        },
+        items: [{ nombreProducto: 'Mesa ratona', nombreVariante: 'Roble 1,20 m', cantidad: 2, subtotalCentavos: 36_000_000 }],
+      };
+
+      it('la búsqueda trae las versiones con su id y el modelo tiene pedir_variante', async () => {
+        const llm = crearModelo([BUSCAR_MESA, new AIMessage('Tenemos dos versiones.')]);
+        const resultado = await correr({ prisma: crearPrisma({ agent: A_PEDIDO }), llm, busqueda: buscaMesa() });
+        const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+        expect(herramientas.map((h) => h.name)).toContain('pedir_variante');
+        expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain(
+          '"Roble 1,20 m" [variante v-roble]: $ 180.000, precio fijo, tiene foto',
+        );
+      });
+
+      it('tal cual: pedir_variante anota el pedido con su precio y le pasa el link al modelo', async () => {
+        const pedidos = crearPedidosAMedida();
+        pedidos.pedirVariante.mockResolvedValue(PEDIDO_VARIANTE);
+        const resultado = await correr({
+          prisma: crearPrisma({ agent: A_PEDIDO, mpConectado: true }),
+          llm: crearModelo([
+            BUSCAR_MESA,
+            llamada('pedir_variante', { varianteId: 'v-inventada', cantidad: 2, nombreCliente: 'Ana' }, 'c2'),
+            llamada('pedir_variante', { varianteId: ' v-roble ', cantidad: 2, nombreCliente: 'Ana' }, 'c3'),
+            new AIMessage('Listo Ana, te paso el link: https://mp/pagar/v-9'),
+          ]),
+          busqueda: buscaMesa(),
+          pedidos,
+        });
+
+        const [inventada, anotada] = toolMessages(resultado.messages).filter((m) => m.name === 'pedir_variante');
+        expect(inventada.content).toContain('no salió de ninguna búsqueda');
+        expect(pedidos.pedirVariante).toHaveBeenCalledOnce();
+        expect(pedidos.pedirVariante.mock.calls[0][0]).toMatchObject({
+          varianteId: 'v-roble',
+          cantidad: 2,
+          nombreCliente: 'Ana',
+          dePrueba: false,
+        });
+        expect(anotada.content).toContain('Pedido anotado [pedido v-9]');
+        expect(anotada.content).toContain('total $ 360.000, el precio fijo de esa versión');
+        expect(anotada.content).toContain('https://mp/pagar/v-9');
+      });
+
+      it('con cambios: registrar_solicitud lleva la versión de base y lo que cambia', async () => {
+        const pedidos = crearPedidosAMedida();
+        pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-mesa', nombre: 'Mesa ratona', solicitud: { preguntas: [] } });
+        pedidos.varianteParaPedir.mockImplementation(async (_userId: string, id: string) =>
+          id === 'v-roble'
+            ? { productoId: 'p-mesa', nombreProducto: 'Mesa ratona', varianteId: 'v-roble', nombreVariante: 'Roble 1,20 m', precioCentavos: 18_000_000 }
+            : { productoId: 'p-otro', nombreProducto: 'Otro', varianteId: id, nombreVariante: 'Otra', precioCentavos: 1 },
+        );
+        pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
+        const base = { productoId: 'p-mesa', nombreCliente: 'Ana', respuestas: [], resumen: 'Mesa más larga' };
+        const resultado = await correr({
+          prisma: crearPrisma({ agent: A_PEDIDO }),
+          llm: crearModelo([
+            BUSCAR_MESA,
+            llamada('registrar_solicitud', { ...base, varianteBaseId: 'v-roble' }, 'c2'),
+            llamada('registrar_solicitud', { ...base, varianteBaseId: 'v-pino', cambios: 'de 1,50 m' }, 'c3'),
+            llamada('registrar_solicitud', { ...base, varianteBaseId: 'v-roble', cambios: ' de 1,50 m de largo ' }, 'c4'),
+            new AIMessage('Te la cotizamos.'),
+          ]),
+          busqueda: buscaMesa(),
+          pedidos,
+        });
+
+        const [sinCambios, deOtro, anotada] = toolMessages(resultado.messages).filter((m) => m.name === 'registrar_solicitud');
+        expect(sinCambios.content).toContain('usá pedir_variante');
+        expect(deOtro.content).toContain('no es de este producto');
+        expect(anotada.content).toContain('Solicitud anotada');
+        expect(pedidos.registrarSolicitud).toHaveBeenCalledOnce();
+        expect(pedidos.registrarSolicitud.mock.calls[0][0]).toMatchObject({
+          variante: { id: 'v-roble', nombre: 'Roble 1,20 m', precioCentavos: 18_000_000, cantidad: 1 },
+          cambios: 'de 1,50 m de largo',
+        });
+      });
+
+      it('la foto de la versión va con su id; sin foto propia va la del producto, y a pedido no se repite', async () => {
+        const imagenes = {
+          estadoDeFoto: vi.fn(async (_userId: string, _id: string, varianteId?: string) =>
+            varianteId === 'v-roble'
+              ? { nombre: 'Mesa ratona · Roble 1,20 m', tieneFoto: true, deVariante: true }
+              : { nombre: 'Mesa ratona', tieneFoto: true, deVariante: false },
+          ),
+        };
+        const llm = crearModelo([
+          BUSCAR_MESA,
+          new AIMessage({
+            content: '',
+            tool_calls: [
+              { id: 'f1', name: 'enviar_imagen_producto', args: { productoId: 'p-mesa' } },
+              { id: 'f2', name: 'enviar_imagen_producto', args: { productoId: 'p-mesa', varianteId: 'v-roble' } },
+            ],
+          }),
+          llamada('enviar_imagen_producto', { productoId: 'p-mesa', varianteId: 'v-pino' }, 'f3'),
+          new AIMessage('Mirá.'),
+        ]);
+        const resultado = await correr({ prisma: crearPrisma({ agent: A_PEDIDO }), llm, busqueda: buscaMesa(), imagenes });
+
+        expect(imagenesDeLaVuelta(resultado.messages)).toEqual([
+          { productoId: 'p-mesa', nombre: 'Mesa ratona' },
+          { productoId: 'p-mesa', nombre: 'Mesa ratona · Roble 1,20 m', varianteId: 'v-roble' },
+        ]);
+        // El pino no tiene foto propia y la del producto ya salió: no se repite.
+        expect(resultadoDe(resultado.messages, 'enviar_imagen_producto').content).toContain('no tiene foto propia');
+      });
     });
 
     it('registrar_solicitud valida contra las preguntas del producto y anota el pedido', async () => {
