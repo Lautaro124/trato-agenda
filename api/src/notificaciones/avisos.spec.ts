@@ -61,20 +61,6 @@ describe('avisos', () => {
     expect(aviso.cuerpo).not.toContain('x'.repeat(LARGO_MAX_CONSULTA + 1));
   });
 
-  it('a pedido, lo derivado es una solicitud para cotizar', () => {
-    const aviso = avisoConsultaDerivada({
-      conversationId: 'c-1',
-      nombreCliente: 'Ana',
-      telefonoCliente: null,
-      resumen: 'Mesa de 1,80 x 0,90 en paraíso para fin de mes',
-      dePrueba: false,
-      aPedido: true,
-    });
-    expect(aviso.titulo).toBe('Solicitud para cotizar');
-    expect(aviso.cuerpo).toBe('Ana pidió una cotización: "Mesa de 1,80 x 0,90 en paraíso para fin de mes". Pasale el precio por su chat.');
-    expect(aviso.clave).toBe('consulta:c-1');
-  });
-
   it('por WhatsApp va el título y el cuerpo', () => {
     expect(textoParaWhatsapp({ titulo: 'T', cuerpo: 'C' })).toBe('T\nC');
   });

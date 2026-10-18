@@ -8,7 +8,6 @@ import {
   ActualizarDatosClienteDto,
   ActualizarLocalDto,
   ActualizarMensajesDto,
-  ActualizarModalidadDto,
   ActualizarTiposEventoDto,
   GenerarAgenteVentasDto,
   GenerateAgentDto,
@@ -57,16 +56,6 @@ export class AgentsController {
     @Body() dto: ActualizarDatosClienteDto,
   ): Promise<AgentPublico> {
     const agent = await this.agentsService.actualizarDatosCliente(user.id, dto);
-    return aAgentPublico(agent);
-  }
-
-  /** Con stock o a pedido, y qué hace el comercio (LAU-21). */
-  @Put('me/modalidad')
-  async actualizarModalidad(
-    @CurrentUser() user: User,
-    @Body() dto: ActualizarModalidadDto,
-  ): Promise<AgentPublico> {
-    const agent = await this.agentsService.actualizarModalidad(user.id, dto);
     return aAgentPublico(agent);
   }
 

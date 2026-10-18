@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ACCIONES_VENTAS_IDS } from '../../agents/agent-catalog.js';
+import type { Agent } from '../../generated/prisma/client.js';
 import { accionesDeVentas, herramientasDeVentas } from './ventas-tools.js';
+
+const A_MEDIDA = ['registrar_solicitud', 'pedir_variante', 'aceptar_presupuesto', 'derivar_a_persona'];
 
 describe('accionesDeVentas', () => {
   it('con stock tiene todo, también lo que llegó después de la búsqueda', () => {
@@ -10,40 +13,38 @@ describe('accionesDeVentas', () => {
     );
   });
 
-  it('a pedido no cierra ni cancela compras: no tiene crear_pedido ni cancelar_pedido', () => {
-    const acciones = accionesDeVentas([...ACCIONES_VENTAS_IDS], 'pedido');
-    expect(acciones).not.toContain('crear_pedido');
-    expect(acciones).not.toContain('cancelar_pedido');
-    expect(acciones).toContain('derivar_consulta');
-    expect(acciones).toContain('buscar_productos');
+  it('con productos a medida suma las suyas y sigue cerrando compras de stock', () => {
+    const acciones = accionesDeVentas([...ACCIONES_VENTAS_IDS], { aMedida: true });
+    expect(acciones).toContain('crear_pedido');
+    expect(acciones).toContain('cancelar_pedido');
+    expect(acciones).toEqual(expect.arrayContaining(A_MEDIDA));
   });
 
-  it('a pedido tiene las de los pedidos a medida aunque el agente se haya guardado sin ellas (LAU-27)', () => {
-    const acciones = accionesDeVentas(['buscar_productos', 'derivar_consulta'], 'pedido');
-    expect(acciones).toEqual(
-      expect.arrayContaining(['registrar_solicitud', 'pedir_variante', 'aceptar_presupuesto', 'derivar_a_persona']),
-    );
+  it('las de a medida llegan aunque el agente se haya guardado sin ellas (LAU-27), sin repetirse', () => {
+    const acciones = accionesDeVentas(['buscar_productos', 'derivar_consulta'], { aMedida: true });
+    expect(acciones).toEqual(expect.arrayContaining(A_MEDIDA));
     expect(new Set(acciones).size).toBe(acciones.length);
   });
 
-  it('con stock no tiene las de los pedidos a medida aunque estén guardadas', () => {
-    const acciones = accionesDeVentas([...ACCIONES_VENTAS_IDS], 'stock');
-    for (const accion of ['registrar_solicitud', 'pedir_variante', 'aceptar_presupuesto', 'derivar_a_persona']) {
-      expect(acciones).not.toContain(accion);
-    }
+  it('sin productos a medida no tiene las de los pedidos a medida aunque estén guardadas', () => {
+    const acciones = accionesDeVentas([...ACCIONES_VENTAS_IDS]);
+    for (const accion of A_MEDIDA) expect(acciones).not.toContain(accion);
   });
 });
 
 describe('herramientasDeVentas', () => {
-  const nombres = (agent?: { modalidadVenta: string }) =>
-    herramientasDeVentas([...ACCIONES_VENTAS_IDS], false, agent).map((herramienta) => herramienta.name);
+  const nombres = (contexto?: { tieneAMedida: boolean }) =>
+    herramientasDeVentas([...ACCIONES_VENTAS_IDS], false, contexto && { agent: {} as Agent, ...contexto }).map(
+      (herramienta) => herramienta.name,
+    );
 
-  it('sin agente (o con stock) le muestra crear_pedido al modelo', () => {
+  it('siempre le muestra crear_pedido al modelo', () => {
     expect(nombres()).toContain('crear_pedido');
-    expect(nombres({ modalidadVenta: 'stock' })).toContain('crear_pedido');
+    expect(nombres({ tieneAMedida: true })).toContain('crear_pedido');
   });
 
-  it('a pedido no se la muestra', () => {
-    expect(nombres({ modalidadVenta: 'pedido' })).not.toContain('crear_pedido');
+  it('las de a medida, sólo si la cuenta tiene alguno', () => {
+    expect(nombres({ tieneAMedida: false })).not.toContain('registrar_solicitud');
+    expect(nombres({ tieneAMedida: true })).toContain('registrar_solicitud');
   });
 });

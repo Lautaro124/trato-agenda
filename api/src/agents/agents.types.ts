@@ -26,7 +26,6 @@ import {
   type TipoTitular,
   type TipoUso,
 } from './agent-catalog.js';
-import { MAX_QUE_HACE, MODALIDADES_VENTA, leerModalidad, type ModalidadVenta } from './modalidad-venta.js';
 import { PRECIO_MAX } from './precio.js';
 import {
   CAPACIDAD_MAX,
@@ -240,31 +239,6 @@ export class GenerarAgenteVentasDto {
   @ValidateNested()
   @Type(() => LocalPresencialDto)
   local?: LocalPresencialDto;
-
-  /** El paso "Cómo vendés" (LAU-21). Sin él queda lo guardado, o "stock". */
-  @IsOptional()
-  @IsIn(MODALIDADES_VENTA)
-  modalidadVenta?: ModalidadVenta;
-
-  /** El paso "Qué hacés": obligatorio a pedido (lo exige problemaDeModalidad). */
-  @IsOptional()
-  @IsString()
-  @MaxLength(MAX_QUE_HACE * 2)
-  queHace?: string;
-}
-
-/**
- * Body de `PUT /agents/me/modalidad`. Sin `queHace` queda el que estaba
- * guardado; a pedido tiene que haber uno, venga o ya esté.
- */
-export class ActualizarModalidadDto {
-  @IsIn(MODALIDADES_VENTA)
-  modalidadVenta!: ModalidadVenta;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(MAX_QUE_HACE * 2)
-  queHace?: string;
 }
 
 /** Body de `PUT /agents/me/datos-cliente`: reemplaza la configuración entera. */
@@ -352,9 +326,7 @@ export type AgentPublico = Pick<
   | 'createdAt'
   | 'updatedAt'
   | 'haceEnvios'
-  | 'queHace'
 > & {
-  modalidadVenta: ModalidadVenta;
   tiposEvento: TipoEvento[];
   tipoAsistente: TipoAsistente;
   mensajes: MensajesAgente;
@@ -376,8 +348,6 @@ export function aAgentPublico(agent: Agent): AgentPublico {
     tiposEvento: leerTiposEvento(agent),
     haceEnvios: agent.haceEnvios,
     datosCliente: leerConfigDatosCliente(agent).campos,
-    modalidadVenta: leerModalidad(agent),
-    queHace: agent.queHace,
     mensajes: leerMensajes(agent),
     local: leerLocal(agent, tipoAsistenteDe(agent)),
     allowedActions: agent.allowedActions,

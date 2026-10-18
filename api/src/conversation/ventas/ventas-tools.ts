@@ -6,7 +6,6 @@
  */
 import { z } from 'zod';
 import { esAccionDeVentas, type AccionVentasId } from '../../agents/agent-catalog.js';
-import { leerModalidad, type ModalidadVenta } from '../../agents/modalidad-venta.js';
 import { MOTIVOS_DEL_ASISTENTE } from '../../comercio/pedido-a-medida.rules.js';
 import type { Agent } from '../../generated/prisma/client.js';
 import type { EsquemaHerramienta } from '../conversation-tools.js';
@@ -277,19 +276,13 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
 const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = ['ver_catalogo', 'ver_descuentos', 'enviar_imagen_producto'];
 
 /**
- * Lo que cierra o deshace una compra del catálogo. A pedido (LAU-21) no hay
- * stock que reservar: la solicitud se anota con registrar_solicitud, así que
- * estas herramientas ni se le muestran al modelo ni se aceptan.
+ * Lo que sólo sirve con productos a medida (LAU-24/26/27): anotar la
+ * solicitud, pedir una versión de precio fijo, cobrar un presupuesto aceptado
+ * y pasarle el pedido a una persona. Llegaron después de los primeros
+ * asistentes: las tiene toda cuenta que tenga algún producto a medida, sin
+ * migrar nada, y ninguna otra (sin productos a medida no hay qué cotizar).
  */
-const ACCIONES_SOLO_CON_STOCK: AccionVentasId[] = ['crear_pedido', 'cancelar_pedido'];
-
-/**
- * Lo que sólo existe a pedido (LAU-24/26/27): anotar la solicitud, pedir una
- * versión de precio fijo, cobrar un presupuesto aceptado y pasarle el pedido a
- * una persona. Llegaron después de
- * los primeros asistentes: las tiene toda cuenta a pedido, sin migrar nada.
- */
-const ACCIONES_SOLO_A_PEDIDO: AccionVentasId[] = [
+const ACCIONES_A_MEDIDA: AccionVentasId[] = [
   'registrar_solicitud',
   'pedir_variante',
   'aceptar_presupuesto',
@@ -301,28 +294,27 @@ const ACCIONES_SOLO_A_PEDIDO: AccionVentasId[] = [
  * `ver_descuentos` y `enviar_imagen_producto` llegaron después de que se crearan los primeros
  * asistentes, y su `allowedActions` está guardado sin ellas: las tiene todo
  * agente que puede buscar en el catálogo, sin migrar ni regenerar nada (lo
- * mismo que los bloques de reglas que viven en código).
+ * mismo que los bloques de reglas que viven en código). Una misma cuenta vende
+ * productos de stock y a medida: `crear_pedido` siempre, las de a medida
+ * cuando tiene alguno.
  */
-export function accionesDeVentas(allowedActions: string[], modalidad: ModalidadVenta = 'stock'): AccionVentasId[] {
+export function accionesDeVentas(allowedActions: string[], { aMedida = false }: { aMedida?: boolean } = {}): AccionVentasId[] {
   const acciones = allowedActions.filter(esAccionDeVentas);
   if (acciones.includes('buscar_productos')) {
     for (const accion of ACCIONES_CON_LA_BUSQUEDA) if (!acciones.includes(accion)) acciones.push(accion);
   }
-  if (modalidad !== 'pedido') return acciones.filter((accion) => !ACCIONES_SOLO_A_PEDIDO.includes(accion));
-  return [
-    ...acciones.filter((accion) => !ACCIONES_SOLO_CON_STOCK.includes(accion) && !ACCIONES_SOLO_A_PEDIDO.includes(accion)),
-    ...ACCIONES_SOLO_A_PEDIDO,
-  ];
+  const sinAMedida = acciones.filter((accion) => !ACCIONES_A_MEDIDA.includes(accion));
+  return aMedida ? [...sinAMedida, ...ACCIONES_A_MEDIDA] : sinAMedida;
 }
 
 /** Herramientas visibles para un agente de ventas: las habilitadas + las del dueño si corresponde. */
 export function herramientasDeVentas(
   allowedActions: string[],
   esPropietario: boolean,
-  agent?: Pick<Agent, 'modalidadVenta'>,
+  contexto?: { agent: Agent; tieneAMedida?: boolean },
 ): EsquemaHerramienta[] {
   return [
-    ...accionesDeVentas(allowedActions, agent ? leerModalidad(agent) : 'stock').map((id) => ESQUEMAS_VENTAS[id]),
+    ...accionesDeVentas(allowedActions, { aMedida: contexto?.tieneAMedida ?? false }).map((id) => ESQUEMAS_VENTAS[id]),
     ...(esPropietario ? Object.values(ESQUEMAS_PROPIETARIO_VENTAS) : []),
   ];
 }

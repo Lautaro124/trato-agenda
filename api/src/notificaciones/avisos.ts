@@ -114,16 +114,13 @@ export function avisoConsultaDerivada(consulta: {
   telefonoCliente: string | null;
   resumen: string;
   dePrueba: boolean;
-  /** Comercio a pedido (LAU-21): lo que se deriva es una solicitud para cotizar. */
-  aPedido?: boolean;
 }): Aviso {
+  // Las solicitudes para cotizar tienen sus propios avisos (registrar_solicitud): esto es siempre una consulta.
   const resumen = consulta.resumen.slice(0, LARGO_MAX_CONSULTA);
   return {
     tipo: 'consulta_derivada',
-    titulo: `${prueba(consulta)}${consulta.aPedido ? 'Solicitud para cotizar' : 'Consulta de un cliente'}`,
-    cuerpo: consulta.aPedido
-      ? `${quien(consulta)} pidió una cotización: "${resumen}". Pasale el precio por su chat.`
-      : `${quien(consulta)} preguntó algo que el asistente no sabe responder: "${resumen}".`,
+    titulo: `${prueba(consulta)}Consulta de un cliente`,
+    cuerpo: `${quien(consulta)} preguntó algo que el asistente no sabe responder: "${resumen}".`,
     // Una por conversación mientras siga sin leer (y además HORAS_ENTRE_CONSULTAS).
     clave: `consulta:${consulta.conversationId}`,
   };

@@ -39,7 +39,7 @@ export type ProductoPanorama = {
    * En un producto a medida, su precio de referencia (null = sin precio).
    */
   precioDesdeCentavos: number | null;
-  /** Producto a medida (cuenta a pedido): no tiene stock, se cotiza. */
+  /** Producto a medida (tiene `solicitud`): no tiene stock, se cotiza. */
   aMedida?: boolean;
   /** Producto a medida: con qué materiales se hace. */
   materiales?: string[];
@@ -49,7 +49,7 @@ export type ProductoPanorama = {
    */
   varianteFijaDesdeCentavos?: number | null;
   variantesFijas?: number;
-  /** Si tiene foto: el asistente la puede mandar al listarlo (sólo a pedido). */
+  /** Si tiene foto: el asistente la puede mandar al listarlo (sólo los a medida). */
   tieneImagen?: boolean;
   /** true si las variantes con stock no cuestan todas lo mismo ("desde $X"). */
   variosPrecios: boolean;

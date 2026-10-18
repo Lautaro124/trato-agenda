@@ -243,14 +243,13 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
           tipoUso: 'comercio',
           descripcion: '',
           tipoAsistente: 'ventas',
-          modalidadVenta: 'pedido',
           nombreTitular: 'Casa',
           nombreBot: 'Sol',
           tiposEvento: [],
           horaDesde: '00:00',
           horaHasta: '23:59',
         },
-        update: { tipoAsistente: 'ventas', modalidadVenta: 'pedido' },
+        update: { tipoAsistente: 'ventas' },
       });
       const melamina = await costos.crearInsumo(dueno.id, { tipo: 'material', nombre: 'Melamina', unidad: 'm', costoCentavos: 1_000_000 });
       await costos.guardarConfig(dueno.id, {

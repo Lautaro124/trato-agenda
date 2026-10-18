@@ -17,7 +17,6 @@ import type { PedidosAMedidaService } from '../../../comercio/pedidos-a-medida.s
 import { MOTIVOS_DEL_ASISTENTE, type MotivoDelAsistente } from '../../../comercio/pedido-a-medida.rules.js';
 import { validarRespuestasSolicitud, type RespuestaSolicitud } from '../../../comercio/solicitud.rules.js';
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
-import { leerModalidad } from '../../../agents/modalidad-venta.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
@@ -160,7 +159,6 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         telefonoCliente: telefonoDeJid(state.remoteJid),
         resumen: String(args.resumen),
         dePrueba: state.esPropietario,
-        aPedido: leerModalidad(agent) === 'pedido',
       }),
     );
     return `Listo, le avisé a ${titular}. ${decile}`;
@@ -174,6 +172,9 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
   async function registrarSolicitud(state: EstadoVentasValue, args: Args): Promise<string> {
     const producto = await deps.pedidos.productoParaSolicitud(state.ownerUserId, String(args.productoId));
     if (!producto) return 'Ese producto ya no está en el catálogo. Volvé a buscarlo.';
+    if (!producto.solicitud) {
+      return 'Ese producto es de stock, no a medida: no se cotiza. Si lo quiere, anotalo con crear_pedido.';
+    }
     const respuestas = validarRespuestasSolicitud(producto.solicitud, args.respuestas);
     if (!respuestas.ok) {
       return `${respuestas.motivo} Preguntáselo al cliente (de a una o dos preguntas) antes de anotar la solicitud.`;
@@ -316,11 +317,10 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       return `${nombre} no tiene foto. Decíselo al cliente y contale cómo es con lo que dice el catálogo.`;
     }
     const imagen: ImagenAEnviar = { productoId, nombre: foto.nombre, ...(foto.deVariante && varianteId ? { varianteId } : {}) };
-    // Una versión sin foto propia manda la del producto: a pedido, si esa ya le llegó, no se repite.
+    // Una versión sin foto propia (sólo las hay a medida) manda la del producto: si esa ya le llegó, no se repite.
     if (
       !imagen.varianteId &&
       varianteId &&
-      leerModalidad(state.contexto.agent) === 'pedido' &&
       fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)).has(claveDeFoto(imagen))
     ) {
       return `Esa versión no tiene foto propia y la de ${nombre} ya se la mandaste: no la repitas, seguí la charla.`;

@@ -46,7 +46,7 @@ export function imagenesDeLaVuelta(messages: BaseMessage[]): ImagenAEnviar[] {
 
 /**
  * Las fotos que ya le llegaron al cliente en la parte de la charla que ve el
- * modelo: a pedido el asistente las manda solo, y mandar dos veces la misma
+ * modelo: las de a medida el asistente las manda solo, y mandar dos veces la misma
  * es ruido.
  */
 export function fotosMandadas(messages: BaseMessage[]): Set<string> {

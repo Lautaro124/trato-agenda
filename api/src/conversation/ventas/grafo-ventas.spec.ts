@@ -61,6 +61,8 @@ function crearPrisma(
     mpConectado?: boolean;
     pedidos?: unknown[];
     pedidosAMedida?: unknown[];
+    /** Productos a medida activos de la cuenta: con alguno se suman sus reglas y herramientas. */
+    productosAMedida?: number;
     agent?: Record<string, unknown>;
   } = {},
 ) {
@@ -69,7 +71,9 @@ function crearPrisma(
     conversation: { findUniqueOrThrow: vi.fn().mockResolvedValue(CONVERSATION) },
     producto: {
       groupBy: vi.fn().mockResolvedValue([{ categoria: 'Mates', _count: { _all: 12 } }]),
-      count: vi.fn().mockResolvedValue(opciones.totalProductos ?? 12),
+      count: vi.fn().mockImplementation((args: { where?: { solicitud?: unknown } }) =>
+        Promise.resolve(args?.where?.solicitud ? (opciones.productosAMedida ?? 0) : (opciones.totalProductos ?? 12)),
+      ),
     },
     cuentaMercadoPago: { findUnique: vi.fn().mockResolvedValue(opciones.mpConectado ? { id: 'mp-1' } : null) },
     venta: {
@@ -301,9 +305,9 @@ describe('grafo de ventas', () => {
     const llm = crearModelo([new AIMessage('Hola.')]);
     await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
     const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
-    // Las de los pedidos a medida sólo existen a pedido.
-    const aPedido = ['registrar_solicitud', 'pedir_variante', 'aceptar_presupuesto', 'derivar_a_persona'];
-    expect(herramientas.map((h) => h.name)).toEqual(ACCIONES_VENTAS_IDS.filter((id) => !aPedido.includes(id)));
+    // Las de los pedidos a medida sólo están si la cuenta tiene algún producto a medida.
+    const aMedida = ['registrar_solicitud', 'pedir_variante', 'aceptar_presupuesto', 'derivar_a_persona'];
+    expect(herramientas.map((h) => h.name)).toEqual(ACCIONES_VENTAS_IDS.filter((id) => !aMedida.includes(id)));
   });
 
   it('busca en el catálogo y le devuelve al modelo precios, stock e ids de variante', async () => {
@@ -994,8 +998,8 @@ describe('grafo de ventas', () => {
     });
   });
 
-  describe('a pedido: pedidos a medida (LAU-27)', () => {
-    const A_PEDIDO = { ...AGENT, modalidadVenta: 'pedido', queHace: 'Muebles de melamina a medida para toda la casa.' };
+  describe('con productos a medida: pedidos a medida (LAU-27)', () => {
+    const A_PEDIDO = AGENT;
     const PLACARD: ProductoEncontrado = {
       productoId: 'p-placard',
       codigo: 'PLACARD',
@@ -1025,13 +1029,13 @@ describe('grafo de ventas', () => {
       presupuestos: [],
     };
 
-    it('las herramientas de stock no están y las de pedidos a medida sí', async () => {
+    it('las herramientas de pedidos a medida se suman a las de stock', async () => {
       const llm = crearModelo([new AIMessage('Hola.')]);
-      await correr({ prisma: crearPrisma({ agent: A_PEDIDO }), llm, busqueda: { buscar: vi.fn() } });
+      await correr({ prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }), llm, busqueda: { buscar: vi.fn() } });
       const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
       const nombres = herramientas.map((h) => h.name);
       expect(nombres).toEqual(expect.arrayContaining(['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona']));
-      expect(nombres).not.toContain('crear_pedido');
+      expect(nombres).toContain('crear_pedido');
     });
 
     describe('versiones con precio fijo', () => {
@@ -1080,7 +1084,7 @@ describe('grafo de ventas', () => {
 
       it('la búsqueda trae las versiones con su id y el modelo tiene pedir_variante', async () => {
         const llm = crearModelo([BUSCAR_MESA, new AIMessage('Tenemos dos versiones.')]);
-        const resultado = await correr({ prisma: crearPrisma({ agent: A_PEDIDO }), llm, busqueda: buscaMesa() });
+        const resultado = await correr({ prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }), llm, busqueda: buscaMesa() });
         const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
         expect(herramientas.map((h) => h.name)).toContain('pedir_variante');
         expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain(
@@ -1092,7 +1096,7 @@ describe('grafo de ventas', () => {
         const pedidos = crearPedidosAMedida();
         pedidos.pedirVariante.mockResolvedValue(PEDIDO_VARIANTE);
         const resultado = await correr({
-          prisma: crearPrisma({ agent: A_PEDIDO, mpConectado: true }),
+          prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO, mpConectado: true }),
           llm: crearModelo([
             BUSCAR_MESA,
             llamada('pedir_variante', { varianteId: 'v-inventada', cantidad: 2, nombreCliente: 'Ana' }, 'c2'),
@@ -1128,7 +1132,7 @@ describe('grafo de ventas', () => {
         pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
         const base = { productoId: 'p-mesa', nombreCliente: 'Ana', respuestas: [], resumen: 'Mesa más larga' };
         const resultado = await correr({
-          prisma: crearPrisma({ agent: A_PEDIDO }),
+          prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
           llm: crearModelo([
             BUSCAR_MESA,
             llamada('registrar_solicitud', { ...base, varianteBaseId: 'v-roble' }, 'c2'),
@@ -1151,7 +1155,7 @@ describe('grafo de ventas', () => {
         });
       });
 
-      it('la foto de la versión va con su id; sin foto propia va la del producto, y a pedido no se repite', async () => {
+      it('la foto de la versión va con su id; sin foto propia va la del producto, y no se repite', async () => {
         const imagenes = {
           estadoDeFoto: vi.fn(async (_userId: string, _id: string, varianteId?: string) =>
             varianteId === 'v-roble'
@@ -1171,7 +1175,7 @@ describe('grafo de ventas', () => {
           llamada('enviar_imagen_producto', { productoId: 'p-mesa', varianteId: 'v-pino' }, 'f3'),
           new AIMessage('Mirá.'),
         ]);
-        const resultado = await correr({ prisma: crearPrisma({ agent: A_PEDIDO }), llm, busqueda: buscaMesa(), imagenes });
+        const resultado = await correr({ prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }), llm, busqueda: buscaMesa(), imagenes });
 
         expect(imagenesDeLaVuelta(resultado.messages)).toEqual([
           { productoId: 'p-mesa', nombre: 'Mesa ratona' },
@@ -1187,7 +1191,7 @@ describe('grafo de ventas', () => {
       pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-placard', nombre: 'Placard', solicitud: SOLICITUD });
       pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
       const resultado = await correr({
-        prisma: crearPrisma({ agent: A_PEDIDO }),
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
         llm: crearModelo([
           BUSCAR_PLACARD,
           llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: 'Un placard' }, 'c2'),
@@ -1223,7 +1227,7 @@ describe('grafo de ventas', () => {
         resultado: { ok: false, motivo: 'falta', faltan: ['Alto (cm)'] },
       });
       const resultado = await correr({
-        prisma: crearPrisma({ agent: A_PEDIDO }),
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
         llm: crearModelo([
           BUSCAR_PLACARD,
           llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: '' }, 'c2'),
@@ -1242,7 +1246,7 @@ describe('grafo de ventas', () => {
       pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
       pedidos.cotizarSolicitud.mockResolvedValue({ modo: 'automatica', texto: '*Presupuesto de Placard*\n*Total: $ 67.500*' });
       const resultado = await correr({
-        prisma: crearPrisma({ agent: A_PEDIDO }),
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
         llm: crearModelo([
           BUSCAR_PLACARD,
           llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: '' }, 'c2'),
@@ -1258,7 +1262,7 @@ describe('grafo de ventas', () => {
     it('un producto que no salió de una búsqueda no se anota', async () => {
       const pedidos = crearPedidosAMedida();
       const resultado = await correr({
-        prisma: crearPrisma({ agent: A_PEDIDO }),
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
         llm: crearModelo([
           llamada('registrar_solicitud', { productoId: 'p-inventado', nombreCliente: 'Ana', respuestas: [], resumen: '' }),
           new AIMessage('.'),
@@ -1280,7 +1284,7 @@ describe('grafo de ventas', () => {
       const pedidos = crearPedidosAMedida();
       pedidos.cobrar.mockResolvedValue({ ...cotizado, estado: 'pendiente_pago', linkPago: 'https://mp/pagar/v-1', reservaVenceAt: null });
       const resultado = await correr({
-        prisma: crearPrisma({ agent: A_PEDIDO, pedidosAMedida: [cotizado, { ...PEDIDO, id: 'v-2' }] }),
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO, pedidosAMedida: [cotizado, { ...PEDIDO, id: 'v-2' }] }),
         llm: crearModelo([
           llamada('aceptar_presupuesto', { pedidoId: 'v-ajeno' }, 'c1'),
           llamada('aceptar_presupuesto', { pedidoId: 'v-2' }, 'c2'),
@@ -1301,7 +1305,7 @@ describe('grafo de ventas', () => {
       const pedidos = crearPedidosAMedida();
       pedidos.derivar.mockResolvedValue(PEDIDO);
       const resultado = await correr({
-        prisma: crearPrisma({ agent: A_PEDIDO, pedidosAMedida: [PEDIDO] }),
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO, pedidosAMedida: [PEDIDO] }),
         llm: crearModelo([
           llamada('derivar_a_persona', { pedidoId: 'v-1', motivo: 'pide_persona', detalle: 'Quiere hablar con alguien' }),
           new AIMessage('Ya te escribe alguien del equipo por acá.'),
@@ -1320,7 +1324,7 @@ describe('grafo de ventas', () => {
 
     it('el prompt trae los pedidos a medida de la charla con su id', async () => {
       const llm = crearModelo([new AIMessage('Hola.')]);
-      await correr({ prisma: crearPrisma({ agent: A_PEDIDO, pedidosAMedida: [PEDIDO] }), llm, busqueda: { buscar: vi.fn() } });
+      await correr({ prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO, pedidosAMedida: [PEDIDO] }), llm, busqueda: { buscar: vi.fn() } });
       expect(sistemaDe(llm)).toContain('[pedido v-1] "Placard"');
       expect(sistemaDe(llm)).toContain('derivar_a_persona');
     });
