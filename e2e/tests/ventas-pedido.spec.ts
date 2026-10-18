@@ -1,72 +1,45 @@
 import { API_URL } from '../entorno';
-import { agenteActual, esperarRuta, expect, sufijo, test, visible } from './fixtures';
-import { botonContinuar, elegirAsistente } from './onboarding';
-import { crearAgenteVentasPorApi } from './ventas';
+import { expect, test } from './fixtures';
+import { crearAgenteVentasPorApi, crearProductoPorApi, nuevoProducto } from './ventas';
 
-const QUE_HACE = 'Hacemos muebles de madera a medida: mesas, bibliotecas y racks. Entregamos en CABA.';
-
-test.describe('comercio que vende a pedido (LAU-21)', () => {
-  test('lo elige en el onboarding, cuenta qué hace y lo ve guardado en Cuenta', async ({ page, context, usuarioDev }) => {
+test.describe('una cuenta que vende de stock y a medida', () => {
+  test('carga los dos tipos desde /productos/nuevo, cada uno en su pantalla', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await page.goto('/contanos');
-    await elegirAsistente(page, 'ventas');
-    await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(`Muebles E2E ${sufijo()}`);
-    await botonContinuar(page).click();
+    await crearAgenteVentasPorApi(context.request);
 
-    // A pedido suma el paso "Qué hacés": siete en total.
-    await visible(page.getByRole('radio', { name: /^A pedido/ })).click();
-    await expect(visible(page.getByText('Cómo sigue cada pedido'))).toBeVisible();
-    await expect(visible(page.getByText('Paso 3 de 7'))).toBeVisible();
-    await botonContinuar(page).click();
+    await page.goto('/productos');
+    const deStock = await nuevoProducto(page, 'stock');
+    await deStock.getByLabel('Código', { exact: true }).fill('MATE-E2E');
+    await deStock.getByLabel('Nombre', { exact: true }).fill('Mate de calabaza');
+    await deStock.getByLabel(/^Precio/).first().fill('8.000');
+    await deStock.getByRole('button', { name: 'Guardar producto' }).click();
+    await expect(page).toHaveURL(/\/productos$/);
 
-    // Con menos de 30 caracteres no deja seguir.
-    await visible(page.getByLabel('¿Qué hacés?')).fill('Muebles');
-    await expect(botonContinuar(page)).toBeDisabled();
-    await visible(page.getByLabel('¿Qué hacés?')).fill(QUE_HACE);
-    await expect(botonContinuar(page)).toBeEnabled();
-    // La vista previa lo cuenta con lo que se escribió (en el celular está plegada: alcanza con que esté).
-    await expect(page.getByText('Hola, soy el asistente de').filter({ hasText: QUE_HACE }).first()).toBeAttached();
-    await botonContinuar(page).click();
+    const aMedida = await nuevoProducto(page, 'a-medida');
+    await aMedida.getByLabel('Nombre', { exact: true }).fill('Mesa a medida');
+    await aMedida.getByRole('button', { name: 'Guardar producto' }).click();
+    await expect(page).toHaveURL(/\/productos$/);
 
-    // "Tu local" y "Datos del cliente" quedan como están.
-    await botonContinuar(page).click();
-    await botonContinuar(page).click();
-    await visible(page.getByLabel('Nombre del asistente')).fill('Lu');
-    await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
-    await esperarRuta(page, '/listo');
+    const tarjetas = page.getByRole('list', { name: 'Productos' }).getByRole('listitem');
+    await expect(tarjetas.filter({ hasText: 'Mate de calabaza' }).getByRole('form', { name: 'Precio y stock de Mate de calabaza' })).toBeVisible();
+    await expect(tarjetas.filter({ hasText: 'Mesa a medida' }).getByText('A medida', { exact: true })).toBeVisible();
 
-    const agente = (await agenteActual(context.request)) as unknown as {
-      modalidadVenta: string;
-      queHace: string;
-    };
-    expect(agente.modalidadVenta).toBe('pedido');
-    expect(agente.queHace).toBe(QUE_HACE);
-
-    // En Cuenta la modalidad se ve fija; lo único que se edita es "Qué hacés".
-    await page.goto('/cuenta');
-    const seccion = page.getByRole('region', { name: 'Cómo vendés' });
-    await expect(seccion.getByText('Vendés a pedido')).toBeVisible();
-    await expect(seccion.getByText('Se eligió al crear tu asistente y no se puede cambiar.')).toBeVisible();
-    await expect(seccion.getByRole('radio')).toHaveCount(0);
-    await expect(seccion.getByLabel('¿Qué hacés?')).toHaveValue(QUE_HACE);
-    await seccion.getByLabel('¿Qué hacés?').fill(`${QUE_HACE} También placares.`);
-    await seccion.getByRole('button', { name: 'Guardar cambios' }).click();
-    await expect(seccion.getByText('Listo: tu asistente lo usa desde el próximo mensaje.')).toBeVisible();
-    const actualizado = (await agenteActual(context.request)) as unknown as { modalidadVenta: string; queHace: string };
-    expect(actualizado).toMatchObject({ modalidadVenta: 'pedido', queHace: `${QUE_HACE} También placares.` });
-
-    // Y la API tampoco deja cambiarla.
-    const cambio = await context.request.put(`${API_URL}/agents/me/modalidad`, { data: { modalidadVenta: 'stock' } });
-    expect(cambio.status()).toBe(409);
+    // Editar abre el formulario que corresponde a cada uno.
+    await page.getByRole('button', { name: 'Editar Mesa a medida' }).click();
+    await expect(page.getByRole('form', { name: 'Editar producto a medida' })).toBeVisible();
+    await page.goto('/productos');
+    await page.getByRole('button', { name: 'Editar Mate de calabaza' }).click();
+    await expect(page.getByRole('form', { name: 'Editar producto' })).toBeVisible();
   });
 
-  test('a pedido no cierra la compra: anota la solicitud para que el dueño la cotice', async ({ context, usuarioDev }) => {
+  test('el asistente cotiza lo a medida y vende lo de stock en la misma charla', async ({ context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
     const producto = await context.request.post(`${API_URL}/productos`, {
       data: { codigo: 'MESA', nombre: 'Mesa a medida', descripcion: '', solicitud: { preguntas: [] }, materiales: [] },
     });
     expect(producto.status(), await producto.text()).toBe(201);
+    await crearProductoPorApi(context.request, { codigo: 'MATE', nombre: 'Mate de calabaza', precioCentavos: 800_000 });
 
     const decir = async (message: string) => {
       const res = await context.request.post(`${API_URL}/conversation/test`, { data: { message } });
@@ -74,25 +47,21 @@ test.describe('comercio que vende a pedido (LAU-21)', () => {
       return ((await res.json()) as { reply: string }).reply;
     };
     await decir('mesa');
-    const reply = await decir('quiero una mesa de 1,80 x 0,90 para fin de mes, soy Ana');
-    expect(reply).toContain('Solicitud anotada');
-    expect(reply).not.toContain('Pedido creado');
+    const solicitud = await decir('quiero una mesa de 1,80 x 0,90 para fin de mes, soy Ana');
+    expect(solicitud).toContain('Solicitud anotada');
+    expect(solicitud).not.toContain('Pedido creado');
+
+    await decir('mate de calabaza');
+    const compra = await decir('quiero 1 mate, soy Ana');
+    expect(compra).toContain('Pedido creado');
 
     const avisos = await context.request.get(`${API_URL}/notificaciones`);
     const { notificaciones } = (await avisos.json()) as {
       notificaciones: Array<{ titulo: string; cuerpo: string; enlace: string | null }>;
     };
-    const solicitud = notificaciones.find((aviso) => aviso.titulo === '[Prueba] Para cotizar: Mesa a medida');
-    expect(solicitud?.cuerpo).toContain('pidió un presupuesto de "Mesa a medida"');
-    expect(solicitud?.cuerpo).toContain('quiero una mesa de 1,80 x 0,90 para fin de mes, soy Ana');
-    expect(solicitud?.enlace).toMatch(/^\/ventas\?venta=/);
-  });
-
-  test('a pedido sin contar qué hace la API lo rechaza', async ({ context, usuarioDev }) => {
-    expect(usuarioDev.email).toBeTruthy();
-    const res = await context.request.post(`${API_URL}/agents/generate-ventas`, {
-      data: { nombreTitular: `Muebles E2E ${sufijo()}`, nombreBot: 'Lu', modalidadVenta: 'pedido' },
-    });
-    expect(res.status()).toBe(400);
+    const aviso = notificaciones.find((uno) => uno.titulo === '[Prueba] Para cotizar: Mesa a medida');
+    expect(aviso?.cuerpo).toContain('pidió un presupuesto de "Mesa a medida"');
+    expect(aviso?.cuerpo).toContain('quiero una mesa de 1,80 x 0,90 para fin de mes, soy Ana');
+    expect(aviso?.enlace).toMatch(/^\/ventas\?venta=/);
   });
 });

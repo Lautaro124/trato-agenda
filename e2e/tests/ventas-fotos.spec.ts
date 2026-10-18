@@ -25,7 +25,7 @@ test.describe('fotos de productos', () => {
 
     await page.goto('/productos');
     await page.getByRole('button', { name: 'Editar Mate de calabaza' }).click();
-    const editor = page.getByRole('dialog', { name: 'Editar producto' });
+    const editor = page.getByRole('form', { name: 'Editar producto' });
     await expect(editor).toContainText('0 de 100 fotos');
     await editor.getByLabel('Elegir foto del producto').setInputFiles({ name: 'mate.png', mimeType: 'image/png', buffer: PNG });
     await expect(editor.getByRole('img', { name: 'Foto del producto' })).toBeVisible();

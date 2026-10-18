@@ -9,7 +9,6 @@ import { API_URL } from '../entorno';
 import { expect, test } from './fixtures';
 import { crearAgenteVentasPorApi } from './ventas';
 
-const QUE_HACE = 'Hacemos placares y muebles de melamina a medida, con instalación en CABA.';
 
 const PREGUNTAS = [
   { texto: 'Ancho (cm)', opciones: [], textoLibre: true, obligatoria: true, numero: { variable: 'ancho', unidad: 'cm', min: 30, max: 300 } },
@@ -51,7 +50,7 @@ async function abrirPedido(page: Page, id: string) {
 test.describe('pedidos a medida (LAU-27)', () => {
   test('la solicitud queda como pedido: el dueño la cotiza, el cliente acepta y se cobra', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
     await crearPlacard(context.request);
 
     expect(await decir(context.request, 'placard')).toContain('Hacemos Placard a medida');
@@ -88,7 +87,7 @@ test.describe('pedidos a medida (LAU-27)', () => {
 
   test('con receta el asistente cotiza solo, con la cuenta del sistema', async ({ context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
     const insumo = await context.request.post(`${API_URL}/costos/insumos`, {
       data: { tipo: 'material', nombre: 'Melamina blanca 18 mm', unidad: 'm2', costoCentavos: 2_000_000 },
     });
@@ -111,7 +110,7 @@ test.describe('pedidos a medida (LAU-27)', () => {
 
   test('en atención humana el asistente se calla hasta que el dueño se lo devuelve', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
     await crearPlacard(context.request);
 
     expect(await decir(context.request, 'quiero hablar con una persona')).toContain('pasó a una persona del equipo');
@@ -131,7 +130,7 @@ test.describe('pedidos a medida (LAU-27)', () => {
 
   test('materiales y costos se cargan en /costos y la receta se prueba en el editor', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
     await crearPlacard(context.request);
 
     await page.goto('/costos');
@@ -151,7 +150,7 @@ test.describe('pedidos a medida (LAU-27)', () => {
     // En el editor del producto: la receta con el material y la vista previa con la cuenta real.
     await page.goto('/productos');
     await page.getByRole('button', { name: /Editar/ }).first().click();
-    const editor = page.getByRole('dialog', { name: 'Editar producto a medida' });
+    const editor = page.getByRole('form', { name: 'Editar producto a medida' });
     const seccion = editor.getByRole('region', { name: 'Cómo se cotiza' });
     await seccion.getByText('Tu asistente cotiza y lo manda').click();
     await seccion.getByRole('button', { name: '+ Agregar a la receta' }).click();

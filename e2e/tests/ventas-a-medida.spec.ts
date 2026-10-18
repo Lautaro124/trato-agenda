@@ -1,6 +1,6 @@
 import { API_URL } from '../entorno';
 import { expect, test } from './fixtures';
-import { crearAgenteVentasPorApi, crearProductoPorApi, productoPorApi, type ProductoE2E } from './ventas';
+import { crearAgenteVentasPorApi, crearProductoPorApi, nuevoProducto, productoPorApi, type ProductoE2E } from './ventas';
 
 /** PNG de 1 × 1, como en ventas-fotos.spec.ts. */
 const PNG = Buffer.from(
@@ -8,18 +8,16 @@ const PNG = Buffer.from(
   'base64',
 );
 
-const QUE_HACE = 'Hacemos cortinas y persianas a medida para casas y oficinas. Vamos a medir a domicilio.';
-
 test.describe('productos a medida (LAU-22)', () => {
-  test('una cuenta a pedido carga sus productos de a uno, con el formulario a medida', async ({ page, context, usuarioDev }) => {
+  test('un producto a medida se carga en su pantalla, con su formulario', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
 
     await page.goto('/productos');
-    // Sin planillas: los productos a medida se cargan a mano.
-    await expect(page.getByRole('button', { name: 'Importar planilla' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Cargar mi primer producto' }).click();
-    const dialogo = page.getByRole('dialog', { name: 'Nuevo producto a medida' });
+    await page.getByRole('link', { name: /^A medida/ }).click();
+    await expect(page).toHaveURL(/\/productos\/nuevo\/a-medida$/);
+    const dialogo = page.getByRole('form', { name: 'Nuevo producto a medida' });
     // Nada de stock, variantes ni descuento.
     await expect(dialogo.getByLabel('Stock (unidades)')).toHaveCount(0);
     await expect(dialogo.getByText('Este producto tiene descuento')).toHaveCount(0);
@@ -68,6 +66,7 @@ test.describe('productos a medida (LAU-22)', () => {
 
     await dialogo.getByRole('button', { name: 'Guardar producto' }).click();
     await expect(dialogo).toBeHidden();
+    await expect(page).toHaveURL(/\/productos$/);
 
     const tarjeta = page.getByRole('list', { name: 'Productos' }).getByRole('listitem').filter({ hasText: 'Cortina roller' });
     await expect(tarjeta.getByText('A medida')).toBeVisible();
@@ -75,7 +74,6 @@ test.describe('productos a medida (LAU-22)', () => {
     await expect(tarjeta.getByText('En Blackout · Tela')).toBeVisible();
     await expect(tarjeta.getByText('3 preguntas para hacer')).toBeVisible();
     await expect(page.getByRole('form', { name: 'Precio y stock de Cortina roller' })).toHaveCount(0);
-    await expect(page.getByRole('region', { name: 'Promociones' })).toHaveCount(0);
 
     const listado = await context.request.get(`${API_URL}/productos`);
     const [guardado] = ((await listado.json()) as { productos: ProductoE2E[] }).productos;
@@ -96,7 +94,9 @@ test.describe('productos a medida (LAU-22)', () => {
 
     // Al reabrir está todo a la vista; sin precio "desde" queda a cotizar.
     await page.getByRole('button', { name: 'Editar Cortina roller' }).click();
-    const edicion = page.getByRole('dialog', { name: 'Editar producto a medida' });
+    // Más margen: en `next dev` la primera visita a /productos/[id] la compila.
+    await expect(page).toHaveURL(new RegExp(`/productos/${guardado.id}$`), { timeout: 30_000 });
+    const edicion = page.getByRole('form', { name: 'Editar producto a medida' });
     await expect(edicion.getByRole('group', { name: 'Pregunta 3' }).getByLabel('Tu asistente pregunta')).toHaveValue(
       '¿Para cuándo lo necesitás?',
     );
@@ -107,25 +107,29 @@ test.describe('productos a medida (LAU-22)', () => {
     await expect(tarjeta.getByText('Precio a cotizar')).toBeVisible();
     expect((await productoPorApi(context.request, guardado.id)).precioReferenciaCentavos).toBeNull();
 
-    // La API tampoco acepta una planilla.
+    // Una planilla no pisa un producto a medida: esa fila vuelve con su error.
     const importacion = await context.request.post(`${API_URL}/productos/importar`, {
-      data: { filas: [{ codigo: 'X', nombre: 'Algo', precio: '1' }], confirmar: false },
+      data: { filas: [{ codigo: 'CORT-E2E', nombre: 'Algo', precio: '1' }], confirmar: false },
     });
-    expect(importacion.status()).toBe(409);
+    expect(importacion.status()).toBe(200);
+    const resumen = (await importacion.json()) as { errores: Array<{ mensaje: string }> };
+    expect(resumen.errores[0]?.mensaje).toContain('es a medida');
   });
 
-  test('una cuenta con stock tiene sólo el formulario de stock', async ({ page, context, usuarioDev }) => {
+  test('la misma cuenta carga uno de stock, cada uno con su formulario', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
     await crearProductoPorApi(context.request, { codigo: 'MATE-STOCK', nombre: 'Mate de calabaza', precioCentavos: 800_000 });
 
     await page.goto('/productos');
     await expect(page.getByRole('button', { name: 'Importar planilla' })).toBeVisible();
-    await page.getByRole('button', { name: 'Nuevo producto' }).click();
-    const dialogo = page.getByRole('dialog', { name: 'Nuevo producto' });
+    const dialogo = await nuevoProducto(page, 'stock');
     await expect(dialogo.getByLabel('Stock (unidades)')).toBeVisible();
     await expect(dialogo.getByText('Preguntas para hacer')).toHaveCount(0);
     await expect(dialogo.getByLabel('Precio desde')).toHaveCount(0);
+    // Cancelar sin cambios vuelve al catálogo sin preguntar.
+    await dialogo.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(page).toHaveURL(/\/productos$/);
   });
 
   test('en el celular se carga un producto a medida sin preguntas y con la foto elegida antes de guardar @movil', async ({
@@ -134,11 +138,11 @@ test.describe('productos a medida (LAU-22)', () => {
     usuarioDev,
   }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
+    await crearProductoPorApi(context.request, { codigo: 'MATE-STOCK', nombre: 'Mate de calabaza', precioCentavos: 800_000 });
 
     await page.goto('/productos');
-    await page.getByRole('button', { name: 'Nuevo producto a medida' }).click();
-    const dialogo = page.getByRole('dialog', { name: 'Nuevo producto a medida' });
+    const dialogo = await nuevoProducto(page, 'a-medida');
     await dialogo.getByLabel('Nombre', { exact: true }).fill('Mesa de roble');
     // Un material tipeado sin Enter también se guarda.
     await dialogo.getByLabel('Nuevo material').fill('Roble macizo');
@@ -155,7 +159,9 @@ test.describe('productos a medida (LAU-22)', () => {
     await expect(dialogo).toBeHidden();
 
     const listado = await context.request.get(`${API_URL}/productos`);
-    const [guardado] = ((await listado.json()) as { productos: ProductoE2E[] }).productos;
+    const guardado = ((await listado.json()) as { productos: ProductoE2E[] }).productos.find(
+      (producto) => producto.codigo === 'MESA-DE-ROBLE',
+    );
     expect(guardado).toMatchObject({
       codigo: 'MESA-DE-ROBLE',
       variantes: [],
@@ -163,7 +169,7 @@ test.describe('productos a medida (LAU-22)', () => {
       materiales: ['Roble macizo'],
       solicitud: { preguntas: [] },
     });
-    expect(guardado.imagenActualizada).toBeTruthy();
+    expect(guardado?.imagenActualizada).toBeTruthy();
     await expect(
       page.getByRole('list', { name: 'Productos' }).getByRole('listitem').filter({ hasText: 'Mesa de roble' }).getByText('Sin preguntas propias'),
     ).toBeVisible();

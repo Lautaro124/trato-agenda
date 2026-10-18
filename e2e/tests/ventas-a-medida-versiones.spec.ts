@@ -16,7 +16,6 @@ const PNG = Buffer.from(
   'base64',
 );
 
-const QUE_HACE = 'Hacemos mesas y muebles de madera maciza a medida, con entrega en CABA.';
 
 type Respuesta = { reply: string; imagenes: Array<{ productoId: string; nombre: string; varianteId?: string }> };
 
@@ -51,11 +50,12 @@ async function pedidosAMedida(request: APIRequestContext): Promise<PedidoE2E[]> 
 test.describe('versiones con precio fijo de un producto a medida', () => {
   test('el dueño carga las versiones con su foto y la tarjeta las muestra', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
 
     await page.goto('/productos');
     await page.getByRole('button', { name: 'Cargar mi primer producto' }).click();
-    const dialogo = page.getByRole('dialog', { name: 'Nuevo producto a medida' });
+    await page.getByRole('link', { name: /^A medida/ }).click();
+    const dialogo = page.getByRole('form', { name: 'Nuevo producto a medida' });
     await dialogo.getByLabel('Nombre', { exact: true }).fill('Mesa ratona');
 
     const versiones = dialogo.getByRole('region', { name: 'Versiones con precio fijo' });
@@ -99,7 +99,7 @@ test.describe('versiones con precio fijo de un producto a medida', () => {
     usuarioDev,
   }) => {
     expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request, { modalidadVenta: 'pedido', queHace: QUE_HACE });
+    await crearAgenteVentasPorApi(context.request);
     const res = await context.request.post(`${API_URL}/productos`, {
       data: {
         codigo: 'MESA',
