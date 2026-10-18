@@ -43,12 +43,30 @@ function Seccion({ titulo, children, extra }: { titulo: string; children: React.
   );
 }
 
-/** Lo que pidió el cliente: el producto, cada respuesta y el resumen del asistente. */
+/** Lo que pidió el cliente: el producto, la versión de la que salió, cada respuesta y el resumen del asistente. */
 function LoQuePidio({ venta }: { venta: DetalleVenta }) {
   const solicitud = venta.solicitud;
   return (
     <Seccion titulo="Lo que pidió">
       <p className="text-[14px] font-semibold text-ink">{solicitud?.nombreProducto ?? "Todavía sin producto elegido"}</p>
+      {solicitud?.variante && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
+          <div className="contents">
+            <dt className="text-muted">{solicitud.cambios ? "Sobre la versión" : "Versión"}</dt>
+            <dd className="break-words text-ink">
+              {solicitud.variante.cantidad > 1 ? `${solicitud.variante.cantidad} × ` : ""}
+              {solicitud.variante.nombre} ({formatearCentavos(solicitud.variante.precioCentavos)}
+              {solicitud.cambios ? ", precio de la versión sin los cambios" : ", precio fijo"})
+            </dd>
+          </div>
+          {solicitud.cambios && (
+            <div className="contents">
+              <dt className="text-muted">Cambios que pidió</dt>
+              <dd className="break-words text-ink">{solicitud.cambios}</dd>
+            </div>
+          )}
+        </dl>
+      )}
       {solicitud && solicitud.respuestas.length > 0 && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
           {solicitud.respuestas.map((dato, i) => (

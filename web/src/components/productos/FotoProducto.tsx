@@ -33,8 +33,11 @@ export async function guardarConFoto(
   }
 }
 
+const AYUDA_FOTO = "el asistente la manda si el cliente la pide";
+
 /**
- * La foto que el asistente le manda al cliente cuando la pide. Con el
+ * La foto que el asistente le manda al cliente (con stock, cuando la pide; a
+ * pedido, sola al mostrar el producto). Con el
  * producto ya creado se sube y se quita al toque, sin esperar al "Guardar"
  * del formulario. En uno nuevo (todavía sin id) se elige igual y queda
  * pendiente: el editor la sube apenas guarda (`guardarConFoto`).
@@ -45,6 +48,7 @@ export function FotoProducto({
   onCambio,
   pendiente,
   onPendiente,
+  ayuda = AYUDA_FOTO,
 }: Readonly<{
   productoId: string | null;
   imagenActualizada: string | null;
@@ -52,6 +56,8 @@ export function FotoProducto({
   /** La foto elegida en un producto que todavía no se guardó. */
   pendiente: File | null;
   onPendiente: (archivo: File | null) => void;
+  /** Cuándo la manda el asistente: con stock, si el cliente la pide; a pedido, sola. */
+  ayuda?: string;
 }>) {
   const entrada = useRef<HTMLInputElement>(null);
   const [version, setVersion] = useState(imagenActualizada);
@@ -71,7 +77,7 @@ export function FotoProducto({
     };
   }, [productoId, recargasUso]);
 
-  if (!productoId) return <FotoPendiente archivo={pendiente} onCambio={onPendiente} />;
+  if (!productoId) return <FotoPendiente archivo={pendiente} onCambio={onPendiente} ayuda={ayuda} />;
 
   const cambiar = (accion: Promise<void>, nuevaVersion: string | null) => {
     setOcupado(true);
@@ -97,7 +103,7 @@ export function FotoProducto({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-line p-4">
       <p className="text-[13.5px] font-bold text-ink">
-        Foto <span className="font-normal text-muted">(el asistente la manda si el cliente la pide)</span>
+        Foto <span className="font-normal text-muted">({ayuda})</span>
       </p>
       <div className="flex items-center gap-4">
         <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-md bg-sunken">
@@ -145,11 +151,11 @@ export function FotoProducto({
       </div>
       <p className="text-[12px] text-muted">
         JPG, PNG o WebP · una por producto
-        {uso && ` · ${uso.usadas} de ${uso.maximo} productos con foto`}
+        {uso && ` · ${uso.usadas} de ${uso.maximo} fotos`}
       </p>
       {sinLugar && (
         <p className="text-[12.5px] text-warning-text">
-          Llegaste al máximo de productos con foto. Quitale la foto a otro para subir esta.
+          Llegaste al máximo de fotos. Quitale la foto a otro producto para subir esta.
         </p>
       )}
       {error && (
@@ -162,7 +168,11 @@ export function FotoProducto({
 }
 
 /** La foto de un producto que todavía no existe: se ve acá y se sube al guardar. */
-function FotoPendiente({ archivo, onCambio }: Readonly<{ archivo: File | null; onCambio: (archivo: File | null) => void }>) {
+function FotoPendiente({
+  archivo,
+  onCambio,
+  ayuda,
+}: Readonly<{ archivo: File | null; onCambio: (archivo: File | null) => void; ayuda: string }>) {
   const entrada = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const vista = useMemo(() => (archivo ? URL.createObjectURL(archivo) : null), [archivo]);
@@ -187,7 +197,7 @@ function FotoPendiente({ archivo, onCambio }: Readonly<{ archivo: File | null; o
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-line p-4">
       <p className="text-[13.5px] font-bold text-ink">
-        Foto <span className="font-normal text-muted">(el asistente la manda si el cliente la pide)</span>
+        Foto <span className="font-normal text-muted">({ayuda})</span>
       </p>
       <div className="flex items-center gap-4">
         <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-md bg-sunken">

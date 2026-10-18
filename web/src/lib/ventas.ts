@@ -19,6 +19,10 @@ export type SolicitudDePedido = {
   nombreProducto: string | null;
   respuestas: RespuestaSolicitud[];
   resumen: string;
+  /** La versión de precio fijo de la que salió (tal cual o de base), con el precio al pedirla. */
+  variante: { id: string; nombre: string; precioCentavos: number; cantidad: number } | null;
+  /** Lo que el cliente quiere distinto de esa versión; null = la pidió tal cual. */
+  cambios: string | null;
 };
 
 /** Espejo de `VentaPublica` en la API. */

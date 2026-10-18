@@ -19,9 +19,15 @@ const LADO_SUBIDA = 1600;
 
 export type UsoDeImagenes = { usadas: number; maximo: number };
 
+/** Dónde vive la foto del producto o, con `varianteId`, la de una de sus versiones de precio fijo. */
+function rutaImagen(productoId: string, varianteId?: string): string {
+  const producto = `/productos/${encodeURIComponent(productoId)}`;
+  return varianteId ? `${producto}/variantes/${encodeURIComponent(varianteId)}/imagen` : `${producto}/imagen`;
+}
+
 /** URL de la foto; `version` (imagenActualizada) evita mostrar una cacheada vieja. */
-export function urlImagenProducto(productoId: string, version: string): string {
-  return `${API_URL}/productos/${encodeURIComponent(productoId)}/imagen?${new URLSearchParams({ v: version })}`;
+export function urlImagenProducto(productoId: string, version: string, varianteId?: string): string {
+  return `${API_URL}${rutaImagen(productoId, varianteId)}?${new URLSearchParams({ v: version })}`;
 }
 
 async function mensajeDeError(res: Response): Promise<string> {
@@ -56,7 +62,7 @@ export async function achicarParaSubir(archivo: File): Promise<Blob> {
   }
 }
 
-export async function subirImagenProducto(productoId: string, archivo: File): Promise<void> {
+export async function subirImagenProducto(productoId: string, archivo: File, varianteId?: string): Promise<void> {
   if (!FORMATOS_FOTO.split(",").includes(archivo.type)) {
     throw new ErrorDeApi("La foto tiene que ser JPG, PNG o WebP.");
   }
@@ -64,12 +70,12 @@ export async function subirImagenProducto(productoId: string, archivo: File): Pr
   if (blob.size > MAX_BYTES_SUBIDA) throw new ErrorDeApi("La foto pesa demasiado: probá con otra.");
   const datos = new FormData();
   datos.append("imagen", blob, "foto.jpg");
-  const res = await apiFetch(`/productos/${encodeURIComponent(productoId)}/imagen`, { method: "PUT", body: datos });
+  const res = await apiFetch(rutaImagen(productoId, varianteId), { method: "PUT", body: datos });
   if (!res.ok) throw new ErrorDeApi(await mensajeDeError(res));
 }
 
-export async function quitarImagenProducto(productoId: string): Promise<void> {
-  const res = await apiFetch(`/productos/${encodeURIComponent(productoId)}/imagen`, { method: "DELETE" });
+export async function quitarImagenProducto(productoId: string, varianteId?: string): Promise<void> {
+  const res = await apiFetch(rutaImagen(productoId, varianteId), { method: "DELETE" });
   if (!res.ok) throw new ErrorDeApi("No pudimos quitar la foto. Probá de nuevo.");
 }
 

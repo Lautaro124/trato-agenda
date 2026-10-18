@@ -6,6 +6,7 @@ import { INPUT, LABEL } from "@/components/productos/EditorProducto";
 import { FotoProducto, guardarConFoto } from "@/components/productos/FotoProducto";
 import { SeccionCotizacion, useRecetaEnEdicion } from "@/components/productos/SeccionCotizacion";
 import { SeccionMateriales } from "@/components/productos/SeccionMateriales";
+import { SeccionVariantesFijas, useVersionesFijas } from "@/components/productos/SeccionVariantesFijas";
 import {
   EncabezadoDeSeccion,
   opcionesDe,
@@ -33,11 +34,12 @@ const OPCION_PRECIO =
   "flex flex-1 cursor-pointer items-center justify-center rounded-sm px-3 py-2 text-center text-[13.5px] font-semibold";
 
 /**
- * Alta o edición de un producto a medida (cuenta a pedido), en cuatro pasos:
- * qué es, en qué materiales se hace, si tiene un precio "desde" y qué le
- * pregunta el asistente al cliente para cotizarlo. Al costado, cómo va a
- * preguntar el asistente con lo que se va cargando. El código se arma solo
- * con el nombre (se puede cambiar) y la foto se puede elegir antes de guardar.
+ * Alta o edición de un producto a medida (cuenta a pedido), por pasos: qué
+ * es, en qué materiales se hace, sus versiones con precio fijo (opcionales),
+ * si tiene un precio "desde", qué le pregunta el asistente al cliente para
+ * cotizarlo y cómo se cotiza. Al costado, cómo va a preguntar el asistente
+ * con lo que se va cargando. El código se arma solo con el nombre (se puede
+ * cambiar) y las fotos se pueden elegir antes de guardar.
  */
 export function EditorAMedida({
   producto: productoInicial,
@@ -74,6 +76,7 @@ export function EditorAMedida({
   const [desde, setDesde] = useState(
     productoInicial?.precioReferenciaCentavos ? centavosParaInput(productoInicial.precioReferenciaCentavos) : "",
   );
+  const versiones = useVersionesFijas(productoInicial);
   const solicitud = useSolicitudEnEdicion(productoInicial?.solicitud ?? null);
   const receta = useRecetaEnEdicion(productoInicial?.receta ?? null, productoInicial?.politicaCotizacion ?? "manual");
   const [insumos, setInsumos] = useState<Insumo[] | null>(null);
@@ -92,6 +95,7 @@ export function EditorAMedida({
       descripcion,
       materialesArmados,
       conDesde ? desde : null,
+      versiones.firma,
       solicitud.firma,
       receta.firma,
       foto?.name ?? null,
@@ -119,6 +123,7 @@ export function EditorAMedida({
   const faltan = [
     ...(nombre.trim().length < 2 ? ["el nombre"] : []),
     ...(codigoPropio !== null && !codigoPropio.trim() ? ["el código"] : []),
+    ...versiones.faltan,
     ...(conDesde && desdeCentavos === null ? ["el precio desde"] : []),
     ...(solicitud.sinEscribir > 0
       ? [solicitud.sinEscribir === 1 ? "escribir 1 pregunta" : `escribir ${solicitud.sinEscribir} preguntas`]
@@ -132,6 +137,8 @@ export function EditorAMedida({
     if (!codigo.trim()) return "Poné un código para el producto.";
     if (conDesde && desdeCentavos === null) return "Revisá el precio desde, o elegí “No, siempre lo cotizo”.";
     if (materialesArmados.length > MAX_MATERIALES) return `Un producto puede tener hasta ${MAX_MATERIALES} materiales.`;
+    const variantes = versiones.armar();
+    if (typeof variantes === "string") return variantes;
     const solicitudArmada = solicitud.armar();
     if (typeof solicitudArmada === "string") return solicitudArmada;
     const problemaReceta = receta.problema();
@@ -142,6 +149,7 @@ export function EditorAMedida({
       categoria: categoria.trim() || null,
       descripcion: descripcion.trim(),
       materiales: materialesArmados,
+      variantes,
       precioReferenciaCentavos: desdeCentavos,
       solicitud: solicitudArmada,
       receta: receta.receta(),
@@ -178,14 +186,17 @@ export function EditorAMedida({
     setGuardando(true);
     setError(null);
     guardarConCodigoLibre(datos)
-      .then(({ producto: nuevo, errorFoto }) => {
-        if (!errorFoto) return onGuardado(nuevo);
-        // Quedó guardado sin la foto: el diálogo sigue abierto sobre el producto creado para reintentarla.
+      .then(async ({ producto: nuevo, errorFoto }) => {
+        // Las fotos de las versiones van con el id de cada una, que recién existe ahora.
+        const errorVersiones = await versiones.guardarFotos(nuevo);
+        if (!errorFoto && !errorVersiones) return onGuardado(nuevo);
+        // Quedó guardado sin alguna foto: el diálogo sigue abierto sobre el producto creado para reintentarla.
         setGuardado(nuevo);
         setCodigoPropio(nuevo.codigo);
         setFotoPendiente(null);
+        versiones.reiniciar(nuevo);
         setFormularioInicial(firmar(nuevo.codigo, null));
-        setError(errorFoto);
+        setError([errorFoto, errorVersiones].filter(Boolean).join(" "));
         onFotoCambiada?.();
       })
       .catch((err: unknown) =>
@@ -199,6 +210,10 @@ export function EditorAMedida({
       nombre={nombre}
       materiales={materialesArmados}
       desde={desdeCentavos === null ? null : formatearCentavos(desdeCentavos)}
+      versiones={versiones.versiones.flatMap((v) => {
+        const precio = leerCentavos(v.precio);
+        return enUnaLinea(v.nombre) && precio !== null ? [{ nombre: enUnaLinea(v.nombre), precio: formatearCentavos(precio) }] : [];
+      })}
       preguntas={solicitud.preguntas.map((p) => ({ texto: enUnaLinea(p.texto), opciones: opcionesDe(p) }))}
     />
   );
@@ -309,6 +324,7 @@ export function EditorAMedida({
                 onCambio={() => onFotoCambiada?.()}
                 pendiente={fotoPendiente}
                 onPendiente={setFotoPendiente}
+                ayuda="tu asistente la manda cuando le muestra el producto al cliente"
               />
             </div>
           </section>
@@ -321,9 +337,11 @@ export function EditorAMedida({
             onCambio={setMateriales}
           />
 
+          <SeccionVariantesFijas numero={3} productoId={producto?.id ?? null} estado={versiones} />
+
           <section aria-label="Precio orientativo" className="flex flex-col gap-3">
             <EncabezadoDeSeccion
-              numero={3}
+              numero={4}
               titulo="¿Querés darle un precio orientativo?"
               ayuda="El precio final lo ponés vos cuando cotizás."
             />
@@ -374,9 +392,9 @@ export function EditorAMedida({
             </div>
           </section>
 
-          <SeccionSolicitud numero={4} estado={solicitud} />
+          <SeccionSolicitud numero={5} estado={solicitud} />
 
-          <SeccionCotizacion numero={5} estado={receta} insumos={insumos} preguntas={solicitud.actuales()} />
+          <SeccionCotizacion numero={6} estado={receta} insumos={insumos} preguntas={solicitud.actuales()} />
         </div>
 
         {/* La vista previa: al costado desde lg; en el celular, plegada debajo de todo. */}

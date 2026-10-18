@@ -25,7 +25,7 @@ export const INPUT =
 export const LABEL = "mb-1.5 block text-[12.5px] font-semibold text-ink-secondary";
 
 /** Tope de variantes por producto, el mismo MAX_VARIANTES de la API. */
-const MAX_VARIANTES = 50;
+export const MAX_VARIANTES = 50;
 
 type VarianteEnEdicion = {
   clave: string;

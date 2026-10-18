@@ -7,6 +7,9 @@ export type PreguntaParaVista = { texto: string; opciones: string[] };
 /** Cuántas preguntas se muestran en el chat: alcanza para entender cómo pregunta. */
 const PREGUNTAS_EN_CHAT = 2;
 
+/** Como el asistente: no más de 3 opciones por mensaje. */
+const VERSIONES_EN_CHAT = 3;
+
 function listaEnCastellano(items: string[]): string {
   if (items.length <= 1) return items.join("");
   return `${items.slice(0, -1).join(", ")} o ${items[items.length - 1]}`;
@@ -51,7 +54,15 @@ export function VistaPreviaAMedida({
   materiales,
   desde,
   preguntas,
-}: Readonly<{ nombre: string; materiales: string[]; desde: string | null; preguntas: PreguntaParaVista[] }>) {
+  versiones = [],
+}: Readonly<{
+  nombre: string;
+  materiales: string[];
+  desde: string | null;
+  preguntas: PreguntaParaVista[];
+  /** Las versiones con precio fijo ya completas, con el precio escrito. */
+  versiones?: Array<{ nombre: string; precio: string }>;
+}>) {
   const producto = nombre.trim() || "tu producto";
   const escritas = preguntas.filter((p) => p.texto.trim().length > 0);
   // Los materiales no los nombra por su cuenta: sólo si el cliente pregunta (REGLA_A_MEDIDA en la API).
@@ -66,12 +77,33 @@ export function VistaPreviaAMedida({
         </p>
         <div className="flex flex-col gap-2 bg-page px-3.5 py-4">
           <Burbuja deCliente>Hola, quería consultar por {producto.toLowerCase()}</Burbuja>
-          <Burbuja>
-            ¡Hola! Sí, lo hacemos a medida.{" "}
-            {desde
-              ? `Arranca desde ${desde}; el precio final te lo paso con la cotización.`
-              : "El precio te lo paso con la cotización."}
-          </Burbuja>
+          {versiones.length > 0 ? (
+            <>
+              <Burbuja>
+                ¡Hola! Tenemos estas, con precio cerrado:
+                <span className="mt-1 flex flex-col">
+                  {versiones.slice(0, VERSIONES_EN_CHAT).map((version, indice) => (
+                    <span key={`${version.nombre}-${indice}`}>
+                      * {version.nombre}: <b>{version.precio}</b>
+                    </span>
+                  ))}
+                </span>
+                O te lo hacemos a medida, como lo quieras.
+              </Burbuja>
+              <Burbuja deCliente>Quiero la de {versiones[0].nombre.toLowerCase()}</Burbuja>
+              <Burbuja>Genial, te anoto {versiones[0].nombre} a {versiones[0].precio}. ¿Querés algo más antes de que te pase el link de pago?</Burbuja>
+              <p className="self-center rounded-full bg-card px-2.5 py-0.5 text-[11.5px] text-muted">
+                Si le quiere cambiar algo, te lo pasa para cotizar
+              </p>
+            </>
+          ) : (
+            <Burbuja>
+              ¡Hola! Sí, lo hacemos a medida.{" "}
+              {desde
+                ? `Arranca desde ${desde}; el precio final te lo paso con la cotización.`
+                : "El precio te lo paso con la cotización."}
+            </Burbuja>
+          )}
           {enChat.length === 0 ? (
             <Burbuja>Contame qué necesitás y para cuándo lo querés.</Burbuja>
           ) : (

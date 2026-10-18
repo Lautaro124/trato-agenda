@@ -17,6 +17,8 @@ export type Variante = {
   /** Lo que paga hoy el cliente, con el mejor descuento vigente. */
   precioFinalCentavos: number;
   descuento: DescuentoDeVariante | null;
+  /** Foto propia de una versión de precio fijo (producto a medida); null = sin foto. */
+  imagenActualizada: string | null;
 };
 
 /** Espejo de `ProductoPublico` en la API. */
@@ -75,8 +77,10 @@ export type ProductoEncontrado = {
     descuento: DescuentoDeVariante | null;
     hayStock: boolean;
     stock: string;
+    /** Versión de precio fijo de un producto a medida con foto propia. */
+    tieneImagen?: boolean;
   }>;
-  /** Producto a medida: sin variantes, se cotiza. */
+  /** Producto a medida: se cotiza; sus variantes, si tiene, son versiones de precio fijo. */
   aMedida?: boolean;
   precioReferenciaCentavos?: number | null;
 };
@@ -102,8 +106,13 @@ export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
   descuento: DescuentoAGuardar | null;
 };
 
-/** Body de un producto a medida (cuenta a pedido): sin variantes, stock ni descuento. */
+/**
+ * Body de un producto a medida (cuenta a pedido): sin stock ni descuento. Sus
+ * variantes son versiones de precio fijo que el cliente pide tal cual; el sku
+ * de una ya guardada viaja para que siga siendo la misma (y conserve su foto).
+ */
 export type ProductoAMedidaAGuardar = ProductoBaseAGuardar & {
+  variantes: Array<{ sku?: string; nombre: string; precioCentavos: number }>;
   /** null = sin precio de referencia. */
   precioReferenciaCentavos: number | null;
   /** Las preguntas para hacer: pueden ser ninguna, pero la solicitud va siempre (es lo que lo hace a medida). */

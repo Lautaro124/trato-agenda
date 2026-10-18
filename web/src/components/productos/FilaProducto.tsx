@@ -292,7 +292,10 @@ export function FilaProducto({
   );
 }
 
-/** Lo que muestra la tarjeta de un producto en una cuenta a pedido: precio "desde", materiales y preguntas. */
+/**
+ * Lo que muestra la tarjeta de un producto en una cuenta a pedido: precio
+ * "desde", materiales, sus versiones con precio fijo y las preguntas.
+ */
 function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {
   const preguntas = producto.solicitud?.preguntas.length ?? 0;
   return (
@@ -309,6 +312,25 @@ function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {
       </div>
       {producto.materiales.length > 0 && (
         <p className="text-[12.5px] text-ink-secondary">En {producto.materiales.join(" · ")}</p>
+      )}
+      {producto.solicitud && producto.variantes.length > 0 && (
+        <ul aria-label={`Versiones con precio fijo de ${producto.nombre}`} className="flex flex-col gap-1">
+          {producto.variantes.map((variante) => (
+            <li key={variante.id} className="flex items-center gap-2 text-[13px] text-ink">
+              {variante.imagenActualizada ? (
+                // eslint-disable-next-line @next/next/no-img-element -- viene de la API con la cookie de sesión; el optimizador de Next no la tiene
+                <img
+                  src={urlImagenProducto(producto.id, variante.imagenActualizada, variante.id)}
+                  alt={`Foto de ${variante.nombre}`}
+                  loading="lazy"
+                  className="size-7 shrink-0 rounded-sm bg-card object-cover"
+                />
+              ) : null}
+              <span className="min-w-0 flex-1 truncate">{variante.nombre}</span>
+              <span className="font-semibold">{formatearCentavos(variante.precioCentavos)}</span>
+            </li>
+          ))}
+        </ul>
       )}
       {producto.solicitud ? (
         <p className="text-[12.5px] text-ink-secondary">
