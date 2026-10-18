@@ -88,17 +88,15 @@ function analizar(variante: Variante, borrador: Borrador) {
 /**
  * Una tarjeta del catálogo: datos del producto y edición rápida de precio y
  * stock por variante. Lo que se tipea queda pendiente hasta "Guardar cambios".
- * En una cuenta a pedido (`aPedido`) no hay precio ni stock que editar: la
- * tarjeta muestra el producto a medida y sus preguntas.
+ * Un producto a medida (con `solicitud`) no tiene precio ni stock que editar:
+ * la tarjeta muestra el producto, sus versiones y sus preguntas.
  */
 export function FilaProducto({
-  aPedido,
   producto,
   onCambio,
   onEditar,
   onBorrar,
 }: {
-  aPedido: boolean;
   producto: Producto;
   onCambio: (producto: Producto) => void;
   onEditar: () => void;
@@ -110,7 +108,7 @@ export function FilaProducto({
   const [error, setError] = useState<string | null>(null);
   const [guardado, setGuardado] = useState(false);
 
-  // Si el producto cambió afuera (se guardó, se editó en el diálogo, se
+  // Si el producto cambió afuera (se guardó, se editó en su pantalla, se
   // importó), el borrador vuelve a lo guardado.
   const firmaActual = firmaDe(producto);
   if (firmaActual !== firma) {
@@ -173,10 +171,8 @@ export function FilaProducto({
       .finally(() => setGuardando(false));
   };
 
-  // Lo decide la cuenta, no la forma del producto: uno cargado antes con
-  // variantes (o por planilla) sigue siendo a medida en una cuenta a pedido,
-  // y ahí no hay precio, stock ni descuento que mostrar.
-  const aMedida = aPedido;
+  // Lo decide el producto: con solicitud es a medida, y ahí no hay precio, stock ni descuento que editar.
+  const aMedida = producto.solicitud !== null;
   // El descuento que hoy aplica (el mismo para todas las variantes, salvo un monto
   // fijo que no entra en alguna): el de la primera variante que tenga.
   const aplicado = aMedida ? null : (producto.variantes.find((v) => v.descuento)?.descuento ?? null);
@@ -293,7 +289,7 @@ export function FilaProducto({
 }
 
 /**
- * Lo que muestra la tarjeta de un producto en una cuenta a pedido: precio
+ * Lo que muestra la tarjeta de un producto a medida: precio
  * "desde", materiales, sus versiones con precio fijo y las preguntas.
  */
 function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {

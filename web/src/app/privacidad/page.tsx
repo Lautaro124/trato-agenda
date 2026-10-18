@@ -130,7 +130,7 @@ export default function PrivacidadPage() {
             y, si pagó con Mercado Pago, el número de operación. Si configurás que el asistente pida
             datos para el envío o para el pedido (código postal, dirección, provincia, país, email, DNI
             u otros que definas vos), también guardamos lo que el cliente conteste, sólo los datos que
-            vos elegiste pedir. Si vendés a pedido, además: lo que el cliente pidió (el producto,
+            vos elegiste pedir. Si vendés productos a medida, además: lo que el cliente pidió (el producto,
             sus respuestas a tus preguntas y un resumen), los presupuestos con sus versiones, el
             historial de cada pedido, si lo atiende una persona y por qué, y lo que el cliente y vos se
             escriban mientras el asistente está callado en ese chat; y tus materiales y costos (lo que
