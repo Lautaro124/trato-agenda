@@ -12,20 +12,6 @@ export const MAX_HORARIOS_GRUPALES = 14;
 
 export type HorarioGrupal = { dia: DiaSemana; hora: string };
 
-/** El horario que se agrega por defecto: el día siguiente al último cargado, a la misma hora. */
-export function horarioSiguiente(horarios: HorarioGrupal[]): HorarioGrupal {
-  const ultimo = horarios.at(-1);
-  if (!ultimo) return { dia: "lun", hora: "18:00" };
-  const siguiente = DIAS_SEMANA[(DIAS_SEMANA.indexOf(ultimo.dia) + 1) % DIAS_SEMANA.length];
-  return { dia: siguiente, hora: ultimo.hora };
-}
-
-/** Cada 15 minutos, de 06:00 a 23:45. */
-export const HORAS_GRUPALES = Array.from({ length: 72 }, (_, i) => {
-  const minutos = 6 * 60 + i * 15;
-  return `${String(Math.floor(minutos / 60)).padStart(2, "0")}:${String(minutos % 60).padStart(2, "0")}`;
-});
-
 /** Lo que el usuario tipeó en la capacidad → entero, o `undefined` si quedó vacío. */
 export function leerCapacidad(texto: string): number | undefined {
   const digitos = texto.replace(/\D/g, "").slice(0, 3);
@@ -35,6 +21,11 @@ export function leerCapacidad(texto: string): number | undefined {
 function minutos(hora: string): number {
   const [horas, mins] = hora.split(":").map(Number);
   return horas * 60 + mins;
+}
+
+/** Un entero de `CAPACIDAD_MIN` a `CAPACIDAD_MAX`. */
+export function capacidadValida(capacidad: number | undefined): capacidad is number {
+  return capacidad !== undefined && Number.isInteger(capacidad) && capacidad >= CAPACIDAD_MIN && capacidad <= CAPACIDAD_MAX;
 }
 
 /** Ordenados por día de la semana y por hora, como los guarda la API. */
@@ -50,7 +41,7 @@ export function problemaGrupal(
   capacidad: number | undefined,
   horarios: HorarioGrupal[],
 ): string | null {
-  if (capacidad === undefined || !Number.isInteger(capacidad) || capacidad < CAPACIDAD_MIN || capacidad > CAPACIDAD_MAX) {
+  if (!capacidadValida(capacidad)) {
     return `Poné cuántas personas entran: un número entero de ${CAPACIDAD_MIN} a ${CAPACIDAD_MAX}.`;
   }
   if (horarios.length === 0) return "Agregá al menos un horario.";
@@ -68,4 +59,66 @@ export function problemaGrupal(
     }
   }
   return null;
+}
+
+/**
+ * En pantalla los horarios se cargan como "estos días a esta hora": un bloque
+ * de días con una sola hora, y tantos bloques como hagan falta (sábados a otra
+ * hora). Al guardar, cada día de cada bloque es un horario.
+ */
+export type BloqueClase = { dias: DiaSemana[]; hora: string };
+
+/** Los horarios de unos bloques: uno por día. */
+export function horariosDeBloques(bloques: BloqueClase[]): HorarioGrupal[] {
+  return ordenarHorarios(bloques.flatMap((bloque) => bloque.dias.map((dia) => ({ dia, hora: bloque.hora }))));
+}
+
+/** Al revés: los horarios guardados agrupados por hora, para volver a mostrarlos como bloques. */
+export function bloquesDeHorarios(horarios: HorarioGrupal[]): BloqueClase[] {
+  const porHora = new Map<string, DiaSemana[]>();
+  for (const { dia, hora } of ordenarHorarios(horarios)) porHora.set(hora, [...(porHora.get(hora) ?? []), dia]);
+  return [...porHora.entries()].map(([hora, dias]) => ({ hora, dias }));
+}
+
+const ABREVIATURA: Record<DiaSemana, string> = {
+  lun: "lun",
+  mar: "mar",
+  mie: "mié",
+  jue: "jue",
+  vie: "vie",
+  sab: "sáb",
+  dom: "dom",
+};
+
+function lista(partes: string[]): string {
+  return partes.length <= 1 ? partes.join("") : `${partes.slice(0, -1).join(", ")} y ${partes.at(-1)}`;
+}
+
+/** "lun, mié y vie": los días de un bloque en el orden de la semana. */
+export function textoDias(bloque: BloqueClase): string {
+  return lista(DIAS_SEMANA.filter((dia) => bloque.dias.includes(dia)).map((dia) => ABREVIATURA[dia]));
+}
+
+/** "lun, mié y vie 18:00 · sáb 10:00". */
+export function textoBloques(bloques: BloqueClase[]): string {
+  return bloques
+    .filter((bloque) => bloque.dias.length > 0)
+    .map((bloque) => `${textoDias(bloque)} ${bloque.hora}`)
+    .join(" · ");
+}
+
+/** "19:00": a qué hora termina una clase que empieza a `hora` y dura `duracionMin`. */
+export function horaDeFin(hora: string, duracionMin: number): string {
+  const fin = (minutos(hora) + duracionMin) % (24 * 60);
+  return `${String(Math.floor(fin / 60)).padStart(2, "0")}:${String(fin % 60).padStart(2, "0")}`;
+}
+
+/** Como `problemaGrupal`, pero sobre bloques: uno sin días todavía no se puede guardar. */
+export function problemaDeBloques(
+  duracionMin: number,
+  capacidad: number | undefined,
+  bloques: BloqueClase[],
+): string | null {
+  if (capacidad !== undefined && bloques.some((bloque) => bloque.dias.length === 0)) return "Elegí al menos un día.";
+  return problemaGrupal(duracionMin, capacidad, horariosDeBloques(bloques));
 }

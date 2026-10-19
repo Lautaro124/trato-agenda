@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
-import { EditorProducto } from "@/components/productos/EditorProducto";
 import { FilaProducto } from "@/components/productos/FilaProducto";
 import { ImportarProductos } from "@/components/productos/ImportarProductos";
 import { ProbarBusqueda } from "@/components/productos/ProbarBusqueda";
@@ -37,13 +38,23 @@ export default function ProductosPage() {
   return (
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="productos" user={user} />
-      <Catalogo />
+      {/* useSearchParams necesita un límite de Suspense para prerenderizar la ruta. */}
+      <Suspense>
+        <Catalogo />
+      </Suspense>
       <MobileTabBar active="productos" />
     </div>
   );
 }
 
+/**
+ * El catálogo: productos de stock y a medida juntos. Cada uno se carga y se
+ * edita en su propia pantalla (/productos/nuevo, /productos/[id]); la
+ * planilla y las promociones son sólo de stock. `?importar=1` abre la planilla.
+ */
 function Catalogo() {
+  const router = useRouter();
+  const importarPedido = useSearchParams().get("importar") === "1";
   const [consulta, setConsulta] = useState("");
   const [consultaAplicada, setConsultaAplicada] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -52,8 +63,7 @@ function Catalogo() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [error, setError] = useState(false);
   const [recargas, setRecargas] = useState(0);
-  const [editando, setEditando] = useState<Producto | "nuevo" | null>(null);
-  const [importando, setImportando] = useState(false);
+  const [importando, setImportando] = useState(importarPedido);
 
   const recargar = useCallback(() => setRecargas((n) => n + 1), []);
 
@@ -113,14 +123,20 @@ function Catalogo() {
               Tus productos
             </h1>
             <p className="text-sm leading-[1.6] text-ink-secondary">
-              Lo que tu asistente puede vender: precio, stock y descuentos por variante. Editá lo que quieras y tocá “Guardar cambios”; valen desde el próximo mensaje.
+              Lo que tu asistente puede vender: lo de stock, con precio, stock y descuentos por variante, y lo que hacés a
+              medida, con lo que le pregunta al cliente para que lo presupuestes. Los cambios valen desde el próximo mensaje.
             </p>
           </div>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setImportando(true)}>
               Importar planilla
             </Button>
-            <Button onClick={() => setEditando("nuevo")}>Nuevo producto</Button>
+            <Link
+              href="/productos/nuevo"
+              className="inline-flex items-center justify-center rounded-md border border-transparent bg-primary px-4 py-2 font-body text-[15px] leading-none font-semibold whitespace-nowrap text-primary-on shadow-sm hover:bg-primary-hover active:bg-primary-active"
+            >
+              Nuevo producto
+            </Link>
           </div>
         </div>
 
@@ -133,9 +149,15 @@ function Catalogo() {
               <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
                 <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos</p>
                 <p className="mb-4 text-sm text-ink-secondary">
-                  Lo más rápido es subir tu lista en una planilla (CSV o Excel). También podés cargarlos de a uno.
+                  Cargalos de a uno, de stock o a medida. Si tenés muchos de stock, lo más rápido es subir tu lista en una
+                  planilla (CSV o Excel).
                 </p>
-                <Button onClick={() => setImportando(true)}>Importar planilla</Button>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button variant="secondary" onClick={() => setImportando(true)}>
+                    Importar planilla
+                  </Button>
+                  <Button onClick={() => router.push("/productos/nuevo")}>Cargar mi primer producto</Button>
+                </div>
               </div>
             ) : (
               <>
@@ -183,7 +205,7 @@ function Catalogo() {
                           key={producto.id}
                           producto={producto}
                           onCambio={reemplazar}
-                          onEditar={() => setEditando(producto)}
+                          onEditar={() => router.push(`/productos/${encodeURIComponent(producto.id)}`)}
                           onBorrar={() => borrar(producto)}
                         />
                       ))}
@@ -221,17 +243,6 @@ function Catalogo() {
         </div>
       </div>
 
-      {editando && (
-        <EditorProducto
-          producto={editando === "nuevo" ? null : editando}
-          onCerrar={() => setEditando(null)}
-          onGuardado={() => {
-            setEditando(null);
-            recargar();
-          }}
-          onFotoCambiada={recargar}
-        />
-      )}
     </main>
   );
 }

@@ -41,7 +41,11 @@ export function debePonerPassword(user: Pick<User, 'googleId' | 'phoneNumber' | 
   return user.googleId === null && user.phoneNumber !== null && user.passwordHash === null;
 }
 
-export function aUsuarioPublico(user: User, agent: { tipoAsistente: string } | null = null): UsuarioPublico {
+export function aUsuarioPublico(
+  user: User,
+  agent: { tipoAsistente: string } | null = null,
+): UsuarioPublico {
+  const tipoAsistente = agent ? tipoAsistenteDe(agent) : null;
   return {
     id: user.id,
     email: user.email,
@@ -51,7 +55,7 @@ export function aUsuarioPublico(user: User, agent: { tipoAsistente: string } | n
     calendario: user.calendario === 'local' ? 'local' : 'google',
     tienePassword: user.passwordHash !== null,
     debePonerPassword: debePonerPassword(user),
-    tipoAsistente: agent ? tipoAsistenteDe(agent) : null,
+    tipoAsistente,
   };
 }
 

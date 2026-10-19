@@ -88,6 +88,7 @@ describe.skipIf(!hayBaseDePrueba)('histórico de ventas (Postgres real)', () => 
       ticketPromedioCentavos: 2_000_000,
       pendienteCentavos: 500_000,
       pendientes: 1,
+      porCotizar: 0,
     });
     // La pendiente con la reserva pasada ya se ve como vencida.
     expect(listado.ventas.map((v) => v.estado).sort()).toEqual(['cancelada', 'pagada', 'pagada', 'pendiente_pago', 'vencida']);

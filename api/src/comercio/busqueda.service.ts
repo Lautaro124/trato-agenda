@@ -13,6 +13,7 @@ import { mejorDescuento, type DescuentoAplicado } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
 import { reservadasPorVariante } from './reservas.js';
+import { leerSolicitud, type PreguntaSolicitud } from './solicitud.rules.js';
 
 /** Productos que devuelve una búsqueda del asistente: los que entran en un mensaje de WhatsApp. */
 export const RESULTADOS_POR_BUSQUEDA = 8;
@@ -57,6 +58,8 @@ export type VarianteEncontrada = {
   unidades: number | null;
   reservadas: number;
   stockMinimo: number | null;
+  /** Variante fija de un producto a medida con foto propia (enviar_imagen_producto con su id). */
+  tieneImagen?: boolean;
 };
 
 export type ProductoEncontrado = {
@@ -74,6 +77,18 @@ export type ProductoEncontrado = {
   soloParecido?: boolean;
   /** Si tiene foto para mandarle al cliente (enviar_imagen_producto). */
   tieneImagen: boolean;
+  /**
+   * Producto a medida (tiene `solicitud`): se cotiza. Sus variantes, si tiene,
+   * son versiones con precio cerrado que el cliente pide tal cual, sin stock
+   * ni descuento.
+   */
+  aMedida?: boolean;
+  /** Su precio "desde", si el dueño puso uno. */
+  precioReferenciaCentavos?: number | null;
+  /** Producto a medida: con qué materiales se hace ([] = no los cargó). */
+  materiales?: string[];
+  /** Producto a medida: lo que el asistente pregunta para cotizar, en orden. */
+  preguntas?: PreguntaSolicitud[];
 };
 
 export type OpcionesBusqueda = {
@@ -216,7 +231,7 @@ export class BusquedaService {
       this.prisma.producto.findMany({
         where: { id: { in: ids }, userId, activo: true },
         include: {
-          variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' } },
+          variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' }, include: { imagen: { select: { id: true } } } },
           // Sólo si existe: los bytes nunca vienen en una búsqueda.
           imagen: { select: { id: true } },
         },
@@ -234,7 +249,11 @@ export class BusquedaService {
 
     return ids.flatMap((id) => {
       const producto = porId.get(id);
-      if (!producto || producto.variantes.length === 0) return [];
+      // Sin variantes sólo vale un producto a medida: no tiene precio ni stock, se cotiza. Con
+      // variantes también puede serlo: son sus versiones de precio fijo.
+      const solicitud = producto ? leerSolicitud(producto.solicitud) : null;
+      const aMedida = solicitud !== null;
+      if (!producto || (producto.variantes.length === 0 && !aMedida)) return [];
       return [
         {
           productoId: producto.id,
@@ -243,9 +262,18 @@ export class BusquedaService {
           categoria: producto.categoria,
           descripcion: producto.descripcion,
           tieneImagen: producto.imagen !== null,
+          ...(solicitud
+            ? {
+                aMedida,
+                precioReferenciaCentavos: producto.precioReferenciaCentavos,
+                materiales: producto.materiales,
+                preguntas: solicitud.preguntas,
+              }
+            : {}),
           variantes: producto.variantes.map((variante) => {
             const reservadasVariante = reservadas.get(variante.id) ?? 0;
-            const descuento = mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);
+            // A medida no hay descuentos: la versión vale lo que dice.
+            const descuento = aMedida ? null : mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);
             return {
               varianteId: variante.id,
               sku: variante.sku,
@@ -258,6 +286,7 @@ export class BusquedaService {
               unidades: unidadesDisponibles(variante, reservadasVariante),
               reservadas: reservadasVariante,
               stockMinimo: variante.stockMinimo,
+              ...(aMedida ? { tieneImagen: variante.imagen !== null } : {}),
             };
           }),
         },

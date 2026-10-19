@@ -7,7 +7,8 @@ async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string
   const negocio = `Mates E2E ${sufijo()}`;
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
-  // Ventas no pregunta turnos ni horarios, sí por el local y, opcional, por los datos del cliente: son cinco pasos.
+  // Ventas no pregunta turnos ni horarios ni cómo vende (eso lo dice cada producto), sí por el local y,
+  // opcional, por los datos del cliente: cinco pasos.
   await expect(visible(page.getByText('Paso 2 de 5'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
   await botonContinuar(page).click();
@@ -45,8 +46,8 @@ test.describe('onboarding de un comercio', () => {
     await visible(page.getByRole('button', { name: /^(Atrás|Volver al paso anterior)$/ })).first().click();
     await expect(page.getByRole('radio', { name: /Vender productos/ })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('radio', { name: /Agendar turnos/ }).click();
-    // Turnos suma "¿Cómo atendés?": uno a uno son 6 pasos.
-    await expect(visible(page.getByText('Paso 1 de 6'))).toBeVisible();
+    // Turnos suma "¿Cómo atendés?" y "¿Dónde atendés?": uno a uno son 7 pasos.
+    await expect(visible(page.getByText('Paso 1 de 7'))).toBeVisible();
 
     await botonContinuar(page).click();
     await expect(visible(page.getByLabel('¿Cómo se llama tu negocio?'))).toHaveValue('Mates del Sur');

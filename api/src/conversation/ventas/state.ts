@@ -5,7 +5,9 @@
  */
 import { MessagesValue, StateSchema, UntrackedValue } from '@langchain/langgraph';
 import { z } from 'zod';
+import type { PedidoAMedida } from '../../comercio/pedidos-a-medida.service.js';
 import type { Conversation } from '../../generated/prisma/client.js';
+import type { Cancelacion } from '../cancelacion.js';
 import type { AgentConUser, OperacionPendiente } from '../graph/state.js';
 
 /** Lo que `cargar_contexto_ventas` deja listo para el resto del grafo. */
@@ -15,6 +17,10 @@ export type ContextoVentas = {
   bloqueSistema: string;
   /** Si el comercio conectó Mercado Pago: define el medio de pago por defecto de crear_pedido. */
   mpConectado: boolean;
+  /** Pedidos a medida de la conversación: los que pueden nombrar aceptar_presupuesto y derivar_a_persona. */
+  pedidosAMedida: PedidoAMedida[];
+  /** La cuenta tiene algún producto a medida activo (o un pedido a medida en esta charla): suma sus reglas y herramientas. */
+  tieneAMedida: boolean;
 };
 
 export const EstadoVentas = new StateSchema({
@@ -32,6 +38,8 @@ export const EstadoVentas = new StateSchema({
    * salen del catálogo). Vacía = la respuesta todavía no se rechazó en esta vuelta.
    */
   correccion: new UntrackedValue<string>(undefined, { guard: false }),
+  /** La vuelta que se puede descartar si el cliente manda otro mensaje (cancelacion.ts). Sólo por WhatsApp. */
+  cancelacion: new UntrackedValue<Cancelacion>(undefined, { guard: false }),
 });
 
 export type EstadoVentasValue = typeof EstadoVentas.State;

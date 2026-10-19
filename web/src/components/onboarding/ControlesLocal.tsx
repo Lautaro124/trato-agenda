@@ -115,6 +115,65 @@ function FilaDia({ local, dia }: Readonly<{ local: LocalState; dia: DiaSemana }>
   );
 }
 
+/**
+ * La dirección y el link de Google Maps: lo que tienen en común el local de
+ * un comercio y el lugar de los turnos (`ControlesLugar`).
+ */
+export function CamposDireccion({
+  local,
+  placeholder = "Ej.: Av. Corrientes 1234, CABA",
+}: Readonly<{ local: LocalState; placeholder?: string }>) {
+  return (
+    <>
+      <div>
+        <label htmlFor="local-direccion" className="mb-2 block text-[13px] font-semibold text-ink-secondary">
+          Dirección
+        </label>
+        <input
+          id="local-direccion"
+          value={local.direccion}
+          onChange={(e) => local.setDireccion(e.target.value)}
+          maxLength={LARGO_MAX_DIRECCION}
+          autoComplete="street-address"
+          placeholder={placeholder}
+          className={INPUT}
+        />
+        {local.problemas.direccion && (
+          <p role="alert" className="mt-1.5 text-[12.5px] text-danger-text">
+            {local.problemas.direccion}
+          </p>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="local-enlace" className="mb-2 block text-[13px] font-semibold text-ink-secondary">
+          Link de Google Maps <span className="font-normal text-muted">(opcional)</span>
+        </label>
+        <input
+          id="local-enlace"
+          type="url"
+          inputMode="url"
+          value={local.enlaceUbicacion}
+          onChange={(e) => local.setEnlaceUbicacion(e.target.value)}
+          maxLength={LARGO_MAX_ENLACE}
+          autoComplete="url"
+          placeholder="https://maps.app.goo.gl/…"
+          className={INPUT}
+        />
+        {local.problemas.enlace ? (
+          <p role="alert" className="mt-1.5 text-[12.5px] text-danger-text">
+            {local.problemas.enlace}
+          </p>
+        ) : (
+          <p className="mt-1.5 text-[12.5px] text-ink-secondary">
+            El asistente lo manda cuando te preguntan cómo llegar.
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 export function ControlesLocal({ local }: Readonly<{ local: LocalState }>) {
   return (
     <div className="flex flex-col gap-5">
@@ -153,51 +212,7 @@ export function ControlesLocal({ local }: Readonly<{ local: LocalState }>) {
 
       {local.tieneLocal && (
         <>
-          <div>
-            <label htmlFor="local-direccion" className="mb-2 block text-[13px] font-semibold text-ink-secondary">
-              Dirección
-            </label>
-            <input
-              id="local-direccion"
-              value={local.direccion}
-              onChange={(e) => local.setDireccion(e.target.value)}
-              maxLength={LARGO_MAX_DIRECCION}
-              autoComplete="street-address"
-              placeholder="Ej.: Av. Corrientes 1234, CABA"
-              className={INPUT}
-            />
-            {local.problemas.direccion && (
-              <p role="alert" className="mt-1.5 text-[12.5px] text-danger-text">
-                {local.problemas.direccion}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label htmlFor="local-enlace" className="mb-2 block text-[13px] font-semibold text-ink-secondary">
-              Link de Google Maps <span className="font-normal text-muted">(opcional)</span>
-            </label>
-            <input
-              id="local-enlace"
-              type="url"
-              inputMode="url"
-              value={local.enlaceUbicacion}
-              onChange={(e) => local.setEnlaceUbicacion(e.target.value)}
-              maxLength={LARGO_MAX_ENLACE}
-              autoComplete="url"
-              placeholder="https://maps.app.goo.gl/…"
-              className={INPUT}
-            />
-            {local.problemas.enlace ? (
-              <p role="alert" className="mt-1.5 text-[12.5px] text-danger-text">
-                {local.problemas.enlace}
-              </p>
-            ) : (
-              <p className="mt-1.5 text-[12.5px] text-ink-secondary">
-                El asistente lo manda cuando te preguntan cómo llegar.
-              </p>
-            )}
-          </div>
+          <CamposDireccion local={local} />
 
           <fieldset>
             <legend className="mb-1 text-[13px] font-semibold text-ink-secondary">Horarios del local</legend>

@@ -28,6 +28,7 @@ import { Observable, ReplaySubject, map } from 'rxjs';
 import { Limitador } from '../auth/limitador.js';
 import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
+import { PedidosAMedidaService } from '../comercio/pedidos-a-medida.service.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
@@ -37,6 +38,7 @@ import { NotificacionesService } from '../notificaciones/notificaciones.service.
 import { avisarASentry } from '../observabilidad/aviso-a-sentry.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
+import { VueltaCancelada, type Cancelacion } from '../conversation/cancelacion.js';
 import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
 import { CacheConVencimiento, MensajesEnviados, TTL_REINTENTOS_MS } from './caches.js';
 import {
@@ -182,7 +184,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private consultandoVersion: Promise<WAVersion> | null = null;
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
   private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
-    (_clave, items) => this.contestarRafaga(items),
+    (_clave, items, cancelacion) => this.contestarRafaga(items, cancelacion),
     // Sólo el userId: el JID del cliente es su teléfono y no va a los logs.
     (clave, error) =>
       this.logger.error(`Fallo procesando mensajes entrantes de ${clave.split('\n')[0]}`, error as Error),
@@ -196,6 +198,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly subscriptionService: SubscriptionService,
     private readonly imagenes: ImagenesService,
     private readonly notificaciones: NotificacionesService,
+    private readonly pedidos: PedidosAMedidaService,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
@@ -530,13 +533,30 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     for (const mensaje of upsert.messages) {
       const remoteJid = mensaje.key.remoteJid;
-      if (!remoteJid || mensaje.key.fromMe || isJidGroup(remoteJid)) continue;
+      if (!remoteJid || isJidGroup(remoteJid)) continue;
 
       const texto = mensaje.message?.conversation ?? mensaje.message?.extendedTextMessage?.text;
+      if (mensaje.key.fromMe) {
+        // Lo que el dueño contesta desde su teléfono: sólo se guarda en un chat en atención humana.
+        if (texto) await this.guardarRespuestaDelDueno(userId, sock, remoteJid, mensaje.key.id, texto);
+        continue;
+      }
       if (!texto) continue;
 
       if (!(await this.subscriptionService.asistenteActivo(userId))) {
         this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
+        continue;
+      }
+
+      // Un pedido de este chat lo atiende una persona (LAU-27): el asistente no
+      // contesta, ni marca leído, ni muestra "escribiendo…". El mensaje queda
+      // guardado para que el dueño lo vea en Ventas y el asistente al retomar.
+      if (await this.pedidos.enAtencionHumana(userId, remoteJid)) {
+        await this.pedidos
+          .guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'cliente')
+          .catch((error: unknown) =>
+            this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
+          );
         continue;
       }
 
@@ -553,13 +573,41 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Un mensaje que el dueño escribió desde su teléfono en el chat de un
+   * cliente. Si ese chat está en atención humana, se guarda: es la mitad de la
+   * charla que el asistente no vio. Se descartan su propio chat (los códigos
+   * de acceso) y lo que salió del asistente (`enviados`), que vuelve como eco.
+   */
+  private async guardarRespuestaDelDueno(
+    userId: string,
+    sock: WASocket,
+    remoteJid: string,
+    id: string | null | undefined,
+    texto: string,
+  ): Promise<void> {
+    if (this.enviados.buscar(userId, id)) return;
+    const telefono = estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
+    if (telefono && remoteJid === jidPropio(telefono)) return;
+    try {
+      if (!(await this.pedidos.enAtencionHumana(userId, remoteJid))) return;
+      await this.pedidos.guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'dueno');
+    } catch (error) {
+      this.logger.error(`No se pudo guardar una respuesta del dueño ${userId}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
    * Contesta una ráfaga como lo haría una persona: la marca como leída, muestra
    * "escribiendo…" mientras el modelo piensa y manda la respuesta en uno a
    * MAX_PARTES mensajes, cada uno después de lo que tardaría en tipearlo. El
    * tiempo del modelo cuenta como tipeo del primero, así una respuesta lenta
    * no se demora el doble.
+   *
+   * Si el cliente manda otro mensaje mientras se arma, `responder` corta con
+   * VueltaCancelada y no se manda nada: el agrupador la rehace con todo junto.
+   * Si ya estaba comprometida, sale igual.
    */
-  private async contestarRafaga(items: MensajeEntrante[]): Promise<void> {
+  private async contestarRafaga(items: MensajeEntrante[], cancelacion: Cancelacion): Promise<void> {
     const { userId, remoteJid, sock } = items.at(-1)!;
     const texto = items.map((item) => item.texto).join('\n');
 
@@ -568,7 +616,18 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const escribiendo = this.mostrarEscribiendo(sock, remoteJid);
     const inicio = Date.now();
     try {
-      const respuesta = await this.conversationService.responder(userId, remoteJid, texto);
+      const respuesta = await this.conversationService.responder(userId, remoteJid, texto, { cancelacion }).catch(
+        (error: unknown) => {
+          if (error instanceof VueltaCancelada) {
+            this.logger.log(
+              `${PREFIJO_TIEMPOS} · ráfaga de ${userId}: descartada tras ${Date.now() - inicio}ms (llegó otro mensaje)`,
+            );
+          }
+          throw error;
+        },
+      );
+      // Mientras esperaba la ráfaga, el chat pasó a una persona: no se contesta nada.
+      if (respuesta.enAtencionHumana) return;
       const finModelo = Date.now();
       // Sólo avisa si se llegó al 80 %/100 % del tope de chats; nunca frena ni demora la respuesta.
       void this.subscriptionService.avisarSiLlegaAlTope(userId).catch((error: unknown) =>
@@ -639,11 +698,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * que las acompaña. Una que falla no corta nada: el texto sale igual.
    */
   private async enviarFotos(userId: string, sock: WASocket, remoteJid: string, imagenes: ImagenAEnviar[]): Promise<void> {
-    for (const { productoId } of imagenes) {
+    for (const { productoId, varianteId, leyenda } of imagenes) {
       try {
-        const foto = await this.imagenes.paraEnviar(userId, productoId);
+        const foto = await this.imagenes.paraEnviar(userId, productoId, varianteId);
         if (!foto) continue;
-        await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: foto.nombre });
+        // Las del listado traen nombre y precio; las demás, el nombre de la base.
+        await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: leyenda ?? foto.nombre });
       } catch (error) {
         // Sin el JID ni el nombre del producto: sólo ids, como el resto de los logs de Baileys.
         this.logger.error(`No se pudo mandar la foto del producto ${productoId} (cuenta ${userId}): ${(error as Error).message}`);

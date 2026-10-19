@@ -27,6 +27,16 @@ describe('validateEnv', () => {
     expect(validateEnv({ ...BASE, NODE_ENV: 'production' }).DEV_LOGIN_PASSWORD).toBe('');
   });
 
+  it('LINEAR_API_URL apunta a Linear por defecto y en producción tiene que ser https', () => {
+    expect(validateEnv({ ...BASE, NODE_ENV: 'production' }).LINEAR_API_URL).toBe('https://api.linear.app/graphql');
+    expect(validateEnv({ ...BASE, LINEAR_API_URL: 'http://localhost:4030/graphql/' }).LINEAR_API_URL).toBe(
+      'http://localhost:4030/graphql',
+    );
+    expect(() => validateEnv({ ...BASE, NODE_ENV: 'production', LINEAR_API_URL: 'http://linear.test' })).toThrow(
+      /LINEAR_API_URL/,
+    );
+  });
+
   it('OPENROUTER_BASE_URL por defecto apunta a OpenRouter y se le saca la barra final', () => {
     expect(validateEnv(BASE).OPENROUTER_BASE_URL).toBe('https://openrouter.ai/api/v1');
     expect(validateEnv({ ...BASE, OPENROUTER_BASE_URL: 'http://openrouter-stub:4010/api/v1/' }).OPENROUTER_BASE_URL).toBe(

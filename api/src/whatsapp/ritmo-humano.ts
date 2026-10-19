@@ -6,10 +6,14 @@
  * a un bot, aunque el texto suene natural.
  */
 
-/** Silencio que se espera después del último mensaje del cliente antes de contestar: la gente escribe en ráfagas. */
-export const ESPERA_RAFAGA_MS = 3_500;
+/**
+ * Silencio que se espera después del último mensaje del cliente antes de
+ * contestar: la gente escribe en ráfagas, y no hay forma de saber si sigue
+ * escribiendo (ver AgrupadorDeRafagas), así que la espera es generosa.
+ */
+export const ESPERA_RAFAGA_MS = 6_000;
 /** Tope de espera desde el primer mensaje de la ráfaga, para que alguien que escribe sin parar igual tenga respuesta. */
-export const MAXIMO_RAFAGA_MS = 12_000;
+export const MAXIMO_RAFAGA_MS = 20_000;
 /**
  * Topes de una ráfaga: un cliente que manda cientos de mensajes seguidos no
  * puede inflar la memoria de la API ni un prompt (que paga el dueño). Al
@@ -63,6 +67,13 @@ export function partirEnMensajes(texto: string, maximo = MAX_PARTES): string[] {
   if (partes.length <= maximo) return partes;
   return [...partes.slice(0, maximo - 1), partes.slice(maximo - 1).join('\n\n')];
 }
+
+/**
+ * Veces que se descarta una respuesta a medio armar porque el cliente mandó
+ * otro mensaje. Cada vez es una llamada al modelo que paga el dueño; pasado el
+ * tope ya no se descarta: lo nuevo espera a que salga esa respuesta.
+ */
+export const MAX_CANCELACIONES_POR_RAFAGA = 2;
 
 /** Cuánto esperar antes de vaciar una ráfaga: el silencio pedido, sin pasarse del tope desde el primer mensaje. */
 export function esperaDeRafaga(desde: number, ahora: number): number {

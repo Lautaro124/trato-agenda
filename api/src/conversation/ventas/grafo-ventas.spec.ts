@@ -1,7 +1,7 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import { ACCIONES_VENTAS_IDS } from '../../agents/agent-catalog.js';
 import { construirConfiguracionVentas } from '../../agents/agent-template-ventas.js';
 import type { OpenRouterClient } from '../../agents/openrouter.client.js';
@@ -11,6 +11,7 @@ import type { DescuentoAplicado, DescuentosVigentes } from '../../comercio/descu
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
+import { conMarcaDeLlegada } from '../graph/ventana-historial.js';
 import { LIMITE_RECURSION_VENTAS, construirGrafoVentas } from './grafo-ventas.factory.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../comercio/imagenes.rules.js';
 import { imagenesDeLaVuelta } from './imagenes-de-la-vuelta.js';
@@ -55,18 +56,37 @@ const MATE: ProductoEncontrado = {
 };
 
 function crearPrisma(
-  opciones: { totalProductos?: number; mpConectado?: boolean; pedidos?: unknown[]; agent?: Record<string, unknown> } = {},
+  opciones: {
+    totalProductos?: number;
+    mpConectado?: boolean;
+    pedidos?: unknown[];
+    pedidosAMedida?: unknown[];
+    /** Productos a medida activos de la cuenta: con alguno se suman sus reglas y herramientas. */
+    productosAMedida?: number;
+    agent?: Record<string, unknown>;
+  } = {},
 ) {
   return {
     agent: { findUnique: vi.fn().mockResolvedValue(opciones.agent ?? AGENT) },
     conversation: { findUniqueOrThrow: vi.fn().mockResolvedValue(CONVERSATION) },
     producto: {
       groupBy: vi.fn().mockResolvedValue([{ categoria: 'Mates', _count: { _all: 12 } }]),
-      count: vi.fn().mockResolvedValue(opciones.totalProductos ?? 12),
+      count: vi.fn().mockImplementation((args: { where?: { solicitud?: unknown } }) =>
+        Promise.resolve(args?.where?.solicitud ? (opciones.productosAMedida ?? 0) : (opciones.totalProductos ?? 12)),
+      ),
     },
     cuentaMercadoPago: { findUnique: vi.fn().mockResolvedValue(opciones.mpConectado ? { id: 'mp-1' } : null) },
-    venta: { findMany: vi.fn().mockResolvedValue(opciones.pedidos ?? []) },
-    message: { create: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(1) },
+    venta: {
+      findMany: vi.fn().mockImplementation((args: { where?: { tipo?: string } }) =>
+        Promise.resolve(args?.where?.tipo === 'a_medida' ? (opciones.pedidosAMedida ?? []) : (opciones.pedidos ?? [])),
+      ),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    message: {
+      create: vi.fn().mockResolvedValue({}),
+      count: vi.fn().mockResolvedValue(1),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   } as unknown as PrismaService;
 }
 
@@ -101,6 +121,19 @@ function crearHistorico() {
       porDia: [],
       topProductos: [{ codigo: 'MATE', nombreProducto: 'Mate', unidades: 2, cobradoCentavos: 1_600_000 }],
     }),
+  };
+}
+
+function crearPedidosAMedida() {
+  return {
+    productoParaSolicitud: vi.fn().mockResolvedValue(null),
+    cotizacionPrevia: vi.fn().mockResolvedValue(null),
+    registrarSolicitud: vi.fn(),
+    cotizarSolicitud: vi.fn().mockResolvedValue({ modo: 'manual' }),
+    cobrar: vi.fn(),
+    derivar: vi.fn(),
+    varianteParaPedir: vi.fn().mockResolvedValue(null),
+    pedirVariante: vi.fn(),
   };
 }
 
@@ -153,9 +186,12 @@ function correr(
     ventas?: ReturnType<typeof crearVentas>;
     notificaciones?: ReturnType<typeof crearNotificaciones>;
     historico?: ReturnType<typeof crearHistorico>;
+    pedidos?: ReturnType<typeof crearPedidosAMedida>;
     imagenes?: Pick<ImagenesService, 'estadoDeFoto'>;
+    decisiones?: { ordenar: Mock<(pedido: unknown) => Promise<string[]>>; configurado: boolean };
   },
   esPropietario = false,
+  mensajes: BaseMessage[] = [new HumanMessage('¿tenés mates?')],
 ) {
   const grafo = construirGrafoVentas({
     ...deps,
@@ -164,11 +200,12 @@ function correr(
     notificaciones: deps.notificaciones ?? crearNotificaciones(),
     historico: deps.historico ?? crearHistorico(),
     imagenes: deps.imagenes ?? { estadoDeFoto: vi.fn() },
+    pedidos: deps.pedidos ?? crearPedidosAMedida(),
     openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
     checkpointer: new MemorySaver(),
   });
   return grafo.invoke(
-    { messages: [new HumanMessage('¿tenés mates?')], ownerUserId: 'user-1', remoteJid: CONVERSATION.remoteJid, esPropietario },
+    { messages: mensajes, ownerUserId: 'user-1', remoteJid: CONVERSATION.remoteJid, esPropietario },
     { configurable: { thread_id: CONVERSATION.id }, recursionLimit: LIMITE_RECURSION_VENTAS },
   );
 }
@@ -225,6 +262,7 @@ describe('grafo de ventas', () => {
       notificaciones: crearNotificaciones(),
       historico: crearHistorico(),
       imagenes: { estadoDeFoto: vi.fn() },
+      pedidos: crearPedidosAMedida(),
       openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
       checkpointer: new MemorySaver(),
     });
@@ -267,7 +305,9 @@ describe('grafo de ventas', () => {
     const llm = crearModelo([new AIMessage('Hola.')]);
     await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() } });
     const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
-    expect(herramientas.map((h) => h.name)).toEqual(ACCIONES_VENTAS_IDS);
+    // Las de los pedidos a medida sólo están si la cuenta tiene algún producto a medida.
+    const aMedida = ['registrar_solicitud', 'pedir_variante', 'aceptar_presupuesto', 'derivar_a_persona'];
+    expect(herramientas.map((h) => h.name)).toEqual(ACCIONES_VENTAS_IDS.filter((id) => !aMedida.includes(id)));
   });
 
   it('busca en el catálogo y le devuelve al modelo precios, stock e ids de variante', async () => {
@@ -488,6 +528,54 @@ describe('grafo de ventas', () => {
       expect(tool.content).toContain('mostrale la lista entera');
     });
 
+    it('con la lista entera, las fotos salen solas con nombre y precio al pie y el texto no las repite', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }, PRODUCTOS[1]];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 0 });
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage('También tengo el Termo 1 L. ¿Cuál te gusta?')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([
+        { productoId: 'p-1', nombre: 'Mate de calabaza', leyenda: 'Mate de calabaza\n$ 8.000' },
+      ]);
+      const contenido = String(toolMessages(resultado.messages)[0].content);
+      expect(contenido).toContain('- "Mate de calabaza": $ 8.000 (ya le llegó en foto)');
+      expect(contenido).toContain('nombrale sólo los otros');
+      expect(contenido).not.toContain('mostrale la lista entera');
+    });
+
+    it('sin la lista entera no manda fotos solas', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 5 });
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage('.')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([]);
+      expect(toolMessages(resultado.messages)[0].content).toContain('mostrale la lista entera');
+    });
+
+    it('las fotos del listado no gastan el tope de las que pide el modelo', async () => {
+      const PRODUCTOS_CON_FOTO = Array.from({ length: MAX_IMAGENES_POR_MENSAJE + 1 }, (_, i) => ({
+        ...PRODUCTOS[0],
+        productoId: `p-${i}`,
+        nombre: `Mate ${i}`,
+        tieneImagen: true,
+      }));
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: PRODUCTOS_CON_FOTO, categoria: null, restantes: 0 });
+      const imagenes = { estadoDeFoto: vi.fn().mockResolvedValue({ nombre: 'Termo', tieneFoto: true, deVariante: false }) };
+      const llm = crearModelo([
+        llamada('ver_catalogo', {}),
+        llamada('enviar_imagen_producto', { productoId: 'p-termo' }, 'c2'),
+        new AIMessage('.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo }, imagenes });
+
+      expect(imagenesDeLaVuelta(resultado.messages)).toHaveLength(MAX_IMAGENES_POR_MENSAJE + 2);
+      expect(resultadoDe(resultado.messages, 'enviar_imagen_producto').content).toContain('Listo: la foto');
+    });
+
     it('con muchos le pasa las categorías sugeridas y que hay otras', async () => {
       const verCatalogo = vi.fn().mockResolvedValue({
         tipo: 'categorias',
@@ -628,7 +716,7 @@ describe('grafo de ventas', () => {
 
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
 
-      expect(imagenes.estadoDeFoto).toHaveBeenCalledWith('user-1', 'p-1');
+      expect(imagenes.estadoDeFoto).toHaveBeenCalledWith('user-1', 'p-1', undefined);
       const tool = resultadoDe(resultado.messages, 'enviar_imagen_producto');
       expect(tool.content).toContain('le llega al cliente junto con tu respuesta');
       expect(tool.artifact).toEqual({ productoId: 'p-1', nombre: 'Mate de calabaza' });
@@ -660,15 +748,16 @@ describe('grafo de ventas', () => {
             { id: 'f3', name: 'enviar_imagen_producto', args: { productoId: 'p-2' } },
           ],
         }),
-        // En otra ida y vuelta de la misma respuesta: ya van dos.
+        // En otra ida y vuelta de la misma respuesta: ya van dos, entra la tercera y no la cuarta.
         llamada('enviar_imagen_producto', { productoId: 'p-3' }, 'f4'),
+        llamada('enviar_imagen_producto', { productoId: 'p-4' }, 'f5'),
         new AIMessage('Ahí van.'),
       ]);
 
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
 
-      expect(imagenes.estadoDeFoto).toHaveBeenCalledTimes(2);
-      expect(imagenesDeLaVuelta(resultado.messages).map((imagen) => imagen.productoId)).toEqual(['p-1', 'p-2']);
+      expect(imagenes.estadoDeFoto).toHaveBeenCalledTimes(3);
+      expect(imagenesDeLaVuelta(resultado.messages).map((imagen) => imagen.productoId)).toEqual(['p-1', 'p-2', 'p-3']);
       const rechazos = toolMessages(resultado.messages).filter((mensaje) => !mensaje.artifact);
       expect(rechazos.map((mensaje) => mensaje.content)).toEqual([
         expect.stringContaining('ya sale con esta respuesta'),
@@ -781,8 +870,51 @@ describe('grafo de ventas', () => {
         expect(ventas.crearPedido).not.toHaveBeenCalled();
         expect(toolMessages(resultado.messages)[1].content).toContain('si lo quiere con envío o si lo retira');
         const sistema = sistemaDe(llm);
-        expect(sistema).toContain('Mates del Sur hace envíos');
+        expect(sistema).toContain('Hacemos envíos');
         expect(sistema).toContain('"Código postal" (obligatorio), "Entre calles" (opcional)');
+      });
+
+      describe('Jev decide si ya es momento de pedir los datos', () => {
+        // Con la marca de llegada: sin ella quedarían fuera de la ventana de historial.
+        const charla = [
+          conMarcaDeLlegada(new HumanMessage('quiero una mesa a medida'), new Date()),
+          new AIMessage('¡Dale! ¿De qué largo la necesitás?'),
+          new HumanMessage('1,80'),
+        ];
+
+        it('mientras sigue definiendo, las reglas no le piden datos', async () => {
+          const decisiones = { configurado: true, ordenar: vi.fn().mockResolvedValue(['defining', 'ready']) };
+          const llm = crearModelo([new AIMessage('¿Y en qué color?')]);
+
+          await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), decisiones }, false, charla);
+
+          const [pedido] = decisiones.ordenar.mock.calls[0] as [{ estado: string }];
+          expect(pedido.estado).toContain('Shop: ¡Dale! ¿De qué largo la necesitás?');
+          expect(pedido.estado).toContain('Customer: 1,80');
+          expect(sistemaDe(llm)).toContain('no le pidas datos de contacto ni de envío');
+          expect(sistemaDe(llm)).not.toContain('"Código postal" (obligatorio)');
+        });
+
+        it('cuando ya eligió todo, pide los datos', async () => {
+          const decisiones = { configurado: true, ordenar: vi.fn().mockResolvedValue(['ready', 'defining']) };
+          const llm = crearModelo([new AIMessage('¿Lo querés con envío o lo retirás?')]);
+
+          await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), decisiones }, false, charla);
+
+          expect(sistemaDe(llm)).toContain('El cliente ya eligió todo');
+          expect(sistemaDe(llm)).toContain('"Código postal" (obligatorio)');
+        });
+
+        it('si Jev falla queda la regla de siempre, y si el comercio no pide datos ni lo consulta', async () => {
+          const falla = { configurado: true, ordenar: vi.fn().mockRejectedValue(new Error('timeout')) };
+          const llm = crearModelo([new AIMessage('¿En qué color?')]);
+          await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: buscaMate(), decisiones: falla }, false, charla);
+          expect(sistemaDe(llm)).toContain('te dijo que no quiere nada más (nunca antes)');
+
+          const sinDatos = { configurado: true, ordenar: vi.fn() };
+          await correr({ prisma: crearPrisma(), llm: crearModelo([new AIMessage('Dale')]), busqueda: buscaMate(), decisiones: sinDatos }, false, charla);
+          expect(sinDatos.ordenar).not.toHaveBeenCalled();
+        });
       });
 
       it('con envío exige los obligatorios y guarda lo que contestó con la etiqueta del comercio', async () => {
@@ -849,7 +981,7 @@ describe('grafo de ventas', () => {
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), ventas }, true);
 
       expect(ventas.crearPedido).toHaveBeenCalledWith(expect.objectContaining({ medioPago: 'manual', dePrueba: true }));
-      expect(resultadoDe(resultado.messages, 'crear_pedido').content).toContain('Mates del Sur se va a comunicar por este chat');
+      expect(resultadoDe(resultado.messages, 'crear_pedido').content).toContain('le escribimos por este chat para coordinar el pago');
       expect(sistemaDe(llm)).toContain('no cobra con link por ahora');
     });
 
@@ -911,6 +1043,411 @@ describe('grafo de ventas', () => {
       });
       expect(ventas.cancelarUltimoPendiente).toHaveBeenCalledWith('conv-1');
       expect(toolMessages(cancelacion.messages)[0].content).toContain('Pedido cancelado y reserva liberada');
+    });
+  });
+
+  describe('con productos a medida: pedidos a medida (LAU-27)', () => {
+    const A_PEDIDO = AGENT;
+    const PLACARD: ProductoEncontrado = {
+      productoId: 'p-placard',
+      codigo: 'PLACARD',
+      nombre: 'Placard',
+      categoria: null,
+      descripcion: 'A medida',
+      tieneImagen: false,
+      variantes: [],
+      aMedida: true,
+      precioReferenciaCentavos: null,
+      materiales: [],
+      preguntas: [{ texto: 'Ancho (cm)', sobre: 'solicita', opciones: [], textoLibre: true, obligatoria: true }],
+    } as unknown as ProductoEncontrado;
+    const BUSCAR_PLACARD = llamada('buscar_productos', { consulta: 'placard' }, 'call-busqueda');
+    const SOLICITUD = { preguntas: [{ texto: 'Ancho (cm)', sobre: 'solicita', opciones: [], textoLibre: true, obligatoria: true }] };
+    const PEDIDO = {
+      id: 'v-1',
+      tipo: 'a_medida',
+      estado: 'a_cotizar',
+      atencion: 'asistente',
+      totalCentavos: null,
+      reservaVenceAt: null,
+      linkPago: null,
+      createdAt: new Date('2026-10-15T10:00:00-03:00'),
+      solicitud: { productoId: 'p-placard', nombreProducto: 'Placard', respuestas: [], resumen: '' },
+      items: [],
+      presupuestos: [],
+    };
+
+    it('las herramientas de pedidos a medida se suman a las de stock', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }), llm, busqueda: { buscar: vi.fn() } });
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      const nombres = herramientas.map((h) => h.name);
+      expect(nombres).toEqual(expect.arrayContaining(['registrar_solicitud', 'aceptar_presupuesto', 'derivar_a_persona']));
+      expect(nombres).toContain('crear_pedido');
+    });
+
+    describe('versiones con precio fijo', () => {
+      const versión = (varianteId: string, nombre: string, precioCentavos: number, tieneImagen = false) => ({
+        varianteId,
+        sku: varianteId,
+        nombre,
+        precioCentavos,
+        precioFinalCentavos: precioCentavos,
+        descuento: null,
+        hayStock: true,
+        stock: 'disponible',
+        unidades: null,
+        reservadas: 0,
+        stockMinimo: null,
+        tieneImagen,
+      });
+      const MESA = {
+        ...PLACARD,
+        productoId: 'p-mesa',
+        codigo: 'MESA',
+        nombre: 'Mesa ratona',
+        tieneImagen: true,
+        preguntas: [],
+        variantes: [versión('v-roble', 'Roble 1,20 m', 18_000_000, true), versión('v-pino', 'Pino 1,00 m', 12_000_000)],
+      } as unknown as ProductoEncontrado;
+      const BUSCAR_MESA = llamada('buscar_productos', { consulta: 'mesa' }, 'call-busqueda');
+      const buscaMesa = () => ({ buscar: vi.fn().mockResolvedValue([MESA]) });
+      const PEDIDO_VARIANTE = {
+        ...PEDIDO,
+        id: 'v-9',
+        estado: 'pendiente_pago',
+        totalCentavos: 36_000_000,
+        linkPago: 'https://mp/pagar/v-9',
+        reservaVenceAt: new Date('2099-01-01T15:30:00-03:00'),
+        solicitud: {
+          productoId: 'p-mesa',
+          nombreProducto: 'Mesa ratona',
+          respuestas: [],
+          resumen: '',
+          variante: { id: 'v-roble', nombre: 'Roble 1,20 m', precioCentavos: 18_000_000, cantidad: 2 },
+          cambios: null,
+        },
+        items: [{ nombreProducto: 'Mesa ratona', nombreVariante: 'Roble 1,20 m', cantidad: 2, subtotalCentavos: 36_000_000 }],
+      };
+
+      it('la búsqueda trae las versiones con su id y el modelo tiene pedir_variante', async () => {
+        const llm = crearModelo([BUSCAR_MESA, new AIMessage('Tenemos dos versiones.')]);
+        const resultado = await correr({ prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }), llm, busqueda: buscaMesa() });
+        const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+        expect(herramientas.map((h) => h.name)).toContain('pedir_variante');
+        expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain(
+          '"Roble 1,20 m" [variante v-roble]: $ 180.000, precio fijo, tiene foto',
+        );
+      });
+
+      it('tal cual: pedir_variante anota el pedido con su precio y le pasa el link al modelo', async () => {
+        const pedidos = crearPedidosAMedida();
+        pedidos.pedirVariante.mockResolvedValue(PEDIDO_VARIANTE);
+        const resultado = await correr({
+          prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO, mpConectado: true }),
+          llm: crearModelo([
+            BUSCAR_MESA,
+            llamada('pedir_variante', { varianteId: 'v-inventada', cantidad: 2, nombreCliente: 'Ana' }, 'c2'),
+            llamada('pedir_variante', { varianteId: ' v-roble ', cantidad: 2, nombreCliente: 'Ana' }, 'c3'),
+            new AIMessage('Listo Ana, te paso el link: https://mp/pagar/v-9'),
+          ]),
+          busqueda: buscaMesa(),
+          pedidos,
+        });
+
+        const [inventada, anotada] = toolMessages(resultado.messages).filter((m) => m.name === 'pedir_variante');
+        expect(inventada.content).toContain('no salió de ninguna búsqueda');
+        expect(pedidos.pedirVariante).toHaveBeenCalledOnce();
+        expect(pedidos.pedirVariante.mock.calls[0][0]).toMatchObject({
+          varianteId: 'v-roble',
+          cantidad: 2,
+          nombreCliente: 'Ana',
+          dePrueba: false,
+        });
+        expect(anotada.content).toContain('Pedido anotado [pedido v-9]');
+        // Sin datos configurados no se pide nada.
+        expect(pedidos.pedirVariante.mock.calls[0][0]).toMatchObject({ entrega: null, datosCliente: [] });
+        expect(anotada.content).toContain('total $ 360.000, el precio fijo de esa versión');
+        expect(anotada.content).toContain('https://mp/pagar/v-9');
+      });
+
+      it('tal cual y con envíos: pedir_variante no sale sin los datos obligatorios', async () => {
+        const conEnvios = { ...A_PEDIDO, haceEnvios: true, datosCliente: [{ tipo: 'direccion', obligatorio: true }] };
+        const pedidos = crearPedidosAMedida();
+        pedidos.pedirVariante.mockResolvedValue(PEDIDO_VARIANTE);
+        const resultado = await correr({
+          prisma: crearPrisma({ productosAMedida: 1, agent: conEnvios, mpConectado: true }),
+          llm: crearModelo([
+            BUSCAR_MESA,
+            llamada('pedir_variante', { varianteId: 'v-roble', cantidad: 1, nombreCliente: 'Ana' }, 'c2'),
+            llamada(
+              'pedir_variante',
+              { varianteId: 'v-roble', cantidad: 1, nombreCliente: 'Ana', datosCliente: [{ campo: 'Dirección', valor: 'Corrientes 1234' }] },
+              'c3',
+            ),
+            new AIMessage('Listo Ana.'),
+          ]),
+          busqueda: buscaMesa(),
+          pedidos,
+        });
+
+        const [sinDatos] = toolMessages(resultado.messages).filter((m) => m.name === 'pedir_variante');
+        expect(sinDatos.content).toContain('faltan "Dirección"');
+        expect(sinDatos.content).toContain('volvé a llamar pedir_variante');
+        expect(pedidos.pedirVariante).toHaveBeenCalledOnce();
+        expect(pedidos.pedirVariante.mock.calls[0][0]).toMatchObject({
+          entrega: 'envio',
+          datosCliente: [{ etiqueta: 'Dirección', valor: 'Corrientes 1234' }],
+        });
+      });
+
+      it('con cambios: registrar_solicitud lleva la versión de base y lo que cambia', async () => {
+        const pedidos = crearPedidosAMedida();
+        pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-mesa', nombre: 'Mesa ratona', solicitud: { preguntas: [] } });
+        pedidos.varianteParaPedir.mockImplementation(async (_userId: string, id: string) =>
+          id === 'v-roble'
+            ? { productoId: 'p-mesa', nombreProducto: 'Mesa ratona', varianteId: 'v-roble', nombreVariante: 'Roble 1,20 m', precioCentavos: 18_000_000 }
+            : { productoId: 'p-otro', nombreProducto: 'Otro', varianteId: id, nombreVariante: 'Otra', precioCentavos: 1 },
+        );
+        pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
+        const base = { productoId: 'p-mesa', nombreCliente: 'Ana', respuestas: [], resumen: 'Mesa más larga' };
+        const resultado = await correr({
+          prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
+          llm: crearModelo([
+            BUSCAR_MESA,
+            llamada('registrar_solicitud', { ...base, varianteBaseId: 'v-roble' }, 'c2'),
+            llamada('registrar_solicitud', { ...base, varianteBaseId: 'v-pino', cambios: 'de 1,50 m' }, 'c3'),
+            llamada('registrar_solicitud', { ...base, varianteBaseId: 'v-roble', cambios: ' de 1,50 m de largo ' }, 'c4'),
+            new AIMessage('Te la cotizamos.'),
+          ]),
+          busqueda: buscaMesa(),
+          pedidos,
+        });
+
+        const [sinCambios, deOtro, anotada] = toolMessages(resultado.messages).filter((m) => m.name === 'registrar_solicitud');
+        expect(sinCambios.content).toContain('usá pedir_variante');
+        expect(deOtro.content).toContain('no es de este producto');
+        expect(anotada.content).toContain('Solicitud anotada');
+        expect(pedidos.registrarSolicitud).toHaveBeenCalledOnce();
+        expect(pedidos.registrarSolicitud.mock.calls[0][0]).toMatchObject({
+          variante: { id: 'v-roble', nombre: 'Roble 1,20 m', precioCentavos: 18_000_000, cantidad: 1 },
+          cambios: 'de 1,50 m de largo',
+        });
+      });
+
+      it('la foto de la versión va con su id; sin foto propia va la del producto, y no se repite', async () => {
+        const imagenes = {
+          estadoDeFoto: vi.fn(async (_userId: string, _id: string, varianteId?: string) =>
+            varianteId === 'v-roble'
+              ? { nombre: 'Mesa ratona · Roble 1,20 m', tieneFoto: true, deVariante: true }
+              : { nombre: 'Mesa ratona', tieneFoto: true, deVariante: false },
+          ),
+        };
+        const llm = crearModelo([
+          BUSCAR_MESA,
+          new AIMessage({
+            content: '',
+            tool_calls: [
+              { id: 'f1', name: 'enviar_imagen_producto', args: { productoId: 'p-mesa' } },
+              { id: 'f2', name: 'enviar_imagen_producto', args: { productoId: 'p-mesa', varianteId: 'v-roble' } },
+            ],
+          }),
+          llamada('enviar_imagen_producto', { productoId: 'p-mesa', varianteId: 'v-pino' }, 'f3'),
+          new AIMessage('Mirá.'),
+        ]);
+        const resultado = await correr({ prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }), llm, busqueda: buscaMesa(), imagenes });
+
+        expect(imagenesDeLaVuelta(resultado.messages)).toEqual([
+          { productoId: 'p-mesa', nombre: 'Mesa ratona' },
+          { productoId: 'p-mesa', nombre: 'Mesa ratona · Roble 1,20 m', varianteId: 'v-roble' },
+        ]);
+        // El pino no tiene foto propia y la del producto ya salió: no se repite.
+        expect(resultadoDe(resultado.messages, 'enviar_imagen_producto').content).toContain('no tiene foto propia');
+      });
+    });
+
+    it('registrar_solicitud valida contra las preguntas del producto y anota el pedido', async () => {
+      const pedidos = crearPedidosAMedida();
+      pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-placard', nombre: 'Placard', solicitud: SOLICITUD });
+      pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
+      const resultado = await correr({
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
+        llm: crearModelo([
+          BUSCAR_PLACARD,
+          llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: 'Un placard' }, 'c2'),
+          llamada(
+            'registrar_solicitud',
+            { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [{ pregunta: 'ancho (cm)', respuesta: '120' }], resumen: 'Un placard' },
+            'c3',
+          ),
+          new AIMessage('Listo, te lo cotizamos.'),
+        ]),
+        busqueda: { buscar: vi.fn().mockResolvedValue([PLACARD]) },
+        pedidos,
+      });
+
+      const [incompleta, anotada] = toolMessages(resultado.messages).filter((m) => m.name === 'registrar_solicitud');
+      expect(incompleta.content).toContain('La solicitud todavía no está completa: faltan "Ancho (cm)"');
+      expect(anotada.content).toContain('Solicitud anotada [pedido v-1]');
+      expect(pedidos.registrarSolicitud).toHaveBeenCalledOnce();
+      expect(pedidos.registrarSolicitud.mock.calls[0][0]).toMatchObject({
+        producto: { id: 'p-placard', nombre: 'Placard' },
+        respuestas: [{ pregunta: 'Ancho (cm)', respuesta: '120' }],
+        nombreCliente: 'Ana',
+        dePrueba: false,
+      });
+      expect(pedidos.cotizarSolicitud).toHaveBeenCalledOnce();
+    });
+
+    it('si la receta necesita un número que el cliente no dio, se lo pregunta antes de anotar', async () => {
+      const pedidos = crearPedidosAMedida();
+      pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-placard', nombre: 'Placard', solicitud: { preguntas: [] } });
+      pedidos.cotizacionPrevia.mockResolvedValue({
+        politica: 'automatica',
+        resultado: { ok: false, motivo: 'falta', faltan: ['Alto (cm)'] },
+      });
+      const resultado = await correr({
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
+        llm: crearModelo([
+          BUSCAR_PLACARD,
+          llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: '' }, 'c2'),
+          new AIMessage('¿Y de alto?'),
+        ]),
+        busqueda: { buscar: vi.fn().mockResolvedValue([PLACARD]) },
+        pedidos,
+      });
+      expect(resultadoDe(resultado.messages, 'registrar_solicitud').content).toContain('"Alto (cm)" con un número');
+      expect(pedidos.registrarSolicitud).not.toHaveBeenCalled();
+    });
+
+    it('con cotización automática le pasa el presupuesto tal cual, y el monto pasa la verificación', async () => {
+      const pedidos = crearPedidosAMedida();
+      pedidos.productoParaSolicitud.mockResolvedValue({ id: 'p-placard', nombre: 'Placard', solicitud: { preguntas: [] } });
+      pedidos.registrarSolicitud.mockResolvedValue({ venta: PEDIDO, nueva: true, cambio: true });
+      pedidos.cotizarSolicitud.mockResolvedValue({ modo: 'automatica', texto: '*Presupuesto de Placard*\n*Total: $ 67.500*' });
+      const resultado = await correr({
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
+        llm: crearModelo([
+          BUSCAR_PLACARD,
+          llamada('registrar_solicitud', { productoId: 'p-placard', nombreCliente: 'Ana', respuestas: [], resumen: '' }, 'c2'),
+          new AIMessage('*Presupuesto de Placard*\n*Total: $ 67.500*\n\n¿Querés que avancemos?'),
+        ]),
+        busqueda: { buscar: vi.fn().mockResolvedValue([PLACARD]) },
+        pedidos,
+      });
+      expect(resultadoDe(resultado.messages, 'registrar_solicitud').content).toContain('Total: $ 67.500');
+      expect(resultado.messages.at(-1)?.content).toContain('$ 67.500');
+    });
+
+    it('un producto que no salió de una búsqueda no se anota', async () => {
+      const pedidos = crearPedidosAMedida();
+      const resultado = await correr({
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO }),
+        llm: crearModelo([
+          llamada('registrar_solicitud', { productoId: 'p-inventado', nombreCliente: 'Ana', respuestas: [], resumen: '' }),
+          new AIMessage('.'),
+        ]),
+        busqueda: { buscar: vi.fn() },
+        pedidos,
+      });
+      expect(resultadoDe(resultado.messages, 'registrar_solicitud').content).toContain('no salió de ninguna búsqueda');
+      expect(pedidos.productoParaSolicitud).not.toHaveBeenCalled();
+    });
+
+    it('aceptar_presupuesto sólo cobra un pedido de la charla con presupuesto mandado', async () => {
+      const cotizado = {
+        ...PEDIDO,
+        estado: 'cotizado',
+        totalCentavos: 5_900_000,
+        presupuestos: [{ id: 'pr-1', estado: 'enviado', version: 1, estimativo: false }],
+      };
+      const pedidos = crearPedidosAMedida();
+      pedidos.cobrar.mockResolvedValue({ ...cotizado, estado: 'pendiente_pago', linkPago: 'https://mp/pagar/v-1', reservaVenceAt: null });
+      const resultado = await correr({
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO, pedidosAMedida: [cotizado, { ...PEDIDO, id: 'v-2' }] }),
+        llm: crearModelo([
+          llamada('aceptar_presupuesto', { pedidoId: 'v-ajeno' }, 'c1'),
+          llamada('aceptar_presupuesto', { pedidoId: 'v-2' }, 'c2'),
+          llamada('aceptar_presupuesto', { pedidoId: 'v-1' }, 'c3'),
+          new AIMessage('Te paso el link.'),
+        ]),
+        busqueda: { buscar: vi.fn() },
+        pedidos,
+      });
+      const [ajeno, sinPresupuesto, cobrado] = toolMessages(resultado.messages).filter((m) => m.name === 'aceptar_presupuesto');
+      expect(ajeno.content).toContain('no es de esta conversación');
+      expect(sinPresupuesto.content).toContain('todavía no tiene un presupuesto');
+      expect(cobrado.content).toContain('https://mp/pagar/v-1');
+      expect(pedidos.cobrar).toHaveBeenCalledWith('user-1', 'v-1', {
+        autor: 'asistente',
+        conversationId: CONVERSATION.id,
+        entrega: null,
+        datosCliente: [],
+      });
+    });
+
+    it('si el negocio hace envíos, aceptar_presupuesto pide los datos obligatorios y los guarda', async () => {
+      const conEnvios = { ...A_PEDIDO, haceEnvios: true, datosCliente: [{ tipo: 'codigoPostal', obligatorio: true }] };
+      const cotizado = {
+        ...PEDIDO,
+        estado: 'cotizado',
+        totalCentavos: 5_900_000,
+        presupuestos: [{ id: 'pr-1', estado: 'enviado', version: 1, estimativo: false }],
+      };
+      const pedidos = crearPedidosAMedida();
+      pedidos.cobrar.mockResolvedValue({ ...cotizado, estado: 'pendiente_pago', linkPago: 'https://mp/pagar/v-1', reservaVenceAt: null });
+      const llm = crearModelo([
+        llamada('aceptar_presupuesto', { pedidoId: 'v-1' }, 'c1'),
+        llamada('aceptar_presupuesto', { pedidoId: 'v-1', datosCliente: [{ campo: 'Código postal', valor: '1414' }] }, 'c2'),
+        new AIMessage('Te paso el link.'),
+      ]);
+      const resultado = await correr({
+        prisma: crearPrisma({ productosAMedida: 1, agent: conEnvios, pedidosAMedida: [cotizado] }),
+        llm,
+        busqueda: { buscar: vi.fn() },
+        pedidos,
+      });
+
+      // Las reglas nombran también los cierres a medida.
+      expect(sistemaDe(llm)).toContain('crear_pedido, pedir_variante o aceptar_presupuesto');
+      const [sinDatos] = toolMessages(resultado.messages).filter((m) => m.name === 'aceptar_presupuesto');
+      expect(sinDatos.content).toContain('faltan "Código postal"');
+      expect(sinDatos.content).toContain('volvé a llamar aceptar_presupuesto');
+      expect(pedidos.cobrar).toHaveBeenCalledOnce();
+      expect(pedidos.cobrar).toHaveBeenCalledWith('user-1', 'v-1', {
+        autor: 'asistente',
+        conversationId: CONVERSATION.id,
+        entrega: 'envio',
+        datosCliente: [{ etiqueta: 'Código postal', valor: '1414' }],
+      });
+    });
+
+    it('derivar_a_persona pasa el chat a una persona y no promete plazos', async () => {
+      const pedidos = crearPedidosAMedida();
+      pedidos.derivar.mockResolvedValue(PEDIDO);
+      const resultado = await correr({
+        prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO, pedidosAMedida: [PEDIDO] }),
+        llm: crearModelo([
+          llamada('derivar_a_persona', { pedidoId: 'v-1', motivo: 'pide_persona', detalle: 'Quiere hablar con alguien' }),
+          new AIMessage('Ya te escribe alguien del equipo por acá.'),
+        ]),
+        busqueda: { buscar: vi.fn() },
+        pedidos,
+      });
+      expect(pedidos.derivar.mock.calls[0][0]).toMatchObject({
+        ventaId: 'v-1',
+        motivo: 'pide_persona',
+        detalle: 'Quiere hablar con alguien',
+        autor: 'asistente',
+      });
+      expect(resultadoDe(resultado.messages, 'derivar_a_persona').content).toContain('No prometas cuándo');
+    });
+
+    it('el prompt trae los pedidos a medida de la charla con su id', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ productosAMedida: 1, agent: A_PEDIDO, pedidosAMedida: [PEDIDO] }), llm, busqueda: { buscar: vi.fn() } });
+      expect(sistemaDe(llm)).toContain('[pedido v-1] "Placard"');
+      expect(sistemaDe(llm)).toContain('derivar_a_persona');
     });
   });
 

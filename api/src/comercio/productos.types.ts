@@ -1,10 +1,11 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -18,6 +19,20 @@ import {
 import type { Descuento, Producto, Variante } from '../generated/prisma/client.js';
 import { hashTexto, LARGOS, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
+import { leerPolitica, leerReceta, POLITICAS_COTIZACION, type PoliticaCotizacion, type Receta } from './costos.rules.js';
+import {
+  LARGO_MAX_OPCION,
+  LARGO_MAX_MATERIAL,
+  MAX_MATERIALES,
+  LARGO_MAX_PREGUNTA,
+  LARGO_MAX_UNIDAD_PREGUNTA,
+  leerSolicitud,
+  MAX_OPCIONES,
+  MAX_PREGUNTAS,
+  SOBRE_PREGUNTA,
+  type SobrePregunta,
+  type SolicitudADemanda,
+} from './solicitud.rules.js';
 import {
   aDescuentoDeVariante,
   aDescuentoPublico,
@@ -63,6 +78,66 @@ export class VarianteDto {
   stockMinimo?: number | null;
 }
 
+export class NumeroDePreguntaDto {
+  @IsString()
+  @MaxLength(30)
+  variable!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(LARGO_MAX_UNIDAD_PREGUNTA)
+  unidad?: string;
+
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  min?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  max?: number | null;
+}
+
+/** Una pregunta del producto a medida. Las reglas entre campos están en solicitud.rules.ts. */
+export class PreguntaSolicitudDto {
+  @IsString()
+  @MaxLength(LARGO_MAX_PREGUNTA)
+  texto!: string;
+
+  /** Quedó de la primera versión: sin él, la pregunta es sobre lo que el cliente pide. */
+  @IsOptional()
+  @IsIn(SOBRE_PREGUNTA)
+  sobre?: SobrePregunta;
+
+  @IsArray()
+  @ArrayMaxSize(MAX_OPCIONES)
+  @IsString({ each: true })
+  @MaxLength(LARGO_MAX_OPCION, { each: true })
+  opciones!: string[];
+
+  @IsBoolean()
+  textoLibre!: boolean;
+
+  @IsBoolean()
+  obligatoria!: boolean;
+
+  /** Pregunta de número (LAU-26): su respuesta es un dato de la receta. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @ValidateNested()
+  @Type(() => NumeroDePreguntaDto)
+  numero?: NumeroDePreguntaDto | null;
+}
+
+export class SolicitudDto {
+  @IsArray()
+  @ArrayMaxSize(MAX_PREGUNTAS)
+  @ValidateNested({ each: true })
+  @Type(() => PreguntaSolicitudDto)
+  preguntas!: PreguntaSolicitudDto[];
+}
+
 /** Body de `POST /productos` y `PUT /productos/:id`. */
 export class GuardarProductoDto {
   @IsString()
@@ -86,12 +161,21 @@ export class GuardarProductoDto {
   @MaxLength(LARGOS.categoria)
   categoria?: string | null;
 
+  /** Obligatorias (al menos una) en una cuenta con stock; un producto a medida no lleva. */
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(MAX_VARIANTES)
   @ValidateNested({ each: true })
   @Type(() => VarianteDto)
-  variantes!: VarianteDto[];
+  variantes?: VarianteDto[];
+
+  /** Precio "desde" de un producto a medida. null = sin precio de referencia. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsInt()
+  @Min(1)
+  @Max(PRECIO_MAX_PESOS * 100)
+  precioReferenciaCentavos?: number | null;
 
   /**
    * El descuento propio del producto. null lo borra; ausente no lo toca (así
@@ -102,6 +186,35 @@ export class GuardarProductoDto {
   @ValidateNested()
   @Type(() => DescuentoProductoDto)
   descuento?: DescuentoProductoDto | null;
+
+  /** Producto a medida: sus preguntas. Igual que `descuento`: null la borra, ausente no la toca. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @ValidateNested()
+  @Type(() => SolicitudDto)
+  solicitud?: SolicitudDto | null;
+
+  /** Producto a medida: con qué materiales se hace. Ausente no los toca; [] los borra. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_MATERIALES)
+  @IsString({ each: true })
+  @MaxLength(LARGO_MAX_MATERIAL, { each: true })
+  materiales?: string[];
+
+  /**
+   * Producto a medida (LAU-26): la receta de cotización. Su forma la valida
+   * costos.rules.ts contra los insumos del dueño. null la borra, ausente no la toca.
+   */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsObject()
+  receta?: Record<string, unknown> | null;
+
+  /** Quién cotiza este producto. Ausente no lo toca. */
+  @IsOptional()
+  @IsIn(POLITICAS_COTIZACION)
+  politicaCotizacion?: PoliticaCotizacion;
 }
 
 /** Body de `PATCH /productos/variantes/:id`: la edición rápida desde la tabla. */
@@ -174,6 +287,8 @@ export type VariantePublica = Pick<
   /** Lo que paga hoy el cliente: `precioCentavos` menos el mejor descuento vigente. */
   precioFinalCentavos: number;
   descuento: DescuentoDeVariante | null;
+  /** Cuándo se subió su foto propia (sólo variantes fijas de un producto a medida; null = sin foto). */
+  imagenActualizada: Date | null;
 };
 
 export type ProductoPublico = Pick<
@@ -187,6 +302,15 @@ export type ProductoPublico = Pick<
   indexado: boolean;
   /** Cuándo se subió la foto (null = sin foto). La web la usa también para no mostrar una cacheada vieja. */
   imagenActualizada: Date | null;
+  /** Las preguntas del producto a medida (null = no se hace a medida). */
+  solicitud: SolicitudADemanda | null;
+  /** Precio "desde" de un producto a medida, si el dueño puso uno. */
+  precioReferenciaCentavos: number | null;
+  /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
+  materiales: string[];
+  /** La receta de cotización (null = no tiene: lo cotiza el dueño). */
+  receta: Receta | null;
+  politicaCotizacion: PoliticaCotizacion;
 };
 
 /**
@@ -196,17 +320,17 @@ export type ProductoPublico = Pick<
  */
 export function aProductoPublico(
   producto: Producto & {
-    variantes: Variante[];
+    variantes: Array<Variante & { imagen?: { updatedAt: Date } | null }>;
     descuento?: Descuento | null;
     imagen?: { updatedAt: Date } | null;
   },
   promociones: DescuentoParaAplicar[] = [],
   ahora: Date = new Date(),
 ): ProductoPublico {
-  const candidatos = [
-    ...(producto.descuento ? [producto.descuento] : []),
-    ...promociones.filter((promocion) => promocion.productoId === null),
-  ];
+  // Un producto a medida no lleva descuento: sus variantes fijas valen lo que dicen.
+  const candidatos = leerSolicitud(producto.solicitud)
+    ? []
+    : [...(producto.descuento ? [producto.descuento] : []), ...promociones.filter((promocion) => promocion.productoId === null)];
   return {
     id: producto.id,
     codigo: producto.codigo,
@@ -218,6 +342,11 @@ export function aProductoPublico(
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),
     descuento: producto.descuento ? aDescuentoPublico(producto.descuento) : null,
     imagenActualizada: producto.imagen?.updatedAt ?? null,
+    solicitud: leerSolicitud(producto.solicitud),
+    precioReferenciaCentavos: producto.precioReferenciaCentavos,
+    materiales: producto.materiales,
+    receta: leerReceta(producto.receta, leerSolicitud(producto.solicitud)),
+    politicaCotizacion: leerPolitica(producto.politicaCotizacion),
     variantes: producto.variantes
       .filter((variante) => variante.activo)
       .map((variante) => {
@@ -233,6 +362,7 @@ export function aProductoPublico(
           activo: variante.activo,
           precioFinalCentavos: aplicado?.precioFinalCentavos ?? variante.precioCentavos,
           descuento: aDescuentoDeVariante(aplicado),
+          imagenActualizada: variante.imagen?.updatedAt ?? null,
         };
       }),
   };

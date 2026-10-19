@@ -1,3 +1,4 @@
+import { enAtencionHumana, MENSAJE_ATENCION_HUMANA_PRUEBA } from '../comercio/pedido-a-medida.rules.js';
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { GraphRecursionError } from '@langchain/langgraph';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -5,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { tipoAsistenteDe } from '../agents/agent-catalog.js';
 import type { Env } from '../config/env.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { VueltaCancelada, type Cancelacion } from './cancelacion.js';
 import {
   GRAFO_CONVERSACION,
   GRAFO_VENTAS,
@@ -21,6 +23,9 @@ import {
   MENSAJE_SIN_AGENTE,
   MENSAJE_SIN_RESPUESTA,
 } from './mensajes.js';
+
+/** Vueltas descartadas que se recuerdan a la vez (una por conversación). */
+const MAX_VUELTAS_DESCARTADAS = 1000;
 
 /** Prefijo del JID sintético del banco de pruebas del Home (ver conversation.controller.ts). */
 const WEB_TEST_JID_PREFIX = 'web-test:';
@@ -44,18 +49,39 @@ export function esConversacionDePrueba(remoteJid: string): boolean {
  * Lo que la fachada usa de cualquiera de los dos grafos. Los dos comparten la
  * entrada (mensajes + dueño + remitente) y la salida (mensajes).
  */
+type ConfigDeHilo = { configurable: { thread_id: string; checkpoint_id?: string } };
+
 type GrafoInvocable = {
-  invoke: (entrada: {
-    messages: BaseMessage[];
-    ownerUserId: string;
-    remoteJid: string;
-    esPropietario: boolean;
-  }, config: { configurable: { thread_id: string }; recursionLimit: number }) => Promise<{ messages: BaseMessage[] }>;
-  getState: (config: { configurable: { thread_id: string } }) => Promise<{ values?: { messages?: BaseMessage[] } }>;
+  invoke: (
+    entrada: {
+      messages: BaseMessage[];
+      ownerUserId: string;
+      remoteJid: string;
+      esPropietario: boolean;
+      cancelacion?: Cancelacion;
+    },
+    config: ConfigDeHilo & { recursionLimit: number; signal?: AbortSignal },
+  ) => Promise<{ messages: BaseMessage[] }>;
+  getState: (config: ConfigDeHilo) => Promise<{
+    values?: { messages?: BaseMessage[] };
+    config?: { configurable?: { checkpoint_id?: string } };
+  }>;
+  checkpointer?: { deleteThread: (threadId: string) => Promise<void> } | boolean;
+};
+
+/** Opciones de una vuelta que llega por WhatsApp. */
+export type OpcionesDeVuelta = {
+  /** Si se cancela antes de comprometerse, `responder` tira VueltaCancelada y la vuelta no cuenta. */
+  cancelacion?: Cancelacion;
 };
 
 /** Lo que se le contesta al cliente: el texto y, del asistente de ventas, las fotos a mandar antes. */
-export type RespuestaConversacion = { texto: string; imagenes: ImagenAEnviar[] };
+export type RespuestaConversacion = {
+  texto: string;
+  imagenes: ImagenAEnviar[];
+  /** El chat lo atiende una persona (LAU-27): el asistente no corrió y no hay que mandar nada. */
+  enAtencionHumana?: boolean;
+};
 
 /**
  * Fachada del runtime conversacional. La lógica vive en los grafos de
@@ -67,6 +93,14 @@ export type RespuestaConversacion = { texto: string; imagenes: ImagenAEnviar[] }
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
+  /**
+   * Conversaciones con una vuelta descartada (cancelacion.ts): el checkpoint
+   * de antes de esa vuelta, o null si el hilo estaba vacío. La próxima vuelta
+   * arranca desde ahí, así lo que quedó a medias (el mensaje del cliente, una
+   * búsqueda) no se suma dos veces cuando se rehace con todo junto. En
+   * memoria, como las ráfagas: sólo sirve con una réplica.
+   */
+  private readonly vueltasDescartadas = new Map<string, string | null>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -85,7 +119,12 @@ export class ConversationService {
    * de ventas decidió mandar en esta vuelta (sólo id y nombre; los bytes los
    * busca quien las envía).
    */
-  async responder(ownerUserId: string, remoteJid: string, texto: string): Promise<RespuestaConversacion> {
+  async responder(
+    ownerUserId: string,
+    remoteJid: string,
+    texto: string,
+    opciones: OpcionesDeVuelta = {},
+  ): Promise<RespuestaConversacion> {
     const soloTexto = (mensaje: string): RespuestaConversacion => ({ texto: mensaje, imagenes: [] });
     const agent = await this.prisma.agent.findUnique({ where: { userId: ownerUserId } });
     if (!agent) {
@@ -99,20 +138,33 @@ export class ConversationService {
     });
 
     const esVentas = tipoAsistenteDe(agent) === 'ventas';
+    if (esVentas && (await this.enAtencionHumana(conversation.id))) {
+      // La ráfaga ya estaba esperando cuando el chat pasó a una persona: se
+      // guarda lo que escribió el cliente y el asistente no contesta.
+      if (esConversacionDePrueba(remoteJid)) return soloTexto(MENSAJE_ATENCION_HUMANA_PRUEBA);
+      await this.prisma.message.create({
+        data: { conversationId: conversation.id, role: 'user', content: { content: texto, enAtencionHumana: true } },
+      });
+      return { texto: '', imagenes: [], enAtencionHumana: true };
+    }
+    const grafo = (esVentas ? this.grafoVentas : this.grafoAgenda) as unknown as GrafoInvocable;
+    const desde = await this.retomarDescartada(grafo, conversation.id);
     const config = {
       // El hilo del checkpointer es la conversación: único por (userId, remoteJid).
-      configurable: { thread_id: conversation.id },
+      configurable: { thread_id: conversation.id, ...(desde ? { checkpoint_id: desde } : {}) },
       recursionLimit: esVentas ? LIMITE_RECURSION_VENTAS : LIMITE_RECURSION,
+      ...(opciones.cancelacion ? { signal: opciones.cancelacion.signal } : {}),
     };
-    const grafo = (esVentas ? this.grafoVentas : this.grafoAgenda) as unknown as GrafoInvocable;
 
+    const previo = await grafo.getState(config);
     try {
       const resultado = await grafo.invoke(
         {
-          messages: [...(await this.historialSemilla(grafo, conversation.id, config)), new HumanMessage(texto)],
+          messages: [...(await this.historialSemilla(previo, conversation.id)), new HumanMessage(texto)],
           ownerUserId,
           remoteJid,
           esPropietario: esConversacionDePrueba(remoteJid),
+          ...(opciones.cancelacion ? { cancelacion: opciones.cancelacion } : {}),
         },
         config,
       );
@@ -124,6 +176,15 @@ export class ConversationService {
         imagenes: esVentas ? imagenesDeLaVuelta(resultado.messages) : [],
       };
     } catch (error) {
+      if (opciones.cancelacion?.cancelada || error instanceof VueltaCancelada) {
+        this.vueltasDescartadas.delete(conversation.id);
+        this.vueltasDescartadas.set(conversation.id, previo.config?.configurable?.checkpoint_id ?? null);
+        // Con tope: si una nunca se reintenta (sesión cerrada), no se acumulan para siempre.
+        if (this.vueltasDescartadas.size > MAX_VUELTAS_DESCARTADAS) {
+          this.vueltasDescartadas.delete(this.vueltasDescartadas.keys().next().value as string);
+        }
+        throw new VueltaCancelada();
+      }
       if (error instanceof GraphRecursionError) {
         this.logger.warn(`El grafo se quedó sin vueltas en la conversación ${conversation.id}`);
         return soloTexto(MENSAJE_LOOP_AGOTADO);
@@ -133,6 +194,31 @@ export class ConversationService {
     }
   }
 
+  /** ¿Algún pedido abierto de esta conversación lo atiende una persona? */
+  private async enAtencionHumana(conversationId: string): Promise<boolean> {
+    const venta = await this.prisma.venta.findFirst({
+      where: { conversationId, atencion: 'humana' },
+      select: { atencion: true, estado: true },
+      orderBy: { derivadaAt: 'desc' },
+    });
+    return venta !== null && enAtencionHumana(venta);
+  }
+
+  /**
+   * Si la vuelta anterior de esta conversación se descartó, desde qué
+   * checkpoint seguir. Con el hilo vacío antes de esa vuelta no hay
+   * checkpoint al que volver: se borra lo que dejó y se siembra de nuevo
+   * desde `Message`, donde la vuelta descartada nunca llegó a escribir.
+   */
+  private async retomarDescartada(grafo: GrafoInvocable, conversationId: string): Promise<string | undefined> {
+    if (!this.vueltasDescartadas.has(conversationId)) return undefined;
+    const desde = this.vueltasDescartadas.get(conversationId);
+    this.vueltasDescartadas.delete(conversationId);
+    if (desde) return desde;
+    if (typeof grafo.checkpointer === 'object') await grafo.checkpointer.deleteThread(conversationId);
+    return undefined;
+  }
+
   /**
    * Conversaciones que venían del runtime anterior no tienen checkpoint: la
    * primera vez que entran al grafo se siembra su historial desde la tabla
@@ -140,11 +226,9 @@ export class ConversationService {
    * Después de esa vez el checkpointer ya tiene el hilo y esto devuelve vacío.
    */
   private async historialSemilla(
-    grafo: GrafoInvocable,
+    estado: { values?: { messages?: BaseMessage[] } },
     conversationId: string,
-    config: { configurable: { thread_id: string } },
   ): Promise<BaseMessage[]> {
-    const estado = await grafo.getState(config);
     if ((estado.values?.messages ?? []).length > 0) return [];
 
     const desde = new Date(Date.now() - this.config.get('HISTORIAL_IA_VENTANA_MS', { infer: true }));

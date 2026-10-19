@@ -1,0 +1,246 @@
+import { describe, expect, it } from 'vitest';
+import {
+  leerSolicitud,
+  MAX_OPCIONES,
+  MAX_MATERIALES,
+  MAX_PREGUNTAS,
+  normalizarMateriales,
+  normalizarSolicitud,
+  problemaDelProducto,
+  validarRespuestasSolicitud,
+  type SolicitudADemanda,
+  leerNumero,
+  variablesDeSolicitud,
+} from './solicitud.rules.js';
+
+const MEDIDA = {
+  texto: '¿Qué medida tiene la ventana?',
+  sobre: 'tiene',
+  opciones: ['Chica', 'Mediana', 'Grande'],
+  textoLibre: true,
+  obligatoria: true,
+};
+const COLOR = {
+  texto: '¿De qué color la querés?',
+  sobre: 'solicita',
+  opciones: ['Blanco', 'Negro'],
+  textoLibre: false,
+  obligatoria: true,
+};
+const DETALLE = { texto: '¿Algo más que tengamos que saber?', sobre: 'solicita', opciones: [], textoLibre: true, obligatoria: false };
+
+function error(entrada: Parameters<typeof normalizarSolicitud>[0]): string {
+  const resultado = normalizarSolicitud(entrada);
+  if (!('error' in resultado)) throw new Error('se esperaba un error');
+  return resultado.error;
+}
+
+describe('normalizarSolicitud', () => {
+  it('limpia espacios y respeta el orden de carga', () => {
+    const resultado = normalizarSolicitud({
+      preguntas: [
+        { ...COLOR, texto: '  ¿De qué   color la querés? ', opciones: [' Blanco ', 'Negro'] },
+        MEDIDA,
+        DETALLE,
+      ],
+    });
+    expect(resultado).toEqual({
+      solicitud: {
+        preguntas: [COLOR, MEDIDA, DETALLE],
+      },
+    });
+  });
+
+  it('las preguntas son opcionales y sin "sobre" son de lo que el cliente pide', () => {
+    expect(normalizarSolicitud({ preguntas: [] })).toEqual({ solicitud: { preguntas: [] } });
+    const { sobre: _sobre, ...sinSobre } = DETALLE;
+    expect(normalizarSolicitud({ preguntas: [sinSobre] })).toEqual({ solicitud: { preguntas: [DETALLE] } });
+  });
+
+  it('pone un tope de preguntas', () => {
+    const muchas = Array.from({ length: MAX_PREGUNTAS + 1 }, (_, i) => ({ ...DETALLE, texto: `Pregunta ${i}` }));
+    expect(error({ preguntas: muchas })).toMatch(/hasta 15 preguntas/);
+  });
+
+  it('rechaza una pregunta vacía, repetida o sin tipo', () => {
+    expect(error({ preguntas: [{ ...DETALLE, texto: '  ' }] })).toBe('Escribí la pregunta 1.');
+    expect(error({ preguntas: [MEDIDA, { ...DETALLE, texto: '¿que MEDIDA tiene la ventana' }] })).toMatch(/repetida/);
+    expect(error({ preguntas: [{ ...DETALLE, sobre: 'otra' }] })).toMatch(/lo que tiene o lo que pide/);
+  });
+
+  it('rechaza opciones vacías, repetidas o de más', () => {
+    expect(error({ preguntas: [{ ...COLOR, opciones: ['Blanco', ' '] }] })).toMatch(/opción vacía/);
+    expect(error({ preguntas: [{ ...COLOR, opciones: ['Blanco', 'blanco'] }] })).toMatch(/"blanco" repetida/);
+    const muchas = Array.from({ length: MAX_OPCIONES + 1 }, (_, i) => `Opción ${i}`);
+    expect(error({ preguntas: [{ ...COLOR, opciones: muchas }] })).toMatch(/más de 12 opciones/);
+  });
+
+  it('rechaza las contradictorias: sin opciones ni texto libre, o una sola opción para elegir', () => {
+    expect(error({ preguntas: [{ ...COLOR, opciones: [] }] })).toMatch(/no tiene opciones/);
+    expect(error({ preguntas: [{ ...COLOR, opciones: ['Blanco'] }] })).toMatch(/una sola opción/);
+    // Con texto libre, una sola opción es una sugerencia válida.
+    expect(normalizarSolicitud({ preguntas: [{ ...COLOR, opciones: ['Blanco'], textoLibre: true }] })).toHaveProperty(
+      'solicitud',
+    );
+  });
+});
+
+describe('normalizarMateriales', () => {
+  it('limpia, saca vacíos y repetidos sin tildes ni mayúsculas, y respeta el orden', () => {
+    expect(normalizarMateriales([' Melamina ', 'MDF   laqueado', '', 'melamína', 'Madera'])).toEqual({
+      materiales: ['Melamina', 'MDF laqueado', 'Madera'],
+    });
+    expect(normalizarMateriales([])).toEqual({ materiales: [] });
+  });
+
+  it('pone un tope de cantidad y de largo', () => {
+    const muchos = Array.from({ length: MAX_MATERIALES + 1 }, (_, i) => `Material ${i}`);
+    expect(normalizarMateriales(muchos)).toEqual({ error: `Un producto puede tener hasta ${MAX_MATERIALES} materiales.` });
+    expect(normalizarMateriales(['x'.repeat(61)])).toHaveProperty('error');
+  });
+});
+
+describe('leerSolicitud', () => {
+  it('lee lo que se guardó', () => {
+    const guardada = normalizarSolicitud({ preguntas: [MEDIDA, COLOR] });
+    expect(leerSolicitud('solicitud' in guardada ? guardada.solicitud : null)).toEqual({ preguntas: [MEDIDA, COLOR] });
+  });
+
+  it('lo que no cierra vuelve como null, sin romper', () => {
+    expect(leerSolicitud(null)).toBeNull();
+    expect(leerSolicitud([])).toBeNull();
+    expect(leerSolicitud({ preguntas: 'no' })).toBeNull();
+    // Sin preguntas sigue siendo a medida: el asistente pregunta lo básico.
+    expect(leerSolicitud({ preguntas: [] })).toEqual({ preguntas: [] });
+    expect(leerSolicitud({ preguntas: [{ ...COLOR, opciones: [] }] })).toBeNull();
+    // Un ítem roto se descarta y el resto se lee.
+    expect(leerSolicitud({ preguntas: [42, { ...MEDIDA, opciones: ['Chica', 3, 'Mediana', 'Grande'] }] })).toEqual({
+      preguntas: [MEDIDA],
+    });
+  });
+});
+
+describe('validarRespuestasSolicitud', () => {
+  const config = (normalizarSolicitud({ preguntas: [MEDIDA, COLOR, DETALLE] }) as { solicitud: SolicitudADemanda })
+    .solicitud;
+
+  it('está completa con las obligatorias; empareja sin tildes y usa la opción como la cargó el dueño', () => {
+    expect(
+      validarRespuestasSolicitud(config, [
+        { pregunta: 'que medida tiene la ventana', respuesta: '1,20 x 1,50' },
+        { pregunta: '¿De qué color la querés?', respuesta: 'negro' },
+        { pregunta: 'Otra cosa', respuesta: 'se descarta' },
+      ]),
+    ).toEqual({
+      ok: true,
+      respuestas: [
+        { pregunta: '¿Qué medida tiene la ventana?', respuesta: '1,20 x 1,50' },
+        { pregunta: '¿De qué color la querés?', respuesta: 'Negro' },
+      ],
+    });
+  });
+
+  it('no está completa si falta una obligatoria o la respuesta no es una de las opciones', () => {
+    const resultado = validarRespuestasSolicitud(config, [
+      { pregunta: '¿De qué color la querés?', respuesta: 'Violeta' },
+      { pregunta: '¿Algo más que tengamos que saber?', respuesta: 'Es para un baño' },
+    ]);
+    expect(resultado).toEqual({
+      ok: false,
+      motivo:
+        'La solicitud todavía no está completa: faltan "¿Qué medida tiene la ventana?"; ' +
+        '"¿De qué color la querés?" sólo admite "Blanco", "Negro".',
+      faltantes: ['¿Qué medida tiene la ventana?', '¿De qué color la querés?'],
+    });
+  });
+
+  it('una respuesta vacía cuenta como no contestada', () => {
+    const resultado = validarRespuestasSolicitud(config, [
+      { pregunta: '¿Qué medida tiene la ventana?', respuesta: '   ' },
+      { pregunta: '¿De qué color la querés?', respuesta: 'Blanco' },
+    ]);
+    expect(resultado).toMatchObject({ ok: false, faltantes: ['¿Qué medida tiene la ventana?'] });
+    expect(validarRespuestasSolicitud(config, 'basura')).toMatchObject({ ok: false });
+  });
+});
+
+describe('problemaDelProducto', () => {
+  const preguntas = { preguntas: [DETALLE] };
+
+  it('sin solicitud es de stock: precio obligatorio, sin materiales ni precio "desde"', () => {
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toBeNull();
+    expect(problemaDelProducto({ variantes: 1, descuento: { tipo: 'porcentaje' }, solicitud: null, precioReferencia: null })).toBeNull();
+    expect(problemaDelProducto({ variantes: 0, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toMatch(/precio/);
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: 100 })).toMatch(/de stock/);
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined, materiales: ['Madera'] })).toMatch(/de stock/);
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined, materiales: [] })).toBeNull();
+  });
+
+  it('con solicitud es a medida (puede no tener preguntas): sin stock ni descuento; el precio "desde" es opcional', () => {
+    expect(problemaDelProducto({ variantes: 0, descuento: undefined, solicitud: { preguntas: [] }, precioReferencia: null, materiales: ['Madera'] })).toBeNull();
+    expect(problemaDelProducto({ variantes: 0, descuento: null, solicitud: preguntas, precioReferencia: 100 })).toBeNull();
+    // Variantes fijas: con precio, sin stock.
+    expect(problemaDelProducto({ variantes: 2, descuento: undefined, solicitud: preguntas, precioReferencia: null })).toBeNull();
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: preguntas, precioReferencia: null, conStock: true })).toMatch(/no lleva stock/);
+    expect(problemaDelProducto({ variantes: 0, descuento: { tipo: 'porcentaje' }, solicitud: preguntas, precioReferencia: null })).toMatch(/descuento/);
+  });
+});
+
+describe('preguntas de número (LAU-26)', () => {
+  const ancho = { texto: '¿Cuánto mide de ancho?', obligatoria: true, numero: { variable: 'Ancho', unidad: 'cm', min: 30, max: 300 } };
+
+  it('se guardan con su dato en minúsculas, sin opciones y escritas a mano', () => {
+    const resultado = normalizarSolicitud({ preguntas: [ancho] });
+    expect(resultado).toEqual({
+      solicitud: {
+        preguntas: [
+          {
+            texto: '¿Cuánto mide de ancho?',
+            sobre: 'solicita',
+            opciones: [],
+            textoLibre: true,
+            obligatoria: true,
+            numero: { variable: 'ancho', unidad: 'cm', min: 30, max: 300 },
+          },
+        ],
+      },
+    });
+    expect(leerSolicitud('solicitud' in resultado ? resultado.solicitud : null)).toEqual(
+      'solicitud' in resultado ? resultado.solicitud : null,
+    );
+    expect(variablesDeSolicitud('solicitud' in resultado ? resultado.solicitud : null)).toEqual(['ancho']);
+  });
+
+  it('rechaza un dato con espacios, repetido, con opciones o con el rango al revés', () => {
+    expect(normalizarSolicitud({ preguntas: [{ ...ancho, numero: { variable: 'el ancho' } }] })).toHaveProperty('error');
+    expect(
+      normalizarSolicitud({ preguntas: [ancho, { ...ancho, texto: '¿Y el otro ancho?' }] }),
+    ).toEqual({ error: 'Hay dos preguntas con el dato "ancho".' });
+    expect(normalizarSolicitud({ preguntas: [{ ...ancho, opciones: ['1', '2'] }] })).toHaveProperty('error');
+    expect(normalizarSolicitud({ preguntas: [{ ...ancho, numero: { variable: 'ancho', min: 10, max: 5 } }] })).toHaveProperty(
+      'error',
+    );
+  });
+
+  it('la respuesta tiene que ser un número dentro del rango y se guarda limpia', () => {
+    const config = (normalizarSolicitud({ preguntas: [ancho] }) as { solicitud: SolicitudADemanda }).solicitud;
+    expect(validarRespuestasSolicitud(config, [{ pregunta: '¿cuánto mide de ancho?', respuesta: '120,5 cm' }])).toEqual({
+      ok: true,
+      respuestas: [{ pregunta: '¿Cuánto mide de ancho?', respuesta: '120.5' }],
+    });
+    const fuera = validarRespuestasSolicitud(config, [{ pregunta: '¿Cuánto mide de ancho?', respuesta: '500' }]);
+    expect(fuera).toMatchObject({ ok: false, motivo: expect.stringContaining('tiene que ser un número entre 30 y 300 (en cm)') });
+    expect(validarRespuestasSolicitud(config, [{ pregunta: '¿Cuánto mide de ancho?', respuesta: 'bastante' }])).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it('leerNumero', () => {
+    expect(leerNumero('120')).toBe(120);
+    expect(leerNumero(' 1,5 m ')).toBe(1.5);
+    expect(leerNumero('2.4m²')).toBe(2.4);
+    expect(leerNumero('-3')).toBeNull();
+    expect(leerNumero('1.200.000')).toBeNull();
+    expect(leerNumero('unos 30')).toBeNull();
+  });
+});

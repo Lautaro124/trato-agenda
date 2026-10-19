@@ -56,6 +56,11 @@ function textoDe(mensaje) {
 // `reglasDeAgenda` en api/src/conversation/graph/nodes/cargar-contexto.node.ts.
 // Este stub lee el titular y el primer tipo de turno de ahí en vez de una
 // convención propia, así no depende de cómo se generó el agente.
+// "dónde" / "dirección" se contesta con el bloque del lugar de atención
+// (bloqueLugar, graph/lugar.ts): la dirección, que es en su casa y se pasa al
+// agendar, que no hay lugar fijo, o que lo consulte con el titular. Después de
+// una herramienta repite su resultado, así que la línea "Lugar: …" que agrega
+// el nodo calendar al agendar llega a la respuesta.
 
 /** "YYYY-MM-DD" del día hábil siguiente a hoy, en la zona del negocio. */
 function proximoDiaHabil() {
@@ -96,9 +101,19 @@ function llamadaATool(model, name, args) {
 // del último mensaje del cliente:
 //   - "quiero …" / "lo compro" (con "soy <Nombre>") → crear_pedido con la
 //     primera variante de la última búsqueda del historial ("quiero 2 …" pide 2);
-//     si las reglas dicen que el negocio hace envíos, "con envío" / "lo retiro"
+//     si las reglas dicen que hacemos envíos, "con envío" / "lo retiro"
 //     van en `entrega`, y los pares "Etiqueta: valor" separados por ";" van en
-//     `datosCliente`;
+//     `datosCliente`; si el comercio vende a pedido (las reglas traen "Vendés a
+//     pedido", reglas-ventas.ts) no hay compra que cerrar: si nombra una
+//     versión de precio fijo de la última búsqueda, pedir_variante con esa
+//     versión (con la misma entrega y datos que crear_pedido) (o, con "pero …", registrar_solicitud con esa versión de base y
+//     lo que sigue al "pero" como cambios); si no, registrar_solicitud
+//     con el producto de la última búsqueda y los pares "Pregunta: respuesta"
+//     separados por ";" como respuestas;
+//   - a pedido, "una persona" / "hablar con alguien" → derivar_a_persona con el
+//     primer [pedido …] de las reglas; "dale" / "acepto" / "avancemos" →
+//     aceptar_presupuesto con el pedido que figura "cotizado" (con la entrega
+//     y los datos del mensaje, como crear_pedido);
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
 //   - "envío" / "envían" fuera de una compra → derivar_consulta;
 //   - "dónde queda" / "dirección" / "retirar" / "el local" → contesta con lo
@@ -106,7 +121,9 @@ function llamadaATool(model, name, args) {
 //     dirección y si se retira, que no hay local, o derivar_consulta si el
 //     local nunca se cargó;
 //   - "foto" → enviar_imagen_producto con el producto de la última búsqueda
-//     ("[producto <id>]"), o "no tengo foto" si no buscó nada;
+//     ("[producto <id>]") y, si nombra una de sus versiones, con esa
+//     variante, o "no tengo foto" si no buscó nada; a pedido, un resultado de
+//     búsqueda con un producto que "tiene foto" primero manda esa foto sola;
 //   - "qué tenés" / "qué productos" / "qué ofrecés" → ver_catalogo; "mostrame
 //     <categoría>" → ver_catalogo con esa categoría;
 //   - "descuento" / "promo" / "oferta" → ver_descuentos;
@@ -114,8 +131,10 @@ function llamadaATool(model, name, args) {
 //     "cuánto vendí" → resumen_ventas de los últimos 7 días, "ventas de hoy" →
 //     listar_ventas de hoy;
 //   - un saludo → saludo; cualquier otra cosa → buscar_productos con el texto.
-// Con el resultado de la herramienta contesta: el primer producto encontrado,
-// la lista de ver_catalogo o de ver_descuentos sin comillas, o el texto de la
+// Con el resultado de la herramienta contesta: el primer producto encontrado
+// (uno a medida, "te lo cotizamos"; con versiones de precio fijo, la lista de
+// versiones con su precio), el mensaje que el código pide mandar tal
+// cual (un presupuesto), la lista de ver_catalogo o de ver_descuentos sin comillas, o el texto de la
 // herramienta tal cual (así el link de pago llega al cliente). Si el resultado
 // trae la oferta de descuentos (conOfertaDeDescuentos), suma la línea
 // "Además tenemos algunos descuentos, si querés te los paso.".
@@ -127,6 +146,42 @@ function diaDeBuenosAires(dias = 0) {
   );
 }
 
+/** La marca de las reglas de los productos a medida: `MARCA_A_MEDIDA` de reglas-ventas.ts. */
+const MARCA_A_MEDIDA = 'Productos a medida (se cotizan)';
+
+/**
+ * El primer producto de un resultado (búsqueda o catálogo) es a medida: su
+ * renglón o su bloque dice "a medida: se cotiza". Una misma cuenta vende de
+ * stock y a medida, así que el guion se decide por producto.
+ */
+function primeroEsAMedida(texto) {
+  const desde = texto.indexOf('[producto ');
+  if (desde < 0) return false;
+  const resto = texto.slice(desde);
+  const fin = resto.search(/\n(\d+\. |- ")/);
+  return (fin < 0 ? resto : resto.slice(0, fin)).includes('a medida: se cotiza');
+}
+
+/** El primer producto a medida con foto de un resultado de búsqueda (los a medida mandan la foto solos). */
+function fotoAMedida(texto) {
+  for (const bloque of texto.split(/\n(?=\d+\. )/)) {
+    if (!bloque.includes('a medida: se cotiza')) continue;
+    const id = bloque.match(/\[producto ([\w-]+)\] \([^)]*tiene foto\)/)?.[1];
+    if (id) return id;
+  }
+  return null;
+}
+
+/** El último resultado con productos de la charla empieza por uno a medida. */
+function ultimaBusquedaAMedida(mensajes) {
+  for (const mensaje of [...mensajes].reverse()) {
+    if (mensaje.role !== 'tool') continue;
+    const texto = textoDe(mensaje);
+    if (texto.includes('[producto ')) return primeroEsAMedida(texto);
+  }
+  return false;
+}
+
 function productoDeLaUltimaBusqueda(mensajes) {
   for (const mensaje of [...mensajes].reverse()) {
     if (mensaje.role !== 'tool') continue;
@@ -136,6 +191,35 @@ function productoDeLaUltimaBusqueda(mensajes) {
   return null;
 }
 
+/**
+ * Las versiones de precio fijo de la última búsqueda (a pedido): las líneas
+ * `   - "<nombre>" [variante <id>]: …, precio fijo` de formatearResultados.
+ */
+function versionesDeLaUltimaBusqueda(mensajes) {
+  for (const mensaje of [...mensajes].reverse()) {
+    if (mensaje.role !== 'tool') continue;
+    const texto = textoDe(mensaje);
+    if (!texto.includes('versiones con precio fijo')) continue;
+    return [...texto.matchAll(/^ {3}- ("(?:[^"\\]|\\.)*") \[variante ([\w-]+)\]: (\$ [\d.,]+), precio fijo/gm)].map(([, nombre, id, precio]) => ({
+      nombre: JSON.parse(nombre),
+      id,
+      precio,
+    }));
+  }
+  return [];
+}
+
+/** La versión que nombra el cliente ("quiero la de roble"), o null. */
+function versionNombrada(mensajes, ultimoUsuario) {
+  return (
+    versionesDeLaUltimaBusqueda(mensajes).find((version) =>
+      normalizar(version.nombre)
+        .split(/[\s,]+/)
+        .some((palabra) => palabra.length >= 4 && ultimoUsuario.includes(palabra)),
+    ) ?? null
+  );
+}
+
 function varianteDeLaUltimaBusqueda(mensajes) {
   for (const mensaje of [...mensajes].reverse()) {
     if (mensaje.role !== 'tool') continue;
@@ -143,6 +227,15 @@ function varianteDeLaUltimaBusqueda(mensajes) {
     if (id) return id;
   }
   return null;
+}
+
+/** Lo que contesta el asistente de turnos sobre dónde atiende, leído del bloque que arma bloqueLugar. */
+function respuestaDelLugar(sistema) {
+  const direccion = sistema.match(/Lugar de atención de [^\n]*\n(?:- [^\n]*\n)*?- Dirección: "((?:[^"\\]|\\.)*)"\./)?.[1];
+  if (direccion) return `Es en ${direccion}.`;
+  if (sistema.includes('atiende en su casa')) return 'Es en su casa: la dirección te la paso apenas quede agendado tu turno.';
+  if (sistema.includes('no atiende en un lugar fijo')) return 'No tenemos un lugar fijo: lo coordinamos por acá.';
+  return 'Eso consultalo directamente con el titular.';
 }
 
 /** Lo que contesta el asistente sobre el local, leído del bloque que arma bloqueLocal. */
@@ -160,6 +253,57 @@ function respuestaDelLocal(body, sistema, pregunta) {
   return completion(body.model, { content: `Estamos en ${direccion}. ${retiro}` });
 }
 
+/** Lo que contesta el stub con un resultado de búsqueda: el primer producto y su precio (o sus versiones). */
+function respuestaDeBusqueda(mensaje) {
+  const resultado = textoDe(mensaje);
+  // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
+  const primero = resultado.match(/1\. "(.+?)" (?:\[producto [^\]]+\] )?\(código/)?.[1];
+  const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
+  // Un producto a medida con versiones de precio fijo: las ofrece y ofrece hacerlo a medida.
+  const versiones = versionesDeLaUltimaBusqueda([mensaje]);
+  if (versiones.length > 0) {
+    const lista = versiones.map((version) => `${version.nombre} a ${version.precio}`).join(', ');
+    return `De ${primero} tenemos ${lista}. También te lo hacemos a medida.`;
+  }
+  // Un producto a medida no tiene variantes con precio: se cotiza.
+  if (!precio && resultado.includes('a medida: se cotiza')) return `Hacemos ${primero} a medida: te lo cotizamos.`;
+  return `Tengo ${primero} a ${precio}.`;
+}
+
+/** El resultado de buscar_productos desde el último mensaje del cliente, si hubo. */
+function busquedaDeEstaVuelta(mensajes) {
+  for (const mensaje of [...mensajes].reverse()) {
+    if (mensaje.role === 'user') return null;
+    if (mensaje.role === 'tool' && /^(Resultados de|Ningún producto se llama como)/.test(textoDe(mensaje))) return mensaje;
+  }
+  return null;
+}
+
+/**
+ * La entrega y los datos del cliente de un mensaje de compra: "con envío" /
+ * "retiro" (sólo si las reglas dicen que hacemos envíos) y los pares
+ * "Etiqueta: valor" separados por ";". Van igual en crear_pedido,
+ * pedir_variante y aceptar_presupuesto.
+ */
+function datosDelPedido(sistema, ultimoUsuario, texto) {
+  const datos = {};
+  if (sistema.includes('Hacemos envíos')) {
+    if (ultimoUsuario.includes('con envio')) datos.entrega = 'envio';
+    else if (ultimoUsuario.includes('retiro')) datos.entrega = 'retiro';
+  }
+  // Sin regex: "Etiqueta: valor" separados por ";" (lo que no tiene ":" no es un dato).
+  const datosCliente = texto
+    .split(';')
+    .filter((pieza) => pieza.includes(':'))
+    .map((pieza) => ({
+      campo: pieza.slice(0, pieza.indexOf(':')).trim(),
+      valor: pieza.slice(pieza.indexOf(':') + 1).trim(),
+    }))
+    .filter((dato) => dato.campo && dato.valor);
+  if (datosCliente.length > 0) datos.datosCliente = datosCliente;
+  return datos;
+}
+
 function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUsuario, resultadoTool }) {
   const titular = sistema.match(/Reglas de venta de (.*?) \(no las rompas\)/)?.[1]?.trim();
   llamadas.push({ tipo: 'ventas', titular, mensaje: ultimoUsuario, conResultado: Boolean(resultadoTool), ...resumenDelPedido(body) });
@@ -171,11 +315,23 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
       : '';
     // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
     if (resultado.startsWith('Resultados de') || resultado.startsWith('Ningún producto se llama como')) {
-      const primero = resultado.match(/1\. "(.+?)" (?:\[producto [^\]]+\] )?\(código/)?.[1];
-      const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
-      return responder(res, 200, completion(body.model, { content: `Tengo ${primero} a ${precio}.${oferta}` }));
+      // Las fotos de los a medida van solas: la del primero que tiene, antes de contestar.
+      const conFoto = sistema.includes(MARCA_A_MEDIDA) && fotoAMedida(resultado);
+      if (conFoto) {
+        return responder(res, 200, llamadaATool(body.model, 'enviar_imagen_producto', { productoId: conFoto }));
+      }
+      return responder(res, 200, completion(body.model, { content: `${respuestaDeBusqueda(resultadoTool)}${oferta}` }));
+    }
+    // registrar_solicitud o aceptar_presupuesto con un mensaje armado por el código: va tal cual.
+    // (crear_pedido con el link propio del dueño sigue contestando "Listo: …", como siempre.)
+    const talCual = /^(Solicitud anotada|Presupuesto aceptado)/.test(resultado) && resultado.match(/Mandale al cliente exactamente este mensaje, sin agregarle ni sacarle nada: ("(?:[^"\\]|\\.)*")/)?.[1];
+    if (talCual) {
+      return responder(res, 200, completion(body.model, { content: JSON.parse(talCual) }));
     }
     if (resultado.startsWith('Listo: la foto')) {
+      // La foto de un a medida salió sola tras una búsqueda: después de la foto, lo que encontró.
+      const busqueda = sistema.includes(MARCA_A_MEDIDA) ? busquedaDeEstaVuelta(mensajes) : null;
+      if (busqueda) return responder(res, 200, completion(body.model, { content: respuestaDeBusqueda(busqueda) }));
       return responder(res, 200, completion(body.model, { content: 'Ahí te mandé la foto. ¿Es lo que buscabas?' }));
     }
     if (resultado.includes('no tiene foto')) {
@@ -184,8 +340,13 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     if (resultado.startsWith('No hay productos')) {
       return responder(res, 200, completion(body.model, { content: 'No tengo eso, ¿buscás otra cosa?' }));
     }
-    // ver_catalogo: las líneas "- ..." tal cual, sin las comillas de JSON.stringify.
-    const lineas = resultado.split('\n').filter((linea) => linea.startsWith('- ')).map((linea) => linea.replaceAll('"', ''));
+    // ver_catalogo: las líneas "- ..." tal cual, sin las comillas de JSON.stringify. Las que ya le llegaron en
+    // foto (con nombre y precio al pie) no se repiten, como pide el resultado.
+    const todas = resultado.split('\n').filter((linea) => linea.startsWith('- '));
+    const lineas = todas.filter((linea) => !linea.includes('(ya le llegó en foto)')).map((linea) => linea.replaceAll('"', ''));
+    if (resultado.startsWith('Productos') && todas.length > 0 && lineas.length === 0) {
+      return responder(res, 200, completion(body.model, { content: `¿Cuál te interesa?${oferta}` }));
+    }
     if (resultado.startsWith('Productos con stock')) {
       const mas = resultado.includes('Decile que tenés más') ? '\nTengo más, si ninguno te interesa contame qué buscás.' : '';
       return responder(res, 200, completion(body.model, { content: `Esto es lo que tengo:\n${lineas.join('\n')}${mas}${oferta}` }));
@@ -214,7 +375,9 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (ultimoUsuario.includes('foto')) {
     const productoId = productoDeLaUltimaBusqueda(mensajes);
     if (!productoId) return responder(res, 200, completion(body.model, { content: '¿De qué producto querés la foto?' }));
-    return responder(res, 200, llamadaATool(body.model, 'enviar_imagen_producto', { productoId }));
+    // "la foto de la de roble": la de esa versión.
+    const version = versionNombrada(mensajes, ultimoUsuario);
+    return responder(res, 200, llamadaATool(body.model, 'enviar_imagen_producto', { productoId, ...(version ? { varianteId: version.id } : {}) }));
   }
   if (!esCompra && /\b(donde queda|direccion|retir|el local)/.test(ultimoUsuario)) {
     return responder(res, 200, respuestaDelLocal(body, sistema, textoDe(mensajes[indiceUsuario])));
@@ -239,6 +402,25 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (categoria) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', { categoria }));
   }
+  // Con productos a medida (LAU-27): pasar a una persona y aceptar el presupuesto vigente.
+  if (sistema.includes(MARCA_A_MEDIDA) && /\b(una persona|hablar con alguien)\b/.test(ultimoUsuario)) {
+    const pedidoId = sistema.match(/\[pedido ([\w-]+)\]/)?.[1];
+    return responder(
+      res,
+      200,
+      llamadaATool(body.model, 'derivar_a_persona', {
+        ...(pedidoId ? { pedidoId } : {}),
+        motivo: 'pide_persona',
+        detalle: textoDe(mensajes[indiceUsuario]),
+      }),
+    );
+  }
+  if (sistema.includes(MARCA_A_MEDIDA) && /^(dale|acepto|avancemos|si, avancemos)\b/.test(ultimoUsuario)) {
+    const pedidoId = sistema.match(/\[pedido ([\w-]+)\][^\n]*: cotizado/)?.[1];
+    if (!pedidoId) return responder(res, 200, completion(body.model, { content: 'Todavía no tenés un presupuesto para aceptar.' }));
+    const datos = datosDelPedido(sistema, ultimoUsuario, textoDe(mensajes[indiceUsuario]));
+    return responder(res, 200, llamadaATool(body.model, 'aceptar_presupuesto', { pedidoId, ...datos }));
+  }
   if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
     return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));
   }
@@ -246,24 +428,52 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const texto = textoDe(mensajes[indiceUsuario]);
     const nombre = texto.match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
     if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
+    // A medida si lo último que buscó lo es; si no, una compra de stock con crear_pedido.
+    if (sistema.includes(MARCA_A_MEDIDA) && ultimaBusquedaAMedida(mensajes)) {
+      const productoId = productoDeLaUltimaBusqueda(mensajes);
+      if (!productoId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés que te cotice?' }));
+      // Una versión de precio fijo: tal cual se pide con pedir_variante; con "pero …", se cotiza con esa base.
+      const version = versionNombrada(mensajes, ultimoUsuario);
+      const cambios = texto.match(/\bpero (.+?)(?:[,;]|$)/i)?.[1]?.trim();
+      if (version && !cambios) {
+        const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
+        const datos = datosDelPedido(sistema, ultimoUsuario, texto);
+        return responder(
+          res,
+          200,
+          llamadaATool(body.model, 'pedir_variante', { varianteId: version.id, cantidad, nombreCliente: nombre, ...datos }),
+        );
+      }
+      if (version && cambios) {
+        return responder(
+          res,
+          200,
+          llamadaATool(body.model, 'registrar_solicitud', {
+            productoId,
+            nombreCliente: nombre,
+            respuestas: [],
+            resumen: texto,
+            varianteBaseId: version.id,
+            cambios,
+          }),
+        );
+      }
+      // Las respuestas a las preguntas del producto: "Pregunta: respuesta" separadas por ";".
+      const respuestas = texto
+        .split(';')
+        .filter((pieza) => pieza.includes(':'))
+        .map((pieza) => ({ pregunta: pieza.slice(0, pieza.indexOf(':')).trim(), respuesta: pieza.slice(pieza.indexOf(':') + 1).trim() }))
+        .filter((dato) => dato.pregunta && dato.respuesta);
+      return responder(
+        res,
+        200,
+        llamadaATool(body.model, 'registrar_solicitud', { productoId, nombreCliente: nombre, respuestas, resumen: texto }),
+      );
+    }
     const varianteId = varianteDeLaUltimaBusqueda(mensajes);
     if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
     const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
-    const pedido = { nombreCliente: nombre, items: [{ varianteId, cantidad }] };
-    if (sistema.includes(' hace envíos.')) {
-      if (ultimoUsuario.includes('con envio')) pedido.entrega = 'envio';
-      else if (ultimoUsuario.includes('retiro')) pedido.entrega = 'retiro';
-    }
-    // Sin regex: "Etiqueta: valor" separados por ";" (lo que no tiene ":" no es un dato).
-    const datosCliente = texto
-      .split(';')
-      .filter((pieza) => pieza.includes(':'))
-      .map((pieza) => ({
-        campo: pieza.slice(0, pieza.indexOf(':')).trim(),
-        valor: pieza.slice(pieza.indexOf(':') + 1).trim(),
-      }))
-      .filter((dato) => dato.campo && dato.valor);
-    if (datosCliente.length > 0) pedido.datosCliente = datosCliente;
+    const pedido = { nombreCliente: nombre, items: [{ varianteId, cantidad }], ...datosDelPedido(sistema, ultimoUsuario, texto) };
     return responder(res, 200, llamadaATool(body.model, 'crear_pedido', pedido));
   }
   return responder(res, 200, llamadaATool(body.model, 'buscar_productos', { consulta: textoDe(mensajes[indiceUsuario]) }));
@@ -307,6 +517,10 @@ function conversar(body, res) {
 
   if (ultimoUsuario.includes('cancel')) {
     return responder(res, 200, llamadaATool(body.model, 'cancelar_turno', {}));
+  }
+
+  if (ultimoUsuario.includes('donde') || ultimoUsuario.includes('direccion')) {
+    return responder(res, 200, completion(body.model, { content: respuestaDelLugar(sistema) }));
   }
 
   if (ultimoUsuario.includes('movelo') || ultimoUsuario.includes('reprogram')) {

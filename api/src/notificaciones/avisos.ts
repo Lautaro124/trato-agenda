@@ -13,6 +13,10 @@ export const TIPOS_NOTIFICACION = [
   'consulta_derivada',
   'mercadopago_desconectado',
   'whatsapp_desconectado',
+  'solicitud_a_cotizar',
+  'presupuesto_a_revisar',
+  'pedido_derivado',
+  'presupuesto_aceptado',
   'cupo_chats',
 ] as const;
 
@@ -35,9 +39,9 @@ type VentaAvisable = {
   id: string;
   nombreCliente: string | null;
   telefonoCliente: string | null;
-  totalCentavos: number;
-  medioPago: string;
-  reservaVenceAt: Date;
+  totalCentavos: number | null;
+  medioPago: string | null;
+  reservaVenceAt: Date | null;
   sinStockAlPagar: boolean;
   dePrueba: boolean;
   /** Sólo si se envía o se retira; la dirección no viaja en el aviso (está en Ventas). */
@@ -66,7 +70,7 @@ export function avisoVentaPagada(venta: VentaAvisable): Aviso {
     : '';
   return {
     tipo: 'venta_pagada',
-    titulo: `${prueba(venta)}Venta pagada: ${formatearCentavos(venta.totalCentavos)}`,
+    titulo: `${prueba(venta)}Venta pagada: ${formatearCentavos(venta.totalCentavos ?? 0)}`,
     cuerpo:
       `${quien(venta)} pagó ${detalleDeRenglones(venta.items)} por Mercado Pago. ` +
       `Coordiná la entrega por WhatsApp.${entrega(venta)}${alerta}`,
@@ -77,10 +81,11 @@ export function avisoVentaPagada(venta: VentaAvisable): Aviso {
 export function avisoPedidoManual(venta: VentaAvisable): Aviso {
   return {
     tipo: 'pedido_manual',
-    titulo: `${prueba(venta)}Pedido para cobrar: ${formatearCentavos(venta.totalCentavos)}`,
+    titulo: `${prueba(venta)}Pedido para cobrar: ${formatearCentavos(venta.totalCentavos ?? 0)}`,
     cuerpo:
-      `${quien(venta)} pidió ${detalleDeRenglones(venta.items)}. Queda reservado hasta el ` +
-      `${fechaYHora(venta.reservaVenceAt)}. Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}`,
+      `${quien(venta)} pidió ${detalleDeRenglones(venta.items)}.` +
+      (venta.reservaVenceAt ? ` Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}.` : '') +
+      ` Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}`,
     enlace: `/ventas?venta=${venta.id}`,
   };
 }
@@ -111,12 +116,87 @@ export function avisoConsultaDerivada(consulta: {
   resumen: string;
   dePrueba: boolean;
 }): Aviso {
+  // Las solicitudes para cotizar tienen sus propios avisos (registrar_solicitud): esto es siempre una consulta.
+  const resumen = consulta.resumen.slice(0, LARGO_MAX_CONSULTA);
   return {
     tipo: 'consulta_derivada',
     titulo: `${prueba(consulta)}Consulta de un cliente`,
-    cuerpo: `${quien(consulta)} preguntó algo que el asistente no sabe responder: "${consulta.resumen.slice(0, LARGO_MAX_CONSULTA)}".`,
+    cuerpo: `${quien(consulta)} preguntó algo que el asistente no sabe responder: "${resumen}".`,
     // Una por conversación mientras siga sin leer (y además HORAS_ENTRE_CONSULTAS).
     clave: `consulta:${consulta.conversationId}`,
+  };
+}
+
+/** Lo que hace falta de un pedido a medida para avisar sobre él. */
+type PedidoAMedidaAvisable = {
+  ventaId: string;
+  nombreCliente: string | null;
+  telefonoCliente: string | null;
+  nombreProducto: string | null;
+  dePrueba: boolean;
+};
+
+function deQue(pedido: Pick<PedidoAMedidaAvisable, 'nombreProducto'>): string {
+  return pedido.nombreProducto ? ` de ${JSON.stringify(pedido.nombreProducto)}` : '';
+}
+
+/** Una solicitud a medida que espera precio: la armás vos desde Ventas. */
+export function avisoSolicitudACotizar(
+  pedido: PedidoAMedidaAvisable & { resumen: string; motivo?: string | null; variante?: string | null },
+): Aviso {
+  const resumen = pedido.resumen.slice(0, LARGO_MAX_CONSULTA);
+  const variante = pedido.variante ? pedido.variante.slice(0, LARGO_MAX_CONSULTA) : '';
+  return {
+    tipo: 'solicitud_a_cotizar',
+    titulo: `${prueba(pedido)}Para cotizar${pedido.nombreProducto ? `: ${pedido.nombreProducto}` : ''}`,
+    cuerpo:
+      `${quien(pedido)} pidió un presupuesto${deQue(pedido)}${resumen ? `: "${resumen}"` : ''}. ` +
+      (variante ? `${variante}. ` : '') +
+      (pedido.motivo ? `${pedido.motivo} ` : '') +
+      'Armalo y mandáselo desde Ventas.',
+    enlace: `/ventas?venta=${pedido.ventaId}`,
+    clave: `cotizar:${pedido.ventaId}`,
+  };
+}
+
+/** El asistente armó el presupuesto con la receta y espera que lo apruebes. */
+export function avisoPresupuestoARevisar(pedido: PedidoAMedidaAvisable & { totalCentavos: number }): Aviso {
+  return {
+    tipo: 'presupuesto_a_revisar',
+    titulo: `${prueba(pedido)}Presupuesto para revisar: ${formatearCentavos(pedido.totalCentavos)}`,
+    cuerpo:
+      `El asistente armó el presupuesto${deQue(pedido)} para ${quien(pedido)}. ` +
+      'Revisalo en Ventas: hasta que lo apruebes no le llega al cliente.',
+    enlace: `/ventas?venta=${pedido.ventaId}`,
+    clave: `revisar:${pedido.ventaId}`,
+  };
+}
+
+/** El pedido pasó a una persona: el asistente ya no contesta en ese chat. */
+export function avisoPedidoDerivado(
+  pedido: PedidoAMedidaAvisable & { motivo: string; detalle: string | null },
+): Aviso {
+  const detalle = pedido.detalle?.slice(0, LARGO_MAX_CONSULTA);
+  return {
+    tipo: 'pedido_derivado',
+    titulo: `${prueba(pedido)}Un cliente te espera${pedido.nombreProducto ? `: ${pedido.nombreProducto}` : ''}`,
+    cuerpo:
+      `${quien(pedido)} necesita que lo atienda una persona (${pedido.motivo})${detalle ? `: "${detalle}"` : ''}. ` +
+      'El asistente no contesta en ese chat hasta que se lo devuelvas desde Ventas.',
+    enlace: `/ventas?venta=${pedido.ventaId}`,
+    clave: `derivado:${pedido.ventaId}`,
+  };
+}
+
+/** El cliente aceptó un presupuesto que se cobra a mano. */
+export function avisoPresupuestoAceptado(
+  pedido: PedidoAMedidaAvisable & { totalCentavos: number; entrega?: string | null },
+): Aviso {
+  return {
+    tipo: 'presupuesto_aceptado',
+    titulo: `${prueba(pedido)}Aceptó el presupuesto: ${formatearCentavos(pedido.totalCentavos)}`,
+    cuerpo: `${quien(pedido)} aceptó el presupuesto${deQue(pedido)}.${entrega(pedido)} Cobrale por WhatsApp y marcalo pagado en Ventas.`,
+    enlace: `/ventas?venta=${pedido.ventaId}`,
   };
 }
 

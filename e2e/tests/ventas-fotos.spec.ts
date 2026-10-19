@@ -25,11 +25,11 @@ test.describe('fotos de productos', () => {
 
     await page.goto('/productos');
     await page.getByRole('button', { name: 'Editar Mate de calabaza' }).click();
-    const editor = page.getByRole('dialog', { name: 'Editar producto' });
-    await expect(editor).toContainText('0 de 100 productos con foto');
+    const editor = page.getByRole('form', { name: 'Editar producto' });
+    await expect(editor).toContainText('0 de 100 fotos');
     await editor.getByLabel('Elegir foto del producto').setInputFiles({ name: 'mate.png', mimeType: 'image/png', buffer: PNG });
     await expect(editor.getByRole('img', { name: 'Foto del producto' })).toBeVisible();
-    await expect(editor).toContainText('1 de 100 productos con foto');
+    await expect(editor).toContainText('1 de 100 fotos');
 
     // Lo que se guardó es el JPEG que generó la API, no el PNG que se subió.
     const foto = await context.request.get(`${API_URL}/productos/${mate.id}/imagen`);
@@ -59,5 +59,30 @@ test.describe('fotos de productos', () => {
     expect(quitar.status()).toBe(204);
     const uso = (await (await context.request.get(`${API_URL}/productos/imagenes/uso`)).json()) as { usadas: number };
     expect(uso.usadas).toBe(0);
+  });
+
+  test('"¿qué tenés?" manda solas las fotos de la lista, con nombre y precio, y el texto nombra sólo el resto', async ({
+    context,
+    usuarioDev,
+  }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    const mate = await crearProductoPorApi(context.request, { codigo: 'LIST-1', nombre: 'Mate imperial', precioCentavos: 900_000, stock: 3 });
+    await crearProductoPorApi(context.request, { codigo: 'LIST-2', nombre: 'Bombilla de alpaca', precioCentavos: 250_000, stock: 5 });
+    const subida = await context.request.put(`${API_URL}/productos/${mate.id}/imagen`, {
+      multipart: { imagen: { name: 'mate.png', mimeType: 'image/png', buffer: PNG } },
+    });
+    expect(subida.ok(), await subida.text()).toBe(true);
+
+    const res = await context.request.post(`${API_URL}/conversation/test`, { data: { message: '¿qué tenés?' } });
+    expect(res.ok(), await res.text()).toBe(true);
+    const respuesta = (await res.json()) as { reply: string; imagenes: Array<{ productoId: string; leyenda?: string }> };
+    expect(respuesta.imagenes).toEqual([{ productoId: mate.id, nombre: 'Mate imperial', leyenda: 'Mate imperial\n$ 9.000' }]);
+    expect(respuesta.reply).toContain('Bombilla de alpaca');
+    expect(respuesta.reply).not.toContain('Mate imperial');
+
+    // Ya le llegó en esta charla: un segundo "¿qué tenés?" no la repite.
+    const otra = await context.request.post(`${API_URL}/conversation/test`, { data: { message: '¿qué tenés?' } });
+    expect(((await otra.json()) as { imagenes: unknown[] }).imagenes).toEqual([]);
   });
 });

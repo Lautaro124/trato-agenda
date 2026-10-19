@@ -117,6 +117,42 @@ export class ProductosController {
     return this.imagenes.borrar(user.id, id);
   }
 
+  /** La foto propia de una versión con precio fijo (producto a medida). Igual que la del producto. */
+  @Put(':id/variantes/:varianteId/imagen')
+  @UseInterceptors(
+    FileInterceptor('imagen', { limits: { fileSize: MAX_BYTES_SUBIDA, files: 1, fields: 0, parts: 1 } }),
+  )
+  subirImagenDeVariante(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Param('varianteId') varianteId: string,
+    @UploadedFile() archivo: { buffer: Buffer } | undefined,
+  ): Promise<ImagenGuardada> {
+    if (!archivo) throw new UnprocessableEntityException('Falta la foto.');
+    return this.imagenes.guardarDeVariante(user.id, id, varianteId, archivo.buffer);
+  }
+
+  @Get(':id/variantes/:varianteId/imagen')
+  @Header('Cache-Control', 'private, max-age=300')
+  async imagenDeVariante(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Param('varianteId') varianteId: string,
+  ): Promise<StreamableFile> {
+    const datos = await this.imagenes.obtenerDeVariante(user.id, id, varianteId);
+    return new StreamableFile(datos, { type: 'image/jpeg', length: datos.length });
+  }
+
+  @Delete(':id/variantes/:varianteId/imagen')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  quitarImagenDeVariante(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Param('varianteId') varianteId: string,
+  ): Promise<void> {
+    return this.imagenes.borrarDeVariante(user.id, id, varianteId);
+  }
+
   @Get(':id')
   obtener(@CurrentUser() user: User, @Param('id') id: string): Promise<ProductoPublico> {
     return this.productos.obtener(user.id, id);

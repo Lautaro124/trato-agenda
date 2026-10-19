@@ -331,7 +331,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       expect(notificaciones.avisarAlCliente).toHaveBeenCalledWith(
         dueno.id,
         JID,
-        '¡Listo, Juan! Tu pago de $ 45.000,50 fue aprobado. El negocio te escribe por acá para coordinar la entrega.',
+        '¡Listo, Juan! Tu pago de $ 45.000,50 fue aprobado. Te escribimos por acá para coordinar la entrega.',
       );
     });
 
