@@ -53,6 +53,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
   const conversationService = { responder: vi.fn() } as unknown as ConversationService;
   const subscriptionService = {
     asistenteActivo: vi.fn().mockResolvedValue(true),
+    avisarSiLlegaAlTope: vi.fn().mockResolvedValue(undefined),
   } as unknown as SubscriptionService;
   const imagenes = { paraEnviar: vi.fn() } as unknown as ImagenesService;
   const notificaciones = { avisar: vi.fn().mockResolvedValue(null) } as unknown as NotificacionesService;

@@ -8,9 +8,13 @@ import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
 import {
+  formatearChats,
   formatearFechaCorta,
   formatearMonto,
+  usePrecioPlan,
   useSuscripcion,
+  type PlanId,
+  type PlanPublico,
   type Suscripcion,
 } from "@/lib/suscripcion";
 
@@ -97,7 +101,7 @@ function PlanContenido() {
       .catch(() => {});
   }
 
-  async function suscribirme(email: string | null) {
+  async function suscribirme(plan: PlanId, email: string | null) {
     setEnviando(true);
     setError(null);
 
@@ -105,7 +109,7 @@ function PlanContenido() {
       const res = await apiFetch("/suscripcion/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(email ? { email } : {}),
+        body: JSON.stringify(email ? { plan, email } : { plan }),
       });
       if (res.status === 409) {
         setError("Ese email ya es de otra cuenta de Trato. Usá otro.");
@@ -145,13 +149,18 @@ function PlanContenido() {
         ) : vista === "confirmando" ? (
           <Confirmando onReintentar={reintentarConfirmacion} />
         ) : suscripcion?.estado === "activa" ? (
-          <PlanVigente suscripcion={suscripcion} enviando={enviando} onCancelar={() => void cancelar()} />
+          <PlanVigente
+            suscripcion={suscripcion}
+            enviando={enviando}
+            onCancelar={() => void cancelar()}
+            onCambiar={(plan) => void suscribirme(plan, null)}
+          />
         ) : (
           <Checkout
             suscripcion={suscripcion}
             enviando={enviando}
             pideEmail={!user.email}
-            onSuscribirme={(email) => void suscribirme(email)}
+            onSuscribirme={(plan, email) => void suscribirme(plan, email)}
           />
         )}
 
@@ -174,12 +183,15 @@ function Checkout({
   enviando: boolean;
   /** Las cuentas creadas con WhatsApp no tienen email, y Mercado Pago lo exige. */
   pideEmail: boolean;
-  onSuscribirme: (email: string | null) => void;
+  onSuscribirme: (plan: PlanId, email: string | null) => void;
 }) {
   const [email, setEmail] = useState("");
+  const [elegido, setElegido] = useState<PlanId>("basico");
   const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  // Sin la respuesta de la API no inventamos un número: el precio es el de env.
-  const precio = suscripcion ? formatearMonto(suscripcion.monto, suscripcion.moneda) : "—";
+  // Sin la respuesta de la API no inventamos un número: los precios son los de env.
+  const precios = usePrecioPlan();
+  const plan = precios?.planes.find((p) => p.id === elegido) ?? null;
+  const precio = plan && precios ? formatearMonto(plan.monto, precios.moneda) : "—";
   const vencida = suscripcion?.estado === "vencida";
 
   return (
@@ -197,17 +209,17 @@ function Checkout({
           Elegí cómo querés pagar; podés cancelar cuando quieras.
         </p>
 
-        <div className="mb-5 flex items-center justify-between gap-4 rounded-md border border-line bg-sunken p-4">
-          <div>
-            <div className="font-display text-[15.5px] font-semibold text-ink">Plan mensual</div>
-            <div className="mt-0.5 text-[12.5px] leading-[1.5] text-ink-secondary">
-              Se renueva todos los meses. Cancelás cuando quieras.
-            </div>
-          </div>
-          <div className="flex-none text-right">
-            <div className="font-display text-[19px] font-bold text-ink">{precio}</div>
-            <div className="text-[11.5px] text-muted">por mes</div>
-          </div>
+        <p className="mb-2.5 text-[12.5px] font-semibold text-ink-secondary">Elegí tu plan</p>
+        <div role="radiogroup" aria-label="Plan" className="mb-5 grid gap-3 sm:grid-cols-2">
+          {(precios?.planes ?? []).map((p) => (
+            <OpcionDePlan
+              key={p.id}
+              plan={p}
+              moneda={precios?.moneda ?? "ARS"}
+              marcado={p.id === elegido}
+              onElegir={() => setElegido(p.id)}
+            />
+          ))}
         </div>
 
         <p className="mb-2.5 text-[12.5px] font-semibold text-ink-secondary">Medio de pago</p>
@@ -245,11 +257,11 @@ function Checkout({
       <div className="flex flex-col border-t border-line bg-sunken p-6 md:w-[36%] md:flex-none md:border-t-0 md:border-l md:px-5">
         <p className="mb-4 text-[12.5px] font-semibold text-ink-secondary">Resumen</p>
         <div className="mb-2.5 flex items-baseline justify-between">
-          <span className="text-[13.5px] text-ink-secondary">Plan mensual</span>
+          <span className="text-[13.5px] text-ink-secondary">Plan {plan?.nombre ?? ""}</span>
           <span className="font-display text-xl font-bold text-ink">{precio}</span>
         </div>
         <p className="mb-4 text-[12.5px] leading-[1.6] text-muted">
-          Se renueva solo cada mes hasta que lo canceles.
+          {plan ? `Hasta ${formatearChats(plan.chats)} chats por mes. ` : ""}Se renueva solo cada mes hasta que lo canceles.
         </p>
         <div className="mb-4 h-px bg-line" />
         <p className="mb-2 text-[12.5px] leading-[1.6] text-ink-secondary">
@@ -260,8 +272,8 @@ function Checkout({
           <Button
             size="lg"
             fullWidth
-            disabled={enviando || (pideEmail && !emailValido)}
-            onClick={() => onSuscribirme(pideEmail ? email.trim() : null)}
+            disabled={enviando || !plan || (pideEmail && !emailValido)}
+            onClick={() => onSuscribirme(elegido, pideEmail ? email.trim() : null)}
           >
             {enviando ? "Abriendo Mercado Pago…" : "Suscribirme"}
           </Button>
@@ -271,6 +283,73 @@ function Checkout({
     </div>
   );
 }
+
+/** Una de las dos tarjetas del selector de plan. */
+function OpcionDePlan({
+  plan,
+  moneda,
+  marcado,
+  onElegir,
+}: {
+  plan: PlanPublico;
+  moneda: string;
+  marcado: boolean;
+  onElegir: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={marcado}
+      aria-label={`Plan ${plan.nombre}`}
+      onClick={onElegir}
+      className={`rounded-md border p-4 text-left transition-colors ${
+        marcado ? "border-primary bg-primary-subtle" : "border-line bg-sunken hover:border-line-strong"
+      }`}
+    >
+      <div className="font-display text-[15.5px] font-semibold text-ink">{plan.nombre}</div>
+      <div className="mt-1 font-display text-[21px] font-bold text-ink">
+        {formatearMonto(plan.monto, moneda)}
+        <span className="ml-1 text-[12px] font-normal text-muted">por mes</span>
+      </div>
+      <div className="mt-1 text-[12.5px] leading-[1.5] text-ink-secondary">
+        Hasta {formatearChats(plan.chats)} chats por mes
+      </div>
+    </button>
+  );
+}
+
+/** Uso del mes: "N de 2.500 chats", con una barra. Sólo informa, el asistente no se corta. */
+function UsoDelMes({ uso }: { uso: Suscripcion["uso"] }) {
+  const porcentaje = Math.min(100, Math.round((uso.chats * 100) / uso.limite));
+  return (
+    <div className="mb-5">
+      <div className="mb-1.5 flex justify-between text-[13px]">
+        <span className="text-ink-secondary">Chats este mes</span>
+        <span className="font-semibold text-ink">
+          {formatearChats(uso.chats)} de {formatearChats(uso.limite)}
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Chats usados este mes"
+        aria-valuemin={0}
+        aria-valuemax={uso.limite}
+        aria-valuenow={Math.min(uso.chats, uso.limite)}
+        className="h-2 overflow-hidden rounded-full bg-sunken"
+      >
+        <div className="h-full rounded-full bg-primary" style={{ width: `${porcentaje}%` }} />
+      </div>
+      {uso.chats >= uso.limite && (
+        <p className="mt-1.5 text-[12px] leading-[1.5] text-muted">
+          Pasaste el tope del plan. El asistente sigue contestando igual.
+        </p>
+      )}
+    </div>
+  );
+}
+
+const NOMBRE_DE_PLAN: Record<PlanId, string> = { basico: "Básico", pro: "Pro" };
 
 /** Estado de éxito del artboard 7c. */
 function Exito({ suscripcion, onVolver }: { suscripcion: Suscripcion | null; onVolver: () => void }) {
@@ -286,7 +365,7 @@ function Exito({ suscripcion, onVolver }: { suscripcion: Suscripcion | null; onV
         El asistente sigue respondiendo tu WhatsApp. Te avisamos antes de cada renovación.
       </p>
       <div className="mb-5 flex flex-col gap-2 rounded-md border border-line bg-sunken p-4 text-left">
-        <Fila etiqueta="Plan" valor="Mensual" />
+        <Fila etiqueta="Plan" valor={suscripcion?.plan ? NOMBRE_DE_PLAN[suscripcion.plan] : "—"} />
         <Fila etiqueta="Importe" valor={suscripcion ? formatearMonto(suscripcion.monto, suscripcion.moneda) : "—"} />
         <Fila etiqueta="Medio de pago" valor="Mercado Pago" />
       </div>
@@ -317,11 +396,15 @@ function PlanVigente({
   suscripcion,
   enviando,
   onCancelar,
+  onCambiar,
 }: {
   suscripcion: Suscripcion;
   enviando: boolean;
   onCancelar: () => void;
+  onCambiar: (plan: PlanId) => void;
 }) {
+  const precios = usePrecioPlan();
+  const pro = precios?.planes.find((p) => p.id === "pro");
   return (
     <div className="w-full max-w-[520px] rounded-lg border border-line bg-card p-6 shadow-md">
       <h1 className="mb-2 font-display text-2xl leading-[1.2] font-bold tracking-[-0.02em] text-ink">
@@ -330,14 +413,27 @@ function PlanVigente({
       <p className="mb-5 text-sm leading-[1.6] text-ink-secondary text-pretty">
         El asistente responde tu WhatsApp con normalidad.
       </p>
+      <UsoDelMes uso={suscripcion.uso} />
       <div className="mb-5 flex flex-col gap-2 rounded-md border border-line bg-sunken p-4">
-        <Fila etiqueta="Plan" valor="Mensual" />
+        <Fila etiqueta="Plan" valor={suscripcion.plan ? NOMBRE_DE_PLAN[suscripcion.plan] : "—"} />
         <Fila etiqueta="Importe" valor={formatearMonto(suscripcion.monto, suscripcion.moneda)} />
         <Fila
           etiqueta="Próximo cobro"
           valor={suscripcion.proximoCobroAt ? formatearFechaCorta(suscripcion.proximoCobroAt) : "—"}
         />
       </div>
+      {suscripcion.plan === "basico" && pro && (
+        <div className="mb-4 rounded-md border border-line bg-card p-4">
+          <p className="mb-3 text-[13.5px] leading-[1.55] text-ink-secondary">
+            Plan Pro: hasta {formatearChats(pro.chats)} chats por mes por{" "}
+            {formatearMonto(pro.monto, precios?.moneda)} al mes. Pasás a Mercado Pago a autorizar el nuevo débito y
+            cancelamos el actual.
+          </p>
+          <Button disabled={enviando} onClick={() => onCambiar("pro")}>
+            Pasar a Pro
+          </Button>
+        </div>
+      )}
       <Button variant="ghost" disabled={enviando} onClick={onCancelar}>
         Cancelar la suscripción
       </Button>

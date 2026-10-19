@@ -17,9 +17,15 @@ export type Suscripcion = {
   diasRestantes: number;
   pruebaHasta: string;
   proximoCobroAt: string | null;
+  /** Plan contratado; null mientras no está pagando. */
+  plan: PlanId | null;
   monto: number;
   moneda: string;
+  /** Chats (clientes distintos) del mes en curso contra el tope del plan. */
+  uso: { chats: number; limite: number };
 };
+
+export type PlanId = "basico" | "pro";
 
 type SuscripcionValue = {
   suscripcion: Suscripcion | null;
@@ -81,13 +87,16 @@ export function useSuscripcion(): SuscripcionValue {
   return ctx;
 }
 
-/** Espejo de `PrecioPublico` en la API: el precio del plan, sin sesión. */
-export type PrecioPlan = { monto: number; moneda: string };
+export type PlanPublico = { id: PlanId; nombre: string; chats: number; monto: number };
+
+/** Espejo de `PrecioPublico` en la API: los planes y sus precios, sin sesión. */
+export type PrecioPlan = { moneda: string; planes: PlanPublico[] };
 
 /**
- * El precio del plan tal como lo fija SUSCRIPCION_PRECIO_ARS en la API. Lo usa
- * la landing, que no tiene sesión; `null` mientras carga o si la API no responde,
- * para no mostrar nunca un número inventado.
+ * Los precios de los planes tal como los fijan SUSCRIPCION_PRECIO_ARS (Básico)
+ * y SUSCRIPCION_PRECIO_PRO_ARS en la API. Los usan la landing, que no tiene
+ * sesión, y /plan; `null` mientras carga o si la API no responde, para no
+ * mostrar nunca un número inventado.
  */
 export function usePrecioPlan(): PrecioPlan | null {
   const [precio, setPrecio] = useState<PrecioPlan | null>(null);
@@ -113,6 +122,11 @@ export function formatearMonto(monto: number, moneda = "ARS"): string {
     currency: moneda,
     maximumFractionDigits: 0,
   }).format(monto);
+}
+
+/** "2.500", como se escribe en Argentina. */
+export function formatearChats(chats: number): string {
+  return new Intl.NumberFormat("es-AR").format(chats);
 }
 
 /** "8 de octubre" — la fecha en que termina la prueba, sin el año. */

@@ -68,7 +68,7 @@ export function AvisoSuscripcion() {
           El asistente dejó de responder por WhatsApp. Tu agenda y tus datos siguen acá.
         </span>
         <Button size="sm" onClick={() => router.push("/plan")}>
-          Activar por {precio}
+          Activar desde {precio}
         </Button>
       </div>
 
@@ -82,6 +82,7 @@ export function AvisoSuscripcion() {
           El asistente dejó de responder por WhatsApp. Tu agenda queda guardada tal cual.
         </p>
         <div className="mb-4 flex items-baseline gap-2 rounded-md border border-line bg-sunken p-3.5">
+          <span className="text-[13px] text-ink-secondary">Desde</span>
           <span className="font-display text-2xl font-bold text-ink">{precio}</span>
           <span className="text-[13px] text-ink-secondary">por mes · cancelás cuando quieras</span>
         </div>

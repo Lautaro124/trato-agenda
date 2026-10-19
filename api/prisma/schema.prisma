@@ -224,6 +224,9 @@ model Message {
   content Json
 
   createdAt DateTime @default(now())
+
+  /// El conteo de chats del mes (suscripción) filtra por rol y fecha.
+  @@index([conversationId, createdAt])
 }
 
 /// Turno agendado (o cancelado) en el calendario del dueño a partir de una
@@ -266,6 +269,17 @@ model Subscription {
 
   /// "pendiente" | "activa" | "pausada" | "cancelada"
   estado String @default("pendiente")
+
+  /// "basico" | "pro" (ver PLANES en api/src/subscription/subscription.rules.ts).
+  /// Las filas anteriores a los dos planes pagaron el Básico.
+  plan String @default("basico")
+
+  /// Cambio de plan en curso: el preapproval nuevo y su plan, mientras la
+  /// persona no lo autorizó en Mercado Pago. La fila sigue apuntando al
+  /// vigente; recién cuando el webhook confirma el nuevo se adopta y se
+  /// cancela el anterior.
+  mpPreapprovalPendienteId String? @unique
+  planPendiente            String?
 
   /// Id del preapproval de Mercado Pago: es la llave con la que llega el webhook.
   mpPreapprovalId String? @unique
@@ -579,7 +593,7 @@ model Notificacion {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// "venta_pagada" | "pedido_manual" | "stock_bajo" | "stock_agotado" |
-  /// "consulta_derivada" | "mercadopago_desconectado" | "whatsapp_desconectado"
+  /// "consulta_derivada" | "mercadopago_desconectado" | "whatsapp_desconectado" | "cupo_chats"
   tipo   String
   titulo String
   cuerpo String

@@ -13,6 +13,7 @@ export const TIPOS_NOTIFICACION = [
   'consulta_derivada',
   'mercadopago_desconectado',
   'whatsapp_desconectado',
+  'cupo_chats',
 ] as const;
 
 export type TipoNotificacion = (typeof TIPOS_NOTIFICACION)[number];
@@ -164,4 +165,28 @@ export function avisoWhatsappParaVolverAVincular(): Aviso {
 /** El texto que va al chat propio de WhatsApp: título y cuerpo, sin nada más. */
 export function textoParaWhatsapp(aviso: Pick<Aviso, 'titulo' | 'cuerpo'>): string {
   return `${aviso.titulo}\n${aviso.cuerpo}`;
+}
+
+/** Aviso de cupo de chats del mes: sólo informa, el asistente sigue contestando. */
+export function avisoCupoDeChats(datos: {
+  plan: string | null;
+  usados: number;
+  limite: number;
+  superado: boolean;
+  etiquetaMes: string;
+}): Aviso {
+  const titulo = datos.superado
+    ? `Llegaste al tope de ${datos.limite} chats del mes`
+    : `Ya usaste ${datos.usados} de ${datos.limite} chats este mes`;
+  const cierre =
+    datos.plan === 'pro'
+      ? 'El asistente sigue contestando igual.'
+      : 'El asistente sigue contestando igual; si querés más margen, podés pasarte al plan Pro (6.000 chats).';
+  return {
+    tipo: 'cupo_chats',
+    titulo,
+    cuerpo: `Cada cliente distinto que te escribe en el mes cuenta como un chat. ${cierre}`,
+    enlace: '/plan',
+    clave: `cupo_chats:${datos.superado ? '100' : '80'}:${datos.etiquetaMes}`,
+  };
 }

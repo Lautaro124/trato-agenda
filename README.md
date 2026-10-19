@@ -120,7 +120,8 @@ está pendiente.
 | `MERCADOPAGO_CLIENT_SECRET` | Client secret de la aplicación, para canjear y renovar los tokens OAuth de los comercios. **Secreto real, nunca commitear.** En el panel de Mercado Pago, la Redirect URL tiene que ser `<API_PUBLIC_URL>/mercadopago/callback`. |
 | `API_PUBLIC_URL` | Opcional. URL pública de la API (redirect del OAuth y `notification_url` de los links de pago). Por defecto, el origen de `GOOGLE_CALLBACK_URL`. |
 | `MERCADOPAGO_BASE_URL` / `MERCADOPAGO_AUTH_URL` | Opcionales. `https://api.mercadopago.com` y `https://auth.mercadopago.com` por defecto; los E2E las apuntan al Mercado Pago falso (`e2e/mercadopago-stub`). |
-| `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan en pesos. Por defecto `20000`. |
+| `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan Básico (hasta 2.500 chats por mes) en pesos. Por defecto `20000`. |
+| `SUSCRIPCION_PRECIO_PRO_ARS` | Importe mensual del plan Pro (hasta 6.000 chats por mes) en pesos. Por defecto `59000`. |
 | `SENTRY_DSN` | Opcional. DSN del proyecto de Sentry de la API. Vacía = sin Sentry (lo normal en local). La lee `src/instrument.ts`, que corre con `node --import` antes que la app, así que no pasa por `validateEnv`. |
 | `SENTRY_ENVIRONMENT` | Opcional. Environment de los eventos. Por defecto, el nombre del entorno de Railway (`RAILWAY_ENVIRONMENT_NAME`: `develop` o `production`, que corren los dos con `NODE_ENV=production`) y, fuera de Railway, `NODE_ENV`. La web hace lo mismo en el build. |
 | `SENTRY_TRACES_SAMPLE_RATE` | Opcional. Fracción de requests con traza de rendimiento. Por defecto `0.1` en producción y `0` fuera. |

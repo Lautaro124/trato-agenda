@@ -46,7 +46,7 @@ export default function ListoPage() {
 
   const yaVinculado = yaVinculoWhatsapp(user);
   const hasta = suscripcion ? formatearFechaCorta(suscripcion.pruebaHasta) : null;
-  // El precio sale de la API (SUSCRIPCION_PRECIO_ARS); hasta que llega, no se inventa uno.
+  // El precio sale de la API (SUSCRIPCION_PRECIO_ARS, el del plan Básico); hasta que llega, no se inventa uno.
   const precio = suscripcion ? formatearMonto(suscripcion.monto, suscripcion.moneda) : null;
 
   return (
@@ -74,7 +74,7 @@ export default function ListoPage() {
         <div className="mt-auto flex flex-col gap-3 pt-6 md:mt-5 md:pt-0">
           <p className="text-center text-[12.5px] leading-[1.6] text-muted md:order-last md:text-left">
             Te avisamos 7 días antes de que termine.{" "}
-            {precio ? `Después son ${precio} por mes y lo activás vos.` : "Después el plan lo activás vos."}
+            {precio ? `Después son desde ${precio} por mes y lo activás vos.` : "Después el plan lo activás vos."}
           </p>
           {yaVinculado ? (
             // Ya escaneó el QR al registrarse: no hay nada que vincular, sólo ir a la agenda o a los planes.

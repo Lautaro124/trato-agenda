@@ -32,6 +32,7 @@ import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
 import { avisoWhatsappCaido, avisoWhatsappParaVolverAVincular, type Aviso } from '../notificaciones/avisos.js';
+import { resumenDeError } from '../agents/openrouter.client.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { avisarASentry } from '../observabilidad/aviso-a-sentry.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -569,6 +570,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     try {
       const respuesta = await this.conversationService.responder(userId, remoteJid, texto);
       const finModelo = Date.now();
+      // Sólo avisa si se llegó al 80 %/100 % del tope de chats; nunca frena ni demora la respuesta.
+      void this.subscriptionService.avisarSiLlegaAlTope(userId).catch((error: unknown) =>
+        this.logger.error(`No se pudo evaluar el cupo de chats de ${userId}: ${resumenDeError(error)}`),
+      );
       const partes = partirEnMensajes(respuesta.texto);
       await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
       await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio);

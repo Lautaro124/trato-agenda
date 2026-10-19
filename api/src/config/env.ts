@@ -48,7 +48,10 @@ export type Env = {
    * GOOGLE_CALLBACK_URL, que ya es la API.
    */
   API_PUBLIC_URL: string;
+  /** Precio mensual del plan Básico (2.500 chats). */
   SUSCRIPCION_PRECIO_ARS: number;
+  /** Precio mensual del plan Pro (6.000 chats). */
+  SUSCRIPCION_PRECIO_PRO_ARS: number;
   /**
    * Hasta cuánto para atrás ve el modelo el historial de un chat
    * (HISTORIAL_IA_VENTANA, "14d", "1d", "2h", "30m"). Lo más viejo sigue en
@@ -174,6 +177,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     MERCADOPAGO_AUTH_URL: sinBarrasFinales(String(raw.MERCADOPAGO_AUTH_URL || 'https://auth.mercadopago.com')),
     API_PUBLIC_URL: sinBarrasFinales(String(raw.API_PUBLIC_URL || origenDe(String(raw.GOOGLE_CALLBACK_URL)))),
     SUSCRIPCION_PRECIO_ARS: Number(raw.SUSCRIPCION_PRECIO_ARS ?? 20000),
+    SUSCRIPCION_PRECIO_PRO_ARS: Number(raw.SUSCRIPCION_PRECIO_PRO_ARS ?? 59000),
     HISTORIAL_IA_VENTANA_MS: ventanaHistorialMs,
   };
 }

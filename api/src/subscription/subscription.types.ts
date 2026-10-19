@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsEmail, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import type { Subscription } from '../generated/prisma/client.js';
-import type { EstadoSuscripcion } from './subscription.rules.js';
+import { IDS_DE_PLAN, type EstadoSuscripcion, type PlanId } from './subscription.rules.js';
 
 /** Lo único que el frontend ve de la suscripción. */
 export type SuscripcionPublica = {
@@ -9,13 +9,19 @@ export type SuscripcionPublica = {
   diasRestantes: number;
   pruebaHasta: Date;
   proximoCobroAt: Date | null;
+  /** Plan contratado; null mientras no esté pagando (prueba, vencida, pendiente). */
+  plan: PlanId | null;
   /** Importe mensual en pesos (no en centavos), listo para mostrar. */
   monto: number;
   moneda: string;
+  /** Chats (clientes distintos) del mes en curso contra el tope del plan. */
+  uso: { chats: number; limite: number };
 };
 
-/** Lo que muestra la landing antes de que haya sesión: el precio de env, nada más. */
-export type PrecioPublico = { monto: number; moneda: 'ARS' };
+export type PlanPublico = { id: PlanId; nombre: string; chats: number; monto: number };
+
+/** Lo que muestra la landing antes de que haya sesión: los precios de env, nada más. */
+export type PrecioPublico = { moneda: 'ARS'; planes: PlanPublico[] };
 
 /**
  * El monto guardado en la fila sólo vale mientras la suscripción está activa:
@@ -27,6 +33,7 @@ export function aSuscripcionPublica(
   estado: EstadoSuscripcion,
   suscripcion: Subscription | null,
   montoPorDefecto: number,
+  uso: { chats: number; limite: number },
 ): SuscripcionPublica {
   const pagando = estado.estado === 'activa' && suscripcion !== null;
   return {
@@ -34,13 +41,18 @@ export function aSuscripcionPublica(
     diasRestantes: estado.diasRestantes,
     pruebaHasta: estado.pruebaHasta,
     proximoCobroAt: suscripcion?.proximoCobroAt ?? null,
+    plan: pagando ? ((IDS_DE_PLAN as string[]).includes(suscripcion.plan) ? (suscripcion.plan as PlanId) : 'basico') : null,
     monto: pagando ? suscripcion.montoCentavos / 100 : montoPorDefecto,
     moneda: pagando ? suscripcion.moneda : 'ARS',
+    uso,
   };
 }
 
-/** Body de POST /suscripcion/checkout: el email sólo hace falta si la cuenta no tiene uno. */
+/** Body de POST /suscripcion/checkout: el plan es obligatorio; el email sólo hace falta si la cuenta no tiene uno. */
 export class CheckoutDto {
+  @IsIn(IDS_DE_PLAN)
+  plan!: PlanId;
+
   @IsOptional()
   @IsEmail()
   @MaxLength(120)
