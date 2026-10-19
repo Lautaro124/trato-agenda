@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DialogoProducto } from "@/components/productos/DialogoProducto";
 import { INPUT, LABEL } from "@/components/productos/EditorProducto";
 import { FotoProducto, guardarConFoto } from "@/components/productos/FotoProducto";
+import { PantallaProducto } from "@/components/productos/PantallaProducto";
 import { SeccionCotizacion, useRecetaEnEdicion } from "@/components/productos/SeccionCotizacion";
 import { SeccionMateriales } from "@/components/productos/SeccionMateriales";
 import { SeccionVariantesFijas, useVersionesFijas } from "@/components/productos/SeccionVariantesFijas";
@@ -34,7 +34,7 @@ const OPCION_PRECIO =
   "flex flex-1 cursor-pointer items-center justify-center rounded-sm px-3 py-2 text-center text-[13.5px] font-semibold";
 
 /**
- * Alta o edición de un producto a medida (cuenta a pedido), por pasos: qué
+ * Alta o edición de un producto a medida, en su propia pantalla, por pasos: qué
  * es, en qué materiales se hace, sus versiones con precio fijo (opcionales),
  * si tiene un precio "desde", qué le pregunta el asistente al cliente para
  * cotizarlo y cómo se cotiza. Al costado, cómo va a preguntar el asistente
@@ -57,7 +57,7 @@ export function EditorAMedida({
   onFotoCambiada?: () => void;
 }>) {
   const primerCampo = useRef<HTMLInputElement>(null);
-  // Si se guardó pero la foto elegida antes no subió, el diálogo sigue abierto sobre el producto ya creado.
+  // Si se guardó pero la foto elegida antes no subió, la pantalla sigue abierta sobre el producto ya creado.
   const [guardado, setGuardado] = useState<Producto | null>(null);
   const producto = guardado ?? productoInicial;
   const [fotoPendiente, setFotoPendiente] = useState<File | null>(null);
@@ -190,7 +190,7 @@ export function EditorAMedida({
         // Las fotos de las versiones van con el id de cada una, que recién existe ahora.
         const errorVersiones = await versiones.guardarFotos(nuevo);
         if (!errorFoto && !errorVersiones) return onGuardado(nuevo);
-        // Quedó guardado sin alguna foto: el diálogo sigue abierto sobre el producto creado para reintentarla.
+        // Quedó guardado sin alguna foto: la pantalla sigue abierta sobre el producto creado para reintentarla.
         setGuardado(nuevo);
         setCodigoPropio(nuevo.codigo);
         setFotoPendiente(null);
@@ -219,8 +219,13 @@ export function EditorAMedida({
   );
 
   return (
-    <DialogoProducto
+    <PantallaProducto
       titulo={producto ? "Editar producto a medida" : "Nuevo producto a medida"}
+      migas={
+        producto
+          ? [{ label: "Productos", href: "/productos" }, { label: producto.nombre }]
+          : [{ label: "Productos", href: "/productos" }, { label: "Nuevo", href: "/productos/nuevo" }, { label: "A medida" }]
+      }
       junto={<Badge tone="info">Se cotiza</Badge>}
       ancho
       hayCambios={hayCambios}
@@ -408,6 +413,6 @@ export function EditorAMedida({
           <div className="px-3 pb-3">{vistaPrevia}</div>
         </details>
       </div>
-    </DialogoProducto>
+    </PantallaProducto>
   );
 }

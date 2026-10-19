@@ -234,20 +234,20 @@ export class PedidosAMedidaService {
   // --- Solicitud ----------------------------------------------------------------
 
   /**
-   * El producto de una solicitud, del dueño y activo, con sus preguntas. Un
-   * producto sin `solicitud` (cargado antes de pasar a pedido) se cotiza igual,
-   * sin preguntas propias.
+   * El producto de una solicitud, del dueño y activo, con sus preguntas. Uno
+   * de stock vuelve con `solicitud` null: ese no se cotiza.
    */
   async productoParaSolicitud(
     userId: string,
     productoId: string,
-  ): Promise<{ id: string; nombre: string; solicitud: SolicitudADemanda } | null> {
+  ): Promise<{ id: string; nombre: string; solicitud: SolicitudADemanda | null } | null> {
     const producto = await this.prisma.producto.findFirst({
       where: { id: productoId, userId, activo: true },
       select: { id: true, nombre: true, solicitud: true },
     });
     if (!producto) return null;
-    return { id: producto.id, nombre: producto.nombre, solicitud: leerSolicitud(producto.solicitud) ?? { preguntas: [] } };
+    // Null en uno de stock: ese no se cotiza, se vende con crear_pedido.
+    return { id: producto.id, nombre: producto.nombre, solicitud: leerSolicitud(producto.solicitud) };
   }
 
   /**

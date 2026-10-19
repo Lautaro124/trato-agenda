@@ -142,7 +142,7 @@ async function conCostos<T>(accion: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Materiales y costos de un comercio a pedido (LAU-26): /costos en la web. */
+/** Materiales y costos de los productos a medida (LAU-26): /costos en la web. */
 @Controller('costos')
 @UseGuards(JwtAuthGuard)
 export class CostosController {

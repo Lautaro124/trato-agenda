@@ -66,7 +66,7 @@ test.describe('descuentos del asistente de ventas', () => {
 
     await page.goto('/productos');
     await page.getByRole('button', { name: 'Editar Termo de acero' }).click();
-    const dialogo = page.getByRole('dialog', { name: 'Editar producto' });
+    const dialogo = page.getByRole('form', { name: 'Editar producto' });
     await dialogo.getByLabel('Este producto tiene descuento').check();
     await dialogo.getByText('Monto fijo', { exact: true }).click();
     await dialogo.getByLabel('Monto', { exact: true }).fill('5.000');

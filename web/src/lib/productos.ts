@@ -107,7 +107,7 @@ export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
 };
 
 /**
- * Body de un producto a medida (cuenta a pedido): sin stock ni descuento. Sus
+ * Body de un producto a medida: sin stock ni descuento. Sus
  * variantes son versiones de precio fijo que el cliente pide tal cual; el sku
  * de una ya guardada viaja para que siga siendo la misma (y conserve su foto).
  */
@@ -146,6 +146,11 @@ export function listarProductos(filtros: { q?: string; categoria?: string; pagin
   if (filtros.pagina && filtros.pagina > 1) params.set("pagina", String(filtros.pagina));
   const query = params.toString();
   return apiFetch(`/productos${query ? `?${query}` : ""}`).then((res) => json<ListadoProductos>(res));
+}
+
+/** Un producto para su pantalla de edición; 404 si no es de la cuenta. */
+export function obtenerProducto(id: string) {
+  return apiFetch(`/productos/${encodeURIComponent(id)}`).then((res) => json<Producto>(res));
 }
 
 export function listarCategorias() {

@@ -56,7 +56,7 @@ export function FotoProducto({
   /** La foto elegida en un producto que todavía no se guardó. */
   pendiente: File | null;
   onPendiente: (archivo: File | null) => void;
-  /** Cuándo la manda el asistente: con stock, si el cliente la pide; a pedido, sola. */
+  /** Cuándo la manda el asistente: de stock, si el cliente la pide; a medida, sola. */
   ayuda?: string;
 }>) {
   const entrada = useRef<HTMLInputElement>(null);

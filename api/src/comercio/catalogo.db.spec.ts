@@ -284,7 +284,7 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
     });
   });
 
-  describe('productos a medida (cuenta a pedido)', () => {
+  describe('productos a medida', () => {
     let taller: User;
     const solicitud = {
       preguntas: [
@@ -300,7 +300,6 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
         data: {
           userId: taller.id,
           tipoAsistente: 'ventas',
-          modalidadVenta: 'pedido',
           nombreBot: 'Lu',
           descripcion: 'Cortinas',
           tipoUso: 'comercio',
@@ -382,27 +381,29 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(editado.variantes.map((v) => [v.id, v.nombre])).toEqual([[mesa.variantes[0].id, 'Roble 1,30 m']]);
     });
 
-    it('rechaza variantes con stock o sin nombre, descuento o un producto sin solicitud, y no importa planillas', async () => {
+    it('rechaza variantes con stock o sin nombre y descuento, y la planilla no pisa uno a medida', async () => {
       await expect(
         productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ nombre: 'Chica', precioCentavos: 100, stock: 3 }] }),
-      ).rejects.toThrow(/no llevan stock/);
+      ).rejects.toThrow(/no lleva stock/);
       await expect(
         productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ precioCentavos: 100 }] }),
       ).rejects.toThrow(/nombre de cada versión/);
       await expect(
         productos.crear(taller.id, { ...dto, codigo: 'CORT-02', descuento: { tipo: 'porcentaje', valor: 10 } }),
-      ).rejects.toThrow(/no llevan descuento/);
-      await expect(productos.crear(taller.id, { codigo: 'CORT-02', nombre: 'Sin preguntas' })).rejects.toThrow(/preguntas/);
+      ).rejects.toThrow(/no lleva descuento/);
+      // Sin solicitud ni variantes es uno de stock sin precio.
+      await expect(productos.crear(taller.id, { codigo: 'CORT-02', nombre: 'Sin preguntas' })).rejects.toThrow(/precio/);
       await expect(
         productos.crear(taller.id, { ...dto, codigo: 'CORT-02', solicitud: { preguntas: [{ ...solicitud.preguntas[0], opciones: ['Blanco'] }] } }),
       ).rejects.toThrow(/una sola opción/);
-      await expect(productos.importar(taller.id, [{ codigo: 'X', nombre: 'Algo', precio: '1' }], false)).rejects.toThrow(
-        /de a uno/,
-      );
+      const resumen = await productos.importar(taller.id, [{ codigo: 'CORT-01', nombre: 'Algo', precio: '1' }], true);
+      expect(resumen.errores).toEqual([expect.objectContaining({ fila: 1, mensaje: expect.stringMatching(/es a medida/) })]);
+      const [cortina] = await busqueda.buscar(taller.id, 'CORT-01');
+      expect(cortina).toMatchObject({ aMedida: true, variantes: [] });
     });
 
-    it('un producto con variantes de antes no edita stock, y al guardarlo a medida las pierde', async () => {
-      // Cargado cuando la cuenta todavía vendía con stock (o por planilla): queda con su variante.
+    it('un producto de stock pasa a medida (pierde sus variantes) y vuelve a stock sin lo de a medida', async () => {
+      // Cargado como de stock (o por planilla): queda con su variante, que se edita suelta.
       const viejo = await prisma.producto.create({
         data: {
           userId: taller.id,
@@ -414,24 +415,40 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
         include: { variantes: true },
       });
 
-      await expect(productos.actualizarVariante(taller.id, viejo.variantes[0].id, { stock: 9 })).rejects.toThrow(
-        /vende a pedido/,
-      );
-      expect((await prisma.variante.findUniqueOrThrow({ where: { id: viejo.variantes[0].id } })).stock).toBe(3);
+      await productos.actualizarVariante(taller.id, viejo.variantes[0].id, { stock: 9 });
+      expect((await prisma.variante.findUniqueOrThrow({ where: { id: viejo.variantes[0].id } })).stock).toBe(9);
 
-      const aMedida = await productos.actualizar(taller.id, viejo.id, { ...dto, codigo: 'CORT-VIEJA' });
-      expect(aMedida.variantes).toEqual([]);
+      const aMedida = await productos.actualizar(taller.id, viejo.id, {
+        ...dto,
+        codigo: 'CORT-VIEJA',
+        materiales: ['Lino'],
+        variantes: [{ nombre: 'Chica', precioCentavos: 90_000 }],
+      });
+      expect(aMedida.variantes.map((variante) => variante.nombre)).toEqual(['Chica']);
       expect(aMedida.solicitud?.preguntas).toHaveLength(2);
+      // Las versiones de un producto a medida no se editan sueltas.
+      await expect(productos.actualizarVariante(taller.id, aMedida.variantes[0].id, { precioCentavos: 1 })).rejects.toThrow(
+        /es a medida/,
+      );
+
+      const deStock = await productos.actualizar(taller.id, viejo.id, {
+        codigo: 'CORT-VIEJA',
+        nombre: 'Cortina vieja',
+        variantes: [{ precioCentavos: 100_000, stock: 3 }],
+      });
+      expect(deStock).toMatchObject({ solicitud: null, precioReferenciaCentavos: null, materiales: [] });
     });
 
-    it('una cuenta con stock no acepta preguntas, materiales ni precio de referencia', async () => {
-      await expect(
-        productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], solicitud }),
-      ).rejects.toThrow(/vende con stock/);
+    it('un producto de stock no acepta materiales ni precio de referencia, y la misma cuenta carga uno a medida', async () => {
       await expect(
         productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], materiales: ['Roble'] }),
-      ).rejects.toThrow(/vende con stock/);
+      ).rejects.toThrow(/de stock/);
+      await expect(
+        productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], precioReferenciaCentavos: 100 }),
+      ).rejects.toThrow(/de stock/);
       await expect(productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa' })).rejects.toThrow(/precio/);
+      const aMedida = await productos.crear(dueno.id, { codigo: 'MESA-MEDIDA', nombre: 'Mesa a medida', solicitud });
+      expect(aMedida.solicitud).not.toBeNull();
     });
   });
 });

@@ -1,5 +1,4 @@
 import { tipoAsistenteDe } from '../agents/agent-catalog.js';
-import { leerModalidad } from '../agents/modalidad-venta.js';
 import type { User } from '../generated/prisma/client.js';
 
 /** Datos que devuelve Google después del consentimiento. */
@@ -32,8 +31,6 @@ export type UsuarioPublico = Pick<User, 'id' | 'email' | 'name' | 'avatarUrl' | 
   debePonerPassword: boolean;
   /** Qué hace su asistente (define la navegación del panel); null sin onboarding. */
   tipoAsistente: 'agenda' | 'ventas' | null;
-  /** Cómo vende un asistente de ventas (define qué formulario de producto tiene); null si no vende. */
-  modalidadVenta: 'stock' | 'pedido' | null;
 };
 
 /**
@@ -46,7 +43,7 @@ export function debePonerPassword(user: Pick<User, 'googleId' | 'phoneNumber' | 
 
 export function aUsuarioPublico(
   user: User,
-  agent: { tipoAsistente: string; modalidadVenta?: string } | null = null,
+  agent: { tipoAsistente: string } | null = null,
 ): UsuarioPublico {
   const tipoAsistente = agent ? tipoAsistenteDe(agent) : null;
   return {
@@ -59,7 +56,6 @@ export function aUsuarioPublico(
     tienePassword: user.passwordHash !== null,
     debePonerPassword: debePonerPassword(user),
     tipoAsistente,
-    modalidadVenta: agent && tipoAsistente === 'ventas' ? leerModalidad({ modalidadVenta: agent.modalidadVenta ?? 'stock' }) : null,
   };
 }
 

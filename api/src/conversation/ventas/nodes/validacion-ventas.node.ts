@@ -6,7 +6,6 @@
  */
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
-import { leerModalidad } from '../../../agents/modalidad-venta.js';
 import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
@@ -49,7 +48,7 @@ export type HistorialValidacion = {
    * las pida de a una, en varias idas y vueltas.
    */
   fotosEnElMensaje: Set<string>;
-  /** A pedido: fotos (claveDeFoto) que ya le llegaron al cliente en la parte de la charla que ve el modelo. */
+  /** Con productos a medida: fotos (claveDeFoto) que ya le llegaron al cliente en la parte de la charla que ve el modelo. */
   fotosYaMandadas: Set<string>;
 };
 
@@ -68,17 +67,16 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
     variantesVistas: variantesMostradas(resultados.map(textoDe)),
     productosVistos: productosMostrados(resultados.map(textoDe)),
     fotosEnElMensaje: new Set(imagenesDeLaVuelta(state.messages.slice(state.indiceDesde ?? 0)).map(claveDeFoto)),
-    // A pedido el asistente las manda solo: ahí se corta repetir una. Con stock sólo salen cuando las piden.
-    fotosYaMandadas:
-      leerModalidad(state.contexto.agent) === 'pedido'
-        ? fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0))
-        : new Set(),
+    // Con productos a medida el asistente las manda solo: ahí se corta repetir una. Si no, sólo salen cuando las piden.
+    fotosYaMandadas: state.contexto.tieneAMedida
+      ? fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0))
+      : new Set(),
   };
 }
 
 function esquemaPara(state: EstadoVentasValue, nombre: string): EsquemaHerramienta | undefined {
-  const { agent } = state.contexto;
-  if (esAccionDeVentas(nombre) && accionesDeVentas(agent.allowedActions, leerModalidad(agent)).includes(nombre)) {
+  const { agent, tieneAMedida } = state.contexto;
+  if (esAccionDeVentas(nombre) && accionesDeVentas(agent.allowedActions, { aMedida: tieneAMedida }).includes(nombre)) {
     return ESQUEMAS_VENTAS[nombre];
   }
   if (state.esPropietario) return ESQUEMAS_PROPIETARIO_VENTAS[nombre];

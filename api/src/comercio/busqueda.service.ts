@@ -78,7 +78,7 @@ export type ProductoEncontrado = {
   /** Si tiene foto para mandarle al cliente (enviar_imagen_producto). */
   tieneImagen: boolean;
   /**
-   * Producto a medida (cuenta a pedido): se cotiza. Sus variantes, si tiene,
+   * Producto a medida (tiene `solicitud`): se cotiza. Sus variantes, si tiene,
    * son versiones con precio cerrado que el cliente pide tal cual, sin stock
    * ni descuento.
    */

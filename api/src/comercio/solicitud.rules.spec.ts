@@ -6,7 +6,7 @@ import {
   MAX_PREGUNTAS,
   normalizarMateriales,
   normalizarSolicitud,
-  problemaSegunModalidad,
+  problemaDelProducto,
   validarRespuestasSolicitud,
   type SolicitudADemanda,
   leerNumero,
@@ -164,32 +164,25 @@ describe('validarRespuestasSolicitud', () => {
   });
 });
 
-describe('problemaSegunModalidad', () => {
+describe('problemaDelProducto', () => {
   const preguntas = { preguntas: [DETALLE] };
 
-  it('con stock: precio obligatorio, sin preguntas ni precio de referencia', () => {
-    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toBeNull();
-    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: null, solicitud: null, precioReferencia: null })).toBeNull();
-    expect(problemaSegunModalidad('stock', { variantes: 0, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toMatch(/precio/);
-    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: preguntas, precioReferencia: undefined })).toMatch(/vende con stock/);
-    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: 100 })).toMatch(/vende con stock/);
-    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined, materiales: ['Madera'] })).toMatch(/vende con stock/);
-    expect(problemaSegunModalidad('stock', { variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined, materiales: [] })).toBeNull();
+  it('sin solicitud es de stock: precio obligatorio, sin materiales ni precio "desde"', () => {
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toBeNull();
+    expect(problemaDelProducto({ variantes: 1, descuento: { tipo: 'porcentaje' }, solicitud: null, precioReferencia: null })).toBeNull();
+    expect(problemaDelProducto({ variantes: 0, descuento: undefined, solicitud: undefined, precioReferencia: undefined })).toMatch(/precio/);
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: 100 })).toMatch(/de stock/);
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined, materiales: ['Madera'] })).toMatch(/de stock/);
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: undefined, precioReferencia: undefined, materiales: [] })).toBeNull();
   });
 
-  it('a pedido: la solicitud viene (puede no tener preguntas), sin variantes ni descuento; el precio "desde" es opcional', () => {
-    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: { preguntas: [] }, precioReferencia: null, materiales: ['Madera'] })).toBeNull();
-    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: preguntas, precioReferencia: null })).toBeNull();
-    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: null, solicitud: preguntas, precioReferencia: 100 })).toBeNull();
+  it('con solicitud es a medida (puede no tener preguntas): sin stock ni descuento; el precio "desde" es opcional', () => {
+    expect(problemaDelProducto({ variantes: 0, descuento: undefined, solicitud: { preguntas: [] }, precioReferencia: null, materiales: ['Madera'] })).toBeNull();
+    expect(problemaDelProducto({ variantes: 0, descuento: null, solicitud: preguntas, precioReferencia: 100 })).toBeNull();
     // Variantes fijas: con precio, sin stock.
-    expect(problemaSegunModalidad('pedido', { variantes: 2, descuento: undefined, solicitud: preguntas, precioReferencia: null })).toBeNull();
-    expect(
-      problemaSegunModalidad('pedido', { variantes: 1, descuento: undefined, solicitud: preguntas, precioReferencia: null, conStock: true }),
-    ).toMatch(/no llevan stock/);
-    expect(problemaSegunModalidad('pedido', { variantes: 1, descuento: undefined, solicitud: null, precioReferencia: null })).toMatch(/preguntas/);
-    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: { tipo: 'porcentaje' }, solicitud: preguntas, precioReferencia: null })).toMatch(/descuento/);
-    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: null, precioReferencia: null })).toMatch(/preguntas/);
-    expect(problemaSegunModalidad('pedido', { variantes: 0, descuento: undefined, solicitud: undefined, precioReferencia: null })).toMatch(/preguntas/);
+    expect(problemaDelProducto({ variantes: 2, descuento: undefined, solicitud: preguntas, precioReferencia: null })).toBeNull();
+    expect(problemaDelProducto({ variantes: 1, descuento: undefined, solicitud: preguntas, precioReferencia: null, conStock: true })).toMatch(/no lleva stock/);
+    expect(problemaDelProducto({ variantes: 0, descuento: { tipo: 'porcentaje' }, solicitud: preguntas, precioReferencia: null })).toMatch(/descuento/);
   });
 });
 

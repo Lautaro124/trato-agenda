@@ -17,8 +17,10 @@ export type ContextoVentas = {
   bloqueSistema: string;
   /** Si el comercio conectó Mercado Pago: define el medio de pago por defecto de crear_pedido. */
   mpConectado: boolean;
-  /** Pedidos a medida de la conversación (a pedido): los que pueden nombrar aceptar_presupuesto y derivar_a_persona. */
+  /** Pedidos a medida de la conversación: los que pueden nombrar aceptar_presupuesto y derivar_a_persona. */
   pedidosAMedida: PedidoAMedida[];
+  /** La cuenta tiene algún producto a medida activo (o un pedido a medida en esta charla): suma sus reglas y herramientas. */
+  tieneAMedida: boolean;
 };
 
 export const EstadoVentas = new StateSchema({

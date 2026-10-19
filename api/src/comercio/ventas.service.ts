@@ -103,6 +103,8 @@ type VarianteBloqueada = {
   nombreProducto: string;
   productoId: string;
   categoria: string | null;
+  /** Una versión de un producto a medida: se pide con pedir_variante, no se reserva como stock. */
+  aMedida: boolean;
 };
 
 /** Estados desde los que el dueño (o el cliente) puede cancelar un pedido. */
@@ -232,7 +234,8 @@ export class VentasService {
     // Orden fijo de bloqueo (por id): dos pedidos con las mismas variantes no se traban entre sí.
     const variantes = await tx.$queryRaw<VarianteBloqueada[]>`
       SELECT v."id", v."sku", v."nombre", v."precioCentavos", v."stock", v."disponible", v."activo",
-             p."codigo", p."nombre" AS "nombreProducto", p."id" AS "productoId", p."categoria"
+             p."codigo", p."nombre" AS "nombreProducto", p."id" AS "productoId", p."categoria",
+             (p."solicitud" IS NOT NULL) AS "aMedida"
       FROM "Variante" v JOIN "Producto" p ON p."id" = v."productoId"
       WHERE v."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo" AND v."activo"
       ORDER BY v."id"
@@ -242,6 +245,11 @@ export class VentasService {
     if (items.some((item) => !porId.has(item.varianteId))) {
       throw new PedidoRechazadoError(
         'Alguno de los productos ya no está en el catálogo (o el id de variante no es de una búsqueda). Volvé a buscarlo.',
+      );
+    }
+    if (variantes.some((variante) => variante.aMedida)) {
+      throw new PedidoRechazadoError(
+        'Alguno es una versión de un producto a medida: esa no se vende con crear_pedido, se pide con pedir_variante.',
       );
     }
 

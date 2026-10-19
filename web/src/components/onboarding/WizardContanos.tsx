@@ -22,8 +22,6 @@ import { ControlesLocal } from "./ControlesLocal";
 import { ControlesLugar } from "./ControlesLugar";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
 import { ElegirAtencion } from "./ElegirAtencion";
-import { ElegirModalidadVenta } from "./ElegirModalidadVenta";
-import { CampoQueHace } from "./CampoQueHace";
 import { ListaClases } from "./ListaClases";
 import { VistaPreviaChat } from "./VistaPreviaChat";
 
@@ -94,7 +92,7 @@ function RielPasos({ ob }: { ob: Onboarding }) {
           <p className="text-[11px] font-bold tracking-[0.08em] text-muted uppercase">Después, desde tu panel</p>
           <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
             <span className="[&>svg]:size-[15px]">{ICONO_BOLSA}</span>
-            {ob.modalidadVenta.aPedido ? "Cargar lo que hacés a pedido" : "Cargar tus productos"}
+            Cargar tus productos, de stock o a medida
           </p>
           <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -327,30 +325,6 @@ function ContenidoDelPaso({
         </>
       );
 
-    case "modalidad":
-      return (
-        <>
-          <Pregunta
-            tituloRef={tituloRef}
-            titulo="¿Cómo vendés tus productos?"
-            bajada="Así el asistente sabe si puede cerrar la venta en el momento o si primero tiene que pasarte el pedido para que le pongas precio."
-          />
-          <ElegirModalidadVenta valor={ob.modalidadVenta.modalidad} onCambio={ob.modalidadVenta.setModalidad} />
-        </>
-      );
-
-    case "queHace":
-      return (
-        <>
-          <Pregunta
-            tituloRef={tituloRef}
-            titulo="Contanos qué hacés"
-            bajada="Con esto tu asistente le explica a tus clientes qué hacés y sabe qué pedidos tomar. Escribilo como se lo contarías a alguien por WhatsApp."
-          />
-          <CampoQueHace modalidad={ob.modalidadVenta} />
-        </>
-      );
-
     case "local":
       return (
         <>
@@ -423,7 +397,6 @@ function textoDelPie(ob: Onboarding): string | null {
     return `${n} ${n === 1 ? "clase elegida" : "clases elegidas"}`;
   }
   if (ob.pasoId === "datos") return "Opcional";
-  if (ob.pasoId === "modalidad") return `${ob.pasos.length} pasos en total`;
   if (ob.pasoId === "turnos") {
     const n = ob.seleccionados.length;
     return `${n} ${n === 1 ? "tipo elegido" : "tipos elegidos"}`;

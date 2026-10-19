@@ -1,6 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Producto } from '../generated/prisma/client.js';
-import { leerModalidad, type ModalidadVenta } from '../agents/modalidad-venta.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   agruparFilasImportacion,
@@ -25,7 +24,7 @@ import {
   leerSolicitud,
   normalizarMateriales,
   normalizarSolicitud,
-  problemaSegunModalidad,
+  problemaDelProducto,
   type SolicitudADemanda,
 } from './solicitud.rules.js';
 import {
@@ -70,7 +69,7 @@ type ProductoAGuardar = {
   solicitud?: SolicitudADemanda | null;
   /** El precio "desde" de un producto a medida; undefined no lo toca. */
   precioReferenciaCentavos?: number | null;
-  /** Los materiales de un producto a medida; undefined (la importación, las cuentas con stock) no los toca. */
+  /** Los materiales de un producto a medida; undefined (la importación) no los toca. */
   materiales?: string[];
   /** La receta de cotización (LAU-26): null la borra, undefined no la toca. Ya validada contra los insumos. */
   receta?: Receta | null;
@@ -149,7 +148,7 @@ export class ProductosService {
     if (existente?.activo) {
       throw new ConflictException(`Ya hay un producto con el código ${dto.codigo.trim()}.`);
     }
-    const datos = await this.conReceta(userId, desdeDto(dto, await this.modalidadDe(userId)), dto, null);
+    const datos = await this.conReceta(userId, desdeDto(dto), dto, null);
     const id = await this.prisma.$transaction((tx) => this.escribir(tx, userId, datos));
     await this.refrescarBusqueda([id]);
     return this.obtener(userId, id);
@@ -157,7 +156,7 @@ export class ProductosService {
 
   async actualizar(userId: string, id: string, dto: GuardarProductoDto): Promise<ProductoPublico> {
     const actual = await this.buscarPropio(userId, id);
-    const datos = await this.conReceta(userId, desdeDto(dto, await this.modalidadDe(userId)), dto, actual);
+    const datos = await this.conReceta(userId, desdeDto(dto), dto, actual);
     if (datos.codigo !== actual.codigo) {
       const otro = await this.prisma.producto.findUnique({
         where: { userId_codigo: { userId, codigo: datos.codigo } },
@@ -172,11 +171,12 @@ export class ProductosService {
   async actualizarVariante(userId: string, varianteId: string, dto: ActualizarVarianteDto): Promise<ProductoPublico> {
     const variante = await this.prisma.variante.findFirst({
       where: { id: varianteId, activo: true, producto: { userId, activo: true } },
+      include: { producto: { select: { solicitud: true } } },
     });
     if (!variante) throw new NotFoundException('No existe esa variante.');
-    // A pedido las variantes son fijas, sin stock: se editan desde el producto, nunca sueltas.
-    if ((await this.modalidadDe(userId)) === 'pedido') {
-      throw new ConflictException('Tu cuenta vende a pedido: las versiones se editan desde el producto y no llevan stock.');
+    // Las de un producto a medida son fijas, sin stock: se editan desde el producto, nunca sueltas.
+    if (leerSolicitud(variante.producto.solicitud) !== null) {
+      throw new ConflictException('Ese producto es a medida: sus versiones se editan desde el producto y no llevan stock.');
     }
 
     await this.prisma.variante.update({
@@ -227,20 +227,27 @@ export class ProductosService {
     filas: Array<Record<string, unknown>>,
     confirmar: boolean,
   ): Promise<ResumenImportacion> {
-    // Una planilla es una fila por variante con su precio: no sirve para productos a medida.
-    if ((await this.modalidadDe(userId)) === 'pedido') {
-      throw new ConflictException('En una cuenta a pedido los productos se cargan de a uno.');
-    }
-    const { productos, errores } = agruparFilasImportacion(filas);
+    const agrupados = agruparFilasImportacion(filas);
 
-    const existentes = new Set(
-      (
-        await this.prisma.producto.findMany({
-          where: { userId, activo: true, codigo: { in: productos.map((producto) => producto.codigo) } },
-          select: { codigo: true },
-        })
-      ).map((producto) => producto.codigo),
+    const encontrados = await this.prisma.producto.findMany({
+      where: { userId, activo: true, codigo: { in: agrupados.productos.map((producto) => producto.codigo) } },
+      select: { codigo: true, solicitud: true },
+    });
+    const existentes = new Set(encontrados.map((producto) => producto.codigo));
+    // Una planilla es una fila por variante con su precio y su stock: no pisa un producto a medida.
+    const aMedida = new Set(
+      encontrados.filter((producto) => leerSolicitud(producto.solicitud) !== null).map((producto) => producto.codigo),
     );
+    const productos = agrupados.productos.filter((producto) => !aMedida.has(producto.codigo));
+    const errores = [
+      ...agrupados.errores,
+      ...agrupados.productos
+        .filter((producto) => aMedida.has(producto.codigo))
+        .map((producto) => ({
+          fila: producto.filas[0],
+          mensaje: `el producto ${producto.codigo} es a medida: se edita desde su pantalla, no con la planilla`,
+        })),
+    ].sort((a, b) => a.fila - b.fila);
 
     const resumen: ResumenImportacion = {
       nuevos: productos.filter((producto) => !existentes.has(producto.codigo)).length,
@@ -369,13 +376,7 @@ export class ProductosService {
     if (politica !== 'manual' && !recetaConContenido(final)) {
       throw new BadRequestException('Para que el asistente cotice, cargá la receta: qué materiales y costos lleva.');
     }
-    return { ...datos, receta, politicaCotizacion: politica };
-  }
-
-  /** Cómo vende la cuenta: decide qué productos acepta. Sin asistente todavía, con stock. */
-  private async modalidadDe(userId: string): Promise<ModalidadVenta> {
-    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { modalidadVenta: true } });
-    return agent ? leerModalidad(agent) : 'stock';
+    return { ...datos, receta: receta !== undefined ? receta : datos.receta, politicaCotizacion: politica };
   }
 
   /**
@@ -392,12 +393,17 @@ export class ProductosService {
   }
 }
 
-/** DTO del formulario → la misma forma que sale de una importación. */
-export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 'stock'): ProductoAGuardar {
-  if (modalidad !== 'pedido' && ((dto.receta !== undefined && dto.receta !== null) || (dto.politicaCotizacion ?? 'manual') !== 'manual')) {
-    throw new BadRequestException('Una cuenta con stock no cotiza: los precios salen de las variantes.');
+/**
+ * DTO del formulario → la misma forma que sale de una importación. El
+ * formulario manda el producto entero: con `solicitud` es a medida, sin ella
+ * es de stock, y lo del otro tipo se borra (un producto puede cambiar de tipo).
+ */
+export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
+  const aMedida = dto.solicitud !== undefined && dto.solicitud !== null;
+  if (!aMedida && ((dto.receta !== undefined && dto.receta !== null) || (dto.politicaCotizacion ?? 'manual') !== 'manual')) {
+    throw new BadRequestException('Un producto de stock no se cotiza: su precio sale de las variantes.');
   }
-  const problema = problemaSegunModalidad(modalidad, {
+  const problema = problemaDelProducto({
     variantes: dto.variantes?.length ?? 0,
     descuento: dto.descuento,
     solicitud: dto.solicitud,
@@ -408,7 +414,6 @@ export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 's
     ),
   });
   if (problema) throw new BadRequestException(problema);
-  const aPedido = modalidad === 'pedido';
   const codigo = dto.codigo.trim();
   const variantes = (dto.variantes ?? []).map((variante) => {
     const nombre = (variante.nombre ?? '').trim();
@@ -418,34 +423,43 @@ export function desdeDto(dto: GuardarProductoDto, modalidad: ModalidadVenta = 's
       precioCentavos: variante.precioCentavos,
       stock: variante.stock ?? null,
       stockMinimo: variante.stockMinimo ?? null,
-      // Una variante fija (a pedido) no se agota: se hace cuando la piden.
-      disponible: aPedido ? true : (variante.disponible ?? true),
+      // Una variante fija (a medida) no se agota: se hace cuando la piden.
+      disponible: aMedida ? true : (variante.disponible ?? true),
     };
   });
-  if (aPedido && variantes.some((variante) => !variante.nombre)) {
+  if (aMedida && variantes.some((variante) => !variante.nombre)) {
     throw new BadRequestException('Poné el nombre de cada versión con precio fijo (por ejemplo "Roble 1,20 m").');
   }
   const skus = new Set(variantes.map((variante) => variante.sku));
   if (skus.size !== variantes.length) {
     throw new BadRequestException('Dos variantes del producto tienen el mismo SKU.');
   }
-  return {
+  const base = {
     codigo,
     nombre: dto.nombre.trim(),
     descripcion: (dto.descripcion ?? '').trim(),
     categoria: dto.categoria?.trim() || null,
     variantes,
-    // A pedido no hay variantes que descontar: si quedó uno de antes, se borra.
-    descuento:
-      modalidad === 'pedido'
-        ? null
-        : dto.descuento === undefined
-          ? undefined
-          : dto.descuento && descuentoDesdeDto(dto.descuento),
-    solicitud: dto.solicitud === undefined ? undefined : dto.solicitud && solicitudDesdeDto(dto.solicitud),
-    precioReferenciaCentavos: modalidad === 'pedido' ? (dto.precioReferenciaCentavos ?? null) : undefined,
+  };
+  if (!aMedida) {
+    return {
+      ...base,
+      descuento: dto.descuento === undefined ? undefined : dto.descuento && descuentoDesdeDto(dto.descuento),
+      solicitud: null,
+      precioReferenciaCentavos: null,
+      materiales: [],
+      receta: null,
+      politicaCotizacion: 'manual',
+    };
+  }
+  return {
+    ...base,
+    // Un producto a medida no tiene variantes que descontar: si quedó uno de antes, se borra.
+    descuento: null,
+    solicitud: solicitudDesdeDto(dto.solicitud as SolicitudDto),
+    precioReferenciaCentavos: dto.precioReferenciaCentavos ?? null,
     // Como el precio "desde": en un producto a medida, no mandarlos es no tener.
-    materiales: modalidad === 'pedido' ? materialesDesdeDto(dto.materiales ?? []) : undefined,
+    materiales: materialesDesdeDto(dto.materiales ?? []),
   };
 }
 

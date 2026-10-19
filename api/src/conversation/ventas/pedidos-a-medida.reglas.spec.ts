@@ -15,7 +15,6 @@ import {
 const AGENT = {
   nombreTitular: 'Casa Ombú',
   nombreBot: 'Sol',
-  modalidadVenta: 'pedido',
   mensajes: {},
 } as unknown as Agent;
 
@@ -52,7 +51,8 @@ describe('pedidos a medida en el prompt', () => {
     expect(bloque).toContain('aceptar_presupuesto genera el link de pago');
     expect(bloque).toContain('cotizado, presupuesto vigente (versión 2) por $ 59.000 (estimativo)');
     expect(preciosSinRespaldo('Te queda en $ 59.000', [bloque])).toEqual([]);
-    expect(bloque).not.toContain('crear_pedido');
+    // La misma cuenta también vende con stock: los dos cobros conviven.
+    expect(bloque).toContain('crear_pedido lo genera');
   });
 
   it('pendiente de pago trae el link; en atención humana lo dice', () => {
@@ -71,7 +71,7 @@ describe('pedidos a medida en el prompt', () => {
   });
 
   it('sin Mercado Pago el cobro queda a coordinar', () => {
-    expect(bloquePedidos(AGENT, false, [], AHORA, [])).toContain('lo deja anotado y le escribimos');
+    expect(bloquePedidos(AGENT, false, [], AHORA, [], true)).toContain('lo deja anotado y le escribimos');
   });
 
   it('el nombre del producto va escapado, como dato', () => {
@@ -80,7 +80,7 @@ describe('pedidos a medida en el prompt', () => {
   });
 });
 
-describe('resultados de las herramientas a pedido', () => {
+describe('resultados de las herramientas de a medida', () => {
   it('registrar_solicitud sin presupuesto: que se lo pasamos, sin precio ni plazos', () => {
     const texto = formatearSolicitudRegistrada({ venta: pedido(), nueva: true, cambio: true }, null);
     expect(texto).toContain('Solicitud anotada [pedido v-1]');

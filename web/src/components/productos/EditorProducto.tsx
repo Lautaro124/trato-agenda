@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { DialogoProducto } from "@/components/productos/DialogoProducto";
 import { FotoProducto, guardarConFoto } from "@/components/productos/FotoProducto";
+import { PantallaProducto } from "@/components/productos/PantallaProducto";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -115,9 +116,9 @@ function entero(texto: string): number | null | "invalido" {
 }
 
 /**
- * Alta o edición completa de un producto de una cuenta con stock, en un
- * diálogo: variantes con precio, stock y descuento. Los productos a medida
- * (cuenta a pedido) tienen su propio editor, EditorAMedida.
+ * Alta o edición completa de un producto de stock, en su propia pantalla
+ * (/productos/nuevo/stock o /productos/[id]): variantes con precio, stock y
+ * descuento. Los productos a medida tienen su propio editor, EditorAMedida.
  */
 export function EditorProducto({
   producto: productoInicial,
@@ -133,7 +134,7 @@ export function EditorProducto({
 }) {
   const idCampos = useId();
   const primerCampo = useRef<HTMLInputElement>(null);
-  // Si se guardó pero la foto elegida antes no subió, el diálogo sigue abierto sobre el producto ya creado.
+  // Si se guardó pero la foto elegida antes no subió, la pantalla sigue abierta sobre el producto ya creado.
   const [guardado, setGuardado] = useState<Producto | null>(null);
   const producto = guardado ?? productoInicial;
   const [fotoPendiente, setFotoPendiente] = useState<File | null>(null);
@@ -215,7 +216,7 @@ export function EditorProducto({
     guardarConFoto(datos, producto?.id, producto ? null : fotoPendiente)
       .then(({ producto: nuevo, errorFoto }) => {
         if (!errorFoto) return onGuardado(nuevo);
-        // Quedó guardado sin la foto: el diálogo sigue abierto sobre el producto creado para reintentarla.
+        // Quedó guardado sin la foto: la pantalla sigue abierta sobre el producto creado para reintentarla.
         setGuardado(nuevo);
         setFotoPendiente(null);
         setFormularioInicial(firmar(null));
@@ -229,8 +230,14 @@ export function EditorProducto({
   };
 
   return (
-    <DialogoProducto
-      titulo={producto ? "Editar producto" : "Nuevo producto"}
+    <PantallaProducto
+      titulo={producto ? "Editar producto" : "Nuevo producto de stock"}
+      migas={
+        producto
+          ? [{ label: "Productos", href: "/productos" }, { label: producto.nombre }]
+          : [{ label: "Productos", href: "/productos" }, { label: "Nuevo", href: "/productos/nuevo" }, { label: "De stock" }]
+      }
+      junto={<Badge tone="primary">De stock</Badge>}
       hayCambios={hayCambios}
       guardando={guardando}
       error={error}
@@ -426,7 +433,7 @@ export function EditorProducto({
           )}
         </fieldset>
       </div>
-    </DialogoProducto>
+    </PantallaProducto>
   );
 }
 

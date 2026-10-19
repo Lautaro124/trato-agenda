@@ -9,8 +9,6 @@ export async function crearAgenteVentasPorApi(
     local?: Record<string, unknown>;
     haceEnvios?: boolean;
     datosCliente?: Array<{ tipo: string; etiqueta?: string; obligatorio: boolean }>;
-    modalidadVenta?: 'stock' | 'pedido';
-    queHace?: string;
   } = {},
 ): Promise<{ nombreTitular: string }> {
   const nombreTitular = `Mates E2E ${sufijo()}`;
@@ -20,6 +18,18 @@ export async function crearAgenteVentasPorApi(
   });
   expect(res.status(), await res.text()).toBe(201);
   return { nombreTitular };
+}
+
+/**
+ * Desde /productos, "Nuevo producto" y el tipo: devuelve el formulario de su
+ * pantalla (/productos/nuevo/stock o /productos/nuevo/a-medida).
+ */
+export async function nuevoProducto(page: Page, tipo: 'stock' | 'a-medida') {
+  await page.getByRole('link', { name: 'Nuevo producto', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: '¿Qué querés cargar?' })).toBeVisible();
+  await page.getByRole('link', { name: tipo === 'stock' ? /^De stock/ : /^A medida/ }).click();
+  await page.waitForURL(`**/productos/nuevo/${tipo}`);
+  return page.getByRole('form', { name: tipo === 'stock' ? 'Nuevo producto de stock' : 'Nuevo producto a medida' });
 }
 
 export type VarianteE2E = { id: string; nombre: string; precioCentavos: number; stock: number | null; disponible: boolean };

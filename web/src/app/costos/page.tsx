@@ -43,14 +43,14 @@ function Cargando() {
 export default function CostosPage() {
   const { user, status } = useRequireSession();
   const router = useRouter();
-  const aPedido = user?.tipoAsistente === "ventas" && user.modalidadVenta === "pedido";
+  const vende = user?.tipoAsistente === "ventas";
 
-  // Sólo una cuenta que vende a pedido cotiza: el resto vuelve a su pantalla.
+  // Los costos son de los productos a medida: una cuenta de agenda vuelve a su pantalla.
   useEffect(() => {
-    if (status === "authenticated" && user && !aPedido) router.replace(user.tipoAsistente === "ventas" ? "/productos" : "/inicio");
-  }, [status, user, aPedido, router]);
+    if (status === "authenticated" && user && !vende) router.replace("/inicio");
+  }, [status, user, vende, router]);
 
-  if (status !== "authenticated" || !user || !aPedido) return <Cargando />;
+  if (status !== "authenticated" || !user || !vende) return <Cargando />;
 
   return (
     <div className="flex min-h-dvh flex-col">

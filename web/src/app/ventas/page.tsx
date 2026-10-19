@@ -71,7 +71,7 @@ function VentasContenido() {
   return (
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="ventas" user={user} />
-      <Historico aPedido={user.modalidadVenta === "pedido"} />
+      <Historico />
       <MobileTabBar active="ventas" />
     </div>
   );
@@ -109,7 +109,7 @@ function TeEsperan({ ventas, onElegir }: { ventas: Venta[]; onElegir: (venta: Ve
   );
 }
 
-function Historico({ aPedido }: { aPedido: boolean }) {
+function Historico() {
   const router = useRouter();
   const ventaPedida = useSearchParams().get("venta");
   const [hoy] = useState(() => claveDia(new Date()));
@@ -189,7 +189,6 @@ function Historico({ aPedido }: { aPedido: boolean }) {
   }, [claveResumen, problemaDeRango, recargas]);
 
   useEffect(() => {
-    if (!aPedido) return;
     const ctrl = { cancelado: false };
     listarEnAtencion()
       .then((ventas) => !ctrl.cancelado && setEnAtencion(ventas))
@@ -197,7 +196,7 @@ function Historico({ aPedido }: { aPedido: boolean }) {
     return () => {
       ctrl.cancelado = true;
     };
-  }, [aPedido, recargas]);
+  }, [recargas]);
 
   /** El listado trae lo justo: el detalle (presupuestos, historial, chat) se pide al abrirlo. */
   const abrir = (venta: Venta) => {
@@ -279,7 +278,7 @@ function Historico({ aPedido }: { aPedido: boolean }) {
           !error && !problemaDeRango && <p className="py-10 text-center text-sm text-muted">Cargando tus ventas…</p>
         ) : (
           <div aria-busy={recargando} className={cn("flex flex-col gap-4 transition-opacity", recargando && "opacity-60")}>
-            <KpiVentas totales={datos.totales} aPedido={aPedido} />
+            <KpiVentas totales={datos.totales} />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
               <GraficoPorDia porDia={resumen.datos.porDia} />

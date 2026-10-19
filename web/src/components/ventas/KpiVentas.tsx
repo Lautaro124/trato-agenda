@@ -20,9 +20,11 @@ function Tarjeta({ etiqueta, valor, detalle }: { etiqueta: string; valor: string
 }
 
 /** La fila de números del período: lo cobrado manda, el resto lo acompaña. */
-export function KpiVentas({ totales, aPedido = false }: { totales: Totales; aPedido?: boolean }) {
+export function KpiVentas({ totales }: { totales: Totales }) {
+  // Lo que espera precio (productos a medida) sólo aparece si hay algo esperando.
+  const conCotizar = (totales.porCotizar ?? 0) > 0;
   return (
-    <div className={cn("grid grid-cols-2 gap-3", aPedido ? "lg:grid-cols-5" : "lg:grid-cols-4")}>
+    <div className={cn("grid grid-cols-2 gap-3", conCotizar ? "lg:grid-cols-5" : "lg:grid-cols-4")}>
       <Tarjeta etiqueta="Cobrado" valor={monto(totales.cobradoCentavos)} />
       <Tarjeta etiqueta="Ventas pagadas" valor={totales.pagadas.toLocaleString("es-AR")} />
       {/* Un promedio con centavos es precisión de más: va redondeado al peso. */}
@@ -33,17 +35,9 @@ export function KpiVentas({ totales, aPedido = false }: { totales: Totales; aPed
       <Tarjeta
         etiqueta="Pendiente de cobro"
         valor={monto(totales.pendienteCentavos)}
-        detalle={
-          aPedido
-            ? totales.pendientes === 1
-              ? "1 presupuesto aceptado"
-              : `${totales.pendientes} presupuestos aceptados`
-            : totales.pendientes === 1
-              ? "1 pedido reservado"
-              : `${totales.pendientes} pedidos reservados`
-        }
+        detalle={totales.pendientes === 1 ? "1 pedido por cobrar" : `${totales.pendientes} pedidos por cobrar`}
       />
-      {aPedido && (
+      {conCotizar && (
         // Lo que espera precio no es plata todavía: va como cantidad, nunca como monto.
         <Tarjeta
           etiqueta="Para cotizar"

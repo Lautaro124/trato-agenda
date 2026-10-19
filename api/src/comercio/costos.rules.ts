@@ -1,5 +1,5 @@
 /**
- * Materiales y costos de un comercio a pedido (LAU-26), como funciones puras.
+ * Materiales y costos de los productos a medida (LAU-26), como funciones puras.
  * Tres piezas:
  *
  * - **Insumos** (`Insumo`): lo que cuesta hacer algo, por unidad. Materiales

@@ -1,5 +1,4 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { leerModalidad } from '../agents/modalidad-venta.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -23,16 +22,16 @@ export type CostosDelComercio = { insumos: Insumo[]; config: ConfigCotizacion };
 export class CostosInvalidosError extends Error {}
 
 /**
- * Materiales y costos de un comercio a pedido (LAU-26): sus insumos, la
+ * Materiales y costos de los productos a medida de un comercio (LAU-26): sus insumos, la
  * configuración de cómo cotiza el asistente y la simulación que usa el editor
- * de recetas. Sólo para cuentas a pedido (409 si no); todo por `userId`.
+ * de recetas. Sólo para cuentas de ventas (409 si no); todo por `userId`.
  */
 @Injectable()
 export class CostosService {
   constructor(private readonly prisma: PrismaService) {}
 
   async obtener(userId: string): Promise<CostosDelComercio> {
-    await this.exigirAPedido(userId);
+    await this.exigirVentas(userId);
     const [insumos, config] = await Promise.all([this.insumosActivos(userId), this.config(userId)]);
     return { insumos: [...insumos.values()], config };
   }
@@ -57,7 +56,7 @@ export class CostosService {
    * reactiva con los datos nuevos (el nombre es único por tipo).
    */
   async crearInsumo(userId: string, entrada: InsumoEntrada): Promise<Insumo> {
-    await this.exigirAPedido(userId);
+    await this.exigirVentas(userId);
     const datos = this.validarInsumo(entrada);
     const existente = await this.prisma.insumo.findUnique({
       where: { userId_tipo_nombre: { userId, tipo: datos.tipo, nombre: datos.nombre } },
@@ -75,7 +74,7 @@ export class CostosService {
   }
 
   async actualizarInsumo(userId: string, id: string, entrada: InsumoEntrada): Promise<Insumo> {
-    await this.exigirAPedido(userId);
+    await this.exigirVentas(userId);
     const actual = await this.prisma.insumo.findFirst({ where: { id, userId, activo: true } });
     if (!actual) throw new NotFoundException('No existe ese material o costo.');
     const datos = this.validarInsumo(entrada);
@@ -93,13 +92,13 @@ export class CostosService {
 
   /** Se da de baja, no se borra: las recetas lo nombran por id y la cotización avisa que ya no está. */
   async borrarInsumo(userId: string, id: string): Promise<void> {
-    await this.exigirAPedido(userId);
+    await this.exigirVentas(userId);
     const { count } = await this.prisma.insumo.updateMany({ where: { id, userId, activo: true }, data: { activo: false } });
     if (count === 0) throw new NotFoundException('No existe ese material o costo.');
   }
 
   async guardarConfig(userId: string, entrada: ConfigEntrada): Promise<ConfigCotizacion> {
-    await this.exigirAPedido(userId);
+    await this.exigirVentas(userId);
     const resultado = normalizarConfig(entrada);
     if ('error' in resultado) throw new CostosInvalidosError(resultado.error);
     const datos = { ...resultado.config, extras: resultado.config.extras as unknown as Prisma.InputJsonValue };
@@ -116,7 +115,7 @@ export class CostosService {
     userId: string,
     entrada: { receta: unknown; solicitud?: SolicitudEntrada | null; respuestas: RespuestaSolicitud[] },
   ): Promise<Cotizacion | CotizacionFallida> {
-    await this.exigirAPedido(userId);
+    await this.exigirVentas(userId);
     let solicitud: SolicitudADemanda | null = null;
     if (entrada.solicitud) {
       const normalizada = normalizarSolicitud(entrada.solicitud);
@@ -135,10 +134,10 @@ export class CostosService {
     return resultado.insumo;
   }
 
-  private async exigirAPedido(userId: string): Promise<void> {
-    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { modalidadVenta: true, tipoAsistente: true } });
-    if (!agent || agent.tipoAsistente !== 'ventas' || leerModalidad(agent) !== 'pedido') {
-      throw new ConflictException('Los materiales y costos son para las cuentas que venden a pedido.');
+  private async exigirVentas(userId: string): Promise<void> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+    if (!agent || agent.tipoAsistente !== 'ventas') {
+      throw new ConflictException('Los materiales y costos son para las cuentas que venden.');
     }
   }
 }

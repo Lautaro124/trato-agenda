@@ -45,8 +45,8 @@ function pestanasDe(user: Usuario): Pestana[] {
     return [
       inicio,
       { tab: "productos", href: "/productos", label: "Productos" },
-      // A pedido (LAU-26): con qué materiales y costos cotiza el asistente.
-      ...(user.modalidadVenta === "pedido" ? [{ tab: "costos" as const, href: "/costos", label: "Costos" }] : []),
+      // Con qué materiales y costos cotiza el asistente los productos a medida (LAU-26).
+      { tab: "costos", href: "/costos", label: "Costos" },
       { tab: "ventas", href: "/ventas", label: "Ventas" },
       asistente,
       plan,
@@ -221,7 +221,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
                 Vinculación
               </Link>
               {/* En el celular la barra de abajo no tiene lugar para "Costos" ni "Asistente": se llega desde acá. */}
-              {user.tipoAsistente === "ventas" && user.modalidadVenta === "pedido" && (
+              {user.tipoAsistente === "ventas" && (
                 <Link
                   href="/costos"
                   role="menuitem"

@@ -1,5 +1,5 @@
 /**
- * Materiales y costos de un comercio a pedido (LAU-26) del lado de la
+ * Materiales y costos de los productos a medida (LAU-26) del lado de la
  * pantalla. Los tipos espejan api/src/comercio/costos.rules.ts; la cuenta de
  * la cotización no se copia: la vista previa la pide a `/costos/simular`.
  */

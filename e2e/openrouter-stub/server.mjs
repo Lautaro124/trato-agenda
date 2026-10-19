@@ -145,6 +145,42 @@ function diaDeBuenosAires(dias = 0) {
   );
 }
 
+/** La marca de las reglas de los productos a medida: `MARCA_A_MEDIDA` de reglas-ventas.ts. */
+const MARCA_A_MEDIDA = 'Productos a medida (se cotizan)';
+
+/**
+ * El primer producto de un resultado (búsqueda o catálogo) es a medida: su
+ * renglón o su bloque dice "a medida: se cotiza". Una misma cuenta vende de
+ * stock y a medida, así que el guion se decide por producto.
+ */
+function primeroEsAMedida(texto) {
+  const desde = texto.indexOf('[producto ');
+  if (desde < 0) return false;
+  const resto = texto.slice(desde);
+  const fin = resto.search(/\n(\d+\. |- ")/);
+  return (fin < 0 ? resto : resto.slice(0, fin)).includes('a medida: se cotiza');
+}
+
+/** El primer producto a medida con foto de un resultado de búsqueda (los a medida mandan la foto solos). */
+function fotoAMedida(texto) {
+  for (const bloque of texto.split(/\n(?=\d+\. )/)) {
+    if (!bloque.includes('a medida: se cotiza')) continue;
+    const id = bloque.match(/\[producto ([\w-]+)\] \([^)]*tiene foto\)/)?.[1];
+    if (id) return id;
+  }
+  return null;
+}
+
+/** El último resultado con productos de la charla empieza por uno a medida. */
+function ultimaBusquedaAMedida(mensajes) {
+  for (const mensaje of [...mensajes].reverse()) {
+    if (mensaje.role !== 'tool') continue;
+    const texto = textoDe(mensaje);
+    if (texto.includes('[producto ')) return primeroEsAMedida(texto);
+  }
+  return false;
+}
+
 function productoDeLaUltimaBusqueda(mensajes) {
   for (const mensaje of [...mensajes].reverse()) {
     if (mensaje.role !== 'tool') continue;
@@ -253,8 +289,8 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
       : '';
     // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
     if (resultado.startsWith('Resultados de') || resultado.startsWith('Ningún producto se llama como')) {
-      // A pedido las fotos van solas: la del primer producto que tiene, antes de contestar.
-      const conFoto = sistema.includes('Vendés a pedido') && resultado.match(/\[producto ([\w-]+)\] \([^)]*tiene foto\)/)?.[1];
+      // Las fotos de los a medida van solas: la del primero que tiene, antes de contestar.
+      const conFoto = sistema.includes(MARCA_A_MEDIDA) && fotoAMedida(resultado);
       if (conFoto) {
         return responder(res, 200, llamadaATool(body.model, 'enviar_imagen_producto', { productoId: conFoto }));
       }
@@ -267,8 +303,8 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
       return responder(res, 200, completion(body.model, { content: JSON.parse(talCual) }));
     }
     if (resultado.startsWith('Listo: la foto')) {
-      // A pedido la foto salió sola tras una búsqueda: después de la foto, lo que encontró.
-      const busqueda = sistema.includes('Vendés a pedido') ? busquedaDeEstaVuelta(mensajes) : null;
+      // La foto de un a medida salió sola tras una búsqueda: después de la foto, lo que encontró.
+      const busqueda = sistema.includes(MARCA_A_MEDIDA) ? busquedaDeEstaVuelta(mensajes) : null;
       if (busqueda) return responder(res, 200, completion(body.model, { content: respuestaDeBusqueda(busqueda) }));
       return responder(res, 200, completion(body.model, { content: 'Ahí te mandé la foto. ¿Es lo que buscabas?' }));
     }
@@ -335,8 +371,8 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (categoria) {
     return responder(res, 200, llamadaATool(body.model, 'ver_catalogo', { categoria }));
   }
-  // A pedido (LAU-27): pasar a una persona y aceptar el presupuesto vigente.
-  if (sistema.includes('Vendés a pedido') && /\b(una persona|hablar con alguien)\b/.test(ultimoUsuario)) {
+  // Con productos a medida (LAU-27): pasar a una persona y aceptar el presupuesto vigente.
+  if (sistema.includes(MARCA_A_MEDIDA) && /\b(una persona|hablar con alguien)\b/.test(ultimoUsuario)) {
     const pedidoId = sistema.match(/\[pedido ([\w-]+)\]/)?.[1];
     return responder(
       res,
@@ -348,7 +384,7 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
       }),
     );
   }
-  if (sistema.includes('Vendés a pedido') && /^(dale|acepto|avancemos|si, avancemos)\b/.test(ultimoUsuario)) {
+  if (sistema.includes(MARCA_A_MEDIDA) && /^(dale|acepto|avancemos|si, avancemos)\b/.test(ultimoUsuario)) {
     const pedidoId = sistema.match(/\[pedido ([\w-]+)\][^\n]*: cotizado/)?.[1];
     if (!pedidoId) return responder(res, 200, completion(body.model, { content: 'Todavía no tenés un presupuesto para aceptar.' }));
     return responder(res, 200, llamadaATool(body.model, 'aceptar_presupuesto', { pedidoId }));
@@ -360,7 +396,8 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const texto = textoDe(mensajes[indiceUsuario]);
     const nombre = texto.match(/soy ([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)/i)?.[1];
     if (!nombre) return responder(res, 200, completion(body.model, { content: '¿A nombre de quién hago el pedido?' }));
-    if (sistema.includes('Vendés a pedido')) {
+    // A medida si lo último que buscó lo es; si no, una compra de stock con crear_pedido.
+    if (sistema.includes(MARCA_A_MEDIDA) && ultimaBusquedaAMedida(mensajes)) {
       const productoId = productoDeLaUltimaBusqueda(mensajes);
       if (!productoId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés que te cotice?' }));
       // Una versión de precio fijo: tal cual se pide con pedir_variante; con "pero …", se cotiza con esa base.
