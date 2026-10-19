@@ -192,7 +192,9 @@ export type ResultadoDatosPedido =
   | { ok: false; motivo: string };
 
 /**
- * Lo que mandó el modelo en `crear_pedido` contra lo que el comercio pide.
+ * Lo que mandó el modelo al cerrar un pedido (`crear_pedido`, o
+ * `pedir_variante` / `aceptar_presupuesto` en los a medida) contra lo que el
+ * comercio pide. `herramienta` es la que se nombra en el rechazo.
  * Los campos se emparejan por etiqueta (sin tildes ni mayúsculas); lo que no
  * está configurado se ignora, así el asistente no puede guardar datos que el
  * dueño no pidió.
@@ -200,6 +202,7 @@ export type ResultadoDatosPedido =
 export function validarDatosPedido(
   config: ConfigDatosCliente,
   args: { entrega?: unknown; datosCliente?: unknown },
+  herramienta = 'crear_pedido',
 ): ResultadoDatosPedido {
   if (!pideDatos(config)) return { ok: true, entrega: null, datos: [] };
 
@@ -214,7 +217,7 @@ export function validarDatosPedido(
         ok: false,
         motivo:
           'Falta saber si lo quiere con envío o si lo retira: preguntáselo y mandá entrega "envio" o "retiro" ' +
-          'en crear_pedido.',
+          `en ${herramienta}.`,
       };
     }
   }
@@ -257,7 +260,7 @@ export function validarDatosPedido(
       ok: false,
       motivo:
         `No se puede crear el pedido todavía: ${partes.join('; ')}. Pedíselo al cliente en un solo mensaje y ` +
-        'volvé a llamar crear_pedido con todos sus datos.',
+        `volvé a llamar ${herramienta} con todos sus datos.`,
     };
   }
   return { ok: true, entrega, datos };
@@ -284,7 +287,11 @@ export type EtapaDeCompra = 'lista' | 'eligiendo';
  * le piden datos (el modelo los pedía apenas aparecía un producto). Sin
  * decisión (null) queda la regla de siempre, con el "recién cuando" explícito.
  */
-export function reglaDeDatosCliente(config: ConfigDatosCliente, etapa: EtapaDeCompra | null = null): string | null {
+export function reglaDeDatosCliente(
+  config: ConfigDatosCliente,
+  etapa: EtapaDeCompra | null = null,
+  aMedida = false,
+): string | null {
   if (!pideDatos(config)) return null;
   if (etapa === 'eligiendo') {
     // Que hacemos envíos lo sabe igual: si lo pregunta, lo puede contestar.
@@ -297,25 +304,31 @@ export function reglaDeDatosCliente(config: ConfigDatosCliente, etapa: EtapaDeCo
   const cuando =
     etapa === 'lista'
       ? 'El cliente ya eligió todo'
-      : 'Recién cuando el cliente ya eligió todo y te dijo que no quiere nada más (nunca antes)';
+      : aMedida
+        ? 'Recién cuando el cliente ya eligió todo y te dijo que no quiere nada más, o cuando acepta un ' +
+          'presupuesto (nunca antes)'
+        : 'Recién cuando el cliente ya eligió todo y te dijo que no quiere nada más (nunca antes)';
+  // Con productos a medida el pedido también se cierra al pedir una versión tal cual o al aceptar un presupuesto.
+  const herramientas = aMedida ? 'crear_pedido, pedir_variante o aceptar_presupuesto (la que cierre el pedido)' : 'crear_pedido';
+  const crear = aMedida ? 'cerrar el pedido' : 'crear el pedido';
   const comoMandarlos =
-    'Mandalos en "datosCliente" de crear_pedido, cada uno con el nombre del dato tal cual figura acá. Sin los ' +
-    'obligatorios no se puede crear el pedido; si no quiere dar uno opcional, seguí sin él. Si ya te los dio en ' +
+    `Mandalos en "datosCliente" de ${herramientas}, cada uno con el nombre del dato tal cual figura acá. Sin los ` +
+    `obligatorios no se puede ${crear}; si no quiere dar uno opcional, seguí sin él. Si ya te los dio en ` +
     'esta charla no se los vuelvas a pedir, y no le pidas ningún dato que no esté en esta lista.';
   const lineas: string[] = [];
   const pedirTodo =
-    `- ${cuando}: antes de crear el pedido pedile en un solo mensaje (puede ser la única ` +
+    `- ${cuando}: antes de ${crear} pedile en un solo mensaje (puede ser la única ` +
     `pregunta con varias cosas): ${listarCampos(config.campos)}. ${comoMandarlos}`;
   if (config.haceEnvios && !config.puedeRetirar) {
     lineas.push(
       '- Hacemos envíos y no hay retiro: todos los pedidos van con envío, así que no le preguntes si ' +
-        'lo retira. Mandá entrega "envio" en crear_pedido.',
+        `lo retira. Mandá entrega "envio" en ${herramientas}.`,
     );
     if (config.campos.length > 0) lineas.push(pedirTodo);
   } else if (config.haceEnvios) {
     lineas.push(
-      `- Hacemos envíos. ${cuando}: antes de crear el pedido preguntale si lo ` +
-        'quiere con envío o si lo retira, y mandá la respuesta en "entrega" de crear_pedido ("envio" o "retiro").',
+      `- Hacemos envíos. ${cuando}: antes de ${crear} preguntale si lo ` +
+        `quiere con envío o si lo retira, y mandá la respuesta en "entrega" de ${herramientas} ("envio" o "retiro").`,
     );
     if (config.campos.length > 0) {
       lineas.push(

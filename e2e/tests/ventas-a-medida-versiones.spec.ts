@@ -153,4 +153,44 @@ test.describe('versiones con precio fijo de un producto a medida', () => {
     await expect(loQuePidio.getByText('Cambios que pidió')).toBeVisible();
     await expect(loQuePidio.getByText('de 140 cm', { exact: true })).toBeVisible();
   });
+
+  test('si el negocio hace envíos, una versión tal cual no sale sin los datos y quedan en el pedido', async ({
+    page,
+    context,
+    usuarioDev,
+  }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request, {
+      haceEnvios: true,
+      datosCliente: [{ tipo: 'codigoPostal', obligatorio: true }],
+    });
+    const res = await context.request.post(`${API_URL}/productos`, {
+      data: {
+        codigo: 'SILLON',
+        nombre: 'Sillón Retro',
+        descripcion: 'Sillón de estilo retro.',
+        solicitud: { preguntas: [] },
+        materiales: [],
+        variantes: [{ nombre: 'Tres cuerpos 190 cm', precioCentavos: 1_900_000 }],
+      },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+
+    await decir(context.request, 'sillón retro');
+    // Sin el código postal (obligatorio) no hay pedido.
+    const sinDatos = await decir(context.request, 'quiero la tres cuerpos 190 cm, soy Ana');
+    expect(sinDatos.reply).toContain('faltan "Código postal"');
+    expect(await pedidosAMedida(context.request)).toHaveLength(0);
+
+    const conDatos = await decir(context.request, 'quiero la tres cuerpos 190 cm, soy Ana; Código postal: 1414');
+    expect(conDatos.reply).toContain('Pedido anotado');
+    const [pedido] = await pedidosAMedida(context.request);
+
+    page.on('dialog', (dialogo) => void dialogo.accept());
+    await page.goto(`/ventas?venta=${pedido.id}`);
+    const detalle = page.getByRole('dialog');
+    await expect(detalle.getByText('Con envío', { exact: true })).toBeVisible();
+    // exact: el detalle a medida también muestra la charla, donde el cliente lo escribió.
+    await expect(detalle.getByText('1414', { exact: true })).toBeVisible();
+  });
 });

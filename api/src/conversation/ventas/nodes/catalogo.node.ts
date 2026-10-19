@@ -22,6 +22,7 @@ import type { OperacionPendiente } from '../../graph/state.js';
 import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
 import { hayDescuentosVigentes } from '../../../comercio/descuentos.rules.js';
+import { MAX_PRODUCTOS_LISTADO, type ResultadoCatalogo } from '../../../comercio/sugerencias.rules.js';
 import {
   conOfertaDeDescuentos,
   formatearCobroAMedida,
@@ -35,6 +36,7 @@ import {
   formatearResultados,
   formatearResumenVentas,
   formatearStockDueno,
+  leyendaDeProducto,
   yaSeHablaronDescuentos,
 } from '../reglas-ventas.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
@@ -59,8 +61,21 @@ export type DepsCatalogo = {
   >;
 };
 
-/** Lo que vuelve al modelo y, si es una foto aprobada, lo que la fachada le manda al cliente. */
-type Resultado = string | { texto: string; imagen: ImagenAEnviar };
+/** Lo que vuelve al modelo y, si hay fotos aprobadas, lo que la fachada le manda al cliente. */
+type Resultado = string | { texto: string; imagen: ImagenAEnviar | ImagenAEnviar[] };
+
+/**
+ * Las fotos que salen solas con el listado de ver_catalogo: sólo cuando es
+ * la lista entera (hasta MAX_PRODUCTOS_LISTADO), de los productos que tienen
+ * foto, cada una con su nombre y precio al pie. Las que ya le llegaron en la
+ * charla no se repiten.
+ */
+export function fotosDelListado(catalogo: ResultadoCatalogo, yaMandadas: ReadonlySet<string>): ImagenAEnviar[] {
+  if (catalogo.tipo !== 'listado' || catalogo.restantes > 0 || catalogo.productos.length > MAX_PRODUCTOS_LISTADO) return [];
+  return catalogo.productos
+    .filter((producto) => producto.tieneImagen && !yaMandadas.has(claveDeFoto({ productoId: producto.productoId })))
+    .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeProducto(producto) }));
+}
 
 /** Sólo lo que escribió el cliente dentro de la ventana, en texto: es lo único que se le pasa a Jev. */
 export function mensajesDelCliente(state: Pick<EstadoVentasValue, 'messages' | 'inicioVisible'>): string[] {
@@ -235,6 +250,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         nombreCliente: String(args.nombreCliente),
         varianteId: String(args.varianteId),
         cantidad: Number(args.cantidad),
+        entrega: leerEntrega(args.entrega),
+        datosCliente: leerDatosDeVenta(args.datosCliente),
         dePrueba: state.esPropietario,
       });
       return formatearCobroAMedida(state.contexto.agent, venta, true);
@@ -249,6 +266,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       const venta = await deps.pedidos.cobrar(state.ownerUserId, String(args.pedidoId), {
         autor: 'asistente',
         conversationId: state.contexto.conversation.id,
+        entrega: leerEntrega(args.entrega),
+        datosCliente: leerDatosDeVenta(args.datosCliente),
       });
       return formatearCobroAMedida(state.contexto.agent, venta);
     } catch (error) {
@@ -346,8 +365,11 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       case 'ver_catalogo': {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const catalogo = await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria);
-        const texto = formatearCatalogo(catalogo, state.contexto.agent);
-        return catalogo.tipo === 'vacio' ? texto : ofrecer(texto);
+        const fotos = fotosDelListado(catalogo, fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)));
+        const texto = formatearCatalogo(catalogo, state.contexto.agent, new Set(fotos.map((foto) => foto.productoId)));
+        if (catalogo.tipo === 'vacio') return texto;
+        const conOferta = await ofrecer(texto);
+        return fotos.length > 0 ? { texto: conOferta, imagen: fotos } : conOferta;
       }
       case 'ver_descuentos':
         return formatearDescuentos(await deps.sugerencias.descuentosVigentes(state.ownerUserId));

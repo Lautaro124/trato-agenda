@@ -133,6 +133,17 @@ describe('validarDatosPedido', () => {
     });
   });
 
+  it('el rechazo nombra la herramienta con la que se cierra el pedido', () => {
+    expect(validarDatosPedido(CON_ENVIOS, {}, 'aceptar_presupuesto')).toEqual({
+      ok: false,
+      motivo: expect.stringContaining('mandá entrega "envio" o "retiro" en aceptar_presupuesto'),
+    });
+    expect(validarDatosPedido(SIN_ENVIOS, {}, 'pedir_variante')).toEqual({
+      ok: false,
+      motivo: expect.stringContaining('volvé a llamar pedir_variante'),
+    });
+  });
+
   it('revisa el email y el DNI: el obligatorio mal escrito traba, el opcional se descarta', () => {
     expect(validarDatosPedido(SIN_ENVIOS, { datosCliente: [{ campo: 'Email', valor: 'juan@' }] })).toEqual({
       ok: false,
@@ -184,6 +195,14 @@ describe('reglaDeDatosCliente', () => {
     const regla = reglaDeDatosCliente(SIN_ENVIOS) as string;
     expect(regla).not.toContain('Hacemos envíos');
     expect(regla).toContain('"Email" (obligatorio), "DNI" (opcional)');
+  });
+
+  it('con productos a medida nombra también pedir_variante y aceptar_presupuesto', () => {
+    const regla = reglaDeDatosCliente({ ...CON_ENVIOS, puedeRetirar: false }, null, true) as string;
+    expect(regla).toContain('Mandá entrega "envio" en crear_pedido, pedir_variante o aceptar_presupuesto');
+    expect(regla).toContain('o cuando acepta un presupuesto (nunca antes)');
+    expect(regla).toContain('antes de cerrar el pedido');
+    expect(reglaDeDatosCliente(CON_ENVIOS) as string).not.toContain('aceptar_presupuesto');
   });
 
   it('sin decisión de Jev pide los datos recién cuando el cliente no quiere nada más', () => {

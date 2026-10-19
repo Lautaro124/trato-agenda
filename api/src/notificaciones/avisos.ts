@@ -188,11 +188,13 @@ export function avisoPedidoDerivado(
 }
 
 /** El cliente aceptó un presupuesto que se cobra a mano. */
-export function avisoPresupuestoAceptado(pedido: PedidoAMedidaAvisable & { totalCentavos: number }): Aviso {
+export function avisoPresupuestoAceptado(
+  pedido: PedidoAMedidaAvisable & { totalCentavos: number; entrega?: string | null },
+): Aviso {
   return {
     tipo: 'presupuesto_aceptado',
     titulo: `${prueba(pedido)}Aceptó el presupuesto: ${formatearCentavos(pedido.totalCentavos)}`,
-    cuerpo: `${quien(pedido)} aceptó el presupuesto${deQue(pedido)}. Cobrale por WhatsApp y marcalo pagado en Ventas.`,
+    cuerpo: `${quien(pedido)} aceptó el presupuesto${deQue(pedido)}.${entrega(pedido)} Cobrale por WhatsApp y marcalo pagado en Ventas.`,
     enlace: `/ventas?venta=${pedido.ventaId}`,
   };
 }

@@ -106,13 +106,14 @@ function llamadaATool(model, name, args) {
 //     `datosCliente`; si el comercio vende a pedido (las reglas traen "Vendés a
 //     pedido", reglas-ventas.ts) no hay compra que cerrar: si nombra una
 //     versión de precio fijo de la última búsqueda, pedir_variante con esa
-//     versión (o, con "pero …", registrar_solicitud con esa versión de base y
+//     versión (con la misma entrega y datos que crear_pedido) (o, con "pero …", registrar_solicitud con esa versión de base y
 //     lo que sigue al "pero" como cambios); si no, registrar_solicitud
 //     con el producto de la última búsqueda y los pares "Pregunta: respuesta"
 //     separados por ";" como respuestas;
 //   - a pedido, "una persona" / "hablar con alguien" → derivar_a_persona con el
 //     primer [pedido …] de las reglas; "dale" / "acepto" / "avancemos" →
-//     aceptar_presupuesto con el pedido que figura "cotizado";
+//     aceptar_presupuesto con el pedido que figura "cotizado" (con la entrega
+//     y los datos del mensaje, como crear_pedido);
 //   - "cancel…" → cancelar_pedido; "mi pedido" / "pagué" → consultar_pedido;
 //   - "envío" / "envían" fuera de una compra → derivar_consulta;
 //   - "dónde queda" / "dirección" / "retirar" / "el local" → contesta con lo
@@ -278,6 +279,31 @@ function busquedaDeEstaVuelta(mensajes) {
   return null;
 }
 
+/**
+ * La entrega y los datos del cliente de un mensaje de compra: "con envío" /
+ * "retiro" (sólo si las reglas dicen que hacemos envíos) y los pares
+ * "Etiqueta: valor" separados por ";". Van igual en crear_pedido,
+ * pedir_variante y aceptar_presupuesto.
+ */
+function datosDelPedido(sistema, ultimoUsuario, texto) {
+  const datos = {};
+  if (sistema.includes('Hacemos envíos')) {
+    if (ultimoUsuario.includes('con envio')) datos.entrega = 'envio';
+    else if (ultimoUsuario.includes('retiro')) datos.entrega = 'retiro';
+  }
+  // Sin regex: "Etiqueta: valor" separados por ";" (lo que no tiene ":" no es un dato).
+  const datosCliente = texto
+    .split(';')
+    .filter((pieza) => pieza.includes(':'))
+    .map((pieza) => ({
+      campo: pieza.slice(0, pieza.indexOf(':')).trim(),
+      valor: pieza.slice(pieza.indexOf(':') + 1).trim(),
+    }))
+    .filter((dato) => dato.campo && dato.valor);
+  if (datosCliente.length > 0) datos.datosCliente = datosCliente;
+  return datos;
+}
+
 function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUsuario, resultadoTool }) {
   const titular = sistema.match(/Reglas de venta de (.*?) \(no las rompas\)/)?.[1]?.trim();
   llamadas.push({ tipo: 'ventas', titular, mensaje: ultimoUsuario, conResultado: Boolean(resultadoTool), ...resumenDelPedido(body) });
@@ -314,8 +340,13 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     if (resultado.startsWith('No hay productos')) {
       return responder(res, 200, completion(body.model, { content: 'No tengo eso, ¿buscás otra cosa?' }));
     }
-    // ver_catalogo: las líneas "- ..." tal cual, sin las comillas de JSON.stringify.
-    const lineas = resultado.split('\n').filter((linea) => linea.startsWith('- ')).map((linea) => linea.replaceAll('"', ''));
+    // ver_catalogo: las líneas "- ..." tal cual, sin las comillas de JSON.stringify. Las que ya le llegaron en
+    // foto (con nombre y precio al pie) no se repiten, como pide el resultado.
+    const todas = resultado.split('\n').filter((linea) => linea.startsWith('- '));
+    const lineas = todas.filter((linea) => !linea.includes('(ya le llegó en foto)')).map((linea) => linea.replaceAll('"', ''));
+    if (resultado.startsWith('Productos') && todas.length > 0 && lineas.length === 0) {
+      return responder(res, 200, completion(body.model, { content: `¿Cuál te interesa?${oferta}` }));
+    }
     if (resultado.startsWith('Productos con stock')) {
       const mas = resultado.includes('Decile que tenés más') ? '\nTengo más, si ninguno te interesa contame qué buscás.' : '';
       return responder(res, 200, completion(body.model, { content: `Esto es lo que tengo:\n${lineas.join('\n')}${mas}${oferta}` }));
@@ -387,7 +418,8 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
   if (sistema.includes(MARCA_A_MEDIDA) && /^(dale|acepto|avancemos|si, avancemos)\b/.test(ultimoUsuario)) {
     const pedidoId = sistema.match(/\[pedido ([\w-]+)\][^\n]*: cotizado/)?.[1];
     if (!pedidoId) return responder(res, 200, completion(body.model, { content: 'Todavía no tenés un presupuesto para aceptar.' }));
-    return responder(res, 200, llamadaATool(body.model, 'aceptar_presupuesto', { pedidoId }));
+    const datos = datosDelPedido(sistema, ultimoUsuario, textoDe(mensajes[indiceUsuario]));
+    return responder(res, 200, llamadaATool(body.model, 'aceptar_presupuesto', { pedidoId, ...datos }));
   }
   if (ultimoUsuario.includes('mi pedido') || ultimoUsuario.includes('pague')) {
     return responder(res, 200, llamadaATool(body.model, 'consultar_pedido', {}));
@@ -405,7 +437,12 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
       const cambios = texto.match(/\bpero (.+?)(?:[,;]|$)/i)?.[1]?.trim();
       if (version && !cambios) {
         const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
-        return responder(res, 200, llamadaATool(body.model, 'pedir_variante', { varianteId: version.id, cantidad, nombreCliente: nombre }));
+        const datos = datosDelPedido(sistema, ultimoUsuario, texto);
+        return responder(
+          res,
+          200,
+          llamadaATool(body.model, 'pedir_variante', { varianteId: version.id, cantidad, nombreCliente: nombre, ...datos }),
+        );
       }
       if (version && cambios) {
         return responder(
@@ -436,21 +473,7 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     const varianteId = varianteDeLaUltimaBusqueda(mensajes);
     if (!varianteId) return responder(res, 200, completion(body.model, { content: '¿Qué producto querés?' }));
     const cantidad = Number(ultimoUsuario.match(/quiero (\d+)/)?.[1] ?? 1);
-    const pedido = { nombreCliente: nombre, items: [{ varianteId, cantidad }] };
-    if (sistema.includes('Hacemos envíos')) {
-      if (ultimoUsuario.includes('con envio')) pedido.entrega = 'envio';
-      else if (ultimoUsuario.includes('retiro')) pedido.entrega = 'retiro';
-    }
-    // Sin regex: "Etiqueta: valor" separados por ";" (lo que no tiene ":" no es un dato).
-    const datosCliente = texto
-      .split(';')
-      .filter((pieza) => pieza.includes(':'))
-      .map((pieza) => ({
-        campo: pieza.slice(0, pieza.indexOf(':')).trim(),
-        valor: pieza.slice(pieza.indexOf(':') + 1).trim(),
-      }))
-      .filter((dato) => dato.campo && dato.valor);
-    if (datosCliente.length > 0) pedido.datosCliente = datosCliente;
+    const pedido = { nombreCliente: nombre, items: [{ varianteId, cantidad }], ...datosDelPedido(sistema, ultimoUsuario, texto) };
     return responder(res, 200, llamadaATool(body.model, 'crear_pedido', pedido));
   }
   return responder(res, 200, llamadaATool(body.model, 'buscar_productos', { consulta: textoDe(mensajes[indiceUsuario]) }));

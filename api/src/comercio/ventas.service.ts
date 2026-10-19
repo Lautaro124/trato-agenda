@@ -44,7 +44,7 @@ import {
  * validados por el grafo; los topes se vuelven a aplicar acá porque es lo
  * último antes de la base. Sin datos, la columna queda en null.
  */
-function datosParaGuardar(datos: DatoCliente[] | undefined): { datosCliente?: Prisma.InputJsonValue } {
+export function datosParaGuardar(datos: DatoCliente[] | undefined): { datosCliente?: Prisma.InputJsonValue } {
   const limpios = (datos ?? []).slice(0, MAX_CAMPOS).map((dato) => ({
     etiqueta: dato.etiqueta.slice(0, LARGO_MAX_ETIQUETA),
     valor: dato.valor.slice(0, LARGO_MAX_VALOR),

@@ -13,6 +13,7 @@ import {
   formatearPedidoCreado,
   formatearResultados,
   formatearStockDueno,
+  leyendaDeProducto,
   MARCA_A_MEDIDA,
   MAX_CATEGORIAS_EN_PROMPT,
   MAX_PRODUCTOS_POR_MENSAJE,
@@ -23,6 +24,8 @@ import {
   reglasDeEstiloVentas,
   reglasDeVenta,
   REGLA_FOTOS_A_MEDIDA,
+  REGLA_FOTOS_PEDIDAS,
+  REGLA_PREGUNTAS_A_MEDIDA,
   variantesMostradas,
   yaSeHablaronDescuentos,
 } from './reglas-ventas.js';
@@ -440,13 +443,13 @@ describe('reglas de venta con productos a medida', () => {
     const reglas = reglasDeVenta(agente, true, null, true);
     expect(reglas).toContain('versiones con precio fijo');
     expect(reglas).toContain('¿Querés algo más antes de que te pase el link de pago?');
-    expect(reglas).toContain('llamá pedir_variante con esa versión y mandale el link de pago tal cual');
+    expect(reglas).toContain('llamá pedir_variante con esa versión (con la entrega y los datos del cliente, si las reglas de arriba los piden) y mandale el link de pago tal cual');
     expect(reglas).toContain('llamá registrar_solicitud con varianteBaseId (esa versión) y cambios');
     expect(reglas).toContain('ese precio deja de valer');
     // Sin Mercado Pago no promete un link.
     const sinMp = reglasDeVenta(agente, false, null, true);
     expect(sinMp).toContain('¿Querés algo más o te lo anoto así?');
-    expect(sinMp).toContain('llamá pedir_variante con esa versión y pasale lo que te devuelva');
+    expect(sinMp).toContain('si las reglas de arriba los piden) y pasale lo que te devuelva');
   });
 
   it('las fotos de los a medida van solas; las de stock, sólo si las pide', () => {
@@ -542,6 +545,19 @@ describe('formatearCatalogo', () => {
       restantes: 0,
     });
     expect(texto).toContain('- "Mate": $ 8.000 (con 20% off)');
+  });
+
+  it('los que ya le llegaron en foto no se repiten: se nombran sólo los otros', () => {
+    const productos = [producto('Mate', 800_000), producto('Termo', 4_500_000)];
+    const algunos = formatearCatalogo({ tipo: 'listado', productos, categoria: null, restantes: 0 }, undefined, new Set(['Mate']));
+    expect(algunos).toContain('- "Mate": $ 8.000 (ya le llegó en foto)');
+    expect(algunos).toContain('- "Termo": $ 45.000');
+    expect(algunos).not.toContain('Termo": $ 45.000 (ya le llegó en foto)');
+    expect(algunos).toContain('nombrale sólo los otros');
+
+    const todos = formatearCatalogo({ tipo: 'listado', productos, categoria: null, restantes: 0 }, undefined, new Set(['Mate', 'Termo']));
+    expect(todos).toContain('ya le llegaron todos en foto');
+    expect(todos).toContain('no le repitas la lista');
   });
 
   it('si Jev eligió 10 entre más, avisa que hay más', () => {
@@ -706,5 +722,43 @@ describe('descuentos para el cliente', () => {
     expect(yaSeHablaronDescuentos([tool(formatearResultados(OFERTA_DE_DESCUENTOS, []))])).toBe(false);
     // Lo que escribe el cliente o el asistente no cuenta: el cliente no puede apagar la oferta.
     expect(yaSeHablaronDescuentos([new HumanMessage(OFERTA_DE_DESCUENTOS), new AIMessage(OFERTA_DE_DESCUENTOS)])).toBe(false);
+  });
+});
+
+describe('leyendaDeProducto', () => {
+  const base = { productoId: 'p', categoria: null, descripcion: '', variosPrecios: false };
+
+  it('de stock: el nombre y el precio tal cual, con "Desde" y el descuento como en el listado', () => {
+    expect(leyendaDeProducto({ ...base, nombre: 'Mate', precioDesdeCentavos: 800_000 })).toBe('Mate\n$ 8.000');
+    expect(
+      leyendaDeProducto({ ...base, nombre: 'Termo', precioDesdeCentavos: 4_500_000, variosPrecios: true, descuento: '20% off' }),
+    ).toBe('Termo\nDesde $ 45.000 (con 20% off)');
+  });
+
+  it('a medida: el precio de referencia, si no el de la versión más barata, si no que se cotiza', () => {
+    const aMedida = { ...base, nombre: 'Sillón Retro', aMedida: true };
+    expect(leyendaDeProducto({ ...aMedida, precioDesdeCentavos: 200_000 })).toBe('Sillón Retro\nA medida, desde $ 2.000');
+    expect(
+      leyendaDeProducto({ ...aMedida, precioDesdeCentavos: null, variantesFijas: 5, varianteFijaDesdeCentavos: 190_000 }),
+    ).toBe('Sillón Retro\nDesde $ 1.900');
+    expect(leyendaDeProducto({ ...aMedida, precioDesdeCentavos: null })).toBe('Sillón Retro\nA medida, se cotiza');
+  });
+});
+
+describe('fotos y preguntas sin repetir (chat de prueba de los sillones)', () => {
+  it('una versión con foto propia lo dice, distinta de la del producto', () => {
+    expect(REGLA_FOTOS_A_MEDIDA).toContain('es otra foto, distinta de la del producto');
+    expect(REGLA_FOTOS_A_MEDIDA).toContain('Las del listado de ver_catalogo ya le llegaron solas');
+    expect(REGLA_FOTOS_PEDIDAS).toContain('Nunca le digas que no hay foto de algo que la búsqueda marca con foto');
+    expect(reglasDeVenta({ nombreTitular: 'X', nombreBot: 'Y', haceEnvios: false, datosCliente: null } as unknown as Agent, false)).toContain(
+      REGLA_FOTOS_PEDIDAS,
+    );
+  });
+
+  it('no inventa preguntas ni repregunta lo que dice el nombre de la versión elegida', () => {
+    expect(REGLA_PREGUNTAS_A_MEDIDA).toContain('no agregues otras tuyas');
+    expect(REGLA_PREGUNTAS_A_MEDIDA).toContain('lo que dice su nombre (medidas');
+    expect(REGLA_PREGUNTAS_A_MEDIDA).toContain('no le repitas lo que te dijo');
+    expect(REGLA_PREGUNTAS_A_MEDIDA).toContain('pedíselo junto con la última pregunta');
   });
 });

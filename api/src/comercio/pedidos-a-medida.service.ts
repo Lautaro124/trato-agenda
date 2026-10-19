@@ -42,7 +42,8 @@ import {
   type RenglonPresupuesto,
 } from './presupuesto.rules.js';
 import { enUnaLinea, leerSolicitud, type RespuestaSolicitud, type SolicitudADemanda } from './solicitud.rules.js';
-import { PedidoRechazadoError, VentasService, type VentaConItems } from './ventas.service.js';
+import { datosParaGuardar, PedidoRechazadoError, VentasService, type VentaConItems } from './ventas.service.js';
+import type { DatoCliente, Entrega } from './datos-cliente.rules.js';
 import { estadoVisible, telefonoDeJid, type EstadoVenta, type MedioDePago } from './ventas.rules.js';
 
 /** Quién hizo un cambio, para el historial del pedido. */
@@ -79,6 +80,9 @@ export type PedirVarianteInput = {
   nombreCliente: string;
   varianteId: string;
   cantidad: number;
+  /** Ya validados por el grafo (validarDatosPedido), como en crearPedido. */
+  entrega?: Entrega | null;
+  datosCliente?: DatoCliente[];
   dePrueba: boolean;
   ahora?: Date;
 };
@@ -417,6 +421,8 @@ export class PedidosAMedidaService {
           nombreCliente,
           telefonoCliente: input.remoteJid ? telefonoDeJid(input.remoteJid) : null,
           solicitud,
+          entrega: input.entrega ?? null,
+          ...datosParaGuardar(input.datosCliente),
           dePrueba: input.dePrueba,
           eventos: { create: { tipo: 'estado', de: null, a: 'a_cotizar', autor: 'asistente' } },
         },
@@ -847,7 +853,15 @@ export class PedidosAMedidaService {
   async cobrar(
     userId: string,
     ventaId: string,
-    opciones: { autor: Autor; medioPago?: MedioDePago; conversationId?: string; ahora?: Date },
+    opciones: {
+      autor: Autor;
+      medioPago?: MedioDePago;
+      conversationId?: string;
+      ahora?: Date;
+      /** Lo que el asistente le pidió al aceptar (validado en el grafo). Sin esto, queda lo que ya tenía. */
+      entrega?: Entrega | null;
+      datosCliente?: DatoCliente[];
+    },
   ): Promise<PedidoAMedida> {
     const ahora = opciones.ahora ?? new Date();
     const actual = await this.buscar(userId, ventaId);
@@ -904,6 +918,8 @@ export class PedidosAMedidaService {
           reservaVenceAt: vencimientoDeCobroAMedida(medio, ahora),
           linkPago: null,
           mpPreferenceId: null,
+          ...(opciones.entrega ? { entrega: opciones.entrega } : {}),
+          ...datosParaGuardar(opciones.datosCliente),
         },
         include: { items: true },
       });
@@ -939,6 +955,7 @@ export class PedidosAMedidaService {
         avisoPresupuestoAceptado({
           ...this.avisable(actual, solicitud),
           totalCentavos: vigente.totalCentavos,
+          entrega: venta.entrega,
         }),
       );
     }

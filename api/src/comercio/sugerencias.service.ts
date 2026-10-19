@@ -133,6 +133,7 @@ export class SugerenciasService {
           precioDesdeCentavos: desde,
           variosPrecios: precios.some((precio) => precio.final !== desde),
           descuento: precios[0].descuento?.etiqueta ?? null,
+          tieneImagen: producto.tieneImagen,
         },
       ];
     });

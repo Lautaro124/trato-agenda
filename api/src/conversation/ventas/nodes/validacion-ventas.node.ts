@@ -48,6 +48,11 @@ export type HistorialValidacion = {
    * las pida de a una, en varias idas y vueltas.
    */
   fotosEnElMensaje: Set<string>;
+  /**
+   * Cuántas de esas pidió el modelo con enviar_imagen_producto: el tope es
+   * para esas. Las del listado de ver_catalogo salen solas y no lo gastan.
+   */
+  fotosPedidas: number;
   /** Con productos a medida: fotos (claveDeFoto) que ya le llegaron al cliente en la parte de la charla que ve el modelo. */
   fotosYaMandadas: Set<string>;
 };
@@ -67,6 +72,11 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
     variantesVistas: variantesMostradas(resultados.map(textoDe)),
     productosVistos: productosMostrados(resultados.map(textoDe)),
     fotosEnElMensaje: new Set(imagenesDeLaVuelta(state.messages.slice(state.indiceDesde ?? 0)).map(claveDeFoto)),
+    fotosPedidas: fotosMandadas(
+      state.messages
+        .slice(state.indiceDesde ?? 0)
+        .filter((mensaje) => mensaje.getType() === 'tool' && (mensaje as ToolMessage).name === HERRAMIENTA_IMAGEN),
+    ).size,
     // Con productos a medida el asistente las manda solo: ahí se corta repetir una. Si no, sólo salen cuando las piden.
     fotosYaMandadas: state.contexto.tieneAMedida
       ? fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0))
@@ -166,7 +176,7 @@ export function validarLlamadaVentas(
     if (historial.fotosYaMandadas.has(clave)) {
       return { ok: false, motivo: 'Esa foto ya se la mandaste en esta charla: no se la mandes de nuevo, seguí la conversación.' };
     }
-    if (fotos.size >= MAX_IMAGENES_POR_MENSAJE) {
+    if (historial.fotosPedidas >= MAX_IMAGENES_POR_MENSAJE) {
       return {
         ok: false,
         motivo:
@@ -176,6 +186,7 @@ export function validarLlamadaVentas(
     }
     // Se anota acá y no al aprobar en el nodo: dos pedidos de foto en la misma respuesta también cuentan.
     fotos.add(clave);
+    historial.fotosPedidas += 1;
     return { ok: true, operacion: { ...llamada, args: { productoId, ...(varianteId ? { varianteId } : {}) } } };
   }
 
@@ -195,7 +206,16 @@ export function validarLlamadaVentas(
     }
     const nombreCliente = String(args.nombreCliente ?? '').trim() || state.contexto.conversation.nombreCliente?.trim() || '';
     if (!nombreCliente) return { ok: false, motivo: 'Falta el nombre de la persona: preguntáselo antes de pedirlo.' };
-    return { ok: true, operacion: { ...llamada, args: { varianteId, cantidad, nombreCliente } } };
+    // Una versión pedida tal cual se cierra como un pedido de stock: con la entrega y los datos que pide el negocio.
+    const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args, 'pedir_variante');
+    if (!datos.ok) return { ok: false, motivo: datos.motivo };
+    return {
+      ok: true,
+      operacion: {
+        ...llamada,
+        args: { varianteId, cantidad, nombreCliente, entrega: datos.entrega, datosCliente: datos.datos },
+      },
+    };
   }
 
   if (llamada.nombre === 'registrar_solicitud') {
@@ -253,7 +273,11 @@ export function validarLlamadaVentas(
         motivo: 'Ese pedido todavía no tiene un presupuesto para aceptar (o ya está cerrado). No hay nada que cobrar.',
       };
     }
-    return { ok: true, operacion: { ...llamada, args: { pedidoId } } };
+    // Ya esperando el pago no hay nada que pedir: cobrar devuelve el mismo cobro.
+    if (estado === 'pendiente_pago') return { ok: true, operacion: { ...llamada, args: { pedidoId } } };
+    const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args, 'aceptar_presupuesto');
+    if (!datos.ok) return { ok: false, motivo: datos.motivo };
+    return { ok: true, operacion: { ...llamada, args: { pedidoId, entrega: datos.entrega, datosCliente: datos.datos } } };
   }
 
   if (llamada.nombre === 'derivar_a_persona') {

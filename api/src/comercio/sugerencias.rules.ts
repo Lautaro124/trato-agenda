@@ -49,7 +49,7 @@ export type ProductoPanorama = {
    */
   varianteFijaDesdeCentavos?: number | null;
   variantesFijas?: number;
-  /** Si tiene foto: el asistente la puede mandar al listarlo (sólo los a medida). */
+  /** Si tiene foto: con el listado entero, sale sola con su nombre y precio al pie. */
   tieneImagen?: boolean;
   /** true si las variantes con stock no cuestan todas lo mismo ("desde $X"). */
   variosPrecios: boolean;

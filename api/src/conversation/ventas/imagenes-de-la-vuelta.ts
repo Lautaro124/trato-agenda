@@ -9,13 +9,28 @@ import type { BaseMessage } from '@langchain/core/messages';
 
 export const HERRAMIENTA_IMAGEN = 'enviar_imagen_producto';
 
-/** `varianteId` sólo cuando va la foto propia de una variante fija; si no, la del producto. */
-export type ImagenAEnviar = { productoId: string; nombre: string; varianteId?: string };
+/**
+ * `varianteId` sólo cuando va la foto propia de una variante fija; si no, la
+ * del producto. `leyenda` es el pie de foto cuando no alcanza con el nombre:
+ * las del listado de ver_catalogo van con nombre y precio.
+ */
+export type ImagenAEnviar = { productoId: string; nombre: string; varianteId?: string; leyenda?: string };
 
 function esImagenAEnviar(valor: unknown): valor is ImagenAEnviar {
   if (typeof valor !== 'object' || valor === null) return false;
-  const { productoId, nombre, varianteId } = valor as Record<string, unknown>;
-  return typeof productoId === 'string' && typeof nombre === 'string' && (varianteId === undefined || typeof varianteId === 'string');
+  const { productoId, nombre, varianteId, leyenda } = valor as Record<string, unknown>;
+  return (
+    typeof productoId === 'string' &&
+    typeof nombre === 'string' &&
+    (varianteId === undefined || typeof varianteId === 'string') &&
+    (leyenda === undefined || typeof leyenda === 'string')
+  );
+}
+
+/** El `artifact` de un ToolMessage: una foto (enviar_imagen_producto) o varias (el listado de ver_catalogo). */
+function imagenesDelArtifact(artifact: unknown): ImagenAEnviar[] {
+  if (Array.isArray(artifact)) return artifact.filter(esImagenAEnviar);
+  return esImagenAEnviar(artifact) ? [artifact] : [];
 }
 
 /** Qué foto es: la del producto o la de una de sus variantes. */
@@ -28,8 +43,8 @@ function fotosDe(messages: BaseMessage[]): ImagenAEnviar[] {
   const imagenes: ImagenAEnviar[] = [];
   for (const mensaje of messages) {
     if (mensaje.getType() !== 'tool') continue;
-    const { name, artifact } = mensaje as BaseMessage & { artifact?: unknown };
-    if (name === HERRAMIENTA_IMAGEN && esImagenAEnviar(artifact)) imagenes.push(artifact);
+    // Por el artifact y no por el nombre: las del listado vienen en el ToolMessage de ver_catalogo.
+    imagenes.push(...imagenesDelArtifact((mensaje as BaseMessage & { artifact?: unknown }).artifact));
   }
   return imagenes.filter((imagen, indice) => imagenes.findIndex((otra) => claveDeFoto(otra) === claveDeFoto(imagen)) === indice);
 }

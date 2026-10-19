@@ -33,6 +33,22 @@ export const esquemaVerCatalogo = z.object({
     ),
 });
 
+/** Lo que se pide al cerrar cualquier pedido (crear_pedido, pedir_variante, aceptar_presupuesto). */
+const entregaDelPedido = z
+  .enum(['envio', 'retiro'])
+  .optional()
+  .describe('Sólo si las reglas de venta dicen que el negocio hace envíos: lo que eligió el cliente.');
+
+const datosClienteDelPedido = z
+  .array(
+    z.object({
+      campo: z.string().describe('El nombre del dato tal cual figura en las reglas de venta.'),
+      valor: z.string().describe('Lo que contestó el cliente, sin cambiarlo.'),
+    }),
+  )
+  .optional()
+  .describe('Sólo los datos que las reglas de venta te piden pedirle al cliente, con lo que te dio.');
+
 export const esquemaCrearPedido = z.object({
   nombreCliente: z
     .string()
@@ -54,19 +70,8 @@ export const esquemaCrearPedido = z.object({
       '"mercadopago" manda un link de pago; "manual" deja el pedido anotado para que el negocio coordine el pago ' +
         '(transferencia, efectivo). Si no lo sabés, no lo mandes: se usa el que corresponde al negocio.',
     ),
-  entrega: z
-    .enum(['envio', 'retiro'])
-    .optional()
-    .describe('Sólo si las reglas de venta dicen que el negocio hace envíos: lo que eligió el cliente.'),
-  datosCliente: z
-    .array(
-      z.object({
-        campo: z.string().describe('El nombre del dato tal cual figura en las reglas de venta.'),
-        valor: z.string().describe('Lo que contestó el cliente, sin cambiarlo.'),
-      }),
-    )
-    .optional()
-    .describe('Sólo los datos que las reglas de venta te piden pedirle al cliente, con lo que te dio.'),
+  entrega: entregaDelPedido,
+  datosCliente: datosClienteDelPedido,
 });
 
 export const esquemaEnviarImagen = z.object({
@@ -88,6 +93,8 @@ export const esquemaPedirVariante = z.object({
     .describe('El id entre corchetes de una versión con precio fijo de una búsqueda de esta charla, nunca uno inventado.'),
   cantidad: z.number().int().describe('Cuántas quiere de esa versión (1 si no dijo).'),
   nombreCliente: z.string().describe('Nombre de la persona. Obligatorio: si no lo sabés, preguntáselo antes.'),
+  entrega: entregaDelPedido,
+  datosCliente: datosClienteDelPedido,
 });
 
 export const esquemaRegistrarSolicitud = z.object({
@@ -118,6 +125,8 @@ export const esquemaRegistrarSolicitud = z.object({
 
 export const esquemaAceptarPresupuesto = z.object({
   pedidoId: z.string().describe('El id entre corchetes del pedido cotizado, tal cual figura en "Pedidos a medida".'),
+  entrega: entregaDelPedido,
+  datosCliente: datosClienteDelPedido,
 });
 
 export const esquemaDerivarAPersona = z.object({
@@ -210,14 +219,16 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
     description:
       'Pide tal cual una versión con precio fijo de un producto a medida y genera el cobro: devuelve el link de pago ' +
       '(o lo deja a coordinar). Usala cuando el cliente eligió una versión sin cambiarle nada y te dijo que no quiere ' +
-      'nada más. El precio lo pone el sistema. Si le quiere cambiar algo, no es esta: es registrar_solicitud.',
+      'nada más. El precio lo pone el sistema. Si le quiere cambiar algo, no es esta: es registrar_solicitud. Con ' +
+      'la entrega y los datos del cliente que piden las reglas de venta, como crear_pedido.',
     schema: esquemaPedirVariante,
   },
   aceptar_presupuesto: {
     name: 'aceptar_presupuesto',
     description:
       'El cliente aceptó el presupuesto de un pedido cotizado: genera el link de pago (o lo deja a coordinar). ' +
-      'Usala sólo cuando dijo que sí a un presupuesto que ya tiene.',
+      'Usala sólo cuando dijo que sí a un presupuesto que ya tiene. Con la entrega y los datos del cliente que ' +
+      'piden las reglas de venta, como crear_pedido.',
     schema: esquemaAceptarPresupuesto,
   },
   derivar_a_persona: {

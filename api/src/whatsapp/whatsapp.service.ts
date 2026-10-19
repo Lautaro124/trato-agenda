@@ -693,11 +693,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * que las acompaña. Una que falla no corta nada: el texto sale igual.
    */
   private async enviarFotos(userId: string, sock: WASocket, remoteJid: string, imagenes: ImagenAEnviar[]): Promise<void> {
-    for (const { productoId, varianteId } of imagenes) {
+    for (const { productoId, varianteId, leyenda } of imagenes) {
       try {
         const foto = await this.imagenes.paraEnviar(userId, productoId, varianteId);
         if (!foto) continue;
-        await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: foto.nombre });
+        // Las del listado traen nombre y precio; las demás, el nombre de la base.
+        await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: leyenda ?? foto.nombre });
       } catch (error) {
         // Sin el JID ni el nombre del producto: sólo ids, como el resto de los logs de Baileys.
         this.logger.error(`No se pudo mandar la foto del producto ${productoId} (cuenta ${userId}): ${(error as Error).message}`);

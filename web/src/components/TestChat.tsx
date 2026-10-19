@@ -7,13 +7,17 @@ import { useSession } from "@/lib/session";
 
 /**
  * La foto de un producto (o de una de sus versiones de precio fijo) que mandó
- * el asistente de ventas, como le llega al cliente: imagen con el nombre al pie.
+ * el asistente de ventas, como le llega al cliente: imagen con el nombre al pie
+ * (las del listado, también con el precio).
  */
 type FotoProducto = { productoId: string; varianteId?: string; nombre: string; version: string };
 
 type Mensaje = { role: "agent" | "user"; text: string; foto?: FotoProducto };
 
-type Respuesta = { reply: string; imagenes?: Array<{ productoId: string; nombre: string; varianteId?: string }> };
+type Respuesta = {
+  reply: string;
+  imagenes?: Array<{ productoId: string; nombre: string; varianteId?: string; leyenda?: string }>;
+};
 
 /**
  * Copia a mano de `partirEnMensajes` (api/src/whatsapp/ritmo-humano.ts): por
@@ -77,7 +81,7 @@ export function TestChat() {
       const version = crypto.randomUUID();
       const fotos: Mensaje[] = (respuesta.imagenes ?? []).map((imagen) => ({
         role: "agent",
-        text: imagen.nombre,
+        text: imagen.leyenda ?? imagen.nombre,
         foto: { ...imagen, version },
       }));
       const textos: Mensaje[] = partirEnMensajes(respuesta.reply).map((text) => ({ role: "agent", text }));
