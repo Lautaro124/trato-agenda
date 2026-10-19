@@ -115,6 +115,8 @@ export function crearNodoPersistir(deps: DepsPersistir) {
   }
 
   return async (state: EstadoComun): Promise<Record<string, never>> => {
+    // De acá en adelante la respuesta queda guardada: ya no se descarta aunque el cliente siga escribiendo.
+    state.cancelacion?.comprometer();
     const { conversation } = state.contexto;
     const nuevos = state.messages.slice(state.indiceDesde);
 

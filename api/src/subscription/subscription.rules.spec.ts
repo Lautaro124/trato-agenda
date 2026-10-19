@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { DIAS_AVISO, DIAS_PRUEBA, estadoDeSuscripcion, finDePrueba } from './subscription.rules.js';
+import {
+  DIAS_AVISO,
+  DIAS_PRUEBA,
+  estadoDeCupo,
+  estadoDeSuscripcion,
+  finDePrueba,
+  limiteDeChats,
+  rangoDelMes,
+} from './subscription.rules.js';
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
@@ -70,5 +78,32 @@ describe('estadoDeSuscripcion', () => {
     const creadoEl = new Date('2026-09-08T12:00:00.000Z');
 
     expect(finDePrueba(creadoEl).toISOString()).toBe('2026-10-08T12:00:00.000Z');
+  });
+});
+
+describe('planes y cupo de chats', () => {
+  it('el Básico tiene 2.500 chats, el Pro 6.000, y la prueba muestra el del Pro', () => {
+    expect(limiteDeChats('basico')).toBe(2500);
+    expect(limiteDeChats('pro')).toBe(6000);
+    expect(limiteDeChats(null)).toBe(6000);
+    expect(limiteDeChats('desconocido')).toBe(2500);
+  });
+
+  it('avisa desde el 80 % y marca superado al llegar al tope', () => {
+    expect(estadoDeCupo({ usados: 1999, plan: 'basico' })).toMatchObject({ cercano: false, superado: false, restantes: 501 });
+    expect(estadoDeCupo({ usados: 2000, plan: 'basico' })).toMatchObject({ cercano: true, superado: false, porcentaje: 80 });
+    expect(estadoDeCupo({ usados: 2500, plan: 'basico' })).toMatchObject({ cercano: true, superado: true, restantes: 0 });
+    expect(estadoDeCupo({ usados: 9000, plan: 'pro' })).toMatchObject({ superado: true, restantes: 0 });
+  });
+
+  it('el mes se corta a medianoche de Buenos Aires (UTC-3), no de UTC', () => {
+    // 1° de noviembre 01:00 UTC = 31 de octubre 22:00 en Buenos Aires: sigue siendo octubre.
+    const finDeOctubre = rangoDelMes(new Date('2026-11-01T01:00:00.000Z'));
+    expect(finDeOctubre.etiqueta).toBe('2026-10');
+    expect(finDeOctubre.desde.toISOString()).toBe('2026-10-01T03:00:00.000Z');
+    expect(finDeOctubre.hasta.toISOString()).toBe('2026-11-01T03:00:00.000Z');
+
+    expect(rangoDelMes(new Date('2026-11-01T03:00:00.000Z')).etiqueta).toBe('2026-11');
+    expect(rangoDelMes(new Date('2026-12-15T12:00:00.000Z')).hasta.toISOString()).toBe('2027-01-01T03:00:00.000Z');
   });
 });

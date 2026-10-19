@@ -3,6 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
+import type { PedidosAMedidaService } from './pedidos-a-medida.service.js';
 import { VentasController } from './ventas.controller.js';
 import type { HistoricoVentasService } from './historico.service.js';
 import { RangoInvalidoError } from './historico.rules.js';
@@ -24,10 +25,17 @@ function crear() {
   };
   const config = { get: () => SECRETO } as unknown as ConfigService<Env, true>;
   const historico = { listar: vi.fn(), resumen: vi.fn(), exportarCsv: vi.fn(), obtener: vi.fn() };
+  const pedidos = { detalle: vi.fn().mockResolvedValue(null), esperandoAtencion: vi.fn().mockResolvedValue([]) };
   return {
-    controller: new VentasController(ventas as unknown as VentasService, historico as unknown as HistoricoVentasService, config),
+    controller: new VentasController(
+      ventas as unknown as VentasService,
+      historico as unknown as HistoricoVentasService,
+      pedidos as unknown as PedidosAMedidaService,
+      config,
+    ),
     ventas,
     historico,
+    pedidos,
   };
 }
 
@@ -84,8 +92,8 @@ describe('VentasController histórico', () => {
   });
 
   it('una venta ajena da 404', async () => {
-    const { controller, historico } = crear();
-    historico.obtener.mockResolvedValue(null);
+    const { controller, pedidos } = crear();
+    pedidos.detalle.mockResolvedValue(null);
     await expect(controller.obtener({ id: 'user-1' } as User, 'v-ajena')).rejects.toMatchObject({ status: 404 });
   });
 });

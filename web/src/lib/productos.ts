@@ -1,5 +1,7 @@
 import { apiFetch } from "./api";
 import type { Descuento, DescuentoAGuardar, DescuentoDeVariante } from "./descuentos";
+import type { PoliticaCotizacion, Receta } from "./costos";
+import type { SolicitudADemanda } from "./solicitud";
 
 /** Espejo de `VariantePublica` en la API. Precio en centavos, como lo guarda la base. */
 export type Variante = {
@@ -15,6 +17,8 @@ export type Variante = {
   /** Lo que paga hoy el cliente, con el mejor descuento vigente. */
   precioFinalCentavos: number;
   descuento: DescuentoDeVariante | null;
+  /** Foto propia de una versión de precio fijo (producto a medida); null = sin foto. */
+  imagenActualizada: string | null;
 };
 
 /** Espejo de `ProductoPublico` en la API. */
@@ -33,6 +37,15 @@ export type Producto = {
   descuento: Descuento | null;
   /** Cuándo se subió la foto; null = sin foto. */
   imagenActualizada: string | null;
+  /** Las preguntas del producto a medida; null = no se hace a medida. */
+  solicitud: SolicitudADemanda | null;
+  /** Precio "desde" de un producto a medida, si el dueño puso uno. */
+  precioReferenciaCentavos: number | null;
+  /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
+  materiales: string[];
+  /** La receta de cotización (null = no tiene: lo cotiza el dueño). */
+  receta: Receta | null;
+  politicaCotizacion: PoliticaCotizacion;
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -64,15 +77,23 @@ export type ProductoEncontrado = {
     descuento: DescuentoDeVariante | null;
     hayStock: boolean;
     stock: string;
+    /** Versión de precio fijo de un producto a medida con foto propia. */
+    tieneImagen?: boolean;
   }>;
+  /** Producto a medida: se cotiza; sus variantes, si tiene, son versiones de precio fijo. */
+  aMedida?: boolean;
+  precioReferenciaCentavos?: number | null;
 };
 
-/** Body de alta/edición: el mismo shape que `GuardarProductoDto`. */
-export type ProductoAGuardar = {
+type ProductoBaseAGuardar = {
   codigo: string;
   nombre: string;
   descripcion: string;
   categoria: string | null;
+};
+
+/** Body de alta/edición en una cuenta con stock (`GuardarProductoDto`). */
+export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
   variantes: Array<{
     sku?: string;
     nombre: string;
@@ -84,6 +105,25 @@ export type ProductoAGuardar = {
   /** null lo borra. */
   descuento: DescuentoAGuardar | null;
 };
+
+/**
+ * Body de un producto a medida: sin stock ni descuento. Sus
+ * variantes son versiones de precio fijo que el cliente pide tal cual; el sku
+ * de una ya guardada viaja para que siga siendo la misma (y conserve su foto).
+ */
+export type ProductoAMedidaAGuardar = ProductoBaseAGuardar & {
+  variantes: Array<{ sku?: string; nombre: string; precioCentavos: number }>;
+  /** null = sin precio de referencia. */
+  precioReferenciaCentavos: number | null;
+  /** Las preguntas para hacer: pueden ser ninguna, pero la solicitud va siempre (es lo que lo hace a medida). */
+  solicitud: SolicitudADemanda;
+  materiales: string[];
+  /** null = sin receta. */
+  receta: Receta | null;
+  politicaCotizacion: PoliticaCotizacion;
+};
+
+export type ProductoAGuardar = ProductoDeStockAGuardar | ProductoAMedidaAGuardar;
 
 /** Error de la API con el mensaje que ya viene en español (409, 400). */
 export class ErrorDeApi extends Error {}
@@ -106,6 +146,11 @@ export function listarProductos(filtros: { q?: string; categoria?: string; pagin
   if (filtros.pagina && filtros.pagina > 1) params.set("pagina", String(filtros.pagina));
   const query = params.toString();
   return apiFetch(`/productos${query ? `?${query}` : ""}`).then((res) => json<ListadoProductos>(res));
+}
+
+/** Un producto para su pantalla de edición; 404 si no es de la cuenta. */
+export function obtenerProducto(id: string) {
+  return apiFetch(`/productos/${encodeURIComponent(id)}`).then((res) => json<Producto>(res));
 }
 
 export function listarCategorias() {

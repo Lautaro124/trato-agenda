@@ -19,6 +19,7 @@ import {
 } from "./controles";
 import { EditorDatosCliente } from "./DatosCliente";
 import { ControlesLocal } from "./ControlesLocal";
+import { ControlesLugar } from "./ControlesLugar";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
 import { ElegirAtencion } from "./ElegirAtencion";
 import { ListaClases } from "./ListaClases";
@@ -91,7 +92,7 @@ function RielPasos({ ob }: { ob: Onboarding }) {
           <p className="text-[11px] font-bold tracking-[0.08em] text-muted uppercase">Después, desde tu panel</p>
           <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
             <span className="[&>svg]:size-[15px]">{ICONO_BOLSA}</span>
-            Cargar tus productos
+            Cargar tus productos, de stock o a medida
           </p>
           <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -306,6 +307,20 @@ function ContenidoDelPaso({
             </div>
             <p className="mb-2 text-[13px] font-semibold text-ink-secondary">O elegí una franja armada</p>
             <PresetsFranja ob={ob} />
+          </div>
+        </>
+      );
+
+    case "lugar":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Dónde atendés a tus clientes?"
+            bajada="Con esto el asistente contesta dónde es el turno y se lo recuerda al cliente cuando se lo agenda."
+          />
+          <div className="max-w-[600px]">
+            <ControlesLugar lugar={ob.lugar} />
           </div>
         </>
       );

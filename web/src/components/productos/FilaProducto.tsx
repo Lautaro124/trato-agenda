@@ -88,6 +88,8 @@ function analizar(variante: Variante, borrador: Borrador) {
 /**
  * Una tarjeta del catálogo: datos del producto y edición rápida de precio y
  * stock por variante. Lo que se tipea queda pendiente hasta "Guardar cambios".
+ * Un producto a medida (con `solicitud`) no tiene precio ni stock que editar:
+ * la tarjeta muestra el producto, sus versiones y sus preguntas.
  */
 export function FilaProducto({
   producto,
@@ -106,7 +108,7 @@ export function FilaProducto({
   const [error, setError] = useState<string | null>(null);
   const [guardado, setGuardado] = useState(false);
 
-  // Si el producto cambió afuera (se guardó, se editó en el diálogo, se
+  // Si el producto cambió afuera (se guardó, se editó en su pantalla, se
   // importó), el borrador vuelve a lo guardado.
   const firmaActual = firmaDe(producto);
   if (firmaActual !== firma) {
@@ -169,10 +171,12 @@ export function FilaProducto({
       .finally(() => setGuardando(false));
   };
 
+  // Lo decide el producto: con solicitud es a medida, y ahí no hay precio, stock ni descuento que editar.
+  const aMedida = producto.solicitud !== null;
   // El descuento que hoy aplica (el mismo para todas las variantes, salvo un monto
   // fijo que no entra en alguna): el de la primera variante que tenga.
-  const aplicado = producto.variantes.find((v) => v.descuento)?.descuento ?? null;
-  const propioInactivo = !aplicado && producto.descuento;
+  const aplicado = aMedida ? null : (producto.variantes.find((v) => v.descuento)?.descuento ?? null);
+  const propioInactivo = !aMedida && !aplicado && producto.descuento;
 
   return (
     <li
@@ -212,6 +216,8 @@ export function FilaProducto({
         </div>
       </div>
 
+      {aMedida && <ResumenAMedida producto={producto} />}
+
       {aplicado ? (
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <Badge tone="primary">{descripcionDescuento(aplicado)}</Badge>
@@ -225,58 +231,119 @@ export function FilaProducto({
         )
       )}
 
-      <form onSubmit={guardar} aria-label={`Precio y stock de ${producto.nombre}`}>
-        <ul className="mt-3 flex flex-col gap-2">
-          {analisis.map((a) => (
-            <FilaVariante
-              key={a.variante.id}
-              variante={a.variante}
-              borrador={a.borrador}
-              nombreProducto={producto.nombre}
-              unica={producto.variantes.length === 1 && a.variante.nombre === ""}
-              editada={a.editada}
-              precioEditado={a.precioEditado}
-              stockEditado={a.stockEditado}
-              estado={etiquetaStock(a.vista)}
-              sinControl={a.vista.stock === null}
-              deshabilitada={guardando}
-              onCambio={(cambios) => cambiar(a.variante.id, cambios)}
-            />
+      {!aMedida && (
+        <form onSubmit={guardar} aria-label={`Precio y stock de ${producto.nombre}`}>
+          <ul className="mt-3 flex flex-col gap-2">
+            {analisis.map((a) => (
+              <FilaVariante
+                key={a.variante.id}
+                variante={a.variante}
+                borrador={a.borrador}
+                nombreProducto={producto.nombre}
+                unica={producto.variantes.length === 1 && a.variante.nombre === ""}
+                editada={a.editada}
+                precioEditado={a.precioEditado}
+                stockEditado={a.stockEditado}
+                estado={etiquetaStock(a.vista)}
+                sinControl={a.vista.stock === null}
+                deshabilitada={guardando}
+                onCambio={(cambios) => cambiar(a.variante.id, cambios)}
+              />
+            ))}
+          </ul>
+
+          {hayCambios ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              <p className="flex-1 text-[13px] font-semibold text-[var(--color-primitive-coral-700)]">
+                Cambios sin guardar
+              </p>
+              <Button variant="secondary" size="sm" disabled={guardando} onClick={descartar}>
+                Descartar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={guardando}
+                aria-label={`Guardar cambios de ${producto.nombre}`}
+              >
+                {guardando ? "Guardando…" : "Guardar cambios"}
+              </Button>
+            </div>
+          ) : (
+            guardado && (
+              <p role="status" className="mt-3 text-[13px] font-semibold text-success-text">
+                ✓ Guardado
+              </p>
+            )
+          )}
+
+          {error && (
+            <p role="alert" className="mt-2 text-[12px] text-danger-text">
+              {error}
+            </p>
+          )}
+        </form>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Lo que muestra la tarjeta de un producto a medida: precio
+ * "desde", materiales, sus versiones con precio fijo y las preguntas.
+ */
+function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {
+  const preguntas = producto.solicitud?.preguntas.length ?? 0;
+  return (
+    <div className="mt-3 flex flex-col gap-1.5 rounded-md bg-sunken p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="info">A medida</Badge>
+        {producto.politicaCotizacion === "automatica" && <Badge tone="success">Cotiza tu asistente</Badge>}
+        {producto.politicaCotizacion === "revision" && <Badge tone="neutral">Lo aprobás vos</Badge>}
+        <span className="text-[14px] font-semibold text-ink">
+          {producto.precioReferenciaCentavos
+            ? `Desde ${formatearCentavos(producto.precioReferenciaCentavos)}`
+            : "Precio a cotizar"}
+        </span>
+      </div>
+      {producto.materiales.length > 0 && (
+        <p className="text-[12.5px] text-ink-secondary">En {producto.materiales.join(" · ")}</p>
+      )}
+      {producto.solicitud && producto.variantes.length > 0 && (
+        <ul aria-label={`Versiones con precio fijo de ${producto.nombre}`} className="flex flex-col gap-1">
+          {producto.variantes.map((variante) => (
+            <li key={variante.id} className="flex items-center gap-2 text-[13px] text-ink">
+              {variante.imagenActualizada ? (
+                // eslint-disable-next-line @next/next/no-img-element -- viene de la API con la cookie de sesión; el optimizador de Next no la tiene
+                <img
+                  src={urlImagenProducto(producto.id, variante.imagenActualizada, variante.id)}
+                  alt={`Foto de ${variante.nombre}`}
+                  loading="lazy"
+                  className="size-7 shrink-0 rounded-sm bg-card object-cover"
+                />
+              ) : null}
+              <span className="min-w-0 flex-1 truncate">{variante.nombre}</span>
+              <span className="font-semibold">{formatearCentavos(variante.precioCentavos)}</span>
+            </li>
           ))}
         </ul>
-
-        {hayCambios ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-            <p className="flex-1 text-[13px] font-semibold text-[var(--color-primitive-coral-700)]">
-              Cambios sin guardar
-            </p>
-            <Button variant="secondary" size="sm" disabled={guardando} onClick={descartar}>
-              Descartar
-            </Button>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={guardando}
-              aria-label={`Guardar cambios de ${producto.nombre}`}
-            >
-              {guardando ? "Guardando…" : "Guardar cambios"}
-            </Button>
-          </div>
-        ) : (
-          guardado && (
-            <p role="status" className="mt-3 text-[13px] font-semibold text-success-text">
-              ✓ Guardado
-            </p>
-          )
-        )}
-
-        {error && (
-          <p role="alert" className="mt-2 text-[12px] text-danger-text">
-            {error}
-          </p>
-        )}
-      </form>
-    </li>
+      )}
+      {producto.solicitud ? (
+        <p className="text-[12.5px] text-ink-secondary">
+          {preguntas === 0
+            ? "Sin preguntas propias"
+            : preguntas === 1
+              ? "1 pregunta para hacer"
+              : `${preguntas} preguntas para hacer`}
+        </p>
+      ) : (
+        // Cargado antes como producto de stock: al guardarlo desde "Editar" pasa a ser a medida.
+        <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-secondary">
+          <Badge tone="warning">Incompleto</Badge>
+          Tocá “Editar” y guardalo para que sea a medida.
+        </p>
+      )}
+    </div>
   );
 }
 

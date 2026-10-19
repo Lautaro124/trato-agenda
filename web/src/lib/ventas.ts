@@ -1,18 +1,51 @@
 import { apiFetch } from "./api";
 import { ErrorDeApi } from "./productos";
 
-export type EstadoVenta = "pendiente_pago" | "pagada" | "cancelada" | "vencida";
+/** Los tres primeros sólo existen en los pedidos a medida: todavía no tienen precio. */
+export type EstadoVenta =
+  | "solicitado"
+  | "a_cotizar"
+  | "cotizado"
+  | "pendiente_pago"
+  | "pagada"
+  | "cancelada"
+  | "vencida";
+
+export type RespuestaSolicitud = { pregunta: string; respuesta: string };
+
+/** Lo que pidió el cliente en un pedido a medida (espejo de `SolicitudDeVenta`). */
+export type SolicitudDePedido = {
+  productoId: string | null;
+  nombreProducto: string | null;
+  respuestas: RespuestaSolicitud[];
+  resumen: string;
+  /** La versión de precio fijo de la que salió (tal cual o de base), con el precio al pedirla. */
+  variante: { id: string; nombre: string; precioCentavos: number; cantidad: number } | null;
+  /** Lo que el cliente quiere distinto de esa versión; null = la pidió tal cual. */
+  cambios: string | null;
+};
 
 /** Espejo de `VentaPublica` en la API. */
 export type Venta = {
   id: string;
   estado: EstadoVenta;
-  medioPago: "mercadopago" | "manual";
+  /** "stock" (del catálogo) | "a_medida" (se cotiza). */
+  tipo: "stock" | "a_medida";
+  /** "humana" mientras lo atendés vos: el asistente no contesta en ese chat. */
+  atencion: "asistente" | "humana";
+  derivadaAt: string | null;
+  motivoDerivacion: string | null;
+  detalleDerivacion: string | null;
+  devueltaAt: string | null;
+  solicitud: SolicitudDePedido | null;
+  /** null en un pedido a medida que todavía no se cobra. */
+  medioPago: "mercadopago" | "manual" | null;
   nombreCliente: string | null;
   telefonoCliente: string | null;
-  totalCentavos: number;
+  /** null mientras un pedido a medida no tiene presupuesto. */
+  totalCentavos: number | null;
   moneda: string;
-  reservaVenceAt: string;
+  reservaVenceAt: string | null;
   linkPago: string | null;
   pagadaAt: string | null;
   canceladaAt: string | null;
@@ -40,12 +73,60 @@ export type Venta = {
   }>;
 };
 
+export const TIPOS_RENGLON = ["material", "proceso", "mano_obra", "extra", "otro"] as const;
+export type TipoRenglon = (typeof TIPOS_RENGLON)[number];
+
+export type RenglonPresupuesto = {
+  concepto: string;
+  tipo: TipoRenglon;
+  cantidad: number;
+  unidad: string;
+  precioUnitarioCentavos: number;
+  subtotalCentavos: number;
+};
+
+export type Presupuesto = {
+  id: string;
+  version: number;
+  origen: "asistente" | "dueno";
+  estado: "borrador" | "enviado" | "reemplazado" | "descartado";
+  totalCentavos: number;
+  moneda: string;
+  estimativo: boolean;
+  detalleAlCliente: boolean;
+  nota: string | null;
+  enviadoAt: string | null;
+  createdAt: string;
+  renglones: RenglonPresupuesto[];
+};
+
+export type EventoPedido = {
+  tipo: "estado" | "derivacion" | "devolucion" | "presupuesto" | "cobro";
+  de: string | null;
+  a: string | null;
+  motivo: string | null;
+  autor: "asistente" | "dueno" | "sistema" | "mercadopago";
+  createdAt: string;
+};
+
+export type MensajeDelChat = { de: "cliente" | "asistente" | "dueno"; texto: string; createdAt: string };
+
+/** Espejo de `DetalleVentaPublica`: lo del listado más presupuestos, historial y conversación. */
+export type DetalleVenta = Venta & {
+  notaDevolucion: string | null;
+  presupuestos: Presupuesto[];
+  eventos: EventoPedido[];
+  mensajes: MensajeDelChat[];
+};
+
 export type Totales = {
   cobradoCentavos: number;
   pagadas: number;
   ticketPromedioCentavos: number;
   pendienteCentavos: number;
   pendientes: number;
+  /** Pedidos a medida que esperan precio: no suman plata. */
+  porCotizar: number;
 };
 
 export type ListadoVentas = {
@@ -73,6 +154,9 @@ export type FiltrosVentas = {
 };
 
 export const ETIQUETA_ESTADO: Record<EstadoVenta, string> = {
+  solicitado: "Solicitado",
+  a_cotizar: "A cotizar",
+  cotizado: "Cotizado",
   pendiente_pago: "Pendiente de pago",
   pagada: "Pagada",
   cancelada: "Cancelada",
@@ -106,16 +190,84 @@ export function resumenVentas(filtros: FiltrosVentas): Promise<ResumenVentas> {
   return apiFetch(`/ventas/resumen?${query({ desde, hasta, incluirPrueba })}`).then((res) => json<ResumenVentas>(res));
 }
 
-export function obtenerVenta(id: string): Promise<Venta> {
-  return apiFetch(`/ventas/${encodeURIComponent(id)}`).then((res) => json<Venta>(res));
+/** Por qué un pedido pasó a una persona (espejo de `ETIQUETA_MOTIVO` en la API). */
+export const ETIQUETA_MOTIVO: Record<string, string> = {
+  falta_info: "Falta información que el asistente no puede conseguir",
+  excepcion: "Pide algo fuera de lo habitual",
+  pide_persona: "Quiere hablar con una persona",
+  sin_reglas: "No hay cómo cotizarlo automáticamente",
+  dueno: "Lo tomaste vos",
+  otro: "Otro motivo",
+};
+
+export function obtenerVenta(id: string): Promise<DetalleVenta> {
+  return apiFetch(`/ventas/${encodeURIComponent(id)}`).then((res) => json<DetalleVenta>(res));
 }
 
-export function marcarPagada(id: string): Promise<Venta> {
-  return apiFetch(`/ventas/${encodeURIComponent(id)}/pagada`, { method: "POST" }).then((res) => json<Venta>(res));
+function postar<T>(ruta: string, cuerpo?: unknown): Promise<T> {
+  return apiFetch(ruta, {
+    method: "POST",
+    ...(cuerpo === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) }),
+  }).then((res) => json<T>(res));
 }
 
-export function cancelarVenta(id: string): Promise<Venta> {
-  return apiFetch(`/ventas/${encodeURIComponent(id)}/cancelar`, { method: "POST" }).then((res) => json<Venta>(res));
+export function marcarPagada(id: string): Promise<DetalleVenta> {
+  return postar(`/ventas/${encodeURIComponent(id)}/pagada`);
+}
+
+export function cancelarVenta(id: string): Promise<DetalleVenta> {
+  return postar(`/ventas/${encodeURIComponent(id)}/cancelar`);
+}
+
+/** Los pedidos que atendés vos (el asistente está callado en esos chats), de cualquier fecha. */
+export function listarEnAtencion(): Promise<Venta[]> {
+  return apiFetch("/ventas/atencion").then((res) => json<Venta[]>(res));
+}
+
+/** "Atender yo" (`humana: true`) o "Devolver al asistente", con una nota para el asistente. */
+export function cambiarAtencion(id: string, humana: boolean, nota?: string): Promise<DetalleVenta> {
+  return postar(`/ventas/${encodeURIComponent(id)}/atencion`, { humana, ...(nota?.trim() ? { nota: nota.trim() } : {}) });
+}
+
+export type PresupuestoAGuardar = {
+  renglones: Array<Pick<RenglonPresupuesto, "concepto" | "tipo" | "cantidad" | "unidad" | "precioUnitarioCentavos">>;
+  estimativo: boolean;
+  detalleAlCliente: boolean;
+  nota?: string;
+  /** true: se le manda al cliente en el mismo paso. */
+  enviar?: boolean;
+};
+
+export function crearPresupuesto(id: string, presupuesto: PresupuestoAGuardar): Promise<DetalleVenta & { mandado?: boolean }> {
+  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos`, presupuesto);
+}
+
+/** Un borrador calculado con la receta del producto y las respuestas del pedido. */
+export function presupuestoDesdeReceta(id: string): Promise<DetalleVenta> {
+  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos/desde-receta`);
+}
+
+export function enviarPresupuesto(id: string, presupuestoId: string): Promise<DetalleVenta & { mandado: boolean }> {
+  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos/${encodeURIComponent(presupuestoId)}/enviar`);
+}
+
+export function descartarPresupuesto(id: string, presupuestoId: string): Promise<DetalleVenta> {
+  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos/${encodeURIComponent(presupuestoId)}/descartar`);
+}
+
+/** Genera el cobro del presupuesto vigente sin esperar a que el cliente diga que sí. */
+export function cobrarPedido(id: string, medioPago?: "mercadopago" | "manual"): Promise<DetalleVenta> {
+  return postar(`/ventas/${encodeURIComponent(id)}/cobrar`, medioPago ? { medioPago } : {});
+}
+
+/** El producto que se vende en un pedido: los renglones cobrados o, a medida, lo que se pidió. */
+export function resumenDeVenta(venta: Pick<Venta, "items" | "solicitud">): string {
+  if (venta.items.length > 0) {
+    return venta.items
+      .map((item) => `${item.cantidad} × ${item.nombreProducto}${item.nombreVariante ? ` (${item.nombreVariante})` : ""}`)
+      .join(", ");
+  }
+  return venta.solicitud?.nombreProducto ? `A medida: ${venta.solicitud.nombreProducto}` : "Pedido a medida";
 }
 
 /** Descarga el CSV con los mismos filtros que la pantalla (sin paginar). */

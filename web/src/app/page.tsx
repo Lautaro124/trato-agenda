@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { PrecioPlan } from "@/components/PrecioPlan";
+import { PlanesPrecio } from "@/components/PrecioPlan";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { EMAIL_SOPORTE } from "@/lib/contacto";
@@ -276,32 +276,18 @@ export default function Home() {
         id="precio"
         className="rounded-b-[48px] border-b border-line bg-card px-5 py-14 md:px-10 md:py-20"
       >
-        <div className="mx-auto max-w-[640px] text-center">
+        <div className="mx-auto max-w-[920px] text-center">
           <h2 className="mb-3 font-display text-[28px] leading-[1.12] font-bold tracking-[-0.03em] text-ink md:text-[38px]">
-            Un precio y nada más
+            Dos planes, según cuántos chats atiendas
           </h2>
           <p className="mb-7 text-[16px] leading-[1.6] text-ink-secondary">
-            Probás un mes completo gratis. Si te sirve, seguís.
+            Probás un mes completo gratis. Si te sirve, elegís el plan que te quede cómodo.
           </p>
-          <div className="rounded-[36px] border border-line-strong bg-page p-7 text-left shadow-md md:p-10">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <PrecioPlan className="font-display text-[38px] leading-none font-bold tracking-[-0.03em] text-ink md:text-[46px]" />
-                <div className="mt-1.5 text-sm text-muted">por mes · después del mes gratis</div>
-              </div>
-              <Link href="/entrar">
-                <Button size="lg">Empezar gratis</Button>
-              </Link>
-            </div>
-            <div className="mt-6 flex flex-col gap-2.5 border-t border-line pt-6">
-              {INCLUYE_PLAN.map((texto) => (
-                <Check key={texto}>{texto}</Check>
-              ))}
-            </div>
-            <p className="mt-5 text-[13px] leading-[1.6] text-muted">
-              No te pedimos tarjeta para la prueba. Te avisamos 7 días antes de que termine.
-            </p>
-          </div>
+          <PlanesPrecio incluye={INCLUYE_PLAN} />
+          <p className="mt-5 text-[13px] leading-[1.6] text-muted">
+            No te pedimos tarjeta para la prueba. Te avisamos 7 días antes de que termine. Si te acercás al tope de
+            chats te avisamos, pero el asistente no se corta.
+          </p>
         </div>
       </section>
 

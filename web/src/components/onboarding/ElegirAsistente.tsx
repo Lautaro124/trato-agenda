@@ -87,7 +87,7 @@ export function ElegirAsistente({
         })}
       </div>
       <p className="mt-4 text-[12.5px] leading-[1.55] text-ink-secondary">
-        Todo se puede cambiar después, menos el tipo de asistente.
+        Todo se puede cambiar después, menos el tipo de asistente (y, si vendés, cómo vendés).
       </p>
     </div>
   );

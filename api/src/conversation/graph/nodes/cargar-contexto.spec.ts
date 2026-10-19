@@ -125,6 +125,18 @@ describe('reglasDeAlcance', () => {
     expect(alcance).not.toContain('consulte directamente con');
   });
 
+  it('sin lugar cargado la dirección es un dato que no sabe; con lugar, no', () => {
+    expect(reglasDeAlcance(AGENT, false)).toContain('otros precios, dirección, formas de pago');
+
+    const conLugar = {
+      ...AGENT,
+      local: { tieneLocal: true, lugar: 'local', direccion: 'Av. Santa Fe 100', horarios: [], retiroEnLocal: false },
+    } as unknown as Agent;
+    const alcance = reglasDeAlcance(conLugar, false);
+    expect(alcance).not.toContain('dirección, formas de pago');
+    expect(alcance).toContain('dónde se atiende');
+  });
+
   it('cae en "este negocio" si el titular no tiene nombre cargado', () => {
     const alcance = reglasDeAlcance({ ...AGENT, nombreTitular: '' } as Agent, false);
 

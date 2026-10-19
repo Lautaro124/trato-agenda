@@ -24,17 +24,31 @@ export const MAX_PEDIDOS_PENDIENTES = 2;
 export const MAX_ITEMS_POR_PEDIDO = 10;
 export const MAX_CANTIDAD_POR_ITEM = 50;
 
-export const ESTADOS_VENTA = ['pendiente_pago', 'pagada', 'cancelada', 'vencida'] as const;
+/**
+ * Los tres primeros sólo existen en los pedidos a medida (LAU-24/28): una
+ * solicitud que todavía no tiene precio. Ver pedido-a-medida.rules.ts.
+ */
+export const ESTADOS_VENTA = [
+  'solicitado',
+  'a_cotizar',
+  'cotizado',
+  'pendiente_pago',
+  'pagada',
+  'cancelada',
+  'vencida',
+] as const;
 export type EstadoVenta = (typeof ESTADOS_VENTA)[number];
 
 export const MEDIOS_DE_PAGO = ['mercadopago', 'manual'] as const;
 export type MedioDePago = (typeof MEDIOS_DE_PAGO)[number];
 
-type VentaReservable = { estado: string; reservaVenceAt: Date };
+type VentaReservable = { estado: string; reservaVenceAt: Date | null };
 
-/** true mientras la venta retiene su stock: pendiente y sin vencer. */
+/** true mientras la venta retiene su stock (o su link vale): pendiente y sin vencer. */
 export function reservaVigente(venta: VentaReservable, ahora: Date = new Date()): boolean {
-  return venta.estado === 'pendiente_pago' && venta.reservaVenceAt.getTime() > ahora.getTime();
+  return (
+    venta.estado === 'pendiente_pago' && venta.reservaVenceAt !== null && venta.reservaVenceAt.getTime() > ahora.getTime()
+  );
 }
 
 /** El estado que corresponde mostrar: una pendiente cuya reserva venció ya es "vencida". */
@@ -83,9 +97,10 @@ export function problemaDeForma(items: ItemPedido[]): string | null {
  */
 export function pagoSaldaVenta(
   pago: { status: string; external_reference?: string | null; transaction_amount: number; currency_id: string },
-  venta: { id: string; totalCentavos: number; moneda: string },
+  venta: { id: string; totalCentavos: number | null; moneda: string },
 ): boolean {
   return (
+    venta.totalCentavos !== null &&
     pago.status === 'approved' &&
     pago.external_reference === venta.id &&
     pago.currency_id === venta.moneda &&
@@ -143,7 +158,7 @@ export function fechaYHora(fecha: Date): string {
  * código, no del modelo: es un mensaje transaccional y el monto es el de la base.
  */
 export function mensajePagoAprobado(
-  venta: { nombreCliente: string | null; totalCentavos: number },
+  venta: { nombreCliente: string | null; totalCentavos: number | null },
   nombreTitular: string | null,
   propio?: { plantilla: string; detalle: string } | null,
 ): string {
@@ -153,13 +168,13 @@ export function mensajePagoAprobado(
     // El texto del dueño (/asistente), con los datos de la base: tampoco pasa por el modelo.
     return completarPlantilla(propio.plantilla, {
       nombre: nombre ?? '',
-      total: formatearCentavos(venta.totalCentavos),
+      total: formatearCentavos(venta.totalCentavos ?? 0),
       detalle: propio.detalle,
       negocio: titular,
     });
   }
   return (
-    `¡Listo${nombre ? `, ${nombre}` : ''}! Tu pago de ${formatearCentavos(venta.totalCentavos)} fue aprobado. ` +
-    `${titular} te escribe por acá para coordinar la entrega.`
+    `¡Listo${nombre ? `, ${nombre}` : ''}! Tu pago de ${formatearCentavos(venta.totalCentavos ?? 0)} fue aprobado. ` +
+    'Te escribimos por acá para coordinar la entrega.'
   );
 }

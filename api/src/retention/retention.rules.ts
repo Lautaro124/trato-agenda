@@ -32,6 +32,13 @@ export const DIAS_RETENCION_DATOS_CLIENTE = 365;
 export const DIAS_RETENCION_AVISOS_LEIDOS = 90;
 
 /**
+ * Sugerencias de mejora ya copiadas a Linear: la copia de acá sólo servía
+ * para no perderla si Linear fallaba. Las pendientes quedan hasta mandarse o
+ * hasta que se borre la cuenta.
+ */
+export const DIAS_RETENCION_SUGERENCIAS = 90;
+
+/**
  * Alta por WhatsApp que nunca escaneó el QR: un usuario sin Google ni
  * teléfono. No tiene datos de nadie, pero sí un socket y una fila; a la hora
  * se descarta (la cookie del alta vence a los 15 minutos).

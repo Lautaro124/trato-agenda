@@ -4,6 +4,8 @@ import { NotificacionesModule } from '../notificaciones/notificaciones.module.js
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { BusquedaService } from './busqueda.service.js';
 import { ConciliacionService } from './conciliacion.service.js';
+import { CostosController } from './costos.controller.js';
+import { CostosService } from './costos.service.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import { DecisionesClient } from './decisiones.client.js';
 import { DescuentosController } from './descuentos.controller.js';
@@ -14,6 +16,7 @@ import { EmbeddingsClient } from './embeddings.client.js';
 import { IndexadorService } from './indexador.service.js';
 import { ProductosController } from './productos.controller.js';
 import { MercadoPagoController } from './mercadopago.controller.js';
+import { PedidosAMedidaService } from './pedidos-a-medida.service.js';
 import { ProductosService } from './productos.service.js';
 import { SugerenciasService } from './sugerencias.service.js';
 import { VentasController } from './ventas.controller.js';
@@ -28,7 +31,7 @@ import { VentasService } from './ventas.service.js';
 @Module({
   // JwtAuthGuard necesita AuthModuleOptions de PassportModule en el árbol de DI.
   imports: [PassportModule.register({ session: false }), SubscriptionModule, NotificacionesModule],
-  controllers: [ProductosController, DescuentosController, VentasController, MercadoPagoController],
+  controllers: [ProductosController, DescuentosController, VentasController, MercadoPagoController, CostosController],
   providers: [
     ProductosService,
     DescuentosService,
@@ -42,9 +45,14 @@ import { VentasService } from './ventas.service.js';
     DecisionesClient,
     SugerenciasService,
     ImagenesService,
+    PedidosAMedidaService,
+    CostosService,
   ],
   exports: [
+    CostosService,
+    PedidosAMedidaService,
     BusquedaService,
+    DecisionesClient,
     SugerenciasService,
     ProductosService,
     VentasService,

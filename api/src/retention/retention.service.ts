@@ -7,6 +7,7 @@ import {
   DIAS_RETENCION_AVISOS_LEIDOS,
   DIAS_RETENCION_DATOS_CLIENTE,
   DIAS_RETENCION_MENSAJES,
+  DIAS_RETENCION_SUGERENCIAS,
   fechaLimite,
   fechaLimiteHoras,
   HORAS_ALTA_PENDIENTE,
@@ -56,10 +57,12 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       const ventas = await this.anonimizarVentas();
       const avisos = await this.purgarAvisos();
       const altas = await this.descartarAltasPendientes();
-      if (mensajes > 0 || anonimizadas > 0 || ventas > 0 || avisos > 0 || altas > 0) {
+      const sugerencias = await this.purgarSugerencias();
+      if (mensajes > 0 || anonimizadas > 0 || ventas > 0 || avisos > 0 || altas > 0 || sugerencias > 0) {
         this.logger.log(
           `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
-            `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas.`,
+            `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas, ` +
+            `${sugerencias} sugerencias ya enviadas borradas.`,
         );
       }
     } catch (error) {
@@ -125,18 +128,46 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
    * DNI, email…) de quien compró.
    */
   private async anonimizarVentas(ahora: Date = new Date()): Promise<number> {
+    const limite = fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora);
     const { count } = await this.prisma.venta.updateMany({
       where: {
-        createdAt: { lt: fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora) },
+        createdAt: { lt: limite },
         OR: [
           { nombreCliente: { not: null } },
           { telefonoCliente: { not: null } },
           { datosCliente: { not: Prisma.DbNull } },
+          { detalleDerivacion: { not: null } },
+          { notaDevolucion: { not: null } },
         ],
       },
-      data: { nombreCliente: null, telefonoCliente: null, datosCliente: Prisma.DbNull },
+      data: {
+        nombreCliente: null,
+        telefonoCliente: null,
+        datosCliente: Prisma.DbNull,
+        detalleDerivacion: null,
+        notaDevolucion: null,
+      },
     });
-    return count;
+    // Un pedido a medida guarda lo que escribió el cliente (resumen,
+    // respuestas y los cambios que pidió a una versión): queda sólo qué
+    // producto y qué versión de precio fijo era. Y los presupuestos pierden la
+    // nota y los datos con que se calcularon; los renglones y el total quedan.
+    const aMedida = await this.prisma.$executeRaw`
+      UPDATE "Venta"
+      SET "solicitud" = jsonb_build_object('productoId', "solicitud"->'productoId', 'nombreProducto', "solicitud"->'nombreProducto', 'respuestas', '[]'::jsonb, 'resumen', '')
+        || jsonb_strip_nulls(jsonb_build_object('variante', "solicitud"->'variante'))
+      WHERE "createdAt" < ${limite} AND "solicitud" IS NOT NULL
+        AND ("solicitud"->>'resumen' <> '' OR jsonb_array_length(COALESCE("solicitud"->'respuestas', '[]'::jsonb)) > 0
+          OR COALESCE("solicitud"->>'cambios', '') <> '')
+    `;
+    await this.prisma.presupuesto.updateMany({
+      where: {
+        venta: { createdAt: { lt: limite } },
+        OR: [{ nota: { not: null } }, { datos: { not: Prisma.DbNull } }],
+      },
+      data: { nota: null, datos: Prisma.DbNull },
+    });
+    return count + aMedida;
   }
 
   /**
@@ -152,6 +183,14 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
           { createdAt: { lt: fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora) } },
         ],
       },
+    });
+    return count;
+  }
+
+  /** Sugerencias de mejora que ya están en Linear hace más de `DIAS_RETENCION_SUGERENCIAS`. */
+  private async purgarSugerencias(ahora: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.sugerenciaMejora.deleteMany({
+      where: { enviadaAt: { lt: fechaLimite(DIAS_RETENCION_SUGERENCIAS, ahora) } },
     });
     return count;
   }

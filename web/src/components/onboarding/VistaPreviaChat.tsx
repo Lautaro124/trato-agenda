@@ -150,6 +150,12 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
         ) : (
           <>
             <DelAsistente>{ob.saludo}</DelAsistente>
+            {paso === "lugar" && (
+              <>
+                <DelCliente>¿Dónde atendés?</DelCliente>
+                <DelAsistente>{ob.saludoLugar}</DelAsistente>
+              </>
+            )}
             {conTurnos && (
               <DelAsistente>
                 {ob.saludoEventos}

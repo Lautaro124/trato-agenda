@@ -115,8 +115,10 @@ People).
 `POLITICA_DE_PROVEEDOR` en `api/src/agents/openrouter.client.ts`, importada
 también por `api/src/conversation/llm.provider.ts`, `api/src/comercio/embeddings.client.ts`
 y `api/src/comercio/decisiones.client.ts` (Jev, `typesafe/jev-1.13`, el modelo de
-decisiones con el que el asistente de ventas ordena las categorías que sugiere; sólo
-recibe los mensajes del cliente y nombres del catálogo, nunca datos de Google),
+decisiones con el que el asistente de ventas ordena las categorías que sugiere y decide
+si el cliente ya terminó de elegir antes de pedirle sus datos; sólo recibe los últimos
+mensajes de la charla, sin el número del cliente y con su nombre, emails y números largos
+tapados (`etapa-de-compra.ts`), y nombres del catálogo, nunca datos de Google),
 viaja en **toda** llamada:
 
 ```json
@@ -160,6 +162,20 @@ con la config de cuenta).
   diaria idempotente (`retention.service.ts`).
 - Los eventos ya creados en el calendario del titular **no** se borran: son
   suyos. Está dicho así en `/privacidad`.
+- Pedidos a medida (LAU-24/26/27, `api/src/comercio/pedidos-a-medida.service.ts`):
+  sólo del asistente de ventas, nunca datos de Google. Al prompt llegan los
+  pedidos a medida de esa conversación (estado y total del presupuesto vigente,
+  `bloquePedidos`) y, después de que el dueño atendió el chat, lo que se
+  escribieron mientras tanto (`bloqueAtencionHumana`, como dato con
+  `JSON.stringify`). A los **12 meses** se borran las respuestas y el resumen
+  de lo que pidió el cliente, el motivo escrito de la derivación y las notas
+  (`anonimizarVentas`); los renglones y montos quedan. El borrado de cuenta se
+  lleva presupuestos, historial y materiales y costos por cascade.
+- Sugerencias de mejora (LAU-14, `api/src/mejoras/`): el dueño manda texto
+  (lista blanca, sin links ni archivos) que se copia a Linear con el id interno
+  de la cuenta, sin teléfono ni email. Nunca datos de Google ni de clientes.
+  Nuestra copia se borra a los **90 días** de enviada; el borrado de cuenta la
+  borra por cascade.
 
 ## Borrador de respuesta a Google
 

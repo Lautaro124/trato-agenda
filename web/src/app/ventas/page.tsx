@@ -18,13 +18,16 @@ import {
   claveDia,
   descargarCsv,
   ETIQUETA_ESTADO,
+  listarEnAtencion,
   listarVentas,
   obtenerVenta,
+  resumenDeVenta,
   rangoDePeriodo,
   resumenVentas,
   type EstadoVenta,
   type FiltrosVentas as Filtros,
   type ListadoVentas,
+  type DetalleVenta as Detalle,
   type ResumenVentas,
   type Venta,
 } from "@/lib/ventas";
@@ -74,6 +77,38 @@ function VentasContenido() {
   );
 }
 
+/**
+ * Los pedidos que atendés vos (el asistente está callado en esos chats), de
+ * cualquier fecha: arriba de todo, porque un cliente está esperando.
+ */
+function TeEsperan({ ventas, onElegir }: { ventas: Venta[]; onElegir: (venta: Venta) => void }) {
+  if (ventas.length === 0) return null;
+  return (
+    <section aria-labelledby="titulo-te-esperan" className="rounded-lg border border-[var(--color-primitive-coral-200)] bg-primary-subtle p-4">
+      <h2 id="titulo-te-esperan" className="font-display text-[16px] font-bold text-ink">
+        {ventas.length === 1 ? "Te espera 1 cliente" : `Te esperan ${ventas.length} clientes`}
+      </h2>
+      <p className="mb-2 text-[13px] text-ink-secondary">
+        Tu asistente no contesta en estos chats hasta que se los devuelvas.
+      </p>
+      <ul className="flex flex-col gap-1">
+        {ventas.map((venta) => (
+          <li key={venta.id}>
+            <button
+              type="button"
+              onClick={() => onElegir(venta)}
+              className="w-full cursor-pointer rounded-md bg-card px-3 py-2 text-left text-[13.5px] hover:bg-sunken"
+            >
+              <span className="font-semibold text-ink">{venta.nombreCliente ?? "Sin nombre"}</span>
+              <span className="text-ink-secondary"> · {resumenDeVenta(venta)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Historico() {
   const router = useRouter();
   const ventaPedida = useSearchParams().get("venta");
@@ -89,7 +124,8 @@ function Historico() {
   const [listado, setListado] = useState<{ clave: string; datos: ListadoVentas } | null>(null);
   const [resumen, setResumen] = useState<{ clave: string; datos: ResumenVentas } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [abierta, setAbierta] = useState<Venta | null>(null);
+  const [abierta, setAbierta] = useState<Detalle | null>(null);
+  const [enAtencion, setEnAtencion] = useState<Venta[]>([]);
   const [exportando, setExportando] = useState(false);
 
   const recargar = useCallback(() => setRecargas((n) => n + 1), []);
@@ -152,6 +188,23 @@ function Historico() {
     };
   }, [claveResumen, problemaDeRango, recargas]);
 
+  useEffect(() => {
+    const ctrl = { cancelado: false };
+    listarEnAtencion()
+      .then((ventas) => !ctrl.cancelado && setEnAtencion(ventas))
+      .catch(() => undefined);
+    return () => {
+      ctrl.cancelado = true;
+    };
+  }, [recargas]);
+
+  /** El listado trae lo justo: el detalle (presupuestos, historial, chat) se pide al abrirlo. */
+  const abrir = (venta: Venta) => {
+    obtenerVenta(venta.id)
+      .then(setAbierta)
+      .catch((err: unknown) => setError(mensajeDe(err, "No pudimos abrir ese pedido.")));
+  };
+
   // El link de un aviso (`/ventas?venta=<id>`) abre ese pedido, sea del período que sea.
   useEffect(() => {
     if (!ventaPedida) return;
@@ -210,6 +263,8 @@ function Historico() {
           </Button>
         </div>
 
+        <TeEsperan ventas={enAtencion} onElegir={abrir} />
+
         <FiltrosVentas filtros={periodos} hoy={hoy} onCambio={cambiarPeriodos} />
 
         {problemaDeRango && <p className="text-sm text-ink-secondary">{problemaDeRango}</p>}
@@ -267,7 +322,7 @@ function Historico() {
                 </select>
               </div>
 
-              <ListaVentas ventas={datos.ventas} onElegir={setAbierta} />
+              <ListaVentas ventas={datos.ventas} onElegir={abrir} />
 
               {totalPaginas > 1 && (
                 <nav aria-label="Páginas" className="flex items-center justify-center gap-3">

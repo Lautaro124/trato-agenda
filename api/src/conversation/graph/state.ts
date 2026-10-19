@@ -11,6 +11,7 @@ import { MessagesValue, StateSchema, UntrackedValue } from '@langchain/langgraph
 import { z } from 'zod';
 import type { PeriodoOcupado } from '../../calendar/calendar.service.js';
 import type { Agent, Conversation, Turno, User } from '../../generated/prisma/client.js';
+import type { Cancelacion } from '../cancelacion.js';
 import type { TurnosGrupales } from './turnos-grupales.js';
 
 export type AgentConUser = Agent & { user: User };
@@ -32,6 +33,8 @@ export type EstadoComun = {
    */
   correccion?: string;
   contexto: { agent: Agent; conversation: Conversation; bloqueSistema: string };
+  /** La vuelta que se puede descartar si el cliente manda otro mensaje (cancelacion.ts). Sólo por WhatsApp. */
+  cancelacion?: Cancelacion;
 };
 
 /** Lo que el nodo `cargar_contexto` deja listo para el resto del grafo. */
@@ -80,6 +83,7 @@ export const EstadoConversacion = new StateSchema({
   indiceDesde: new UntrackedValue<number>(undefined, { guard: false }),
   /** Primer índice de `messages` que ve el modelo en esta vuelta (ventana-historial.ts). */
   inicioVisible: new UntrackedValue<number>(undefined, { guard: false }),
+  cancelacion: new UntrackedValue<Cancelacion>(undefined, { guard: false }),
 });
 
 export type EstadoConversacionValue = typeof EstadoConversacion.State;

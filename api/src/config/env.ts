@@ -48,13 +48,27 @@ export type Env = {
    * GOOGLE_CALLBACK_URL, que ya es la API.
    */
   API_PUBLIC_URL: string;
+  /** Precio mensual del plan Básico (2.500 chats). */
   SUSCRIPCION_PRECIO_ARS: number;
+  /** Precio mensual del plan Pro (6.000 chats). */
+  SUSCRIPCION_PRECIO_PRO_ARS: number;
   /**
    * Hasta cuánto para atrás ve el modelo el historial de un chat
    * (HISTORIAL_IA_VENTANA, "14d", "1d", "2h", "30m"). Lo más viejo sigue en
    * la base; sólo deja de mandarse al modelo.
    */
   HISTORIAL_IA_VENTANA_MS: number;
+  /**
+   * API key de Linear para copiar ahí las sugerencias de mejora (LAU-14).
+   * Vacía = se guardan igual en Postgres y quedan pendientes.
+   */
+  LINEAR_API_KEY: string;
+  /** Equipo de Linear donde se crean los issues de sugerencias (su id, no la clave "LAU"). */
+  LINEAR_TEAM_ID: string;
+  /** Etiqueta opcional que se les pone (ej. "Sugerencia"). */
+  LINEAR_LABEL_ID: string;
+  /** Endpoint GraphQL de Linear. Sólo lo cambiaría un stub. */
+  LINEAR_API_URL: string;
 };
 
 const REQUIRED = [
@@ -71,10 +85,12 @@ const REQUIRED = [
 // agente o procesar un mensaje. Lo mismo vale para las MERCADOPAGO_*: sin
 // ellas el producto funciona entero durante el mes de prueba y sólo falla al
 // intentar suscribirse, o (las de OAuth) al conectar Mercado Pago para vender.
+// Las LINEAR_* tampoco: sin ellas las sugerencias se guardan y quedan pendientes.
 
 export const OPENROUTER_BASE_URL_POR_DEFECTO = 'https://openrouter.ai/api/v1';
 export const OPENROUTER_DECISIONS_URL_POR_DEFECTO = 'https://openrouter.ai/api/alpha/decisions';
 export const MERCADOPAGO_BASE_URL_POR_DEFECTO = 'https://api.mercadopago.com';
+export const LINEAR_API_URL_POR_DEFECTO = 'https://api.linear.app/graphql';
 
 export const HISTORIAL_IA_VENTANA_POR_DEFECTO = '14d';
 
@@ -147,6 +163,12 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     );
   }
 
+  const linearApiUrl = sinBarrasFinales(String(raw.LINEAR_API_URL || LINEAR_API_URL_POR_DEFECTO));
+  // La API key viaja en el header: en producción, nunca por texto plano.
+  if (nodeEnv === 'production' && !linearApiUrl.startsWith('https://')) {
+    throw new Error('LINEAR_API_URL tiene que ser https en producción.');
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: Number(raw.PORT ?? 4000),
@@ -174,6 +196,11 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     MERCADOPAGO_AUTH_URL: sinBarrasFinales(String(raw.MERCADOPAGO_AUTH_URL || 'https://auth.mercadopago.com')),
     API_PUBLIC_URL: sinBarrasFinales(String(raw.API_PUBLIC_URL || origenDe(String(raw.GOOGLE_CALLBACK_URL)))),
     SUSCRIPCION_PRECIO_ARS: Number(raw.SUSCRIPCION_PRECIO_ARS ?? 20000),
+    SUSCRIPCION_PRECIO_PRO_ARS: Number(raw.SUSCRIPCION_PRECIO_PRO_ARS ?? 59000),
     HISTORIAL_IA_VENTANA_MS: ventanaHistorialMs,
+    LINEAR_API_KEY: String(raw.LINEAR_API_KEY ?? ''),
+    LINEAR_TEAM_ID: String(raw.LINEAR_TEAM_ID ?? ''),
+    LINEAR_LABEL_ID: String(raw.LINEAR_LABEL_ID ?? ''),
+    LINEAR_API_URL: linearApiUrl,
   };
 }

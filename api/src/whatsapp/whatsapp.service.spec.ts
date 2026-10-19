@@ -3,11 +3,13 @@ import { DisconnectReason } from '@whiskeysockets/baileys';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ImagenesService } from '../comercio/imagenes.service.js';
 import type { Env } from '../config/env.js';
+import { Cancelacion, VueltaCancelada } from '../conversation/cancelacion.js';
 import type { ConversationService } from '../conversation/conversation.service.js';
 import type { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { SubscriptionService } from '../subscription/subscription.service.js';
 import { MAX_RECONEXIONES_SIN_VINCULAR, MINIMO_TRAS_REEMPLAZO_MS, MINUTOS_CAIDO_PARA_AVISAR } from './reconexion.js';
+import { ESPERA_RAFAGA_MS } from './ritmo-humano.js';
 import {
   MAX_CODIGOS_POR_CUENTA,
   MAX_CODIGOS_POR_NUMERO_HORA,
@@ -15,6 +17,7 @@ import {
   WhatsappService,
 } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
+import type { PedidosAMedidaService } from '../comercio/pedidos-a-medida.service.js';
 
 type UsuarioMock = { id: string; googleId: string | null; phoneNumber: string | null };
 
@@ -53,17 +56,30 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
   const conversationService = { responder: vi.fn() } as unknown as ConversationService;
   const subscriptionService = {
     asistenteActivo: vi.fn().mockResolvedValue(true),
+    avisarSiLlegaAlTope: vi.fn().mockResolvedValue(undefined),
   } as unknown as SubscriptionService;
   const imagenes = { paraEnviar: vi.fn() } as unknown as ImagenesService;
   const notificaciones = { avisar: vi.fn().mockResolvedValue(null) } as unknown as NotificacionesService;
-  const service = new WhatsappService(prisma, config, conversationService, subscriptionService, imagenes, notificaciones);
+  const pedidos = {
+    enAtencionHumana: vi.fn().mockResolvedValue(false),
+    guardarMensajeEnPausa: vi.fn().mockResolvedValue(undefined),
+  };
+  const service = new WhatsappService(
+    prisma,
+    config,
+    conversationService,
+    subscriptionService,
+    imagenes,
+    notificaciones,
+    pedidos as unknown as PedidosAMedidaService,
+  );
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
 
   const eventos: LinkEvent[] = [];
   service.linkEvents$('user-1').subscribe((mensaje) => eventos.push(mensaje.data as LinkEvent));
 
-  return { service, prisma, connectSpy, eventos, conversationService, subscriptionService, imagenes, notificaciones };
+  return { service, prisma, connectSpy, eventos, conversationService, subscriptionService, imagenes, notificaciones, pedidos };
 }
 
 /** Atajo: dispara handleConnectionUpdate como si Baileys hubiera cerrado la conexión. */
@@ -241,6 +257,49 @@ describe('WhatsappService — mensajes de clientes', () => {
     expect(sock.sendMessage).toHaveBeenCalledWith(JID, { text: '¡Hola!' });
   });
 
+  it('en un chat en atención humana no contesta, no marca leído y guarda el mensaje (LAU-27)', async () => {
+    const { service, conversationService, pedidos } = crearServicio();
+    pedidos.enAtencionHumana.mockResolvedValue(true);
+    const sock = socketDeChat();
+
+    await recibirMensaje(service, sock, '¿me pasás el precio?');
+    await vi.runAllTimersAsync();
+
+    expect(conversationService.responder).not.toHaveBeenCalled();
+    expect(sock.readMessages).not.toHaveBeenCalled();
+    expect(sock.sendMessage).not.toHaveBeenCalled();
+    expect(pedidos.guardarMensajeEnPausa).toHaveBeenCalledWith('user-1', JID, '¿me pasás el precio?', 'cliente');
+  });
+
+  it('si el chat pasó a una persona mientras esperaba la ráfaga, no manda nada', async () => {
+    const { service, conversationService } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '', imagenes: [], enAtencionHumana: true });
+    const sock = socketDeChat();
+
+    await recibirMensaje(service, sock);
+    await vi.runAllTimersAsync();
+
+    expect(sock.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('guarda lo que el dueño contesta desde su teléfono sólo en un chat en atención humana', async () => {
+    const { service, pedidos } = crearServicio();
+    const sock = { ...socketDeChat(), authState: { creds: {} } };
+    const delDueno = (id: string) =>
+      (service as unknown as { handleMessagesUpsert: (u: string, s: unknown, e: unknown) => Promise<void> }).handleMessagesUpsert(
+        'user-1',
+        sock,
+        { type: 'notify', messages: [{ key: { remoteJid: JID, fromMe: true, id }, message: { conversation: 'Te lo hago en roble' } }] },
+      );
+
+    await delDueno('d-1');
+    expect(pedidos.guardarMensajeEnPausa).not.toHaveBeenCalled();
+
+    pedidos.enAtencionHumana.mockResolvedValue(true);
+    await delDueno('d-2');
+    expect(pedidos.guardarMensajeEnPausa).toHaveBeenCalledWith('user-1', JID, 'Te lo hago en roble', 'dueno');
+  });
+
   it('espera a que el cliente termine de escribir y contesta la ráfaga entera de una vez', async () => {
     const { service, conversationService } = crearServicio();
     vi.mocked(conversationService.responder).mockResolvedValue({ texto: 'Dale, ¿qué día?', imagenes: [] });
@@ -255,7 +314,9 @@ describe('WhatsappService — mensajes de clientes', () => {
     await vi.runAllTimersAsync();
 
     expect(conversationService.responder).toHaveBeenCalledOnce();
-    expect(conversationService.responder).toHaveBeenCalledWith('user-1', JID, 'hola\nquería un turno');
+    expect(conversationService.responder).toHaveBeenCalledWith('user-1', JID, 'hola\nquería un turno', {
+      cancelacion: expect.any(Cancelacion),
+    });
     expect(sock.readMessages).toHaveBeenCalledWith([
       { remoteJid: JID, fromMe: false, id: 'm-1' },
       { remoteJid: JID, fromMe: false, id: 'm-2' },
@@ -303,9 +364,9 @@ describe('WhatsappService — mensajes de clientes', () => {
     const sock = socketDeChat();
 
     await recibirMensaje(service, sock, 'hola', 'm-1');
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS);
     await recibirMensaje(service, sock, 'y otra cosa', 'm-2');
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS);
     expect(conversationService.responder).toHaveBeenCalledOnce();
 
     terminarPrimera({ texto: 'Primera', imagenes: [] });
@@ -317,6 +378,30 @@ describe('WhatsappService — mensajes de clientes', () => {
       { text: 'Primera' },
       { text: 'Segunda' },
     ]);
+  });
+
+  it('si llega otro mensaje mientras se arma la respuesta, la descarta y contesta todo junto', async () => {
+    const { service, conversationService } = crearServicio();
+    vi.mocked(conversationService.responder)
+      .mockImplementationOnce(
+        (_u, _j, _t, opciones) =>
+          new Promise((_resolve, reject) =>
+            opciones?.cancelacion?.signal.addEventListener('abort', () => reject(new VueltaCancelada())),
+          ),
+      )
+      .mockResolvedValueOnce({ texto: 'Te contesto las dos cosas', imagenes: [] });
+    const sock = socketDeChat();
+
+    await recibirMensaje(service, sock, 'hola', 'm-1');
+    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS);
+    expect(conversationService.responder).toHaveBeenCalledOnce();
+
+    await recibirMensaje(service, sock, 'y otra cosa', 'm-2');
+    await vi.runAllTimersAsync();
+
+    expect(conversationService.responder).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(conversationService.responder).mock.calls[1][2]).toBe('hola\ny otra cosa');
+    expect(sock.sendMessage.mock.calls.map(([, contenido]) => contenido)).toEqual([{ text: 'Te contesto las dos cosas' }]);
   });
 
   it('manda las fotos que eligió el asistente antes del texto', async () => {
@@ -332,7 +417,7 @@ describe('WhatsappService — mensajes de clientes', () => {
     await recibirMensaje(service, sock);
     await vi.runAllTimersAsync();
 
-    expect(imagenes.paraEnviar).toHaveBeenCalledWith('user-1', 'p-1');
+    expect(imagenes.paraEnviar).toHaveBeenCalledWith('user-1', 'p-1', undefined);
     expect(sock.sendMessage.mock.calls).toEqual([
       [JID, { image: datos, mimetype: 'image/jpeg', caption: 'Mate de calabaza' }],
       [JID, { text: '¿Es lo que buscabas?' }],

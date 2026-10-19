@@ -65,3 +65,73 @@ export function estadoDeSuscripcion(entrada: {
     asistenteActivo: true,
   };
 }
+
+/** Planes pagos. El Básico es el que ya existía; el Pro sube el tope de chats. */
+export const PLANES = {
+  basico: { nombre: 'Básico', chats: 2500 },
+  pro: { nombre: 'Pro', chats: 6000 },
+} as const;
+
+export type PlanId = keyof typeof PLANES;
+
+export const IDS_DE_PLAN = Object.keys(PLANES) as PlanId[];
+
+/** Desde qué porcentaje del tope se avisa que se está llegando. */
+export const PORCENTAJE_AVISO_CUPO = 80;
+
+export function esPlanId(valor: unknown): valor is PlanId {
+  return typeof valor === 'string' && Object.hasOwn(PLANES, valor);
+}
+
+/**
+ * Durante la prueba (sin plan elegido) se muestra el tope del Pro: el mes
+ * gratis incluye todo. Un valor desconocido en la base cuenta como Básico.
+ */
+export function limiteDeChats(plan: string | null | undefined): number {
+  if (plan === null || plan === undefined) return PLANES.pro.chats;
+  return esPlanId(plan) ? PLANES[plan].chats : PLANES.basico.chats;
+}
+
+export type EstadoDeCupo = {
+  usados: number;
+  limite: number;
+  restantes: number;
+  porcentaje: number;
+  /** Llegó al PORCENTAJE_AVISO_CUPO del tope. */
+  cercano: boolean;
+  /** Alcanzó o pasó el tope. Sólo se avisa: el asistente sigue contestando. */
+  superado: boolean;
+};
+
+/** "Chat" = cliente distinto con mensajes en el mes; acá sólo se compara el número con el tope. */
+export function estadoDeCupo(entrada: { usados: number; plan: string | null | undefined }): EstadoDeCupo {
+  const limite = limiteDeChats(entrada.plan);
+  const usados = Math.max(0, Math.floor(entrada.usados));
+  const porcentaje = Math.floor((usados * 100) / limite);
+  return {
+    usados,
+    limite,
+    restantes: Math.max(0, limite - usados),
+    porcentaje,
+    cercano: porcentaje >= PORCENTAJE_AVISO_CUPO,
+    superado: usados >= limite,
+  };
+}
+
+/** Buenos Aires no tiene horario de verano: el desfase es fijo (UTC-3). */
+const DESFASE_HORAS_AR = 3;
+
+/**
+ * Mes calendario en hora argentina que contiene a `ahora`: [desde, hasta) y su
+ * etiqueta AAAA-MM, que sirve de clave para avisar una sola vez por mes.
+ */
+export function rangoDelMes(ahora: Date): { desde: Date; hasta: Date; etiqueta: string } {
+  const local = new Date(ahora.getTime() - DESFASE_HORAS_AR * 60 * 60 * 1000);
+  const anio = local.getUTCFullYear();
+  const mes = local.getUTCMonth();
+  return {
+    desde: new Date(Date.UTC(anio, mes, 1, DESFASE_HORAS_AR)),
+    hasta: new Date(Date.UTC(anio, mes + 1, 1, DESFASE_HORAS_AR)),
+    etiqueta: `${anio}-${String(mes + 1).padStart(2, '0')}`,
+  };
+}

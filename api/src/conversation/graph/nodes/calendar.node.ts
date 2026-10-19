@@ -19,6 +19,7 @@ import { esGrupal } from '../../../agents/turnos-grupales.js';
 import type { Turno } from '../../../generated/prisma/client.js';
 import { claseEn, claveClase, conAnotado, mensajeClaseCompleta, sinAnotado, tipoPorNombre, type Clase } from '../turnos-grupales.js';
 import { MENSAJE_CALENDAR_CAIDO } from '../../mensajes.js';
+import { lineaDeLugarParaTurno } from '../lugar.js';
 import {
   MARGEN_MINIMO_MIN,
   conMargen,
@@ -47,6 +48,8 @@ type Efecto = {
   texto: string;
   agenda?: SnapshotAgenda;
   contexto?: ContextoTurno;
+  /** Quedó un turno agendado o movido: la respuesta lleva dónde es (graph/lugar.ts). */
+  conTurno?: boolean;
 };
 
 function agregarOcupado(agenda: SnapshotAgenda, periodo: PeriodoOcupado): SnapshotAgenda {
@@ -79,6 +82,15 @@ function quitarOcupado(agenda: SnapshotAgenda, periodo: PeriodoOcupado): Snapsho
 function claveDe(clase: Clase): string {
   return claveClase(clase.tipo, clase.inicio);
 }
+
+/** Las herramientas que escriben en el calendario o en los turnos (cancelacion.ts). */
+const CON_EFECTO = new Set([
+  'crear_turno',
+  'reprogramar_turno',
+  'cancelar_turno',
+  'cancelar_evento_calendario',
+  'editar_evento_calendario',
+]);
 
 export function crearNodoCalendar(deps: DepsCalendar) {
   const logger = new Logger('CalendarNode');
@@ -219,6 +231,7 @@ export function crearNodoCalendar(deps: DepsCalendar) {
           });
           return {
             texto: `Anotado ${nombreCliente} en la clase de ${clase.tipo} del ${formatearFecha(clase.inicio)}.`,
+            conTurno: true,
             contexto: { ...inscripcion.contexto, conversation: conversacionActualizada, turnoActivo: inscripcion.turno },
           };
         }
@@ -253,6 +266,7 @@ export function crearNodoCalendar(deps: DepsCalendar) {
 
         return {
           texto: `Turno agendado para ${nombreCliente} el ${formatearFecha(inicio)}.`,
+          conTurno: true,
           agenda: agregarOcupado(agenda, { inicio, fin }),
           contexto: { ...contexto, conversation: conversacionActualizada, turnoActivo: turno },
         };
@@ -305,6 +319,7 @@ export function crearNodoCalendar(deps: DepsCalendar) {
           await deps.calendarService.bajaDeTurnoGrupal(agent.user, { ...turnoActivo, tipo }, capacidadDe(contexto, tipo));
           return {
             texto: `Turno reprogramado para la clase de ${clase.tipo} del ${formatearFecha(clase.inicio)}.`,
+            conTurno: true,
             contexto: {
               ...inscripcion.contexto,
               turnoActivo: inscripcion.turno,
@@ -335,6 +350,7 @@ export function crearNodoCalendar(deps: DepsCalendar) {
         const sinViejo = quitarOcupado(agenda, { inicio: turnoActivo.inicio, fin: turnoActivo.fin });
         return {
           texto: `Turno reprogramado para ${formatearFecha(inicio)}.`,
+          conTurno: true,
           agenda: agregarOcupado(sinViejo, { inicio, fin }),
           contexto: { ...contexto, turnoActivo: turno },
         };
@@ -425,6 +441,8 @@ export function crearNodoCalendar(deps: DepsCalendar) {
   }
 
   return async (state: EstadoConversacionValue): Promise<EstadoConversacionUpdate> => {
+    // Un turno o un evento escritos no se deshacen: desde acá la vuelta ya no se descarta.
+    if (state.pendientes.some((operacion) => CON_EFECTO.has(operacion.nombre))) state.cancelacion?.comprometer();
     let agenda = state.agenda;
     let contexto = state.contexto;
     const mensajes: ToolMessage[] = [];
@@ -433,7 +451,7 @@ export function crearNodoCalendar(deps: DepsCalendar) {
       let texto: string;
       try {
         const efecto = await ejecutar(agenda, contexto, operacion);
-        texto = efecto.texto;
+        texto = efecto.conTurno ? `${efecto.texto}${lineaDeLugarParaTurno(contexto.agent)}` : efecto.texto;
         if (efecto.agenda) agenda = efecto.agenda;
         if (efecto.contexto) contexto = efecto.contexto;
       } catch (error) {

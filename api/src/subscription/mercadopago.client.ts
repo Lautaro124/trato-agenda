@@ -163,6 +163,18 @@ export class MercadoPagoClient {
     return preferencia as Preferencia;
   }
 
+  /**
+   * Corta la vigencia de un link ya creado: un pedido a medida que se
+   * recotiza no puede seguir cobrándose con el link del presupuesto anterior.
+   */
+  async vencerPreferencia(token: string, id: string, ahora: Date = new Date()): Promise<void> {
+    await this.pedir<unknown>(`/checkout/preferences/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      token,
+      body: { expires: true, expiration_date_to: ahora.toISOString() },
+    });
+  }
+
   async obtenerPago(token: string, id: string): Promise<PagoMp> {
     const ruta = `/v1/payments/${encodeURIComponent(id)}`;
     return validarPago(await this.pedir<Partial<PagoMp>>(ruta, { method: 'GET', token }), ruta);

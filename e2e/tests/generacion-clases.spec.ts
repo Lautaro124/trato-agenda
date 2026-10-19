@@ -55,7 +55,7 @@ test.describe('wizard de /contanos: clases grupales', () => {
     await hastaAtencion(page, 'En grupo');
 
     await expect(page.getByRole('heading', { name: '¿Qué clases das?' })).toBeVisible();
-    await expect(visible(page.getByText('Paso 4 de 5'))).toBeVisible();
+    await expect(visible(page.getByText('Paso 5 de 6'))).toBeVisible();
     await expect(visible(page.getByText('Elegí al menos una clase.'))).toBeVisible();
     await expect(botonContinuar(page)).toBeDisabled();
 
@@ -91,7 +91,7 @@ test.describe('wizard de /contanos: clases grupales', () => {
     await expect(visible(page.getByText('1 clase elegida'))).toBeVisible();
 
     await botonContinuar(page).click();
-    await expect(visible(page.getByText('Paso 5 de 5'))).toBeVisible();
+    await expect(visible(page.getByText('Paso 6 de 6'))).toBeVisible();
     await terminar(page);
 
     const agente = await agenteActual(context.request);

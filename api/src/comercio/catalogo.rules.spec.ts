@@ -41,6 +41,12 @@ describe('textoBusquedaDe', () => {
     expect(texto).toBe('remera basica | remeras | algodon peinado | rem-01 | talle m | rem-01-m | rem-01-l');
   });
 
+  it('suma los materiales de un producto a medida', () => {
+    expect(
+      textoBusquedaDe({ codigo: 'PLAC', nombre: 'Placard', descripcion: '', categoria: null, variantes: [], materiales: ['Melamina', 'MDF'] }),
+    ).toBe('placard | plac | melamina | mdf');
+  });
+
   it('omite la categoría y la descripción vacías', () => {
     expect(
       textoBusquedaDe({ codigo: 'A1', nombre: 'Mate', descripcion: '', categoria: null, variantes: [{ sku: 'A1', nombre: '' }] }),

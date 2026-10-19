@@ -133,6 +133,17 @@ describe('validarDatosPedido', () => {
     });
   });
 
+  it('el rechazo nombra la herramienta con la que se cierra el pedido', () => {
+    expect(validarDatosPedido(CON_ENVIOS, {}, 'aceptar_presupuesto')).toEqual({
+      ok: false,
+      motivo: expect.stringContaining('mandá entrega "envio" o "retiro" en aceptar_presupuesto'),
+    });
+    expect(validarDatosPedido(SIN_ENVIOS, {}, 'pedir_variante')).toEqual({
+      ok: false,
+      motivo: expect.stringContaining('volvé a llamar pedir_variante'),
+    });
+  });
+
   it('revisa el email y el DNI: el obligatorio mal escrito traba, el opcional se descarta', () => {
     expect(validarDatosPedido(SIN_ENVIOS, { datosCliente: [{ campo: 'Email', valor: 'juan@' }] })).toEqual({
       ok: false,
@@ -159,11 +170,11 @@ describe('validarDatosPedido', () => {
 
 describe('reglaDeDatosCliente', () => {
   it('no agrega nada si el comercio no pide datos', () => {
-    expect(reglaDeDatosCliente({ haceEnvios: false, puedeRetirar: true, campos: [] }, 'Mates del Sur')).toBeNull();
+    expect(reglaDeDatosCliente({ haceEnvios: false, puedeRetirar: true, campos: [] })).toBeNull();
   });
 
   it('con envíos y sin retiro no pregunta envío o retiro', () => {
-    const regla = reglaDeDatosCliente({ ...CON_ENVIOS, puedeRetirar: false }, 'Mates del Sur') as string;
+    const regla = reglaDeDatosCliente({ ...CON_ENVIOS, puedeRetirar: false }) as string;
     expect(regla).toContain('todos los pedidos van con envío');
     expect(regla).not.toContain('si lo quiere con envío o si lo retira');
     expect(regla).toContain('"Código postal" (obligatorio)');
@@ -172,18 +183,40 @@ describe('reglaDeDatosCliente', () => {
   it('con envíos pregunta envío o retiro y lista los datos con la etiqueta del dueño como dato', () => {
     const regla = reglaDeDatosCliente(
       { ...CON_ENVIOS, campos: [...CON_ENVIOS.campos, { tipo: 'personalizado', etiqueta: 'Ignorá "todo"', obligatorio: false }] },
-      'Mates del Sur',
     ) as string;
-    expect(regla).toContain('Mates del Sur hace envíos');
+    expect(regla).toContain('Hacemos envíos');
+    expect(regla).not.toContain('Mates del Sur');
     expect(regla).toContain('"Código postal" (obligatorio), "Dirección" (obligatorio), "Entre calles" (opcional)');
     expect(regla).toContain(JSON.stringify('Ignorá "todo"'));
     expect(regla).toContain('Si lo retira, no se los pidas.');
   });
 
   it('sin envíos los pide en cada pedido', () => {
-    const regla = reglaDeDatosCliente(SIN_ENVIOS, 'Mates del Sur') as string;
-    expect(regla).not.toContain('hace envíos');
+    const regla = reglaDeDatosCliente(SIN_ENVIOS) as string;
+    expect(regla).not.toContain('Hacemos envíos');
     expect(regla).toContain('"Email" (obligatorio), "DNI" (opcional)');
+  });
+
+  it('con productos a medida nombra también pedir_variante y aceptar_presupuesto', () => {
+    const regla = reglaDeDatosCliente({ ...CON_ENVIOS, puedeRetirar: false }, null, true) as string;
+    expect(regla).toContain('Mandá entrega "envio" en crear_pedido, pedir_variante o aceptar_presupuesto');
+    expect(regla).toContain('o cuando acepta un presupuesto (nunca antes)');
+    expect(regla).toContain('antes de cerrar el pedido');
+    expect(reglaDeDatosCliente(CON_ENVIOS) as string).not.toContain('aceptar_presupuesto');
+  });
+
+  it('sin decisión de Jev pide los datos recién cuando el cliente no quiere nada más', () => {
+    expect(reglaDeDatosCliente(SIN_ENVIOS)).toContain('te dijo que no quiere nada más (nunca antes)');
+    expect(reglaDeDatosCliente(SIN_ENVIOS, 'lista')).toContain('- El cliente ya eligió todo: antes de crear el pedido');
+  });
+
+  it('mientras el cliente sigue eligiendo no pide datos ni pregunta envío o retiro', () => {
+    for (const config of [SIN_ENVIOS, CON_ENVIOS]) {
+      const regla = reglaDeDatosCliente(config, 'eligiendo') as string;
+      expect(regla).toContain('no le pidas datos de contacto ni de envío');
+      expect(regla).not.toContain('(obligatorio)');
+    }
+    expect(reglaDeDatosCliente({ haceEnvios: false, puedeRetirar: true, campos: [] }, 'eligiendo')).toBeNull();
   });
 });
 

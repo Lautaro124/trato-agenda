@@ -14,7 +14,7 @@ import {
   type HorarioGrupal,
 } from "@/lib/turnos-grupales";
 import { useClases } from "./useClases";
-import { useLocal } from "./useLocal";
+import { useLocal, type LocalState } from "./useLocal";
 
 export type TipoUsoId = "consultorio" | "otro";
 
@@ -112,6 +112,7 @@ export type PasoId =
   | "tipo"
   | "negocio"
   | "atencion"
+  | "lugar"
   | "turnos"
   | "clases"
   | "horarios"
@@ -131,13 +132,15 @@ export type Atencion = "individual" | "grupal" | "ambas";
  * Los pasos de cada asistente, en orden. Ventas no pide turnos ni franja: vende
  * las 24 horas y lo que ofrece sale del catálogo, que se carga en /productos.
  * Sí pregunta por el local a la calle, para contestar dónde queda y si se retira.
- * Su paso "datos" (qué le pide al cliente, envíos) es opcional.
+ * Su paso "datos" (qué le pide al cliente, envíos) es opcional. Si vende con
+ * stock o a medida no se pregunta: lo dice cada producto al cargarlo.
  */
 export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> = {
   agenda: [
     { id: "tipo", label: "Qué va a hacer" },
     { id: "negocio", label: "Tu negocio" },
     { id: "atencion", label: "Cómo atendés" },
+    { id: "lugar", label: "Dónde atendés" },
     { id: "turnos", label: "Qué turnos das" },
     { id: "clases", label: "Tus clases" },
     { id: "horarios", label: "Horarios" },
@@ -170,6 +173,7 @@ export const AYUDA_POR_PASO: Record<PasoId, string> = {
   tipo: "Los pasos se acomodan a lo que elijas. Todo se puede cambiar después, menos el tipo de asistente.",
   negocio: "Con este nombre se presenta el asistente y firma los avisos.",
   atencion: "Si das clases, en el paso siguiente cargás los días, la hora y cuántas personas entran.",
+  lugar: "El asistente se lo cuenta a tus clientes y lo repite cuando les agenda el turno. Lo cambiás cuando quieras desde Cuenta.",
   clases: "Contanos cuántos entran y cuándo es cada clase. El asistente no anota a nadie cuando se llena el cupo.",
   turnos:
     "Elegí si cada uno es individual o grupal (clases, talleres). Sin precio, el asistente le dice al cliente que lo consulte con vos.",
@@ -435,6 +439,8 @@ export function useOnboarding() {
   const { setElegidos } = tipos;
   const clases = useClases();
   const local = useLocal();
+  // Dónde da los turnos (LAU-17): su propio estado, para no mezclarlo con el local de ventas.
+  const lugar = useLocal(null, { paraAgenda: true });
   // Con nombre propio y no esparcido: comparte nombres (`agregarPersonalizado`) con los tipos de evento.
   const datosCliente = useDatosCliente();
 
@@ -484,6 +490,7 @@ export function useOnboarding() {
     tipo: true,
     negocio: nombreTitular.trim().length >= LARGO_MIN_NOMBRE,
     atencion: true,
+    lugar: lugar.valido,
     turnos: seleccionados.length > 0 && tipos.gruposValidos,
     clases: problemaClases === null,
     horarios: rangoValido,
@@ -498,6 +505,7 @@ export function useOnboarding() {
     tipo: esVentas ? "Vender productos" : "Agendar turnos",
     negocio: nombreTitular.trim(),
     atencion: ETIQUETA_ATENCION[atencion],
+    lugar: lugar.resumen,
     turnos: `${seleccionados.length} ${seleccionados.length === 1 ? "tipo" : "tipos"}`,
     clases: `${clasesElegidas.length} ${clasesElegidas.length === 1 ? "clase" : "clases"}`,
     horarios: `${horaDesde}–${horaHasta}`,
@@ -591,6 +599,8 @@ export function useOnboarding() {
     nombreBot,
     setNombreBot,
     local,
+    lugar,
+    saludoLugar: respuestaDelLugar(lugar, titular),
     datosCliente,
     puedeAvanzar,
     presentacion,
@@ -613,8 +623,22 @@ export function useOnboarding() {
       horaDesde,
       horaHasta,
       nombreBot: nombreBot.trim(),
+      local: lugar.payload(),
     }),
   };
+}
+
+/** Lo que contesta el asistente en la vista previa cuando le preguntan dónde atiende. */
+function respuestaDelLugar(lugar: LocalState, titular: string): string {
+  const direccion = lugar.direccion.trim() || "tu dirección";
+  switch (lugar.opcionLugar) {
+    case "local":
+      return `Estamos en ${direccion}.`;
+    case "casa":
+      return `Es en la casa de ${titular}. La dirección te la paso apenas quede agendado tu turno.`;
+    case "ninguno":
+      return `No tenemos un lugar fijo: ${titular} atiende online o a domicilio y lo coordina con vos.`;
+  }
 }
 
 function conMayusculaInicial(texto: string): string {

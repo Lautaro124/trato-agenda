@@ -9,6 +9,7 @@ import { Logger } from '@nestjs/common';
 import { esAccionValida } from '../../../agents/agent-catalog.js';
 import { resumenDeError } from '../../../agents/openrouter.client.js';
 import { avisarASentry } from '../../../observabilidad/aviso-a-sentry.js';
+import { VueltaCancelada } from '../../cancelacion.js';
 import { MENSAJE_DISCULPA_GENERICO, MENSAJE_FUERA_DE_ALCANCE } from '../../mensajes.js';
 import { clasificarFalloDelModelo } from '../../respuesta-sin-choices.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO, type EsquemaHerramienta } from '../../conversation-tools.js';
@@ -19,9 +20,10 @@ export type DepsConversacion = {
   llm: BaseChatModel;
   /**
    * Qué herramientas ve el modelo. Por defecto las de la agenda; el grafo de
-   * ventas pasa las suyas (ventas-tools.ts).
+   * ventas pasa las suyas (ventas-tools.ts), que además dependen de lo que
+   * cargó el contexto (si la cuenta tiene productos a medida).
    */
-  herramientas?: (allowedActions: string[], esPropietario: boolean) => EsquemaHerramienta[];
+  herramientas?: (allowedActions: string[], esPropietario: boolean, contexto: EstadoComun['contexto']) => EsquemaHerramienta[];
 };
 
 /** Herramientas visibles para este agente: las habilitadas + las del dueño si corresponde. */
@@ -42,7 +44,7 @@ export function crearNodoConversacion(deps: DepsConversacion) {
 
   return async (state: EstadoComun): Promise<{ messages: BaseMessage[] }> => {
     const { contexto } = state;
-    const herramientas = elegirHerramientas(contexto.agent.allowedActions, state.esPropietario);
+    const herramientas = elegirHerramientas(contexto.agent.allowedActions, state.esPropietario, contexto);
     const modelo =
       herramientas.length > 0 && deps.llm.bindTools
         ? deps.llm.bindTools(herramientas)
@@ -52,12 +54,15 @@ export function crearNodoConversacion(deps: DepsConversacion) {
     // cortados: un hilo que quedó roto ya no hace fallar cada mensaje siguiente.
     const sistema = state.correccion ? `${contexto.bloqueSistema}\n\n${state.correccion}` : contexto.bloqueSistema;
     try {
-      const respuesta = await modelo.invoke([
-        new SystemMessage(sistema),
-        ...mensajesVisibles(state.messages, state.inicioVisible ?? 0),
-      ]);
+      const mensajes = [new SystemMessage(sistema), ...mensajesVisibles(state.messages, state.inicioVisible ?? 0)];
+      // Con la señal, descartar la vuelta corta también el pedido al proveedor, no sólo el grafo.
+      const respuesta = state.cancelacion
+        ? await modelo.invoke(mensajes, { signal: state.cancelacion.signal })
+        : await modelo.invoke(mensajes);
       return { messages: [respuesta] };
     } catch (error) {
+      // El cliente mandó otro mensaje y la vuelta se descartó: no es un fallo del modelo.
+      if (state.cancelacion?.cancelada) throw new VueltaCancelada();
       // Se responde como si fuera el turno final: sin tool calls, el router
       // manda directo a persistir y termina la vuelta.
       const fallo = clasificarFalloDelModelo(error);

@@ -44,7 +44,7 @@ export class SubscriptionController {
     return this.subscriptionService.estadoPublico(user.id);
   }
 
-  /** Público: la landing muestra el mismo precio que /plan, sacado de SUSCRIPCION_PRECIO_ARS. */
+  /** Público: la landing muestra el mismo precio que /plan, sacado de SUSCRIPCION_PRECIO_ARS (Básico) y SUSCRIPCION_PRECIO_PRO_ARS. */
   @Get('precio')
   precio(): PrecioPublico {
     return this.subscriptionService.precioPublico();
@@ -54,7 +54,7 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   async checkout(@CurrentUser() user: User, @Body() dto: CheckoutDto): Promise<{ initPoint: string }> {
     try {
-      return await this.subscriptionService.crearCheckout(user, dto.email?.trim().toLowerCase());
+      return await this.subscriptionService.crearCheckout(user, dto.plan, dto.email?.trim().toLowerCase());
     } catch (error) {
       if (error instanceof MercadoPagoError) {
         throw new BadGatewayException(error.message);
