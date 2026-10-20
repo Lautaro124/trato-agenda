@@ -38,6 +38,7 @@ function crearServicio(opciones: {
         return {
           id: 'user-1',
           email: 'dueño@ejemplo.com',
+          googleId: 'google-1',
           createdAt: new Date(Date.now() - opciones.creadoHaceDias * MS_POR_DIA),
           suscripcion: filas.get('user-1') ?? null,
         };
