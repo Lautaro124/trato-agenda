@@ -393,6 +393,12 @@ export default function PrivacidadPage() {
               menos de una hora, los de un presupuesto a medida en hasta tres días.
             </Punto>
             <Punto>
+              Lo único que conservamos es una huella irreversible (un hash con clave secreta, no tu
+              mail ni tu número) de tu cuenta de Google, tu mail y tu número de WhatsApp, junto con
+              la fecha en que te diste de alta. Sirve solo para que borrar la cuenta y volver a
+              crearla no reinicie el mes de prueba gratis. No se puede revertir para saber quién sos.
+            </Punto>
+            <Punto>
               Borramos las sugerencias que nos mandaste. Las que ya pasamos a Linear quedan ahí sin
               ningún dato tuyo más que el texto que escribiste.
             </Punto>

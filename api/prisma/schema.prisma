@@ -267,6 +267,18 @@ model Turno {
   updatedAt DateTime @updatedAt
 }
 
+/// Lápida de una prueba gratis ya empezada. Sobrevive a la baja de la cuenta
+/// (sin FK al User) para que borrar y volver a crear la cuenta no regale otro
+/// mes: guarda sólo un HMAC de la identidad (Google, email o teléfono) y la
+/// fecha de alta original, nunca el dato legible. Ver
+/// api/src/subscription/prueba-consumida.ts. No se purga: si caducara, esperar
+/// un mes reabriría el hueco.
+model PruebaConsumida {
+  id     String   @id @default(cuid())
+  huella String   @unique
+  inicio DateTime
+}
+
 /// Suscripción paga del dueño. La fila recién existe cuando arranca un pago:
 /// el mes de prueba gratis se deriva de `User.createdAt` (ver
 /// api/src/subscription/subscription.rules.ts), así que un usuario sin fila

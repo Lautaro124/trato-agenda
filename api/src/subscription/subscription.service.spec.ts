@@ -13,6 +13,8 @@ const MS_POR_DIA = 24 * 60 * 60 * 1000;
 /** Base de datos en memoria: una sola fila Subscription, indexada por userId. */
 function crearServicio(opciones: {
   creadoHaceDias: number;
+  /** Alta de una cuenta anterior de la misma identidad, ya borrada. */
+  lapidaHaceDias?: number;
   suscripcion?: { estado: string } | null;
   preapproval?: Partial<Preapproval>;
   emailsTomados?: string[];
@@ -40,6 +42,13 @@ function crearServicio(opciones: {
           suscripcion: filas.get('user-1') ?? null,
         };
       }),
+    },
+    pruebaConsumida: {
+      findMany: vi.fn().mockResolvedValue(
+        opciones.lapidaHaceDias === undefined
+          ? []
+          : [{ inicio: new Date(Date.now() - opciones.lapidaHaceDias * MS_POR_DIA) }],
+      ),
     },
     notificacion: {
       findFirst: vi
@@ -183,6 +192,17 @@ describe('SubscriptionService', () => {
     expect(await enPrueba.service.asistenteActivo('user-1')).toBe(true);
     expect(await vencido.service.asistenteActivo('user-1')).toBe(false);
     expect(await pagando.service.asistenteActivo('user-1')).toBe(true);
+  });
+
+  it('una cuenta recreada hereda la prueba de la que se borró', async () => {
+    // Se dio de alta hace 31 días, borró la cuenta y volvió hoy: ya no tiene prueba.
+    const recreada = crearServicio({ creadoHaceDias: 0, lapidaHaceDias: DIAS_PRUEBA + 1 });
+    expect(await recreada.service.asistenteActivo('user-1')).toBe(false);
+
+    // Borró a los 29 días: le queda 1.
+    const aTiempo = crearServicio({ creadoHaceDias: 0, lapidaHaceDias: 29 });
+    expect(await aTiempo.service.asistenteActivo('user-1')).toBe(true);
+    expect((await aTiempo.service.estadoPublico('user-1')).diasRestantes).toBe(1);
   });
 
   it('el checkout del Pro cobra el precio del Pro y lo guarda en la fila', async () => {

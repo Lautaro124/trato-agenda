@@ -4,6 +4,7 @@ import type { Env } from '../config/env.js';
 import { CheckpointerService } from '../conversation/checkpointer.provider.js';
 import type { User } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { huellasDeIdentidad } from '../subscription/prueba-consumida.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { revocarTokenDeGoogle } from './google-revoke.js';
@@ -36,6 +37,9 @@ export class CuentaService {
    * fallan, la persona igual tiene que poder irse.
    */
   async eliminar(user: User): Promise<void> {
+    // Primero, y sin best-effort: si no queda la lápida, borrar la cuenta
+    // permitiría reiniciar el mes de prueba. Falla antes de tocar nada más.
+    await this.dejarLapidaDePrueba(user);
     await this.revocarGoogle(user);
     await this.cancelarSuscripcion(user.id);
     await this.desvincularWhatsapp(user.id);
@@ -52,10 +56,30 @@ export class CuentaService {
     // mail.
     await this.prisma.user.delete({ where: { id: user.id } });
 
+    // La lápida de la prueba (hash + fecha de alta) queda a propósito: es lo
+    // único que sobrevive a la baja, y /privacidad lo dice.
     // Los eventos que el asistente ya creó en el Google Calendar del titular
     // NO se borran: son eventos de su calendario, y borrarlos sería destruir
     // datos que no son nuestros. /privacidad lo dice explícito.
     this.logger.log(`Cuenta eliminada: ${user.id}`);
+  }
+
+  /**
+   * Deja un HMAC de cada identidad con la fecha de alta, para que volver a
+   * crear la cuenta no regale otro mes de prueba (ver `prueba-consumida.ts`).
+   * Si la identidad ya tenía lápida se conserva la más antigua.
+   */
+  private async dejarLapidaDePrueba(user: User): Promise<void> {
+    const huellas = huellasDeIdentidad(user, this.config.get('TOKEN_ENCRYPTION_KEY', { infer: true }));
+    for (const huella of huellas) {
+      const previa = await this.prisma.pruebaConsumida.findUnique({ where: { huella } });
+      if (previa && previa.inicio <= user.createdAt) continue;
+      await this.prisma.pruebaConsumida.upsert({
+        where: { huella },
+        create: { huella, inicio: user.createdAt },
+        update: { inicio: user.createdAt },
+      });
+    }
   }
 
   private async revocarGoogle(user: User): Promise<void> {
