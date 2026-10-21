@@ -5,6 +5,7 @@ import type { Env } from '../config/env.js';
 import type { ItemVenta, Prisma, Venta } from '../generated/prisma/client.js';
 import { avisoMercadoPagoDesconectado, avisoPedidoManual, avisoStock, avisoVentaPagada } from '../notificaciones/avisos.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
+import { RegistroPerformanceService } from '../performance/registro.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   MercadoPagoClient,
@@ -137,6 +138,7 @@ export class VentasService {
     private readonly cuentas: CuentaMercadoPagoService,
     private readonly config: ConfigService<Env, true>,
     private readonly notificaciones: NotificacionesService,
+    private readonly registro: RegistroPerformanceService,
   ) {}
 
   /** Unidades retenidas por pedidos pendientes y sin vencer, por variante (ver reservas.ts). */
@@ -429,7 +431,7 @@ export class VentasService {
     opciones: { mpPaymentId?: string; ahora?: Date } = {},
   ): Promise<ResultadoPago | null> {
     const ahora = opciones.ahora ?? new Date();
-    return this.prisma.$transaction(async (tx) => {
+    const resultado = await this.prisma.$transaction(async (tx) => {
       const [bloqueada] = await tx.$queryRaw<Array<{ id: string; estado: string }>>`
         SELECT "id", "estado" FROM "Venta" WHERE "id" = ${ventaId} FOR UPDATE
       `;
@@ -494,6 +496,9 @@ export class VentasService {
       }
       return { venta, nueva: true, stockBajo: conStockBajo };
     });
+    // Fuera de la transacción: la métrica nunca frena el pago (y es de mejor esfuerzo).
+    if (resultado?.nueva) await this.registro.avanzarPorVenta(resultado.venta, 'pagado');
+    return resultado;
   }
 
   /**

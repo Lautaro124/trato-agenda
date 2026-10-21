@@ -44,6 +44,7 @@ import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../t
 import { contarToolCallsNuevas } from './adversarial/medicion.js';
 import { HAY_CLAVE, modelosDelEval } from './modelos.js';
 import { guardarReporte, normalizar, type Resultado } from './reporte.js';
+import { RegistroPerformanceService } from '../src/performance/registro.service.js';
 
 const CATALOGO = [
   { codigo: 'MATE-CAL', nombre: 'Mate de calabaza', descripcion: 'Curado a mano, con virola de alpaca.', categoria: 'Mates', precio: 18_500, stock: 50 },
@@ -275,7 +276,7 @@ describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () 
           prisma,
           busqueda: new BusquedaService(prisma, embeddings),
           sugerencias: new SugerenciasService(prisma, new DecisionesClient(config)),
-          ventas: new VentasService(prisma, mp, new CuentaMercadoPagoService(prisma, mp, config), config, notificaciones),
+          ventas: new VentasService(prisma, mp, new CuentaMercadoPagoService(prisma, mp, config), config, notificaciones, new RegistroPerformanceService(prisma)),
           notificaciones,
           historico: new HistoricoVentasService(prisma),
           imagenes: new ImagenesService(prisma),

@@ -3,6 +3,7 @@
  * stock y la idempotencia del pago son SQL que un mock no prueba. Ver
  * test/base-de-prueba.ts.
  */
+import { RegistroPerformanceService } from '../performance/registro.service.js';
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
@@ -65,6 +66,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       cuentas as unknown as CuentaMercadoPagoService,
       config,
       notificaciones as unknown as NotificacionesService,
+      new RegistroPerformanceService(prisma),
     );
     dueno = await crearUsuarioDePrueba(prisma);
     const crear = (codigo: string, precioCentavos: number, stock: number | null, stockMinimo: number | null = null) =>

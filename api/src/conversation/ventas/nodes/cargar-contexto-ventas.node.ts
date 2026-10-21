@@ -26,6 +26,7 @@ import {
 } from '../reglas-ventas.js';
 import { estadoDeLaCharla, etapaDesdeOrden, pedidoDeEtapa } from '../etapa-de-compra.js';
 import type { ContextoVentas, EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
+import type { RegistroPerformanceService } from '../../../performance/registro.service.js';
 
 export type DepsContextoVentas = {
   prisma: PrismaService;
@@ -33,6 +34,8 @@ export type DepsContextoVentas = {
   ventanaHistorialMs?: number;
   /** Jev (etapa-de-compra.ts). Sin él, o si falla, la regla de datos de siempre. */
   decisiones?: Pick<DecisionesClient, 'ordenar' | 'configurado'>;
+  /** Módulo de performance (LAU-30): actividad y etapa de Jev de cada chat. Sin él (evals), nada. */
+  registro?: Pick<RegistroPerformanceService, 'tocarChat'>;
 };
 
 const logger = new Logger('CargarContextoVentasNode');
@@ -191,6 +194,8 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       ultimaDevolucion(deps.prisma, conversation.id, new Date(Date.now() - ventanaMs)),
     ]);
     const mpConectado = cuentaMp !== null;
+    // El banco de pruebas del Home no cuenta para el módulo de performance.
+    if (!state.esPropietario) await deps.registro?.tocarChat(state.ownerUserId, conversation.id, { etapaJev: etapa });
     // Un pedido a medida en curso también cuenta: aunque el producto ya no esté, se puede aceptar o derivar.
     const tieneAMedida = productosAMedida > 0 || pedidosAMedida.length > 0;
     const categorias = grupos.map((grupo) => ({ nombre: grupo.categoria as string, cantidad: grupo._count._all }));

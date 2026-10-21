@@ -3,6 +3,7 @@
  * la solicitud al pago, con sus presupuestos versionados, el historial y la
  * atención humana. Ver test/base-de-prueba.ts.
  */
+import { RegistroPerformanceService } from '../performance/registro.service.js';
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
@@ -66,6 +67,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
       cuentas as unknown as CuentaMercadoPagoService,
       config,
       notificaciones as unknown as NotificacionesService,
+      new RegistroPerformanceService(prisma),
     );
     costos = new CostosService(prisma);
     pedidos = new PedidosAMedidaService(
@@ -74,6 +76,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
       cuentas as unknown as CuentaMercadoPagoService,
       notificaciones as unknown as NotificacionesService,
       costos,
+      new RegistroPerformanceService(prisma),
     );
     dueno = await crearUsuarioDePrueba(prisma);
     otro = await crearUsuarioDePrueba(prisma);
