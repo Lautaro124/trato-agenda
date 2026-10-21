@@ -20,6 +20,11 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // No anunciar el framework en cada respuesta.
   poweredByHeader: false,
+  // También cubre builds fuera de Docker; el navegador no puede leer Railway.
+  env: {
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT:
+      process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || process.env.RAILWAY_ENVIRONMENT_NAME || "local",
+  },
   images: {
     // Las fotos de perfil de Google salen de este host.
     remotePatterns: [new URL("https://lh3.googleusercontent.com/**")],
