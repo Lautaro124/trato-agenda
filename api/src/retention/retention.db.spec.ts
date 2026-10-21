@@ -174,4 +174,37 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     expect(quedan.map(({ id }) => id).sort()).toEqual([enviadaNueva.id, pendienteVieja.id].sort());
     expect(quedan.map(({ id }) => id)).not.toContain(enviadaVieja.id);
   });
+  it('a los 12 meses el registro de performance se desliga del chat y queda como conteo', async () => {
+    const conversation = await prisma.conversation.create({
+      data: { userId: dueno.id, remoteJid: '5491100000001@s.whatsapp.net' },
+    });
+    const producto = await prisma.producto.create({ data: { userId: dueno.id, codigo: 'PERF', nombre: 'Mate' } });
+    const viejo = pasado(DIAS_RETENCION_DATOS_CLIENTE);
+    await prisma.etapaChat.create({
+      data: { userId: dueno.id, conversationId: conversation.id, etapa: 'pagado', ultimaActividadAt: viejo },
+    });
+    await prisma.interesProducto.createMany({
+      data: [
+        { userId: dueno.id, conversationId: conversation.id, productoId: producto.id, tipo: 'vio', createdAt: viejo },
+        {
+          userId: dueno.id,
+          conversationId: conversation.id,
+          productoId: producto.id,
+          tipo: 'pidio',
+          createdAt: reciente(DIAS_RETENCION_DATOS_CLIENTE),
+        },
+      ],
+    });
+
+    await servicio['desligarPerformance'](AHORA);
+
+    expect(await prisma.etapaChat.findMany({ where: { userId: dueno.id } })).toEqual([
+      expect.objectContaining({ conversationId: null, etapa: 'pagado' }),
+    ]);
+    const intereses = await prisma.interesProducto.findMany({ where: { userId: dueno.id }, orderBy: { tipo: 'asc' } });
+    expect(intereses.map((interes) => [interes.tipo, interes.conversationId])).toEqual([
+      ['pidio', conversation.id],
+      ['vio', null],
+    ]);
+  });
 });

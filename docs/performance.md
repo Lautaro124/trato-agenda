@@ -132,3 +132,29 @@ En las tres, `conversationId` es `SetNull`. Así los agregados sobreviven a la p
 - Estos plazos van en `retention.rules.ts`, `/privacidad` y [verificacion-google.md](verificacion-google.md), en el mismo cambio que los implemente.
 
 Las métricas empiezan el día del deploy, sin backfill desde `Message`. Los períodos anteriores se muestran como "sin datos".
+
+## Estado de la implementación
+
+**Registro (hecho).** Tablas `EtapaChat` e `InteresProducto` (migración `20261021140000_performance_registro`) y `RegistroPerformanceService` (`api/src/performance/`). Todo el registro es de mejor esfuerzo: un error queda en el log con ids y no frena la venta ni la respuesta. Se ignoran el banco de pruebas, las ventas `dePrueba` y las conversaciones o productos de otra cuenta.
+
+Dónde se escribe:
+
+| Qué | Dónde |
+| --- | --- |
+| Actividad y etapa de Jev | `cargar-contexto-ventas.node.ts`, en cada ráfaga del cliente |
+| `vio` | `catalogo.node.ts`: `buscar_productos`, `ver_catalogo` (listado), `enviar_imagen_producto` |
+| `pidio` | `catalogo.node.ts`: `crear_pedido` (por variante), `pedir_variante`, `registrar_solicitud` |
+| `cotizado` | `PedidosAMedidaService.enviarPresupuesto` |
+| `pagado` | `VentasService.marcarPagada` (webhook, conciliación y cobro manual) |
+| Derivado | `derivar_consulta` en el nodo y `PedidosAMedidaService.derivar` |
+
+La retención desliga la conversación a los 12 meses (`RetentionService.desligarPerformance`).
+
+Columnas que existen pero todavía nadie escribe: `provincia` y `origenZona` (paso de zona) y `clasificadaAt` (paso de preguntas).
+
+**Pendiente:**
+- lectura y agregación (`GET /performance`);
+- zona;
+- clasificación de preguntas (`PreguntaChat`);
+- tips;
+- pantalla.

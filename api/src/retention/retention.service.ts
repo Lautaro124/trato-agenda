@@ -58,11 +58,12 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       const avisos = await this.purgarAvisos();
       const altas = await this.descartarAltasPendientes();
       const sugerencias = await this.purgarSugerencias();
-      if (mensajes > 0 || anonimizadas > 0 || ventas > 0 || avisos > 0 || altas > 0 || sugerencias > 0) {
+      const performance = await this.desligarPerformance();
+      if (mensajes > 0 || anonimizadas > 0 || ventas > 0 || avisos > 0 || altas > 0 || sugerencias > 0 || performance > 0) {
         this.logger.log(
           `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
             `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas, ` +
-            `${sugerencias} sugerencias ya enviadas borradas.`,
+            `${sugerencias} sugerencias ya enviadas borradas, ${performance} registros de performance desligados.`,
         );
       }
     } catch (error) {
@@ -185,6 +186,25 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       },
     });
     return count;
+  }
+
+  /**
+   * El registro de performance (LAU-30) queda como conteo mientras exista la
+   * cuenta, pero a los `DIAS_RETENCION_DATOS_CLIENTE` se desliga del chat: la
+   * etapa, desde el último mensaje del cliente; el interés por un producto,
+   * desde que se anotó. Sin la conversación ya no hay forma de volver a quién.
+   */
+  private async desligarPerformance(ahora: Date = new Date()): Promise<number> {
+    const limite = fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora);
+    const etapas = await this.prisma.etapaChat.updateMany({
+      where: { ultimaActividadAt: { lt: limite }, conversationId: { not: null } },
+      data: { conversationId: null },
+    });
+    const intereses = await this.prisma.interesProducto.updateMany({
+      where: { createdAt: { lt: limite }, conversationId: { not: null } },
+      data: { conversationId: null },
+    });
+    return etapas.count + intereses.count;
   }
 
   /** Sugerencias de mejora que ya están en Linear hace más de `DIAS_RETENCION_SUGERENCIAS`. */
