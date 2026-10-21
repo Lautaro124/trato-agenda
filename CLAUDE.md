@@ -74,6 +74,7 @@ Configuración, variables y despliegue: [README.md](README.md). La API requiere 
 - [Seguridad](docs/seguridad.md): controles y pendientes.
 - [Verificación de Google](docs/verificacion-google.md): scopes, datos, privacidad y pasos manuales.
 - [Modelo y ZDR](docs/modelo-y-zdr.md): selección y restricciones del proveedor.
+- [Performance](docs/performance.md): definiciones de conversión, etapas, zona y preguntas del módulo de performance (LAU-30).
 - [Referencia técnica](docs/referencia-tecnica.md): detalle histórico de módulos, flujos, stubs y decisiones. Leer sólo la sección pertinente y contrastarla con código/tests; no cargarla completa por defecto.
 
 Mantener este archivo breve: instrucciones estables y enlaces. Los detalles de implementación pertenecen al código, tests o documentación específica.
