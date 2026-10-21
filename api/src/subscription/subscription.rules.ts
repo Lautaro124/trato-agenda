@@ -68,8 +68,8 @@ export function estadoDeSuscripcion(entrada: {
 
 /** Planes pagos. El Básico es el que ya existía; el Pro sube el tope de chats. */
 export const PLANES = {
-  basico: { nombre: 'Básico', chats: 2500 },
-  pro: { nombre: 'Pro', chats: 6000 },
+  basico: { nombre: 'Básico', chats: 1500 },
+  pro: { nombre: 'Pro', chats: 4500 },
 } as const;
 
 export type PlanId = keyof typeof PLANES;

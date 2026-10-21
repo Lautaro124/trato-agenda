@@ -48,9 +48,9 @@ export type Env = {
    * GOOGLE_CALLBACK_URL, que ya es la API.
    */
   API_PUBLIC_URL: string;
-  /** Precio mensual del plan Básico (2.500 chats). */
+  /** Precio mensual del plan Básico (1.500 chats). */
   SUSCRIPCION_PRECIO_ARS: number;
-  /** Precio mensual del plan Pro (6.000 chats). */
+  /** Precio mensual del plan Pro (4.500 chats). */
   SUSCRIPCION_PRECIO_PRO_ARS: number;
   /**
    * Hasta cuánto para atrás ve el modelo el historial de un chat

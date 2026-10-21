@@ -124,7 +124,7 @@ export function formatearMonto(monto: number, moneda = "ARS"): string {
   }).format(monto);
 }
 
-/** "2.500", como se escribe en Argentina. */
+/** "1.500", como se escribe en Argentina. */
 export function formatearChats(chats: number): string {
   return new Intl.NumberFormat("es-AR").format(chats);
 }

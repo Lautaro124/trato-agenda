@@ -120,8 +120,8 @@ está pendiente.
 | `MERCADOPAGO_CLIENT_SECRET` | Client secret de la aplicación, para canjear y renovar los tokens OAuth de los comercios. **Secreto real, nunca commitear.** En el panel de Mercado Pago, la Redirect URL tiene que ser `<API_PUBLIC_URL>/mercadopago/callback`. |
 | `API_PUBLIC_URL` | Opcional. URL pública de la API (redirect del OAuth y `notification_url` de los links de pago). Por defecto, el origen de `GOOGLE_CALLBACK_URL`. |
 | `MERCADOPAGO_BASE_URL` / `MERCADOPAGO_AUTH_URL` | Opcionales. `https://api.mercadopago.com` y `https://auth.mercadopago.com` por defecto; los E2E las apuntan al Mercado Pago falso (`e2e/mercadopago-stub`). |
-| `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan Básico (hasta 2.500 chats por mes) en pesos. Por defecto `20000`. |
-| `SUSCRIPCION_PRECIO_PRO_ARS` | Importe mensual del plan Pro (hasta 6.000 chats por mes) en pesos. Por defecto `59000`. |
+| `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan Básico (hasta 1.500 chats por mes) en pesos. Por defecto `20000`. |
+| `SUSCRIPCION_PRECIO_PRO_ARS` | Importe mensual del plan Pro (hasta 4.500 chats por mes) en pesos. Por defecto `59000`. |
 | `LINEAR_API_KEY` | Opcional. API key personal de Linear (Settings → Security & access → Personal API keys) con permiso para crear issues. Con ella y `LINEAR_TEAM_ID`, cada sugerencia de mejora que manda un dueño desde el panel se copia como issue. Sin ellas se guardan igual en la tabla `SugerenciaMejora` y quedan pendientes; un barrido cada 10 minutos las reintenta cuando aparecen. |
 | `LINEAR_TEAM_ID` | Opcional. Id (UUID) del equipo de Linear donde se crean esos issues — no la clave `LAU`. |
 | `LINEAR_LABEL_ID` | Opcional. Id de una etiqueta para marcarlos (ej. "Sugerencia"). |

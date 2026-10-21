@@ -82,17 +82,17 @@ describe('estadoDeSuscripcion', () => {
 });
 
 describe('planes y cupo de chats', () => {
-  it('el Básico tiene 2.500 chats, el Pro 6.000, y la prueba muestra el del Pro', () => {
-    expect(limiteDeChats('basico')).toBe(2500);
-    expect(limiteDeChats('pro')).toBe(6000);
-    expect(limiteDeChats(null)).toBe(6000);
-    expect(limiteDeChats('desconocido')).toBe(2500);
+  it('el Básico tiene 1.500 chats, el Pro 4.500, y la prueba muestra el del Pro', () => {
+    expect(limiteDeChats('basico')).toBe(1500);
+    expect(limiteDeChats('pro')).toBe(4500);
+    expect(limiteDeChats(null)).toBe(4500);
+    expect(limiteDeChats('desconocido')).toBe(1500);
   });
 
   it('avisa desde el 80 % y marca superado al llegar al tope', () => {
-    expect(estadoDeCupo({ usados: 1999, plan: 'basico' })).toMatchObject({ cercano: false, superado: false, restantes: 501 });
-    expect(estadoDeCupo({ usados: 2000, plan: 'basico' })).toMatchObject({ cercano: true, superado: false, porcentaje: 80 });
-    expect(estadoDeCupo({ usados: 2500, plan: 'basico' })).toMatchObject({ cercano: true, superado: true, restantes: 0 });
+    expect(estadoDeCupo({ usados: 1199, plan: 'basico' })).toMatchObject({ cercano: false, superado: false, restantes: 301 });
+    expect(estadoDeCupo({ usados: 1200, plan: 'basico' })).toMatchObject({ cercano: true, superado: false, porcentaje: 80 });
+    expect(estadoDeCupo({ usados: 1500, plan: 'basico' })).toMatchObject({ cercano: true, superado: true, restantes: 0 });
     expect(estadoDeCupo({ usados: 9000, plan: 'pro' })).toMatchObject({ superado: true, restantes: 0 });
   });
 

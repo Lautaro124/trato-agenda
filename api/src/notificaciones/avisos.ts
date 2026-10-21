@@ -3,6 +3,7 @@
  * campanita del panel y a su propio chat de WhatsApp.
  */
 import { formatearCentavos } from '../comercio/catalogo.rules.js';
+import { PLANES } from '../subscription/subscription.rules.js';
 import { detalleDeRenglones, fechaYHora, type RenglonVenta } from '../comercio/ventas.rules.js';
 
 export const TIPOS_NOTIFICACION = [
@@ -261,7 +262,7 @@ export function avisoCupoDeChats(datos: {
   const cierre =
     datos.plan === 'pro'
       ? 'El asistente sigue contestando igual.'
-      : 'El asistente sigue contestando igual; si querés más margen, podés pasarte al plan Pro (6.000 chats).';
+      : `El asistente sigue contestando igual; si querés más margen, podés pasarte al plan Pro (${PLANES.pro.chats.toLocaleString('es-AR')} chats).`;
   return {
     tipo: 'cupo_chats',
     titulo,

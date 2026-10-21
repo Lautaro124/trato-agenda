@@ -319,7 +319,7 @@ function OpcionDePlan({
   );
 }
 
-/** Uso del mes: "N de 2.500 chats", con una barra. Sólo informa, el asistente no se corta. */
+/** Uso del mes: "N de 1.500 chats", con una barra. Sólo informa, el asistente no se corta. */
 function UsoDelMes({ uso }: { uso: Suscripcion["uso"] }) {
   const porcentaje = Math.min(100, Math.round((uso.chats * 100) / uso.limite));
   return (
