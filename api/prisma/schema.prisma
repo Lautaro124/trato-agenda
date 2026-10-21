@@ -53,6 +53,8 @@ model User {
   sugerencias     SugerenciaMejora[]
   insumos          Insumo[]
   configCotizacion ConfigCotizacion?
+  etapasChat       EtapaChat[]
+  interesProductos InteresProducto[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -208,6 +210,9 @@ model Conversation {
   messages Message[]
   turnos   Turno[]
   ventas   Venta[]
+
+  etapaChat        EtapaChat?
+  interesProductos InteresProducto[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -395,6 +400,7 @@ model Producto {
   embeddingHash String?
 
   variantes Variante[]
+  intereses InteresProducto[]
   /// El descuento propio del producto (del formulario), si tiene.
   descuento Descuento?
   /// La foto que el asistente le manda al cliente cuando la pide (una sola).
@@ -840,4 +846,62 @@ model ConfigCotizacion {
   desgloseAlCliente String  @default("total")
 
   updatedAt DateTime @updatedAt
+}
+
+/// Etapa de un chat de ventas para el módulo de performance (LAU-30). Una
+/// fila por conversación, sin datos personales: la conversación se desliga a
+/// los 12 meses (retention.rules.ts) y queda sólo el conteo. Etapas y reglas
+/// en performance/etapas.rules.ts; definiciones en docs/performance.md.
+model EtapaChat {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Null cuando se desligó por retención o se borró la conversación.
+  conversationId String?       @unique
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  /// La más avanzada que alcanzó; nunca retrocede.
+  /// "consulta" | "vio_productos" | "eligiendo" | "lista" | "pedido" | "cotizado" | "pagado"
+  etapa    String  @default("consulta")
+  /// Última etapa que calculó Jev: "eligiendo" | "lista". Null si nunca se calculó.
+  etapaJev String?
+  /// El chat se derivó a una persona (derivar_consulta o atención humana).
+  derivado Boolean @default(false)
+
+  /// Provincia del cliente (paso de zona). Null = sin zona.
+  provincia     String?
+  /// "dato" | "inferida"
+  origenZona    String?
+  /// Cuándo se clasificaron sus preguntas (paso de preguntas); se reserva antes de llamar al modelo.
+  clasificadaAt DateTime?
+
+  /// Último mensaje del cliente: de ahí sale si está activo, estancado o abandonado.
+  ultimaActividadAt DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId, ultimaActividadAt])
+}
+
+/// Producto que un chat de ventas vio o pidió (LAU-30). Una fila por chat,
+/// producto y tipo, así un turno descartado y rehecho no cuenta dos veces.
+/// Se desliga de la conversación a los 12 meses, como EtapaChat.
+model InteresProducto {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  productoId     String
+  producto       Producto      @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  /// "vio" | "pidio"
+  tipo      String
+  createdAt DateTime @default(now())
+
+  @@unique([conversationId, productoId, tipo])
+  @@index([userId, createdAt])
+  @@index([productoId])
 }
