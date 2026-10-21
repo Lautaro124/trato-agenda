@@ -1,6 +1,12 @@
 import { API_URL } from '../entorno';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { crearAgenteVentasPorApi, type ProductoE2E } from './ventas';
+
+/** Sube una planilla desde el input del panel de importación. */
+async function subirPlanilla(page: Page, name: string, buffer: Buffer) {
+  await page.getByLabel('Planilla de productos').setInputFiles({ name, mimeType: 'text/csv', buffer });
+}
 
 /** Una fila por variante; la última tiene un precio que no es un número. */
 const PLANILLA = [
@@ -19,11 +25,7 @@ test.describe('catálogo de un comercio', () => {
     await page.getByRole('button', { name: 'Importar planilla' }).first().click();
     const importar = page.getByRole('region', { name: 'Importar productos' });
 
-    await page.getByLabel('Planilla de productos').setInputFiles({
-      name: 'incompleta.csv',
-      mimeType: 'text/csv',
-      buffer: Buffer.from('codigo;nombre;precio;stock\nTAZA-1;Taza de cerámica;;5\nVASO-1;Vaso;1200;'),
-    });
+    await subirPlanilla(page, 'incompleta.csv', Buffer.from('codigo;nombre;precio;stock\nTAZA-1;Taza de cerámica;;5\nVASO-1;Vaso;1200;'));
     await expect(importar).toContainText('1con error');
     await importar.getByRole('button', { name: 'Completar 1 fila a mano' }).click();
 
@@ -32,10 +34,10 @@ test.describe('catálogo de un comercio', () => {
     await expect(modal).toContainText('Falta el precio');
     // Sin escribir nada no se puede guardar; con un valor inválido el modal sigue abierto y lo explica.
     await expect(modal.getByRole('button', { name: 'Guardar y revisar' })).toBeDisabled();
-    await modal.getByLabel('Precio ($)').fill('mucho');
+    await modal.getByLabel('Precio').fill('mucho');
     await modal.getByRole('button', { name: 'Guardar y revisar' }).click();
     await expect(modal).toContainText('Precio inválido');
-    await modal.getByLabel('Precio ($)').fill('2.500');
+    await modal.getByLabel('Precio').fill('2.500');
     await modal.getByRole('button', { name: 'Guardar y revisar' }).click();
 
     await expect(modal).toBeHidden();
@@ -53,19 +55,11 @@ test.describe('catálogo de un comercio', () => {
     const importar = page.getByRole('region', { name: 'Importar productos' });
 
     // Sin la columna "precio": un único aviso, no un error por fila.
-    await page.getByLabel('Planilla de productos').setInputFiles({
-      name: 'sin-precio.csv',
-      mimeType: 'text/csv',
-      buffer: Buffer.from('codigo;nombre\nA-1;Algo'),
-    });
+    await subirPlanilla(page, 'sin-precio.csv', Buffer.from('codigo;nombre\nA-1;Algo'));
     await expect(importar.getByRole('alert')).toContainText('le falta la columna precio');
 
     // Excel en español guarda "CSV (delimitado por comas)" en Windows-1252: la ñ y las tildes no pueden romperse.
-    await page.getByLabel('Planilla de productos').setInputFiles({
-      name: 'excel.csv',
-      mimeType: 'text/csv',
-      buffer: Buffer.from('Código;Nombre;Precio;Stock\r\nPAN-1;Pañuelo bordado;1.500,50;3\r\n', 'latin1'),
-    });
+    await subirPlanilla(page, 'excel.csv', Buffer.from('Código;Nombre;Precio;Stock\r\nPAN-1;Pañuelo bordado;1.500,50;3\r\n', 'latin1'));
     await expect(importar.getByRole('list', { name: 'Resumen de la planilla' })).toContainText('1nuevo');
     await importar.getByRole('button', { name: 'Importar (1 producto)' }).click();
     await expect(importar.getByRole('status')).toContainText('Listo: 1 nuevo');
@@ -80,11 +74,7 @@ test.describe('catálogo de un comercio', () => {
     await expect(page.getByText('Todavía no cargaste productos')).toBeVisible();
     await page.getByRole('button', { name: 'Importar planilla' }).first().click();
 
-    await page.getByLabel('Planilla de productos').setInputFiles({
-      name: 'catalogo.csv',
-      mimeType: 'text/csv',
-      buffer: Buffer.from(PLANILLA),
-    });
+    await subirPlanilla(page, 'catalogo.csv', Buffer.from(PLANILLA));
 
     // Vista previa: nada se escribió todavía.
     const importar = page.getByRole('region', { name: 'Importar productos' });

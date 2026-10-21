@@ -2,21 +2,8 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/Button";
-import { valorDeFila, type FilaPlanilla } from "@/lib/planilla";
+import { ETIQUETAS_COLUMNA, valorDeFila, type FilaPlanilla } from "@/lib/planilla";
 import type { ErrorDeFila } from "@/lib/productos";
-
-const ETIQUETAS: Record<string, string> = {
-  codigo: "Código",
-  nombre: "Nombre",
-  descripcion: "Descripción",
-  categoria: "Categoría",
-  variante: "Variante",
-  sku: "SKU",
-  precio: "Precio ($)",
-  stock: "Stock",
-  stock_minimo: "Stock mínimo",
-  disponible: "¿Está disponible?",
-};
 
 const NUMERICAS = new Set(["precio", "stock", "stock_minimo"]);
 
@@ -61,6 +48,7 @@ export function CompletarFilasModal({ filas, errores, onGuardar, onCerrar }: Pro
     setFallo(null);
     onGuardar(cambios)
       .then((mensaje) => setFallo(mensaje))
+      .catch(() => setFallo("No pudimos revisar los cambios. Probá de nuevo."))
       .finally(() => setGuardando(false));
   };
 
@@ -122,7 +110,7 @@ export function CompletarFilasModal({ filas, errores, onGuardar, onCerrar }: Pro
                     return (
                       <div key={columna} className="flex flex-col gap-1">
                         <label htmlFor={id} className="text-[13px] font-semibold text-ink">
-                          {ETIQUETAS[columna] ?? columna}
+                          {ETIQUETAS_COLUMNA[columna] ?? columna}
                         </label>
                         {columna === "disponible" ? (
                           <select

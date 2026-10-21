@@ -130,6 +130,20 @@ export function conValor(fila: FilaPlanilla, columna: string, valor: string): Fi
   return { ...fila, [clave]: valor };
 }
 
+/** Cómo se llama cada columna de la plantilla cuando se le habla al usuario. */
+export const ETIQUETAS_COLUMNA: Record<string, string> = {
+  codigo: "Código",
+  nombre: "Nombre",
+  descripcion: "Descripción",
+  categoria: "Categoría",
+  variante: "Variante",
+  sku: "SKU",
+  precio: "Precio",
+  stock: "Stock",
+  stock_minimo: "Stock mínimo",
+  disponible: "Disponible",
+};
+
 /** Columnas sin las que ninguna fila puede importarse. */
 export const COLUMNAS_OBLIGATORIAS = ["codigo", "nombre", "precio"] as const;
 

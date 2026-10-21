@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { leerPlanilla, MAX_FILAS, plantillaCsv, type FilaPlanilla } from "@/lib/planilla";
-import { conValor } from "@/lib/planilla";
+import { conValor, ETIQUETAS_COLUMNA } from "@/lib/planilla";
 import { ErrorDeApi, importarProductos, type ErrorDeFila, type ResumenImportacion } from "@/lib/productos";
 import { CompletarFilasModal, type Cambios } from "./CompletarFilasModal";
 
@@ -191,19 +191,6 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
   );
 }
 
-const NOMBRES_DE_COLUMNA: Record<string, string> = {
-  codigo: "Código",
-  nombre: "Nombre",
-  descripcion: "Descripción",
-  categoria: "Categoría",
-  variante: "Variante",
-  sku: "SKU",
-  precio: "Precio",
-  stock: "Stock",
-  stock_minimo: "Stock mínimo",
-  disponible: "Disponible",
-};
-
 /** Tres números grandes para leer de un vistazo qué va a pasar. */
 function Fichas({ resumen }: { resumen: ResumenImportacion }) {
   const fichas = [
@@ -242,7 +229,7 @@ function ListaErrores({ resumen }: { resumen: ResumenImportacion }) {
             <span className="flex-none rounded-sm bg-card px-1.5 font-semibold">Fila {fila + 1}</span>
             <span>
               {errores
-                .map((e) => (e.columna ? `${NOMBRES_DE_COLUMNA[e.columna] ?? e.columna}: ${e.mensaje}` : e.mensaje))
+                .map((e) => (e.columna ? `${ETIQUETAS_COLUMNA[e.columna] ?? e.columna}: ${e.mensaje}` : e.mensaje))
                 .join(" · ")}
             </span>
           </li>
