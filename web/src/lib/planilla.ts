@@ -117,6 +117,19 @@ export function normalizarEncabezado(texto: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
+/** Lo que tiene la fila en esa columna, sin importar cómo se escribió el encabezado ("Código", "codigo"). */
+export function valorDeFila(fila: FilaPlanilla | undefined, columna: string): string {
+  if (!fila) return "";
+  const clave = Object.keys(fila).find((k) => normalizarEncabezado(k) === columna);
+  return clave === undefined ? "" : fila[clave];
+}
+
+/** Copia de la fila con la columna cambiada, respetando el encabezado que ya tenía. */
+export function conValor(fila: FilaPlanilla, columna: string, valor: string): FilaPlanilla {
+  const clave = Object.keys(fila).find((k) => normalizarEncabezado(k) === columna) ?? columna;
+  return { ...fila, [clave]: valor };
+}
+
 /** Columnas sin las que ninguna fila puede importarse. */
 export const COLUMNAS_OBLIGATORIAS = ["codigo", "nombre", "precio"] as const;
 

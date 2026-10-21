@@ -186,9 +186,9 @@ describe('agruparFilasImportacion', () => {
     expect(productos).toEqual([]);
     expect(errores).toEqual([
       { fila: 1, mensaje: 'el producto REM no se importa porque otra de sus filas tiene errores' },
-      { fila: 2, mensaje: 'columna precio: valor inválido "caro"' },
-      { fila: 3, mensaje: 'columna stock: tiene que ser un número entero, o quedar vacío' },
-      { fila: 4, mensaje: 'falta el código' },
+      { fila: 2, columna: 'precio', mensaje: 'Precio inválido: «caro»' },
+      { fila: 3, columna: 'stock', mensaje: 'Tiene que ser un número entero (o vacío)' },
+      { fila: 4, columna: 'codigo', mensaje: 'Falta el código' },
     ]);
   });
 
@@ -204,7 +204,7 @@ describe('agruparFilasImportacion', () => {
 
   it('no adivina un stock con decimales', () => {
     const { errores } = agruparFilasImportacion([{ codigo: 'A', nombre: 'Algo', precio: '10', stock: '1.5' }]);
-    expect(errores).toEqual([{ fila: 1, mensaje: 'columna stock: tiene que ser un número entero, o quedar vacío' }]);
+    expect(errores).toEqual([{ fila: 1, columna: 'stock', mensaje: 'Tiene que ser un número entero (o vacío)' }]);
   });
 
   it('rechaza SKUs repetidos dentro del mismo producto', () => {

@@ -17,7 +17,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Descuento, Producto, Variante } from '../generated/prisma/client.js';
-import { hashTexto, LARGOS, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
+import { hashTexto, LARGOS, type ErrorDeFila, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import { leerPolitica, leerReceta, POLITICAS_COTIZACION, type PoliticaCotizacion, type Receta } from './costos.rules.js';
 import {
@@ -372,7 +372,7 @@ export type ResumenImportacion = {
   nuevos: number;
   actualizados: number;
   variantes: number;
-  errores: Array<{ fila: number; mensaje: string }>;
+  errores: ErrorDeFila[];
   /** Cuántos errores hubo en total; `errores` trae como mucho los primeros 200. */
   totalErrores: number;
   confirmado: boolean;
