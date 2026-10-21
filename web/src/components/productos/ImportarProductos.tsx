@@ -52,6 +52,8 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
             ? err.message
             : err instanceof Error && err.message === "formato"
               ? "Subí un archivo .csv o .xlsx."
+              : err instanceof Error && err.message.startsWith("columnas:")
+                ? `A la planilla le falta la columna ${err.message.slice("columnas:".length).split(",").join(", ")}. Usá la fila de encabezados de la plantilla.`
               : err instanceof Error && err.message === "vacia"
                 ? "La planilla no tiene filas con productos."
                 : err instanceof Error && err.message === "larga"

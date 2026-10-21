@@ -12,6 +12,33 @@ const PLANILLA = [
 ].join('\n');
 
 test.describe('catálogo de un comercio', () => {
+  test('importa un CSV guardado por Excel en Windows-1252 y avisa si falta una columna', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    await page.goto('/productos');
+    await page.getByRole('button', { name: 'Importar planilla' }).first().click();
+    const importar = page.getByRole('region', { name: 'Importar productos' });
+
+    // Sin la columna "precio": un único aviso, no un error por fila.
+    await page.getByLabel('Planilla de productos').setInputFiles({
+      name: 'sin-precio.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('codigo;nombre\nA-1;Algo'),
+    });
+    await expect(importar.getByRole('alert')).toContainText('le falta la columna precio');
+
+    // Excel en español guarda "CSV (delimitado por comas)" en Windows-1252: la ñ y las tildes no pueden romperse.
+    await page.getByLabel('Planilla de productos').setInputFiles({
+      name: 'excel.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('Código;Nombre;Precio;Stock\r\nPAN-1;Pañuelo bordado;1.500,50;3\r\n', 'latin1'),
+    });
+    await expect(importar).toContainText('excel.csv: 1 producto nuevo, 0 actualizados (1 variante).');
+    await importar.getByRole('button', { name: 'Importar 1 producto' }).click();
+    await expect(importar.getByRole('status')).toContainText('Listo: 1 nuevo');
+    await expect(page.getByRole('list', { name: 'Productos' })).toContainText('Pañuelo bordado');
+  });
+
   test('importa una planilla con vista previa y errores por fila, y edita precio y stock con Guardar', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);

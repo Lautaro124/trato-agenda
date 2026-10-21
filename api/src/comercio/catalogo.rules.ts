@@ -172,6 +172,12 @@ export function parsearPrecio(texto: string): number | null {
     normalizado = limpio;
   }
 
+  // Un .xlsx guarda 15000.000000000002 donde se ve 15000: el ruido de float no es un error.
+  if (/^\d+\.\d{3,}$/.test(normalizado)) {
+    const centavosFlotantes = Number(normalizado) * 100;
+    if (Math.abs(centavosFlotantes - Math.round(centavosFlotantes)) > 1e-4) return null;
+    normalizado = (Math.round(centavosFlotantes) / 100).toFixed(2);
+  }
   if (!/^\d+(\.\d{1,2})?$/.test(normalizado)) return null;
   const centavos = Math.round(Number(normalizado) * 100);
   if (!Number.isFinite(centavos) || centavos > PRECIO_MAX_PESOS * 100) return null;
@@ -245,7 +251,12 @@ function normalizarFila(fila: Record<string, unknown>): Record<string, unknown> 
 
 function parsearEntero(texto: string, maximo: number): number | null | 'invalido' {
   if (texto === '') return null;
-  const limpio = texto.replace(/\./g, '').replace(/\s/g, '');
+  const sinEspacios = texto.replace(/\s/g, '');
+  // "10.0" (Excel) es 10; "1.000" son miles; "1.5" no es un entero y no se adivina.
+  let limpio: string;
+  if (/^\d+\.0{1,2}$/.test(sinEspacios)) limpio = sinEspacios.replace(/\.0+$/, '');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(sinEspacios)) limpio = sinEspacios.replace(/\./g, '');
+  else limpio = sinEspacios;
   if (!/^\d+$/.test(limpio)) return 'invalido';
   const valor = Number(limpio);
   return valor > maximo ? 'invalido' : valor;
@@ -299,15 +310,15 @@ function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParsea
 
   const precioTexto = celda(fila, 'precio');
   const precioCentavos = precioTexto ? parsearPrecio(precioTexto) : null;
-  if (!precioTexto) errores.push('falta el precio');
-  else if (precioCentavos === null) errores.push(`precio inválido: "${precioTexto.slice(0, 20)}"`);
+  if (!precioTexto) errores.push('columna precio: falta el precio');
+  else if (precioCentavos === null) errores.push(`columna precio: valor inválido "${precioTexto.slice(0, 20)}"`);
 
   const stock = parsearEntero(celda(fila, 'stock'), STOCK_MAX);
-  if (stock === 'invalido') errores.push('el stock tiene que ser un número entero, o quedar vacío');
+  if (stock === 'invalido') errores.push('columna stock: tiene que ser un número entero, o quedar vacío');
   const stockMinimo = parsearEntero(celda(fila, 'stock_minimo'), STOCK_MAX);
-  if (stockMinimo === 'invalido') errores.push('el stock mínimo tiene que ser un número entero, o quedar vacío');
+  if (stockMinimo === 'invalido') errores.push('columna stock_minimo: tiene que ser un número entero, o quedar vacío');
   const disponible = parsearBooleano(celda(fila, 'disponible'));
-  if (disponible === 'invalido') errores.push('disponible tiene que ser "sí" o "no"');
+  if (disponible === 'invalido') errores.push('columna disponible: tiene que ser "sí" o "no"');
 
   if (errores.length > 0) return errores.map((mensaje) => ({ fila: numero, mensaje }));
 

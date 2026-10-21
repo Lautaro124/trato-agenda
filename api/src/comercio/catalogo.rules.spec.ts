@@ -186,10 +186,25 @@ describe('agruparFilasImportacion', () => {
     expect(productos).toEqual([]);
     expect(errores).toEqual([
       { fila: 1, mensaje: 'el producto REM no se importa porque otra de sus filas tiene errores' },
-      { fila: 2, mensaje: 'precio inválido: "caro"' },
-      { fila: 3, mensaje: 'el stock tiene que ser un número entero, o quedar vacío' },
+      { fila: 2, mensaje: 'columna precio: valor inválido "caro"' },
+      { fila: 3, mensaje: 'columna stock: tiene que ser un número entero, o quedar vacío' },
       { fila: 4, mensaje: 'falta el código' },
     ]);
+  });
+
+  it('acepta los números como los guarda Excel (ruido de float, enteros con .0)', () => {
+    const { productos, errores } = agruparFilasImportacion([
+      { codigo: 'A', nombre: 'Algo', precio: '15000.000000000002', stock: '10.0', stock_minimo: '1.000' },
+      { codigo: 'B', nombre: 'Otro', precio: '1234.5600000001' },
+    ]);
+    expect(errores).toEqual([]);
+    expect(productos[0].variantes[0]).toMatchObject({ precioCentavos: 1_500_000, stock: 10, stockMinimo: 1000 });
+    expect(productos[1].variantes[0].precioCentavos).toBe(123_456);
+  });
+
+  it('no adivina un stock con decimales', () => {
+    const { errores } = agruparFilasImportacion([{ codigo: 'A', nombre: 'Algo', precio: '10', stock: '1.5' }]);
+    expect(errores).toEqual([{ fila: 1, mensaje: 'columna stock: tiene que ser un número entero, o quedar vacío' }]);
   });
 
   it('rechaza SKUs repetidos dentro del mismo producto', () => {
