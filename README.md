@@ -126,6 +126,9 @@ está pendiente.
 | `LINEAR_TEAM_ID` | Opcional. Id (UUID) del equipo de Linear donde se crean esos issues — no la clave `LAU`. |
 | `LINEAR_LABEL_ID` | Opcional. Id de una etiqueta para marcarlos (ej. "Sugerencia"). |
 | `LINEAR_API_URL` | Opcional. Endpoint GraphQL de Linear. Por defecto `https://api.linear.app/graphql`. |
+| `MERCADOLIBRE_CLIENT_ID` / `MERCADOLIBRE_CLIENT_SECRET` | Opcionales, van juntas. Una app de [developers.mercadolibre.com.ar](https://developers.mercadolibre.com.ar): con ellas la importación rápida (plan Pro) pide un token de aplicación y lee las publicaciones por la API oficial, con variantes y SKU. Sin ellas una publicación se lee desde su página como cualquier tienda, y los listados de Mercado Libre no se pueden importar. |
+| `MERCADOLIBRE_API_URL` | Opcional. Por defecto `https://api.mercadolibre.com`; en producción tiene que ser https. Sólo la cambia el stub de los e2e. |
+| `IMPORTACION_HOSTS_DE_PRUEBA` | **Sólo e2e.** Hosts a los que la importación rápida puede pedir aunque sean http o de la red interna (el stub de la tienda). La API no arranca con esto en producción. |
 | `SENTRY_DSN` | Opcional. DSN del proyecto de Sentry de la API. Vacía = sin Sentry (lo normal en local). La lee `src/instrument.ts`, que corre con `node --import` antes que la app, así que no pasa por `validateEnv`. |
 | `SENTRY_ENVIRONMENT` | Opcional. Environment de los eventos. Por defecto, el nombre del entorno de Railway (`RAILWAY_ENVIRONMENT_NAME`: `develop` o `production`, que corren los dos con `NODE_ENV=production`) y, fuera de Railway, `NODE_ENV`. La web hace lo mismo en el build. |
 | `SENTRY_TRACES_SAMPLE_RATE` | Opcional. Fracción de requests con traza de rendimiento. Por defecto `0.1` en producción y `0` fuera. |

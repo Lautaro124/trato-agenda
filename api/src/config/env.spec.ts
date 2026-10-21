@@ -37,6 +37,18 @@ describe('validateEnv', () => {
     );
   });
 
+  it('la importación rápida: hosts de prueba nunca en producción, ML por https y su app completa', () => {
+    expect(validateEnv({ ...BASE, IMPORTACION_HOSTS_DE_PRUEBA: 'importacion-stub' }).IMPORTACION_HOSTS_DE_PRUEBA).toBe('importacion-stub');
+    expect(() => validateEnv({ ...BASE, NODE_ENV: 'production', IMPORTACION_HOSTS_DE_PRUEBA: 'stub' })).toThrow(
+      /IMPORTACION_HOSTS_DE_PRUEBA/,
+    );
+    expect(validateEnv({ ...BASE, NODE_ENV: 'production' }).MERCADOLIBRE_API_URL).toBe('https://api.mercadolibre.com');
+    expect(() => validateEnv({ ...BASE, NODE_ENV: 'production', MERCADOLIBRE_API_URL: 'http://ml.test' })).toThrow(
+      /MERCADOLIBRE_API_URL/,
+    );
+    expect(() => validateEnv({ ...BASE, MERCADOLIBRE_CLIENT_ID: 'app' })).toThrow(/MERCADOLIBRE_CLIENT_SECRET/);
+  });
+
   it('OPENROUTER_BASE_URL por defecto apunta a OpenRouter y se le saca la barra final', () => {
     expect(validateEnv(BASE).OPENROUTER_BASE_URL).toBe('https://openrouter.ai/api/v1');
     expect(validateEnv({ ...BASE, OPENROUTER_BASE_URL: 'http://openrouter-stub:4010/api/v1/' }).OPENROUTER_BASE_URL).toBe(

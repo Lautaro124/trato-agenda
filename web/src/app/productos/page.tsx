@@ -9,6 +9,7 @@ import { FilaProducto } from "@/components/productos/FilaProducto";
 import { ImportarProductos } from "@/components/productos/ImportarProductos";
 import { ProbarBusqueda } from "@/components/productos/ProbarBusqueda";
 import { Promociones } from "@/components/productos/Promociones";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -127,7 +128,13 @@ function Catalogo() {
               medida, con lo que le pregunta al cliente para que lo presupuestes. Los cambios valen desde el próximo mensaje.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/productos/importar-enlace"
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-line-strong bg-card px-4 py-2 font-body text-[15px] leading-none font-semibold whitespace-nowrap text-ink shadow-sm hover:bg-sunken"
+            >
+              Importar desde un enlace <Badge tone="primary">Pro</Badge>
+            </Link>
             <Button variant="secondary" onClick={() => setImportando(true)}>
               Importar planilla
             </Button>

@@ -92,6 +92,26 @@ export function limiteDeChats(plan: string | null | undefined): number {
   return esPlanId(plan) ? PLANES[plan].chats : PLANES.basico.chats;
 }
 
+/**
+ * El plan que se está pagando, o null: sólo una suscripción `activa` tiene
+ * plan (la prueba, una vencida o una pendiente no). Un valor desconocido en la
+ * base cuenta como Básico, igual que en `limiteDeChats`.
+ */
+export function planVigente(estado: Pick<EstadoSuscripcion, 'estado'>, plan: string | null | undefined): PlanId | null {
+  if (estado.estado !== 'activa' || plan === null || plan === undefined) return null;
+  return esPlanId(plan) ? plan : 'basico';
+}
+
+/**
+ * Lo que cada plan habilita además del tope de chats. La importación rápida
+ * de productos (LAU-31) es sólo del Pro pagando: el mes de prueba no la trae.
+ */
+export type FuncionesDelPlan = { importacionRapida: boolean };
+
+export function funcionesDelPlan(plan: PlanId | null): FuncionesDelPlan {
+  return { importacionRapida: plan === 'pro' };
+}
+
 export type EstadoDeCupo = {
   usados: number;
   limite: number;

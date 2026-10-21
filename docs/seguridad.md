@@ -156,6 +156,60 @@ cubierta:
   de 2 fotos por respuesta (`MAX_IMAGENES_POR_MENSAJE`). Una foto que falla se
   loguea con ids y el texto sale igual.
 
+## Importación rápida de productos (2026-10-21, LAU-31)
+
+Es la primera vez que la API pide URLs que escribe un usuario: el dueño pega
+enlaces de Mercado Libre, Tiendamia o su tienda, y la API los lee para armar
+productos. Todo vive en `api/src/importacion/` y cualquier salida a la red
+pasa por `fetch-seguro.ts`:
+
+- **SSRF**: `revisarUrl` (`ssrf.rules.ts`) sólo acepta https al puerto 443, sin
+  usuario ni contraseña, con un nombre (nunca una IP escrita, en ninguna de sus
+  formas) que no sea interno (`localhost`, `*.local`, `*.internal`,
+  `*.railway.internal`, sin punto). Después del DNS, **todas** las direcciones
+  tienen que pasar `ipPermitida`: lista de permitidos (IPv4 fuera de privadas,
+  loopback, link-local/metadata, CGNAT, documentación, multicast, reservadas;
+  IPv6 sólo global unicast `2000::/3` sin sus rangos reservados), con las IPv4
+  escondidas en IPv6 (mapeadas, NAT64, 6to4) desenvueltas. La conexión va a la
+  IP ya revisada (`lookup` fijo), así que un DNS que cambia entre la revisión
+  y el connect (rebinding) no sirve. Redirecciones a mano, como mucho 3, cada
+  una revisada de nuevo.
+- **Topes**: 10 s por pedido (también contra el goteo lento), 2 MB de HTML
+  contados ya descomprimido (una gzip bomb corta igual), 1 MB de JSON de
+  Mercado Libre, 2 MB por foto; sólo los content-types esperados.
+- **Listados**: de un listado genérico sólo se siguen enlaces del mismo host,
+  como mucho 20 (50 en Mercado Libre, por su API), de a 4.
+- **Uso**: 30 enlaces y 60 productos confirmados por hora por cuenta, una
+  extracción a la vez por cuenta y 5 en toda la API (`Limitador`, en memoria:
+  alcanza por la réplica única).
+- **Confirmar no es un descargador**: la vista previa vuelve firmada (HMAC con
+  subclave de `TOKEN_ENCRYPTION_KEY` sobre cuenta, origen, fotos y fecha, 1 h,
+  `firma.ts`); `POST /importacion/confirmar` no baja ninguna foto ni guarda un
+  origen que no salió de una extracción de esa misma cuenta.
+- **Texto ajeno hacia el modelo**: nombre y descripción los escribió un
+  tercero y el asistente los lee en cada búsqueda. `textoSeguro`
+  (`texto.rules.ts`) los deja en texto plano acotado y saca caracteres
+  invisibles y bidi, la frase de "mandar tal cual", los marcadores internos
+  (`[producto …]`, `[variante …]`, `[pedido …]`) y, en las descripciones, los
+  montos: `preciosSinRespaldo` acepta cualquier monto de un resultado de
+  búsqueda, y un "$ 1" en la descripción respaldaría un precio inventado. El
+  dueño revisa y edita todo antes de confirmar.
+- **Fotos**: la elegida se baja por la misma descarga segura y pasa por
+  `ImagenesService.guardar` (firma de bytes, recompresión sin metadatos, tope
+  de 100 por cuenta). En la vista previa el navegador muestra las de la página
+  de origen con `referrerPolicy="no-referrer"`.
+- **Acceso**: cuenta de ventas (409) con el plan Pro pagando (403,
+  `motivo: plan_pro_requerido`), chequeado en la API en cada pedido.
+- **Logs**: sólo el host y el código de error; nunca la ruta, la query ni el
+  contenido de una página.
+- **Sólo e2e**: `IMPORTACION_HOSTS_DE_PRUEBA` habilita el stub (http, red de
+  compose); `validateEnv` no deja arrancar con eso en producción, y exige
+  `MERCADOLIBRE_API_URL` https.
+- **CodeQL** puede marcar `js/request-forgery` en `fetch-seguro.ts`: pedir la
+  URL del usuario es el objetivo de la función y la guarda es la de arriba
+  (cubierta por `ssrf.rules.spec.ts` y `fetch-seguro.spec.ts`, que prueban
+  redirecciones a la metadata, DNS mezclado, IPv4 mapeada, gzip bomb y goteo).
+
 ## Vincular con código desde el celular (2026-10-11, LAU-11)
 
 Un celular no puede escanear el QR de su propia pantalla, así que

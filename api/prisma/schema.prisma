@@ -421,10 +421,19 @@ model Producto {
   /// lo aprueba) | "automatica" (el asistente cotiza y lo manda).
   politicaCotizacion String @default("manual")
 
+  /// Importación rápida (LAU-31): de dónde salió el producto, como clave
+  /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
+  /// no crea otro producto. Null en los cargados a mano o por planilla.
+  origenId    String?
+  /// El enlace tal cual se importó (sin parámetros de seguimiento).
+  origenUrl   String?
+  importadoAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, codigo])
+  @@unique([userId, origenId])
   @@index([userId, categoria])
   @@index([busqueda], type: Gin)
   @@index([textoBusqueda(ops: raw("gin_trgm_ops"))], type: Gin)

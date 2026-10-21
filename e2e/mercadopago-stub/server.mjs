@@ -8,7 +8,11 @@
 //     firmado (x-signature) al notification_url, igual que Mercado Pago;
 //     PUT /checkout/preferences/:id cambia el vencimiento (un pedido a medida
 //     recotizado vence el link anterior) y un link vencido ya no se paga;
-//   - GET /v1/payments/:id y /v1/payments/search para la conciliación.
+//   - GET /v1/payments/:id y /v1/payments/search para la conciliación;
+//   - la suscripción de Trato (preapproval): POST /preapproval la crea
+//     pendiente, GET/PUT /preapproval/:id la leen o la cancelan, y
+//     /preapproval/:id/autorizar es la pantalla con "Autorizar" que la deja
+//     authorized, avisa al webhook de suscripciones y vuelve al back_url.
 //
 // Sin dependencias: corre con `node server.mjs` o dentro de node:24-alpine.
 import { createHash, createHmac, randomUUID } from 'node:crypto';
@@ -29,6 +33,7 @@ const codigos = new Map(); // code → { desafio, redirectUri }
 const tokens = new Map(); // access_token → { userId }
 const preferencias = new Map(); // id → preferencia
 const pagos = new Map(); // id → pago
+const preapprovals = new Map(); // id → preapproval
 let llamadas = [];
 let siguienteUsuario = 777000;
 // Como en Mercado Pago, un id de pago no se repite nunca, tampoco entre
@@ -94,6 +99,27 @@ async function notificar(pago, preferencia) {
     // (nada de mensajes ni stack traces en una respuesta HTTP).
     console.error('No se pudo entregar el webhook:', error);
     llamadas.push({ tipo: 'webhook', url: url.toString(), error: 'no se pudo entregar' });
+  }
+}
+
+/** El webhook de la suscripción: Mercado Pago lo manda a la URL configurada en la app, no a una por pedido. */
+async function notificarSuscripcion(preapproval) {
+  const url = new URL('/suscripcion/webhook', API_INTERNA || 'http://localhost:4000');
+  url.searchParams.set('data.id', preapproval.id);
+  url.searchParams.set('type', 'subscription_preapproval');
+  const ts = String(Date.now());
+  const requestId = randomUUID();
+  const v1 = createHmac('sha256', SECRETO_WEBHOOK).update(`id:${preapproval.id.toLowerCase()};request-id:${requestId};ts:${ts};`).digest('hex');
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-signature': `ts=${ts},v1=${v1}`, 'x-request-id': requestId },
+      body: JSON.stringify({ type: 'subscription_preapproval', data: { id: preapproval.id } }),
+    });
+    llamadas.push({ tipo: 'webhook_suscripcion', id: preapproval.id, status: res.status });
+  } catch (error) {
+    console.error('No se pudo entregar el webhook de suscripción:', error);
+    llamadas.push({ tipo: 'webhook_suscripcion', id: preapproval.id, error: 'no se pudo entregar' });
   }
 }
 
@@ -209,6 +235,55 @@ const servidor = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end('<!doctype html><html lang="es"><body><h1>¡Pago aprobado!</h1></body></html>');
     }
+  }
+
+  // --- Suscripción de Trato (preapproval, con el token de la plataforma) ---
+  if (req.method === 'POST' && ruta === '/preapproval') {
+    if (!tokenDe(req)) return responder(res, 401, { message: 'invalid access token' });
+    const cuerpo = await leerCuerpo(req);
+    const id = `preapp-${randomUUID()}`;
+    const preapproval = {
+      id,
+      status: 'pending',
+      reason: cuerpo.reason,
+      external_reference: cuerpo.external_reference,
+      payer_email: cuerpo.payer_email,
+      back_url: cuerpo.back_url,
+      auto_recurring: cuerpo.auto_recurring,
+      init_point: `${URL_PUBLICA}/preapproval/${id}/autorizar`,
+    };
+    preapprovals.set(id, preapproval);
+    llamadas.push({ tipo: 'preapproval', id, external_reference: cuerpo.external_reference, monto: cuerpo.auto_recurring?.transaction_amount });
+    return responder(res, 201, preapproval);
+  }
+
+  const autorizar = ruta.match(/^\/preapproval\/(preapp-[\w-]+)\/autorizar$/);
+  if (autorizar) {
+    const preapproval = preapprovals.get(autorizar[1]);
+    if (!preapproval) return responder(res, 404, { message: 'preapproval not found' });
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Mercado Pago (falso)</title></head>
+<body style="font-family:sans-serif;max-width:420px;margin:40px auto"><h1>Suscripción de prueba</h1>
+<p>${preapproval.reason ?? ''}: $${preapproval.auto_recurring?.transaction_amount ?? ''} por mes</p>
+<form method="post" action="/preapproval/${preapproval.id}/autorizar"><button type="submit">Autorizar</button></form></body></html>`);
+    }
+    if (req.method === 'POST') {
+      preapproval.status = 'authorized';
+      preapproval.next_payment_date = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      await notificarSuscripcion(preapproval);
+      res.writeHead(302, { Location: preapproval.back_url ?? '/' });
+      return res.end();
+    }
+  }
+
+  const preapprovalId = ruta.match(/^\/preapproval\/(preapp-[\w-]+)$/);
+  if (preapprovalId && (req.method === 'GET' || req.method === 'PUT')) {
+    if (!tokenDe(req)) return responder(res, 401, { message: 'invalid access token' });
+    const preapproval = preapprovals.get(preapprovalId[1]);
+    if (!preapproval) return responder(res, 404, { message: 'preapproval not found' });
+    if (req.method === 'PUT') Object.assign(preapproval, { status: (await leerCuerpo(req)).status ?? preapproval.status });
+    return responder(res, 200, preapproval);
   }
 
   // --- Pagos ---

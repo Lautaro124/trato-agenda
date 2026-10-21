@@ -77,7 +77,19 @@ type ProductoAGuardar = {
   /** La receta de cotización (LAU-26): null la borra, undefined no la toca. Ya validada contra los insumos. */
   receta?: Receta | null;
   politicaCotizacion?: PoliticaCotizacion;
+  /** De dónde se importó (LAU-31); undefined no lo toca. */
+  origen?: { id: string; url: string };
 };
+
+/** Un producto ya revisado en la vista previa de la importación rápida (LAU-31). */
+export type ProductoImportadoAGuardar = Pick<GuardarProductoDto, 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'variantes'> & {
+  moneda: Moneda;
+  origen: { id: string; url: string };
+};
+
+export type ResultadoImportado =
+  | { estado: 'creado' | 'actualizado'; productoId: string }
+  | { estado: 'salteado'; productoId: string; motivo: string };
 
 type Tx = Prisma.TransactionClient;
 
@@ -278,6 +290,61 @@ export class ProductosService {
     return { ...resumen, confirmado: true };
   }
 
+  /**
+   * Guarda un producto de la importación rápida. Lo reconoce por su origen
+   * (Producto.origenId) y si no por su código: si ya existe y no se pidió
+   * actualizarlo, lo saltea en vez de duplicarlo. Uno dado de baja con ese
+   * origen se reactiva. Dos confirmaciones del mismo enlace a la vez chocan
+   * en el índice único (userId, origenId) y la segunda queda salteada.
+   */
+  async guardarImportado(
+    userId: string,
+    importado: ProductoImportadoAGuardar,
+    { actualizar }: { actualizar: boolean },
+  ): Promise<ResultadoImportado> {
+    // Siempre de stock: la importación no arma productos a medida.
+    const datos: ProductoAGuardar = {
+      ...desdeDto({ ...importado, solicitud: null }),
+      moneda: importado.moneda,
+      origen: importado.origen,
+      // Lo que la importación no trae no se pisa al actualizar.
+      descuento: undefined,
+    };
+    try {
+      const resultado = await this.prisma.$transaction(async (tx): Promise<ResultadoImportado> => {
+        const [porOrigen, porCodigo] = await Promise.all([
+          tx.producto.findUnique({ where: { userId_origenId: { userId, origenId: importado.origen.id } } }),
+          tx.producto.findUnique({ where: { userId_codigo: { userId, codigo: datos.codigo } } }),
+        ]);
+        if (porOrigen?.activo && !actualizar) {
+          return { estado: 'salteado', productoId: porOrigen.id, motivo: 'Ya lo habías importado.' };
+        }
+        const otroConElCodigo = porCodigo && porCodigo.id !== porOrigen?.id && porCodigo.activo ? porCodigo : null;
+        if (otroConElCodigo && (!actualizar || porOrigen)) {
+          return { estado: 'salteado', productoId: otroConElCodigo.id, motivo: `Ya hay un producto con el código ${datos.codigo}.` };
+        }
+        const existente = porOrigen ?? (porCodigo?.activo ? porCodigo : null);
+        if (existente && leerSolicitud(existente.solicitud) !== null) {
+          throw new ConflictException(`El producto ${existente.codigo} es a medida: no se actualiza con una importación.`);
+        }
+        const id = await this.escribir(tx, userId, datos, porOrigen?.id ?? existente?.id);
+        // Uno dado de baja que vuelve es, para el dueño, uno nuevo.
+        return { estado: existente?.activo ? 'actualizado' : 'creado', productoId: id };
+      });
+      if (resultado.estado !== 'salteado') await this.refrescarBusqueda([resultado.productoId]);
+      return resultado;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const otro = await this.prisma.producto.findFirst({
+          where: { userId, OR: [{ origenId: importado.origen.id }, { codigo: datos.codigo }] },
+          select: { id: true },
+        });
+        return { estado: 'salteado', productoId: otro?.id ?? '', motivo: 'Ya lo habías importado.' };
+      }
+      throw error;
+    }
+  }
+
   private async buscarPropio(userId: string, id: string): Promise<Producto> {
     const producto = await this.prisma.producto.findFirst({ where: { id, userId, activo: true } });
     if (!producto) throw new NotFoundException('No existe ese producto.');
@@ -316,6 +383,7 @@ export class ProductosService {
         receta: datos.receta === null ? Prisma.DbNull : (datos.receta as unknown as Prisma.InputJsonValue),
       }),
       ...(datos.politicaCotizacion !== undefined && { politicaCotizacion: datos.politicaCotizacion }),
+      ...(datos.origen !== undefined && { origenId: datos.origen.id, origenUrl: datos.origen.url, importadoAt: new Date() }),
     };
     const producto = id
       ? await tx.producto.update({ where: { id }, data: campos })

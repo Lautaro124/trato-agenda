@@ -8,6 +8,7 @@ import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CalendarModule } from './calendar/calendar.module.js';
 import { ComercioModule } from './comercio/comercio.module.js';
+import { ImportacionModule } from './importacion/importacion.module.js';
 import { validateEnv } from './config/env.js';
 import { ConversationModule } from './conversation/conversation.module.js';
 import { MejorasModule } from './mejoras/mejoras.module.js';
@@ -27,6 +28,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module.js';
     AgentsModule,
     CalendarModule,
     ComercioModule,
+    ImportacionModule,
     ConversationModule,
     NotificacionesModule,
     MejorasModule,

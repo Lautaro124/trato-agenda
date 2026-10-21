@@ -12,6 +12,8 @@ import type { Env } from './config/env.js';
 
 /** Body máximo de `POST /productos/importar` (el resto queda en el default de 100kb). */
 const LIMITE_IMPORTACION = '6mb';
+/** Y de `POST /importacion/confirmar`: diez productos revisados con sus variantes. */
+const LIMITE_CONFIRMAR_IMPORTACION = '1mb';
 
 async function bootstrap() {
   // Los parsers se registran a mano (abajo) para que sólo la importación del
@@ -42,6 +44,7 @@ async function bootstrap() {
   // Hasta 5.000 filas de productos: no entra en los 100kb por defecto. Corre
   // antes que el parser global, que ve el body ya leído y no lo toca.
   app.use('/productos/importar', json({ limit: LIMITE_IMPORTACION }));
+  app.use('/importacion/confirmar', json({ limit: LIMITE_CONFIRMAR_IMPORTACION }));
   app.useBodyParser('json');
   app.useBodyParser('urlencoded', { extended: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
