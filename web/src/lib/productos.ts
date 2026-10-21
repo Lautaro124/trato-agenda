@@ -52,11 +52,14 @@ export type ListadoProductos = { productos: Producto[]; total: number; pagina: n
 
 export type Categoria = { nombre: string; cantidad: number };
 
+/** `columna` (la de la plantilla) está sólo si el error se arregla corrigiendo un campo de esa fila. */
+export type ErrorDeFila = { fila: number; mensaje: string; columna?: string };
+
 export type ResumenImportacion = {
   nuevos: number;
   actualizados: number;
   variantes: number;
-  errores: Array<{ fila: number; mensaje: string }>;
+  errores: ErrorDeFila[];
   totalErrores: number;
   confirmado: boolean;
 };

@@ -172,6 +172,12 @@ export function parsearPrecio(texto: string): number | null {
     normalizado = limpio;
   }
 
+  // Un .xlsx guarda 15000.000000000002 donde se ve 15000: el ruido de float no es un error.
+  if (/^\d+\.\d{3,}$/.test(normalizado)) {
+    const centavosFlotantes = Number(normalizado) * 100;
+    if (Math.abs(centavosFlotantes - Math.round(centavosFlotantes)) > 1e-4) return null;
+    normalizado = (Math.round(centavosFlotantes) / 100).toFixed(2);
+  }
   if (!/^\d+(\.\d{1,2})?$/.test(normalizado)) return null;
   const centavos = Math.round(Number(normalizado) * 100);
   if (!Number.isFinite(centavos) || centavos > PRECIO_MAX_PESOS * 100) return null;
@@ -220,7 +226,8 @@ export type ProductoImportado = {
   filas: number[];
 };
 
-export type ErrorDeFila = { fila: number; mensaje: string };
+/** `columna` dice qué campo de la planilla arreglar; sin ella el error es de la fila o del producto entero. */
+export type ErrorDeFila = { fila: number; mensaje: string; columna?: ColumnaImportacion };
 
 export type ResultadoImportacion = {
   productos: ProductoImportado[];
@@ -245,7 +252,12 @@ function normalizarFila(fila: Record<string, unknown>): Record<string, unknown> 
 
 function parsearEntero(texto: string, maximo: number): number | null | 'invalido' {
   if (texto === '') return null;
-  const limpio = texto.replace(/\./g, '').replace(/\s/g, '');
+  const sinEspacios = texto.replace(/\s/g, '');
+  // "10.0" (Excel) es 10; "1.000" son miles; "1.5" no es un entero y no se adivina.
+  let limpio: string;
+  if (/^\d+\.0{1,2}$/.test(sinEspacios)) limpio = sinEspacios.replace(/\.0+$/, '');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(sinEspacios)) limpio = sinEspacios.replace(/\./g, '');
+  else limpio = sinEspacios;
   if (!/^\d+$/.test(limpio)) return 'invalido';
   const valor = Number(limpio);
   return valor > maximo ? 'invalido' : valor;
@@ -277,7 +289,8 @@ type FilaParseada = {
 
 function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParseada | ErrorDeFila[] {
   const fila = normalizarFila(crudo);
-  const errores: string[] = [];
+  const errores: Array<{ columna: ColumnaImportacion; mensaje: string }> = [];
+  const error = (columna: ColumnaImportacion, mensaje: string) => errores.push({ columna, mensaje });
 
   const codigo = celda(fila, 'codigo');
   const nombre = celda(fila, 'nombre');
@@ -286,30 +299,30 @@ function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParsea
   const variante = celda(fila, 'variante');
   const sku = celda(fila, 'sku') || skuPorDefecto(codigo, variante);
 
-  if (!codigo) errores.push('falta el código');
-  else if (codigo.length > LARGOS.codigo) errores.push(`el código tiene más de ${LARGOS.codigo} caracteres`);
-  if (!nombre) errores.push('falta el nombre');
-  else if (nombre.length < 2) errores.push('el nombre es demasiado corto');
-  else if (nombre.length > LARGOS.nombre) errores.push(`el nombre tiene más de ${LARGOS.nombre} caracteres`);
+  if (!codigo) error('codigo', 'Falta el código');
+  else if (codigo.length > LARGOS.codigo) error('codigo', `Máximo ${LARGOS.codigo} caracteres`);
+  if (!nombre) error('nombre', 'Falta el nombre');
+  else if (nombre.length < 2) error('nombre', 'Muy corto (mínimo 2 letras)');
+  else if (nombre.length > LARGOS.nombre) error('nombre', `Máximo ${LARGOS.nombre} caracteres`);
   if (descripcion.length > LARGOS.descripcion)
-    errores.push(`la descripción tiene más de ${LARGOS.descripcion} caracteres`);
-  if (categoria.length > LARGOS.categoria) errores.push(`la categoría tiene más de ${LARGOS.categoria} caracteres`);
-  if (variante.length > LARGOS.variante) errores.push(`la variante tiene más de ${LARGOS.variante} caracteres`);
-  if (sku.length > LARGOS.sku) errores.push(`el SKU tiene más de ${LARGOS.sku} caracteres`);
+    error('descripcion', `Máximo ${LARGOS.descripcion} caracteres`);
+  if (categoria.length > LARGOS.categoria) error('categoria', `Máximo ${LARGOS.categoria} caracteres`);
+  if (variante.length > LARGOS.variante) error('variante', `Máximo ${LARGOS.variante} caracteres`);
+  if (sku.length > LARGOS.sku) error('sku', `Máximo ${LARGOS.sku} caracteres`);
 
   const precioTexto = celda(fila, 'precio');
   const precioCentavos = precioTexto ? parsearPrecio(precioTexto) : null;
-  if (!precioTexto) errores.push('falta el precio');
-  else if (precioCentavos === null) errores.push(`precio inválido: "${precioTexto.slice(0, 20)}"`);
+  if (!precioTexto) error('precio', 'Falta el precio');
+  else if (precioCentavos === null) error('precio', `Precio inválido: «${precioTexto.slice(0, 20)}»`);
 
   const stock = parsearEntero(celda(fila, 'stock'), STOCK_MAX);
-  if (stock === 'invalido') errores.push('el stock tiene que ser un número entero, o quedar vacío');
+  if (stock === 'invalido') error('stock', 'Tiene que ser un número entero (o vacío)');
   const stockMinimo = parsearEntero(celda(fila, 'stock_minimo'), STOCK_MAX);
-  if (stockMinimo === 'invalido') errores.push('el stock mínimo tiene que ser un número entero, o quedar vacío');
+  if (stockMinimo === 'invalido') error('stock_minimo', 'Tiene que ser un número entero (o vacío)');
   const disponible = parsearBooleano(celda(fila, 'disponible'));
-  if (disponible === 'invalido') errores.push('disponible tiene que ser "sí" o "no"');
+  if (disponible === 'invalido') error('disponible', 'Poné «sí» o «no»');
 
-  if (errores.length > 0) return errores.map((mensaje) => ({ fila: numero, mensaje }));
+  if (errores.length > 0) return errores.map((e) => ({ fila: numero, ...e }));
 
   return {
     fila: numero,
