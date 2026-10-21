@@ -210,11 +210,18 @@ function pedir(url: URL, direccion: LookupAddress, opciones: OpcionesDescarga, l
  */
 export async function descargar(texto: string, opciones: OpcionesDescarga): Promise<Descarga> {
   let actual = texto;
+  let hostInicial: string | null = null;
   for (let salto = 0; salto <= MAX_REDIRECCIONES; salto++) {
     const revisada = revisarUrl(actual, opciones.hostsDePrueba);
     if ('motivo' in revisada) throw new DescargaError(revisada.motivo);
+    hostInicial ??= revisada.url.hostname;
+    // Un token (el de Mercado Libre) es para su host: si una redirección lleva a otro, no viaja.
+    const headers =
+      revisada.url.hostname === hostInicial
+        ? opciones.headers
+        : Object.fromEntries(Object.entries(opciones.headers ?? {}).filter(([clave]) => !/^(authorization|cookie)$/i.test(clave)));
     const direccion = await direccionSegura(revisada.url, opciones);
-    const resultado = await pedir(revisada.url, direccion, opciones, opciones.maxBytes);
+    const resultado = await pedir(revisada.url, direccion, { ...opciones, headers }, opciones.maxBytes);
     if (resultado.tipo === 'final') return resultado.descarga;
     // Una redirección relativa se resuelve contra la URL donde estaba, y vuelve a revisarse entera.
     try {

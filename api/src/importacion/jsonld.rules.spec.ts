@@ -25,6 +25,17 @@ describe('leerHtml', () => {
     expect(leido.canonical).toBe('/mate');
   });
 
+  it('miles de <script> sin cerrar no lo vuelven cuadrático', () => {
+    const inicio = Date.now();
+    expect(leerHtml(`${'<script>'.repeat(250_000)}</script>`).jsonld).toEqual([]);
+    expect(Date.now() - inicio).toBeLessThan(2000);
+  });
+
+  it('una letra que cambia de largo al pasar a minúsculas no desalinea los bloques', () => {
+    const html = `<p>${'İ'.repeat(50)}</p><script type="application/ld+json">{"@type":"Product"}</script>`;
+    expect(leerHtml(html).jsonld).toEqual(['{"@type":"Product"}']);
+  });
+
   it('con una etiqueta sin cerrar no se cuelga', () => {
     expect(leerHtml('<script type="application/ld+json">{').jsonld).toEqual([]);
     expect(leerHtml('<meta '.repeat(10_000)).metas.size).toBe(0);

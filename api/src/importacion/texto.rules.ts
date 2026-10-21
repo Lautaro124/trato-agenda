@@ -82,9 +82,10 @@ export function sinEtiquetas(texto: string): string {
   return salida;
 }
 
-// Control (menos el salto de línea y el tab), de ancho cero, separadores de línea y de dirección.
-// oxlint-disable-next-line no-control-regex -- sacar los caracteres de control es justamente lo que hace.
-const INVISIBLES = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFEFF]/g;
+// Control (menos el salto de línea y el tab), de ancho cero, separadores de línea y de dirección, selectores de
+// variación y etiquetas Unicode (invisibles para el dueño, legibles para un modelo).
+// oxlint-disable-next-line no-control-regex, no-misleading-character-class -- sacar estos caracteres sueltos es justamente lo que hace.
+const INVISIBLES = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFE00-\uFE0F\uFEFF\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu;
 const MARCADORES_INTERNOS = /\[(\s*)(producto|variante|pedido)\b/gi;
 const MONTOS = /(?:US\$|U\$S|USD|AR\$|ARS|\$)\s?\d[\d.,]*/gi;
 
@@ -92,7 +93,10 @@ export type OpcionesTexto = {
   largo: number;
   /** Si conserva los saltos de línea (la descripción) o queda en una sola línea. */
   multilinea?: boolean;
-  /** Si saca los montos (las descripciones). */
+  /**
+   * Si saca los montos. Todo lo que viene de una página va sin montos: el
+   * chequeo de precios acepta cualquier monto de un resultado de búsqueda.
+   */
   sinMontos?: boolean;
 };
 

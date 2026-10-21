@@ -34,7 +34,7 @@ function skuDe(objeto: Json): string | null {
     .filter(esObjeto)
     .find((atributo) => campo(atributo, 'id') === 'SELLER_SKU');
   const crudo = propio || (atributo ? texto(campo(atributo, 'value_name')) : '');
-  return textoSeguro(crudo, { largo: LARGOS.sku }) || null;
+  return textoSeguro(crudo, { largo: LARGOS.sku, sinMontos: true }) || null;
 }
 
 function imagenesDe(item: Json): string[] {
@@ -58,14 +58,14 @@ function nombreDeVariacion(variacion: Json, indice: number): string {
       return nombre && valor ? `${nombre}: ${valor}` : valor;
     })
     .filter(Boolean);
-  return textoSeguro(partes.join(' / '), { largo: LARGOS.variante }) || `Variante ${indice + 1}`;
+  return textoSeguro(partes.join(' / '), { largo: LARGOS.variante, sinMontos: true }) || `Variante ${indice + 1}`;
 }
 
 /** Un item de `GET /items/{id}` (y su descripción en texto plano, si se pudo leer) → producto. */
 export function productoDesdeItem(item: unknown, descripcionPlana: string | null): ProductoExtraido | null {
   if (!esObjeto(item)) return null;
   const id = texto(campo(item, 'id'));
-  const nombre = textoSeguro(campo(item, 'title'), { largo: LARGOS.nombre });
+  const nombre = textoSeguro(campo(item, 'title'), { largo: LARGOS.nombre, sinMontos: true });
   if (!/^M[A-Z]{2}\d{6,15}$/.test(id) || nombre.length < 2) return null;
 
   const avisos = new Set<AvisoBorrador>();

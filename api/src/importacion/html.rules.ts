@@ -72,15 +72,26 @@ function* etiquetas(html: string, minusculas: string, nombre: string): Generator
 }
 
 export function leerHtml(html: string): HtmlLeido {
-  const minusculas = html.toLowerCase();
+  // Sólo A-Z: toLowerCase de Unicode puede cambiar el largo ("İ") y desalinear los índices.
+  const minusculas = html.replace(/[A-Z]+/g, (letras) => letras.toLowerCase());
 
+  // Cada <script> se salta entero hasta su </script>: con el generador, mil aperturas sin cerrar
+  // volverían a buscar el mismo cierre lejano cada vez (cuadrático).
   const jsonld: string[] = [];
-  for (const { etiqueta, fin } of etiquetas(html, minusculas, 'script')) {
-    const cierre = minusculas.indexOf('</script', fin);
+  let desde = 0;
+  for (;;) {
+    const inicio = minusculas.indexOf('<script', desde);
+    if (inicio === -1) break;
+    const finApertura = html.indexOf('>', inicio);
+    if (finApertura === -1) break;
+    const cierre = minusculas.indexOf('</script', finApertura + 1);
     if (cierre === -1) break;
-    const tipo = (atributos(etiqueta).get('type') ?? '').trim().toLowerCase();
-    if (tipo === 'application/ld+json' && cierre - fin <= MAX_BYTES_BLOQUE) {
-      jsonld.push(html.slice(fin, cierre));
+    desde = cierre + '</script'.length;
+    const siguiente = minusculas[inicio + '<script'.length];
+    if (siguiente !== undefined && !/[\s/>]/.test(siguiente)) continue;
+    const tipo = (atributos(html.slice(inicio, finApertura + 1)).get('type') ?? '').trim().toLowerCase();
+    if (tipo === 'application/ld+json' && cierre - (finApertura + 1) <= MAX_BYTES_BLOQUE) {
+      jsonld.push(html.slice(finApertura + 1, cierre));
       if (jsonld.length >= MAX_BLOQUES_JSONLD) break;
     }
   }

@@ -161,20 +161,12 @@ export class ImportacionService {
           const codigo = codigoDe(error);
           if (!codigo) throw error;
           errores.push({ url, codigo });
-          this.logger.warn(`Importación: ${this.hostDe(url)} → ${codigo}`);
+          this.logger.warn(`Importación: un enlace no se pudo leer (${codigo}).`);
         }
       }
       return { productos: await this.borradores(userId, encontrados), errores, recortado };
     } finally {
       this.enCurso.delete(userId);
-    }
-  }
-
-  private hostDe(url: string): string {
-    try {
-      return new URL(url).hostname;
-    } catch {
-      return 'url inválida';
     }
   }
 

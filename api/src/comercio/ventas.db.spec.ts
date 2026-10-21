@@ -402,7 +402,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
   it('vence las reservas pasadas de hora y cancela sólo lo que está sin pagar', async () => {
     const vieja = await pedido([{ varianteId: sinControl, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
-    expect(await ventas.vencerReservas()).toBe(1);
+    // El barrido es global: en la base compartida puede vencer también reservas de otros specs.
+    expect(await ventas.vencerReservas()).toBeGreaterThanOrEqual(1);
     expect((await prisma.venta.findUniqueOrThrow({ where: { id: vieja.id } })).estado).toBe('vencida');
 
     const pagada = await pedido([{ varianteId: sinControl, cantidad: 1 }]);

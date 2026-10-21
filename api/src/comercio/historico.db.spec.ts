@@ -65,7 +65,8 @@ describe.skipIf(!hayBaseDePrueba)('histórico de ventas (Postgres real)', () => 
       ],
     });
     // Pendiente vigente, pendiente vencida sin barrer, cancelada, de prueba y de otro dueño.
-    await venta(dueno.id, { creada: '2026-09-26T17:50:00Z', estado: 'pendiente_pago', total: 500_000, venceEn: '2026-09-26T18:20:00Z' });
+    // Vence en el futuro de verdad: el barrido de reservas de otros specs (global, sobre la misma base) no la toca.
+    await venta(dueno.id, { creada: '2026-09-26T17:50:00Z', estado: 'pendiente_pago', total: 500_000, venceEn: '2099-01-01T00:00:00Z' });
     await venta(dueno.id, { creada: '2026-09-26T10:00:00Z', estado: 'pendiente_pago', total: 700_000, venceEn: '2026-09-26T10:30:00Z' });
     await venta(dueno.id, { creada: '2026-09-24T12:00:00Z', estado: 'cancelada', total: 900_000, cliente: '=cmd' });
     await venta(dueno.id, { creada: '2026-09-26T12:00:00Z', estado: 'pagada', total: 99_900_000, dePrueba: true });

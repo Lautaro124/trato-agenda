@@ -149,7 +149,7 @@ function textoDeCampo(nodo: Nodo, clave: string): string {
 function categoriaDe(nodo: Nodo): string | null {
   const crudo = textoDeCampo(nodo, 'category');
   const ultima = crudo.split(/[>/|]/).map((parte) => parte.trim()).filter(Boolean).at(-1) ?? '';
-  return textoSeguro(ultima, { largo: LARGOS.categoria }) || null;
+  return textoSeguro(ultima, { largo: LARGOS.categoria, sinMontos: true }) || null;
 }
 
 /** El nombre de una variante sin repetir el del producto: "Remera básica - Talle M" → "Talle M". */
@@ -190,7 +190,7 @@ function armarProducto(
   hostsDePrueba?: ReadonlySet<string>,
 ): ProductoExtraido | null {
   const avisos = new Set<AvisoBorrador>();
-  const nombre = textoSeguro(textoDeCampo(nodo, 'name'), { largo: LARGOS.nombre });
+  const nombre = textoSeguro(textoDeCampo(nodo, 'name'), { largo: LARGOS.nombre, sinMontos: true });
   if (nombre.length < 2) return null;
   const descripcionCruda = textoDeCampo(nodo, 'description');
   const descripcion = textoSeguro(descripcionCruda, { largo: LARGOS.descripcion, multilinea: true, sinMontos: true });
@@ -207,12 +207,12 @@ function armarProducto(
 
   const skus = new Set<string>();
   let variantes: VarianteExtraida[] = porVariante.map(({ fuente, oferta }) => {
-    const sku = textoSeguro(textoDeCampo(fuente, 'sku') || textoDeCampo(fuente, 'mpn'), { largo: LARGOS.sku }) || null;
+    const sku = textoSeguro(textoDeCampo(fuente, 'sku') || textoDeCampo(fuente, 'mpn'), { largo: LARGOS.sku, sinMontos: true }) || null;
     const unico = sku && !skus.has(sku.toLowerCase()) ? sku : null;
     if (unico) skus.add(unico.toLowerCase());
     return {
       nombre:
-        fuente === nodo ? '' : textoSeguro(nombreDeVariante(textoDeCampo(fuente, 'name'), nombre), { largo: LARGOS.variante }),
+        fuente === nodo ? '' : textoSeguro(nombreDeVariante(textoDeCampo(fuente, 'name'), nombre), { largo: LARGOS.variante, sinMontos: true }),
       sku: unico,
       precioCentavos: moneda === 'otra' ? null : (oferta?.precioCentavos ?? null),
     };
