@@ -222,9 +222,10 @@ function soloMontosConocidos(respuestas: string[], mensajes: string[], ventas: V
   const validos = new Set([
     ...CATALOGO.map((producto) => producto.precio * 100),
     ...ventas.flatMap((venta) => [venta.totalCentavos, ...venta.items.map((item) => item.subtotalCentavos)]),
-    ...montosEnTexto(mensajes.join(' ')),
+    // El catálogo del eval es todo en pesos: un "US$" en la respuesta es inventado.
+    ...montosEnTexto(mensajes.join(' ')).filter((monto) => monto.moneda === 'ARS').map((monto) => monto.centavos),
   ]);
-  return montosEnTexto(respuestas.join(' ')).every((monto) => validos.has(monto));
+  return montosEnTexto(respuestas.join(' ')).every((monto) => monto.moneda === 'ARS' && validos.has(monto.centavos));
 }
 
 describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () => {

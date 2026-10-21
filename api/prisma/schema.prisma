@@ -373,6 +373,10 @@ model Producto {
   nombre      String
   descripcion String  @default("")
   categoria   String?
+  /// "ARS" | "USD": la moneda de los precios de todas sus variantes. Un
+  /// pedido no mezcla monedas y uno en dólares se cobra a mano (Mercado Pago
+  /// cobra en pesos). Los a medida son siempre en pesos.
+  moneda      String  @default("ARS")
 
   /// Baja lógica: un producto borrado deja de venderse pero sus ventas
   /// guardan igual su snapshot.

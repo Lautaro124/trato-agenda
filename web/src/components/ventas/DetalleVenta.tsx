@@ -4,7 +4,7 @@ import { Fragment, useEffect, useId, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { ErrorDeApi, formatearCentavos } from "@/lib/productos";
+import { ErrorDeApi, formatearCentavos, formatearMonto } from "@/lib/productos";
 import {
   cambiarAtencion,
   cancelarVenta,
@@ -150,17 +150,17 @@ export function DetalleVenta({
                   {item.cantidad} × {item.nombreProducto}
                   {item.nombreVariante && <span className="text-ink-secondary"> ({item.nombreVariante})</span>}
                   <span className="block text-[11.5px] text-muted">
-                    {item.codigo} · {formatearCentavos(item.precioUnitarioCentavos)} c/u
+                    {item.codigo} · {formatearMonto(item.precioUnitarioCentavos, venta.moneda)} c/u
                     {item.descuentoCentavos > 0 && item.precioListaCentavos !== null && (
                       <>
                         {" "}
-                        <span className="line-through">{formatearCentavos(item.precioListaCentavos)}</span>
+                        <span className="line-through">{formatearMonto(item.precioListaCentavos, venta.moneda)}</span>
                         {item.descuentoEtiqueta && ` · ${item.descuentoEtiqueta}`}
                       </>
                     )}
                   </span>
                 </td>
-                <td className="py-2 text-right text-ink tabular-nums">{formatearCentavos(item.subtotalCentavos)}</td>
+                <td className="py-2 text-right text-ink tabular-nums">{formatearMonto(item.subtotalCentavos, venta.moneda)}</td>
               </tr>
             ))}
             <tr>

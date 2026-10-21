@@ -6,6 +6,7 @@ import {
   normalizarTexto,
   skuPorDefecto,
   textoBusquedaDe,
+  type Moneda,
   type VarianteImportada,
 } from './catalogo.rules.js';
 import { finDeVigencia, inicioDeVigencia, problemaDeDescuento, type TipoDescuento } from './descuentos.rules.js';
@@ -62,6 +63,8 @@ type ProductoAGuardar = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
+  /** undefined no la toca: uno nuevo queda en pesos (el default de la columna). */
+  moneda?: Moneda;
   variantes: VarianteImportada[];
   /** null lo borra; undefined (la importación) no lo toca. */
   descuento?: DescuentoAGuardar | null;
@@ -288,6 +291,13 @@ export class ProductosService {
    */
   private async escribir(tx: Tx, userId: string, datos: ProductoAGuardar, id?: string): Promise<string> {
     const textoBusqueda = textoBusquedaDe(datos);
+    const anterior =
+      datos.moneda === undefined
+        ? null
+        : await tx.producto.findUnique({
+            where: id ? { id } : { userId_codigo: { userId, codigo: datos.codigo } },
+            select: { moneda: true },
+          });
     const campos = {
       codigo: datos.codigo,
       nombre: datos.nombre,
@@ -295,6 +305,7 @@ export class ProductosService {
       categoria: datos.categoria,
       activo: true,
       textoBusqueda,
+      ...(datos.moneda !== undefined && { moneda: datos.moneda }),
       // Sólo si vino: la importación no la manda y no tiene que pisarla.
       ...(datos.precioReferenciaCentavos !== undefined && { precioReferenciaCentavos: datos.precioReferenciaCentavos }),
       ...(datos.solicitud !== undefined && {
@@ -339,6 +350,9 @@ export class ProductosService {
 
     if (datos.descuento === null) {
       await tx.descuento.deleteMany({ where: { productoId: producto.id, userId } });
+    } else if (datos.descuento === undefined && anterior && anterior.moneda !== datos.moneda) {
+      // Un monto fijo guardado en una moneda no vale lo mismo en la otra: se borra en vez de reinterpretarse.
+      await tx.descuento.deleteMany({ where: { productoId: producto.id, userId, tipo: 'monto' } });
     } else if (datos.descuento) {
       await tx.descuento.upsert({
         where: { productoId: producto.id },
@@ -404,6 +418,7 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
     throw new BadRequestException('Un producto de stock no se cotiza: su precio sale de las variantes.');
   }
   const problema = problemaDelProducto({
+    moneda: dto.moneda,
     variantes: dto.variantes?.length ?? 0,
     descuento: dto.descuento,
     solicitud: dto.solicitud,
@@ -439,6 +454,7 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
     nombre: dto.nombre.trim(),
     descripcion: (dto.descripcion ?? '').trim(),
     categoria: dto.categoria?.trim() || null,
+    ...(dto.moneda !== undefined && { moneda: dto.moneda }),
     variantes,
   };
   if (!aMedida) {
@@ -454,6 +470,8 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
   }
   return {
     ...base,
+    // Se cotiza en pesos, como los presupuestos y los costos.
+    moneda: 'ARS',
     // Un producto a medida no tiene variantes que descontar: si quedó uno de antes, se borra.
     descuento: null,
     solicitud: solicitudDesdeDto(dto.solicitud as SolicitudDto),

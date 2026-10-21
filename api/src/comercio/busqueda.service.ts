@@ -5,8 +5,10 @@ import {
   describirStock,
   fusionarRankings,
   hayStock,
+  monedaDe,
   normalizarTexto,
   unidadesDisponibles,
+  type Moneda,
   type Ranking,
 } from './catalogo.rules.js';
 import { mejorDescuento, type DescuentoAplicado } from './descuentos.rules.js';
@@ -68,6 +70,8 @@ export type ProductoEncontrado = {
   nombre: string;
   categoria: string | null;
   descripcion: string;
+  /** La de todos sus precios; ausente = pesos (los a medida siempre lo son). */
+  moneda?: Moneda;
   variantes: VarianteEncontrada[];
   /**
    * true si sólo lo trajo la búsqueda por significado (embeddings): ninguna
@@ -261,6 +265,7 @@ export class BusquedaService {
           nombre: producto.nombre,
           categoria: producto.categoria,
           descripcion: producto.descripcion,
+          moneda: monedaDe(producto.moneda),
           tieneImagen: producto.imagen !== null,
           ...(solicitud
             ? {

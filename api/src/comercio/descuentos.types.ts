@@ -93,7 +93,8 @@ export type DescuentoPublico = {
   etiqueta: string;
 };
 
-export function aDescuentoPublico(descuento: Descuento): DescuentoPublico {
+/** `moneda`: la del producto, para la etiqueta de un monto fijo propio (las promos son en pesos). */
+export function aDescuentoPublico(descuento: Descuento, moneda: string = 'ARS'): DescuentoPublico {
   return {
     id: descuento.id,
     alcance: alcanceDe(descuento),
@@ -104,7 +105,7 @@ export function aDescuentoPublico(descuento: Descuento): DescuentoPublico {
     activo: descuento.activo,
     desde: diaDeDesde(descuento.desde),
     hasta: diaDeHasta(descuento.hasta),
-    etiqueta: etiquetaDescuento(descuento),
+    etiqueta: etiquetaDescuento(descuento, moneda),
   };
 }
 

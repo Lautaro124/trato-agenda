@@ -253,6 +253,39 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     expect(await ventas.reservadasPorVariante([termo])).toEqual(new Map([[termo, 1]]));
   });
 
+  it('un pedido en dólares se cobra a mano aunque haya Mercado Pago, y no se mezcla con uno en pesos', async () => {
+    const auriculares = await prisma.producto.create({
+      data: {
+        userId: dueno.id,
+        codigo: 'AURI',
+        nombre: 'Auriculares',
+        moneda: 'USD',
+        variantes: { create: [{ sku: 'AURI', precioCentavos: 2_500, stock: 3 }] },
+      },
+      include: { variantes: true },
+    });
+    const varianteUsd = auriculares.variantes[0].id;
+    try {
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+
+      const venta = await pedido([{ varianteId: varianteUsd, cantidad: 2 }], { medioPago: 'mercadopago' });
+      expect(venta).toMatchObject({ moneda: 'USD', medioPago: 'manual', totalCentavos: 5_000, linkPago: null });
+      expect(mp.crearPreferencia).not.toHaveBeenCalled();
+      expect(avisosDeTipo('pedido_manual')[0][1]).toMatchObject({ titulo: 'Pedido para cobrar: US$ 50' });
+
+      await expect(
+        pedido([
+          { varianteId: varianteUsd, cantidad: 1 },
+          { varianteId: termo, cantidad: 1 },
+        ]),
+      ).rejects.toThrow('No se pueden mezclar productos en pesos y en dólares');
+      expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(1);
+    } finally {
+      await prisma.venta.deleteMany({ where: { userId: dueno.id } });
+      await prisma.producto.delete({ where: { id: auriculares.id } });
+    }
+  });
+
   it('el webhook sólo marca pagada con un pago aprobado de esa venta por el monto exacto', async () => {
     cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
     mp.crearPreferencia.mockResolvedValue({ id: 'pref-2', init_point: 'https://mp/pagar' });

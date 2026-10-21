@@ -109,6 +109,8 @@ const LISTADO = {
   total: 1,
   pagina: 1,
   porPagina: 25,
+  moneda: 'ARS',
+  monedas: ['ARS'],
   rango: { primerDia: '2026-09-20', ultimoDia: '2026-09-26' },
   totales: { cobradoCentavos: 1_600_000, pagadas: 1, ticketPromedioCentavos: 1_600_000, pendienteCentavos: 0, pendientes: 0 },
 };
@@ -117,6 +119,7 @@ function crearHistorico() {
   return {
     listar: vi.fn().mockResolvedValue(LISTADO),
     resumen: vi.fn().mockResolvedValue({
+      moneda: 'ARS',
       rango: LISTADO.rango,
       porDia: [],
       topProductos: [{ codigo: 'MATE', nombreProducto: 'Mate', unidades: 2, cobradoCentavos: 1_600_000 }],

@@ -31,6 +31,7 @@ import {
   formatearCatalogo,
   formatearDescuentos,
   formatearListadoVentas,
+  totalesDeVentas,
   formatearPedidoCreado,
   formatearPedidos,
   formatearResultados,
@@ -307,15 +308,24 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       hasta: typeof args.hasta === 'string' ? args.hasta : undefined,
     };
     try {
+      // Los totales van por moneda: nunca se suman pesos con dólares.
       if (operacion.nombre === 'listar_ventas') {
         const estado = typeof args.estado === 'string' ? (args.estado as never) : undefined;
-        return formatearListadoVentas(await deps.historico.listar(state.ownerUserId, { ...filtros, estado }));
+        const listado = await deps.historico.listar(state.ownerUserId, { ...filtros, estado });
+        if (!listado.monedas.includes('USD')) return formatearListadoVentas(listado);
+        const enDolares = await deps.historico.listar(state.ownerUserId, { ...filtros, estado, moneda: 'USD' });
+        return `${formatearListadoVentas(listado)}\n${totalesDeVentas(enDolares)}`;
       }
       const [resumen, listado] = await Promise.all([
         deps.historico.resumen(state.ownerUserId, filtros),
         deps.historico.listar(state.ownerUserId, filtros),
       ]);
-      return formatearResumenVentas(resumen, listado);
+      if (!listado.monedas.includes('USD')) return formatearResumenVentas(resumen, listado);
+      const [resumenUsd, listadoUsd] = await Promise.all([
+        deps.historico.resumen(state.ownerUserId, { ...filtros, moneda: 'USD' }),
+        deps.historico.listar(state.ownerUserId, { ...filtros, moneda: 'USD' }),
+      ]);
+      return `${formatearResumenVentas(resumen, listado)}\nEn dólares: ${formatearResumenVentas(resumenUsd, listadoUsd)}`;
     } catch (error) {
       if (error instanceof RangoInvalidoError) return `Fechas inválidas: ${error.message}`;
       throw error;

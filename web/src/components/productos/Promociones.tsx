@@ -293,6 +293,9 @@ function FormularioPromocion({
           />
         </div>
       </div>
+      {borrador.tipo === "monto" && (
+        <p className="text-[12px] text-muted">El monto fijo es en pesos: no se aplica a los productos en dólares.</p>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label htmlFor={`${id}-desde`} className={LABEL}>

@@ -94,6 +94,23 @@ describe.skipIf(!hayBaseDePrueba)('histórico de ventas (Postgres real)', () => 
     expect(listado.ventas.map((v) => v.estado).sort()).toEqual(['cancelada', 'pagada', 'pagada', 'pendiente_pago', 'vencida']);
   });
 
+  it('nunca suma pesos con dólares: los totales y el resumen son de una moneda', async () => {
+    const enDolares = await venta(dueno.id, { creada: '2026-09-26T13:00:00Z', estado: 'pagada', total: 5_000 });
+    await prisma.venta.update({ where: { id: enDolares.id }, data: { moneda: 'USD' } });
+    try {
+      const pesos = await historico.listar(dueno.id, {}, AHORA);
+      expect(pesos).toMatchObject({ moneda: 'ARS', monedas: ['ARS', 'USD'], total: 6 });
+      expect(pesos.totales.cobradoCentavos).toBe(4_000_000);
+
+      const dolares = await historico.listar(dueno.id, { moneda: 'USD' }, AHORA);
+      expect(dolares.totales).toMatchObject({ cobradoCentavos: 5_000, pagadas: 1 });
+      const resumen = await historico.resumen(dueno.id, { moneda: 'USD' }, AHORA);
+      expect(resumen.porDia.find((dia) => dia.dia === '2026-09-26')).toMatchObject({ cobradoCentavos: 5_000, ventas: 1 });
+    } finally {
+      await prisma.venta.delete({ where: { id: enDolares.id } });
+    }
+  });
+
   it('filtra por estado visible, por búsqueda y deja ver las de prueba si se pide', async () => {
     expect((await historico.listar(dueno.id, { estado: 'vencida' }, AHORA)).total).toBe(1);
     expect((await historico.listar(dueno.id, { estado: 'pendiente_pago' }, AHORA)).total).toBe(1);

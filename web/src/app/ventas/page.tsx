@@ -12,7 +12,7 @@ import { KpiVentas } from "@/components/ventas/KpiVentas";
 import { ListaVentas } from "@/components/ventas/ListaVentas";
 import { MasVendidos } from "@/components/ventas/MasVendidos";
 import { cn } from "@/lib/cn";
-import { ErrorDeApi } from "@/lib/productos";
+import { ErrorDeApi, MONEDAS, type Moneda } from "@/lib/productos";
 import { useRequireSession } from "@/lib/session";
 import {
   claveDia,
@@ -118,6 +118,8 @@ function Historico() {
   const [busqueda, setBusqueda] = useState("");
   const [q, setQ] = useState("");
   const [pagina, setPagina] = useState(1);
+  // Los totales y los gráficos son de una moneda: nunca se suman pesos con dólares.
+  const [moneda, setMoneda] = useState<Moneda>("ARS");
   const [recargas, setRecargas] = useState(0);
   // Cada respuesta guarda la clave de los filtros con que se pidió: si no
   // coincide con la actual, se está recargando (y se sigue mostrando la vieja).
@@ -147,10 +149,11 @@ function Historico() {
     estado: estado || undefined,
     q,
     incluirPrueba: periodos.incluirPrueba,
+    moneda,
     pagina,
   };
   const claveListado = JSON.stringify(filtros);
-  const claveResumen = JSON.stringify({ desde: rango.desde, hasta: rango.hasta, incluirPrueba: periodos.incluirPrueba });
+  const claveResumen = JSON.stringify({ desde: rango.desde, hasta: rango.hasta, incluirPrueba: periodos.incluirPrueba, moneda });
 
   // La búsqueda espera a que se deje de tipear; el setState va en el callback
   // del timer, no en el cuerpo del efecto.
@@ -278,11 +281,35 @@ function Historico() {
           !error && !problemaDeRango && <p className="py-10 text-center text-sm text-muted">Cargando tus ventas…</p>
         ) : (
           <div aria-busy={recargando} className={cn("flex flex-col gap-4 transition-opacity", recargando && "opacity-60")}>
-            <KpiVentas totales={datos.totales} />
+            {(datos.monedas.length > 1 || moneda !== "ARS") && (
+              <div role="radiogroup" aria-label="Moneda de los totales" className="flex w-fit gap-1 rounded-md border border-line bg-sunken p-1">
+                {MONEDAS.map((opcion) => (
+                  <label
+                    key={opcion}
+                    className={cn(
+                      "cursor-pointer rounded-sm px-3 py-1.5 text-[13px] font-semibold",
+                      moneda === opcion ? "bg-card text-ink shadow-sm" : "text-ink-secondary",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="moneda-totales"
+                      value={opcion}
+                      checked={moneda === opcion}
+                      onChange={() => setMoneda(opcion)}
+                      className="sr-only"
+                    />
+                    {opcion === "USD" ? "En dólares" : "En pesos"}
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <KpiVentas totales={datos.totales} moneda={datos.moneda} />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-              <GraficoPorDia porDia={resumen.datos.porDia} />
-              <MasVendidos productos={resumen.datos.topProductos} />
+              <GraficoPorDia porDia={resumen.datos.porDia} moneda={resumen.datos.moneda} />
+              <MasVendidos productos={resumen.datos.topProductos} moneda={resumen.datos.moneda} />
             </div>
 
             <section aria-labelledby="titulo-pedidos" className="flex flex-col gap-3">

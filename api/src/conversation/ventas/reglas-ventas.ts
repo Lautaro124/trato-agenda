@@ -9,7 +9,7 @@
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
-import { formatearCentavos } from '../../comercio/catalogo.rules.js';
+import { formatearCentavos, formatearMonto, monedaDe, type Moneda } from '../../comercio/catalogo.rules.js';
 import { leerConfigDatosCliente, reglaDeDatosCliente, type EtapaDeCompra } from '../../comercio/datos-cliente.rules.js';
 import {
   detalleParaElModelo,
@@ -53,17 +53,38 @@ export const MAX_CATEGORIAS_EN_PROMPT = 30;
  */
 export const MAX_BUSQUEDAS_POR_MENSAJE = 3;
 
+/**
+ * Pesos y dólares: el catálogo puede tener productos en las dos monedas. El
+ * prefijo es lo único que las distingue, así que el modelo no lo puede cambiar.
+ */
+export const REGLA_MONEDAS =
+  '- Los precios con "US$" son en dólares y los que llevan sólo "$", en pesos: escribilos con el mismo símbolo ' +
+  'y nunca los conviertas a la otra moneda. Un pedido no mezcla monedas: si elige productos en pesos y en ' +
+  'dólares, son dos pedidos. Un pedido en dólares no lleva link de pago: el pago se coordina por este chat.';
+
 /** La pregunta de cierre: después de que el cliente elige, antes de crear el pedido. */
 export function preguntaDeCierre(mpConectado: boolean): string {
   return mpConectado ? '¿Querés algo más antes de que te pase el link de pago?' : '¿Querés algo más o te lo anoto así?';
 }
 
-/** Los montos "$ …" de un texto, en centavos: "$ 8.000" → 800000, "$1.500,50" → 150050. */
-export function montosEnTexto(texto: string): number[] {
-  return [...texto.matchAll(/\$\s?(\d[\d.]*)(?:,(\d{1,2}))?/g)].map(
-    ([, enteros, decimales]) => Number(enteros.replaceAll('.', '')) * 100 + Number((decimales ?? '0').padEnd(2, '0')),
+/** Un monto escrito en un texto, con su moneda. */
+export type Monto = { moneda: Moneda; centavos: number };
+
+/**
+ * Los montos de un texto, en centavos y con su moneda: "$ 8.000" → 800000 en
+ * pesos, "$1.500,50" → 150050 en pesos, "US$ 10" (o "U$S 10", "USD 10") → 1000
+ * en dólares. El "$ 10" que hay dentro de "US$ 10" no cuenta como pesos.
+ */
+export function montosEnTexto(texto: string): Monto[] {
+  return [...texto.matchAll(/(?:(US\$|U\$S|USD)\s?|\$\s?)(\d[\d.]*)(?:,(\d{1,2}))?/gi)].map(
+    ([, dolares, enteros, decimales]) => ({
+      moneda: dolares ? 'USD' : 'ARS',
+      centavos: Number(enteros.replaceAll('.', '')) * 100 + Number((decimales ?? '0').padEnd(2, '0')),
+    }),
   );
 }
+
+const claveDeMonto = (monto: Monto) => `${monto.moneda}:${monto.centavos}`;
 
 /**
  * Los montos de una respuesta que no salen de ninguna fuente: ni de lo que
@@ -73,26 +94,33 @@ export function montosEnTexto(texto: string): number[] {
  * máximo de unidades por renglón) cuenta como respaldado: es "2 mates, $ 16.000".
  * Lo del cliente no se multiplica: un "$1" suyo no respalda cualquier cifra.
  */
-export function preciosSinRespaldo(respuesta: string, fuentes: string[], delCliente: string[] = []): number[] {
-  const conocidos = new Set(fuentes.flatMap(montosEnTexto));
-  const delClienteExactos = new Set(delCliente.flatMap(montosEnTexto));
+export function preciosSinRespaldo(respuesta: string, fuentes: string[], delCliente: string[] = []): Monto[] {
+  const conocidos = fuentes.flatMap(montosEnTexto);
+  const claves = new Set(conocidos.map(claveDeMonto));
+  const delClienteExactos = new Set(delCliente.flatMap(montosEnTexto).map(claveDeMonto));
   return montosEnTexto(respuesta).filter(
     (monto) =>
-      !conocidos.has(monto) &&
-      !delClienteExactos.has(monto) &&
-      ![...conocidos].some(
-        (precio) => precio > 0 && monto % precio === 0 && monto / precio <= MAX_CANTIDAD_POR_ITEM,
+      !claves.has(claveDeMonto(monto)) &&
+      !delClienteExactos.has(claveDeMonto(monto)) &&
+      // N unidades de un precio conocido, siempre de la misma moneda: US$ 20 no sale de $ 10.
+      !conocidos.some(
+        (precio) =>
+          precio.moneda === monto.moneda &&
+          precio.centavos > 0 &&
+          monto.centavos % precio.centavos === 0 &&
+          monto.centavos / precio.centavos <= MAX_CANTIDAD_POR_ITEM,
       ),
   );
 }
 
 /** La nota que vuelve al modelo cuando mencionó precios que no salen del catálogo. */
-export function correccionDePrecios(montos: number[]): string {
+export function correccionDePrecios(montos: Monto[]): string {
   return (
-    `Corrección: tu respuesta anterior mencionaba ${montos.map(formatearCentavos).join(', ')}, y eso no sale de ` +
-    'ningún resultado del catálogo de esta charla. Nunca digas un precio ni que hay stock de algo que no te ' +
-    'devolvió buscar_productos (o ver_catalogo). Si el cliente pide un producto, buscalo con buscar_productos; si ' +
-    'no aparece, decile que no lo tenés. Escribí la respuesta de nuevo.'
+    `Corrección: tu respuesta anterior mencionaba ${montos.map((monto) => formatearMonto(monto.centavos, monto.moneda)).join(', ')}, ` +
+    'y eso no sale de ningún resultado del catálogo de esta charla. Nunca digas un precio ni que hay stock de algo ' +
+    'que no te devolvió buscar_productos (o ver_catalogo), y escribí cada precio en la moneda en que aparece ("$" ' +
+    'son pesos, "US$" son dólares). Si el cliente pide un producto, buscalo con buscar_productos; si no aparece, ' +
+    'decile que no lo tenés. Escribí la respuesta de nuevo.'
   );
 }
 
@@ -159,6 +187,7 @@ export function reglasDeVenta(
     `descuento vigente: decile al cliente el precio original, el descuento y el precio final, tal cual. Nunca ` +
     `redondees ni inventes descuentos, promociones, cuotas o cálculos de envío que la búsqueda no traiga, y nunca ` +
     `sumes dos descuentos: el sistema ya aplicó el que corresponde.\n` +
+    `${REGLA_MONEDAS}\n` +
     `- Si el cliente pregunta por descuentos, promociones u ofertas, o te dice que sí cuando le ofreciste ` +
     `pasárselos, llamá ver_descuentos y pasale todos los que te devuelve. Si pide un descuento que no está ahí, ` +
     `decile que no lo tenés.\n` +
@@ -466,14 +495,14 @@ export function bloquePedidos(
   if (pendientes.length > 0) {
     lineas.push(
       `Pedidos sin pagar de este cliente (como mucho ${MAX_PEDIDOS_PENDIENTES} a la vez; consultá el detalle con ` +
-        `consultar_pedido): ${pendientes.map((pedido) => detalleDeRenglones(pedido.items)).join(' | ')}.`,
+        `consultar_pedido): ${pendientes.map((pedido) => detalleDeRenglones(pedido.items, pedido.moneda)).join(' | ')}.`,
     );
   }
   if (pagados.length > 0) {
     // El aviso de "pago aprobado" sale fuera del grafo: sin esto el modelo no sabría que ya se cobró.
     lineas.push(
       `Pedidos ya pagados de este cliente (el pago está aprobado: si pregunta, decíselo): ` +
-        `${pagados.map((pedido) => detalleDeRenglones(pedido.items)).join(' | ')}.`,
+        `${pagados.map((pedido) => detalleDeRenglones(pedido.items, pedido.moneda)).join(' | ')}.`,
     );
   }
   if (aMedida || pedidosAMedida.length > 0) lineas.push(...bloquePedidosAMedida(agent, mpConectado, pedidosAMedida, ahora));
@@ -486,9 +515,9 @@ const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-dig
 export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
   const ahorro = venta.items.reduce((suma, item) => suma + item.descuentoCentavos * item.cantidad, 0);
   const base =
-    `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items)}. ` +
-    `Total ${formatearCentavos(venta.totalCentavos ?? 0)}` +
-    (ahorro > 0 ? ` (ya con los descuentos: ahorra ${formatearCentavos(ahorro)})` : '') +
+    `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items, venta.moneda)}. ` +
+    `Total ${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)}` +
+    (ahorro > 0 ? ` (ya con los descuentos: ahorra ${formatearMonto(ahorro, venta.moneda)})` : '') +
     '.' +
     (venta.entrega === 'envio'
       ? ` Es con envío: el costo y el plazo los coordinamos por este chat.`
@@ -501,8 +530,8 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
       // El dueño escribió cómo se manda el link: el modelo lo copia, con los datos ya puestos.
       const mensaje = completarPlantilla(propio, {
         nombre: primerNombre(venta.nombreCliente),
-        detalle: detalleDeRenglones(venta.items),
-        total: formatearCentavos(venta.totalCentavos ?? 0),
+        detalle: detalleDeRenglones(venta.items, venta.moneda),
+        total: formatearMonto(venta.totalCentavos ?? 0, venta.moneda),
         link: venta.linkPago,
         vence: venta.reservaVenceAt ? HORA.format(venta.reservaVenceAt) : '',
       });
@@ -517,7 +546,10 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
   }
   return (
     `${base}${venta.reservaVenceAt ? ` Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}.` : ''} ` +
-    `Decile al cliente que le escribimos por este chat para coordinar el pago y la entrega.`
+    (monedaDe(venta.moneda) === 'USD'
+      ? 'Es en dólares, así que no va con link de Mercado Pago: decile al cliente que le escribimos por este chat ' +
+        'para coordinar el pago y la entrega.'
+      : `Decile al cliente que le escribimos por este chat para coordinar el pago y la entrega.`)
   );
 }
 
@@ -543,8 +575,8 @@ export function formatearPedidos(pedidos: VentaConItems[], ahora: Date = new Dat
           : '';
       if (pedido.tipo === 'a_medida' && pedido.items.length === 0) return lineaDePedidoAMedida(pedido, estado);
       return (
-        `Pedido del ${fechaYHora(pedido.createdAt)}: ${detalleDeRenglones(pedido.items)}, total ` +
-        `${formatearCentavos(pedido.totalCentavos ?? 0)}, ${ETIQUETA_ESTADO[estado]}.${link}`
+        `Pedido del ${fechaYHora(pedido.createdAt)}: ${detalleDeRenglones(pedido.items, pedido.moneda)}, total ` +
+        `${formatearMonto(pedido.totalCentavos ?? 0, pedido.moneda)}, ${ETIQUETA_ESTADO[estado]}.${link}`
       );
     })
     .join('\n');
@@ -664,7 +696,7 @@ export function formatearResultados(
     const variantes = producto.variantes.map(
       (variante) =>
         `   - ${variante.nombre ? `${JSON.stringify(variante.nombre)} ` : ''}[variante ${variante.varianteId}]: ` +
-        `${precioParaElModelo(variante)}, ${variante.stock}`,
+        `${precioParaElModelo(variante, producto.moneda)}, ${variante.stock}`,
     );
     return [cabecera, ...variantes].join('\n');
   };
@@ -695,15 +727,19 @@ export function formatearResultados(
 }
 
 /**
- * "$ 8.000, antes $ 10.000 (20% off hasta el 31/10; ahorra $ 2.000)". El
- * precio final va primero y seguido de ", ": así lo lee el stub de las e2e, y
- * el ahorro va escrito para que el chequeo de precios lo reconozca.
+ * "$ 8.000, antes $ 10.000 (20% off hasta el 31/10; ahorra $ 2.000)", o con
+ * "US$" si el producto es en dólares. El precio final va primero y seguido de
+ * ", ": así lo lee el stub de las e2e, y el ahorro va escrito para que el
+ * chequeo de precios lo reconozca.
  */
-export function precioParaElModelo(variante: Pick<ProductoEncontrado['variantes'][number], 'precioCentavos' | 'precioFinalCentavos' | 'descuento'>): string {
-  if (!variante.descuento) return formatearCentavos(variante.precioCentavos);
+export function precioParaElModelo(
+  variante: Pick<ProductoEncontrado['variantes'][number], 'precioCentavos' | 'precioFinalCentavos' | 'descuento'>,
+  moneda: string = 'ARS',
+): string {
+  if (!variante.descuento) return formatearMonto(variante.precioCentavos, moneda);
   return (
-    `${formatearCentavos(variante.precioFinalCentavos)}, antes ${formatearCentavos(variante.precioCentavos)} ` +
-    `(${detalleParaElModelo(variante.descuento)}; ahorra ${formatearCentavos(variante.descuento.descuentoCentavos)})`
+    `${formatearMonto(variante.precioFinalCentavos, moneda)}, antes ${formatearMonto(variante.precioCentavos, moneda)} ` +
+    `(${detalleParaElModelo(variante.descuento)}; ahorra ${formatearMonto(variante.descuento.descuentoCentavos, moneda)})`
   );
 }
 
@@ -792,7 +828,7 @@ export function leyendaDeProducto(producto: ProductoPanorama): string {
           : 'A medida, se cotiza';
     return `${producto.nombre}\n${precio}`;
   }
-  const precio = formatearCentavos(producto.precioDesdeCentavos ?? 0);
+  const precio = formatearMonto(producto.precioDesdeCentavos ?? 0, producto.moneda);
   return (
     `${producto.nombre}\n${producto.variosPrecios ? `Desde ${precio}` : precio}` +
     (producto.descuento ? ` (con ${producto.descuento})` : '')
@@ -813,7 +849,7 @@ function lineaDeProducto(producto: ProductoPanorama): string {
       `${precioAMedida(producto.precioDesdeCentavos)}${versiones}`
     );
   }
-  const precio = formatearCentavos(producto.precioDesdeCentavos ?? 0); // con stock siempre tiene
+  const precio = formatearMonto(producto.precioDesdeCentavos ?? 0, producto.moneda); // con stock siempre tiene
   const desde = producto.variosPrecios ? `desde ${precio}` : precio;
   return (
     `- ${JSON.stringify(producto.nombre)}: ${desde}` +
@@ -938,12 +974,12 @@ function lineaDePromocion(promocion: PromocionVigente): string {
 
 /** "\"Mate imperial\": desde $ 8.000, antes $ 10.000 (20% off; ahorra $ 2.000)", como precioParaElModelo. */
 function lineaDeProductoConDescuento(producto: ProductoConDescuento): string {
-  const final = formatearCentavos(producto.precioFinalCentavos);
+  const final = formatearMonto(producto.precioFinalCentavos, producto.moneda);
   const precio = producto.variosPrecios ? 'desde ' + final : final;
   return (
     `- ${JSON.stringify(producto.nombre)}: ${precio}, antes ` +
-    `${formatearCentavos(producto.precioListaCentavos)} (${detalleParaElModelo(producto.aplicado)}; ahorra ` +
-    `${formatearCentavos(producto.aplicado.descuentoCentavos)})`
+    `${formatearMonto(producto.precioListaCentavos, producto.moneda)} (${detalleParaElModelo(producto.aplicado)}; ahorra ` +
+    `${formatearMonto(producto.aplicado.descuentoCentavos, producto.moneda)})`
   );
 }
 
@@ -1045,7 +1081,7 @@ export function formatearStockDueno(consulta: string, productos: ProductoEncontr
             ? `sin control de cantidad (${variante.hayStock ? 'marcado con stock' : 'marcado sin stock'})`
             : `${variante.unidades} disponibles${variante.reservadas > 0 ? ` (+${variante.reservadas} reservadas)` : ''}` +
               (variante.stockMinimo !== null ? `, mínimo ${variante.stockMinimo}` : '');
-        return `   - ${variante.nombre || 'única'} (SKU ${variante.sku}): ${precioParaElModelo(variante)}, ${unidades}`;
+        return `   - ${variante.nombre || 'única'} (SKU ${variante.sku}): ${precioParaElModelo(variante, producto.moneda)}, ${unidades}`;
       });
       return [`${JSON.stringify(producto.nombre)} (código ${producto.codigo})`, ...variantes].join('\n');
     })
@@ -1075,20 +1111,27 @@ function cuantas(cantidad: number, singular: string, plural: string): string {
 }
 
 /** Resultado de listar_ventas (sólo el dueño). */
-export function formatearListadoVentas(listado: ListadoVentas): string {
+/** "Ventas de hoy: cobrado $ 16.000 en 2 ventas pagadas; …", en la moneda de los totales del listado. */
+export function totalesDeVentas(listado: Pick<ListadoVentas, 'totales' | 'moneda' | 'rango'>): string {
   const { totales } = listado;
   const pendientes =
     totales.pendientes > 0
-      ? `; ${cuantas(totales.pendientes, 'pedido sin pagar', 'pedidos sin pagar')} por ${formatearCentavos(totales.pendienteCentavos)}`
+      ? `; ${cuantas(totales.pendientes, 'pedido sin pagar', 'pedidos sin pagar')} por ${formatearMonto(totales.pendienteCentavos, listado.moneda)}`
       : '';
-  const cabecera =
-    `Ventas ${periodo(listado.rango)}: cobrado ${formatearCentavos(totales.cobradoCentavos)} en ` +
-    `${cuantas(totales.pagadas, 'venta pagada', 'ventas pagadas')}${pendientes}.`;
+  return (
+    `Ventas ${periodo(listado.rango)}${listado.moneda === 'USD' ? ' en dólares' : ''}: cobrado ` +
+    `${formatearMonto(totales.cobradoCentavos, listado.moneda)} en ` +
+    `${cuantas(totales.pagadas, 'venta pagada', 'ventas pagadas')}${pendientes}.`
+  );
+}
+
+export function formatearListadoVentas(listado: ListadoVentas): string {
+  const cabecera = totalesDeVentas(listado);
   if (listado.total === 0) return `${cabecera} No hay ventas en ese período.`;
   const lineas = listado.ventas.slice(0, MAX_VENTAS_EN_CHAT).map(
     (venta) =>
       `- ${fechaYHora(new Date(venta.createdAt))} · ${venta.nombreCliente ?? 'sin nombre'} · ` +
-      `${detalleDeRenglones(venta.items)} · ${ESTADO_EN_CHAT[venta.estado]}`,
+      `${detalleDeRenglones(venta.items, venta.moneda)} · ${ESTADO_EN_CHAT[venta.estado]}`,
   );
   const resto = listado.total > MAX_VENTAS_EN_CHAT ? `\n(y ${listado.total - MAX_VENTAS_EN_CHAT} más en la pantalla Ventas)` : '';
   return `${cabecera}\n${lineas.join('\n')}${resto}`;
@@ -1099,17 +1142,17 @@ export function formatearResumenVentas(resumen: ResumenVentas, listado: ListadoV
   const { totales } = listado;
   // Redondeado al peso, como en la pantalla Ventas.
   const promedio =
-    totales.pagadas > 0 ? ` (ticket promedio ${formatearCentavos(Math.round(totales.ticketPromedioCentavos / 100) * 100)})` : '';
+    totales.pagadas > 0 ? ` (ticket promedio ${formatearMonto(Math.round(totales.ticketPromedioCentavos / 100) * 100, listado.moneda)})` : '';
   const top =
     resumen.topProductos.length > 0
       ? ` Lo más vendido: ${resumen.topProductos
           .slice(0, 5)
-          .map((producto) => `${producto.nombreProducto} (${producto.unidades} u., ${formatearCentavos(producto.cobradoCentavos)})`)
+          .map((producto) => `${producto.nombreProducto} (${producto.unidades} u., ${formatearMonto(producto.cobradoCentavos, resumen.moneda)})`)
           .join(', ')}.`
       : '';
   return (
     `${periodo(resumen.rango).replace(/^./, (letra) => letra.toUpperCase())}: cobrado ` +
-    `${formatearCentavos(totales.cobradoCentavos)} en ${cuantas(totales.pagadas, 'venta', 'ventas')}${promedio}.${top}`
+    `${formatearMonto(totales.cobradoCentavos, listado.moneda)} en ${cuantas(totales.pagadas, 'venta', 'ventas')}${promedio}.${top}`
   );
 }
 

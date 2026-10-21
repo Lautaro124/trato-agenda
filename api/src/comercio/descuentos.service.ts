@@ -19,7 +19,7 @@ export class DescuentosService {
       where: { userId, productoId: null },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    return promociones.map(aDescuentoPublico);
+    return promociones.map((descuento) => aDescuentoPublico(descuento));
   }
 
   async crear(userId: string, dto: PromocionDto): Promise<DescuentoPublico> {

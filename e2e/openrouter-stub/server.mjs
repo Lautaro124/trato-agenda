@@ -258,7 +258,7 @@ function respuestaDeBusqueda(mensaje) {
   const resultado = textoDe(mensaje);
   // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
   const primero = resultado.match(/1\. "(.+?)" (?:\[producto [^\]]+\] )?\(código/)?.[1];
-  const precio = resultado.match(/\]: (\$ [\d.,]+), /)?.[1];
+  const precio = resultado.match(/\]: ((?:US)?\$ [\d.,]+), /)?.[1];
   // Un producto a medida con versiones de precio fijo: las ofrece y ofrece hacerlo a medida.
   const versiones = versionesDeLaUltimaBusqueda([mensaje]);
   if (versiones.length > 0) {

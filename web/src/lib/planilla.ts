@@ -19,6 +19,7 @@ export const COLUMNAS = [
   "stock",
   "stock_minimo",
   "disponible",
+  "moneda",
 ] as const;
 
 export type FilaPlanilla = Record<string, string>;
@@ -142,6 +143,7 @@ export const ETIQUETAS_COLUMNA: Record<string, string> = {
   stock: "Stock",
   stock_minimo: "Stock mínimo",
   disponible: "Disponible",
+  moneda: "Moneda",
 };
 
 /** Columnas sin las que ninguna fila puede importarse. */
@@ -188,9 +190,10 @@ export async function leerPlanilla(archivo: File): Promise<FilaPlanilla[]> {
 export function plantillaCsv(): string {
   const filas = [
     [...COLUMNAS],
-    ["REM-01", "Remera básica", "Algodón peinado, corte recto", "Remeras", "Talle M", "", "15000", "10", "2", ""],
-    ["REM-01", "Remera básica", "Algodón peinado, corte recto", "Remeras", "Talle L", "", "15000", "4", "2", ""],
-    ["MATE-01", "Mate de calabaza", "Curado, con virola de alpaca", "Mates", "", "", "8000", "", "", "si"],
+    ["REM-01", "Remera básica", "Algodón peinado, corte recto", "Remeras", "Talle M", "", "15000", "10", "2", "", "ARS"],
+    ["REM-01", "Remera básica", "Algodón peinado, corte recto", "Remeras", "Talle L", "", "15000", "4", "2", "", "ARS"],
+    ["MATE-01", "Mate de calabaza", "Curado, con virola de alpaca", "Mates", "", "", "8000", "", "", "si", ""],
+    ["AURI-01", "Auriculares inalámbricos", "Bluetooth, con estuche", "Tecnología", "", "", "25", "3", "", "", "USD"],
   ];
   return (
     "\uFEFF" +

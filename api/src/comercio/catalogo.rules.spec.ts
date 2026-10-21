@@ -9,7 +9,9 @@ import {
   hayStock,
   normalizarColumna,
   normalizarTexto,
+  parsearMoneda,
   parsearPrecio,
+  formatearMonto,
   skuPorDefecto,
   stockBajo,
   textoBusquedaDe,
@@ -116,6 +118,9 @@ describe('precios', () => {
     ['10.123', 1_012_300],
     ['0', 0],
     ['ARS 990', 99_000],
+    ['US$ 10,50', 1_050],
+    ['USD 1.200', 120_000],
+    ['U$S 7', 700],
   ])('parsea "%s"', (texto, centavos) => {
     expect(parsearPrecio(texto)).toBe(centavos);
   });
@@ -127,6 +132,25 @@ describe('precios', () => {
   it('formatea con o sin centavos', () => {
     expect(formatearCentavos(150_000)).toBe('$ 1.500');
     expect(formatearCentavos(150_050)).toBe('$ 1.500,50');
+  });
+
+  it('formatea dólares con "US$" y lo que no es una moneda conocida como pesos', () => {
+    expect(formatearMonto(150_000, 'USD')).toBe('US$ 1.500');
+    expect(formatearMonto(1_050, 'USD')).toBe('US$ 10,50');
+    expect(formatearMonto(150_000, 'ARS')).toBe('$ 1.500');
+    expect(formatearMonto(150_000, 'EUR')).toBe('$ 1.500');
+  });
+
+  it.each([
+    ['', undefined],
+    ['ARS', 'ARS'],
+    ['pesos', 'ARS'],
+    ['USD', 'USD'],
+    ['Dólares', 'USD'],
+    ['u$s', 'USD'],
+    ['euros', 'invalido'],
+  ])('lee la moneda "%s"', (texto, moneda) => {
+    expect(parsearMoneda(texto)).toBe(moneda);
   });
 });
 
@@ -164,6 +188,25 @@ describe('agruparFilasImportacion', () => {
     expect(mate.variantes).toEqual([
       { sku: 'MATE', nombre: '', precioCentavos: 800_000, stock: null, stockMinimo: null, disponible: false },
     ]);
+  });
+
+  it('lee la moneda de la columna o del precio, y no deja mezclarlas en un producto', () => {
+    const { productos, errores } = agruparFilasImportacion([
+      { codigo: 'A', nombre: 'Auriculares', precio: '25', moneda: 'USD' },
+      { codigo: 'B', nombre: 'Bolso', precio: 'US$ 40' },
+      { codigo: 'C', nombre: 'Cartera', precio: '1000' },
+      { codigo: 'D', nombre: 'Dron', variante: 'Chico', precio: '100', moneda: 'USD' },
+      { codigo: 'D', nombre: 'Dron', variante: 'Grande', precio: '200', moneda: 'ARS' },
+      { codigo: 'E', nombre: 'Estuche', precio: '5', moneda: 'euros' },
+    ]);
+
+    expect(productos.map((producto) => [producto.codigo, producto.moneda])).toEqual([
+      ['A', 'USD'],
+      ['B', 'USD'],
+      ['C', undefined],
+    ]);
+    expect(errores).toContainEqual(expect.objectContaining({ fila: 5, columna: 'moneda' }));
+    expect(errores).toContainEqual(expect.objectContaining({ fila: 6, columna: 'moneda' }));
   });
 
   it('ignora las filas vacías', () => {

@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
-import { formatearCentavos } from "@/lib/productos";
+import { formatearMonto } from "@/lib/productos";
 import { ETIQUETA_ESTADO, fechaCorta, resumenDeVenta, type EstadoVenta, type Venta } from "@/lib/ventas";
 
 /** Estado → tono de Badge. Los colores de estado sólo cuando el estado significa algo bueno o a atender. */
@@ -17,8 +17,8 @@ export const TONO_ESTADO: Record<EstadoVenta, "success" | "warning" | "neutral" 
 };
 
 /** El total, o qué falta para tenerlo en un pedido a medida sin cotizar. */
-export function totalDeVenta(venta: Pick<Venta, "totalCentavos">): string {
-  return venta.totalCentavos === null ? "Sin precio" : formatearCentavos(venta.totalCentavos);
+export function totalDeVenta(venta: Pick<Venta, "totalCentavos" | "moneda">): string {
+  return venta.totalCentavos === null ? "Sin precio" : formatearMonto(venta.totalCentavos, venta.moneda);
 }
 
 /** Un pedido abierto que atendés vos: el asistente no contesta en ese chat. */

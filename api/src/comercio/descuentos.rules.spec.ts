@@ -76,6 +76,16 @@ describe('alcance', () => {
     expect(aplicaA({ productoId: 'otro', categoria: null }, MATE)).toBe(false);
     expect(aplicaA({ productoId: null, categoria: null }, MATE)).toBe(true);
   });
+
+  it('un monto fijo de una promo es en pesos: no le toca a un producto en dólares; el porcentaje sí', () => {
+    const enDolares = { ...MATE, moneda: 'USD' };
+    expect(aplicaA({ productoId: null, categoria: null, tipo: 'monto' }, enDolares)).toBe(false);
+    expect(aplicaA({ productoId: null, categoria: 'mates', tipo: 'monto' }, enDolares)).toBe(false);
+    expect(aplicaA({ productoId: null, categoria: null, tipo: 'porcentaje' }, enDolares)).toBe(true);
+    // El monto fijo propio del producto está en su moneda.
+    expect(aplicaA({ productoId: MATE.id, categoria: null, tipo: 'monto' }, enDolares)).toBe(true);
+    expect(aplicaA({ productoId: null, categoria: null, tipo: 'monto' }, MATE)).toBe(true);
+  });
 });
 
 describe('montoDeDescuento', () => {

@@ -17,7 +17,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Descuento, Producto, Variante } from '../generated/prisma/client.js';
-import { hashTexto, LARGOS, type ErrorDeFila, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
+import { hashTexto, LARGOS, monedaDe, MONEDAS, type ErrorDeFila, type Moneda, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import { leerPolitica, leerReceta, POLITICAS_COTIZACION, type PoliticaCotizacion, type Receta } from './costos.rules.js';
 import {
@@ -161,6 +161,11 @@ export class GuardarProductoDto {
   @MaxLength(LARGOS.categoria)
   categoria?: string | null;
 
+  /** Moneda de los precios de sus variantes. Ausente no la toca (uno nuevo queda en pesos). */
+  @IsOptional()
+  @IsIn(MONEDAS)
+  moneda?: Moneda;
+
   /** Obligatorias (al menos una) en una cuenta con stock; un producto a medida no lleva. */
   @IsOptional()
   @IsArray()
@@ -295,6 +300,7 @@ export type ProductoPublico = Pick<
   Producto,
   'id' | 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'activo' | 'updatedAt'
 > & {
+  moneda: Moneda;
   variantes: VariantePublica[];
   /** El descuento propio del producto (el del formulario), vigente o no. */
   descuento: DescuentoPublico | null;
@@ -337,10 +343,11 @@ export function aProductoPublico(
     nombre: producto.nombre,
     descripcion: producto.descripcion,
     categoria: producto.categoria,
+    moneda: monedaDe(producto.moneda),
     activo: producto.activo,
     updatedAt: producto.updatedAt,
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),
-    descuento: producto.descuento ? aDescuentoPublico(producto.descuento) : null,
+    descuento: producto.descuento ? aDescuentoPublico(producto.descuento, producto.moneda) : null,
     imagenActualizada: producto.imagen?.updatedAt ?? null,
     solicitud: leerSolicitud(producto.solicitud),
     precioReferenciaCentavos: producto.precioReferenciaCentavos,

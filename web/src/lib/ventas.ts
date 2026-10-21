@@ -1,5 +1,5 @@
 import { apiFetch } from "./api";
-import { ErrorDeApi } from "./productos";
+import { ErrorDeApi, type Moneda } from "./productos";
 
 /** Los tres primeros sólo existen en los pedidos a medida: todavía no tienen precio. */
 export type EstadoVenta =
@@ -134,11 +134,16 @@ export type ListadoVentas = {
   total: number;
   pagina: number;
   porPagina: number;
+  /** Los totales son sólo de esta moneda: nunca se suman pesos con dólares. */
+  moneda: Moneda;
   totales: Totales;
+  /** Monedas con ventas en el período. */
+  monedas: Moneda[];
   rango: { primerDia: string; ultimoDia: string };
 };
 
 export type ResumenVentas = {
+  moneda: Moneda;
   rango: { primerDia: string; ultimoDia: string };
   porDia: Array<{ dia: string; cobradoCentavos: number; ventas: number }>;
   topProductos: Array<{ codigo: string; nombreProducto: string; unidades: number; cobradoCentavos: number }>;
@@ -150,6 +155,8 @@ export type FiltrosVentas = {
   estado?: EstadoVenta;
   q?: string;
   incluirPrueba?: boolean;
+  /** La de los totales y los gráficos; ausente = pesos. */
+  moneda?: Moneda;
   pagina?: number;
 };
 
@@ -168,6 +175,7 @@ function query(filtros: FiltrosVentas): string {
   if (filtros.estado) params.set("estado", filtros.estado);
   if (filtros.q?.trim()) params.set("q", filtros.q.trim());
   if (filtros.incluirPrueba) params.set("incluirPrueba", "true");
+  if (filtros.moneda && filtros.moneda !== "ARS") params.set("moneda", filtros.moneda);
   if (filtros.pagina && filtros.pagina > 1) params.set("pagina", String(filtros.pagina));
   return params.toString();
 }
@@ -186,8 +194,8 @@ export function listarVentas(filtros: FiltrosVentas): Promise<ListadoVentas> {
 }
 
 export function resumenVentas(filtros: FiltrosVentas): Promise<ResumenVentas> {
-  const { desde, hasta, incluirPrueba } = filtros;
-  return apiFetch(`/ventas/resumen?${query({ desde, hasta, incluirPrueba })}`).then((res) => json<ResumenVentas>(res));
+  const { desde, hasta, incluirPrueba, moneda } = filtros;
+  return apiFetch(`/ventas/resumen?${query({ desde, hasta, incluirPrueba, moneda })}`).then((res) => json<ResumenVentas>(res));
 }
 
 /** Por qué un pedido pasó a una persona (espejo de `ETIQUETA_MOTIVO` en la API). */
@@ -337,6 +345,6 @@ export function diaConSemana(dia: string): string {
 const COMPACTO = new Intl.NumberFormat("es-AR", { notation: "compact", maximumFractionDigits: 1 });
 
 /** "$ 12,9 M" para los montos grandes de los ejes y las tarjetas. */
-export function pesosCompactos(centavos: number): string {
-  return `$ ${COMPACTO.format(centavos / 100)}`;
+export function pesosCompactos(centavos: number, moneda: string = "ARS"): string {
+  return `${moneda === "USD" ? "US$" : "$"} ${COMPACTO.format(centavos / 100)}`;
 }

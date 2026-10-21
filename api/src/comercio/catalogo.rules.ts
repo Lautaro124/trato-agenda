@@ -139,10 +139,36 @@ const FORMATO_PESOS_CON_CENTAVOS = new Intl.NumberFormat('es-AR', {
 
 /** 150000 → "$ 1.500"; 150050 → "$ 1.500,50". Va al prompt, así que el formato es fijo. */
 export function formatearCentavos(centavos: number): string {
-  const pesos = centavos / 100;
-  return Number.isInteger(pesos)
-    ? `$ ${FORMATO_PESOS.format(pesos)}`
-    : `$ ${FORMATO_PESOS_CON_CENTAVOS.format(pesos)}`;
+  return formatearMonto(centavos, 'ARS');
+}
+
+/**
+ * Monedas en las que se puede cargar un producto. Todo lo que no es del
+ * catálogo de stock (a medida, presupuestos, costos, la suscripción) sigue
+ * en pesos.
+ */
+export const MONEDAS = ['ARS', 'USD'] as const;
+export type Moneda = (typeof MONEDAS)[number];
+
+export function esMoneda(valor: unknown): valor is Moneda {
+  return typeof valor === 'string' && (MONEDAS as readonly string[]).includes(valor);
+}
+
+/** La moneda de una fila de la base: cualquier cosa rara cuenta como pesos. */
+export function monedaDe(valor: unknown): Moneda {
+  return esMoneda(valor) ? valor : 'ARS';
+}
+
+/**
+ * 150000 en pesos → "$ 1.500"; en dólares → "US$ 1.500". El prefijo de los
+ * dólares es fijo porque `montosEnTexto` lo lee para no confundirlo con pesos.
+ */
+export function formatearMonto(centavos: number, moneda: string = 'ARS'): string {
+  const unidades = centavos / 100;
+  const numero = Number.isInteger(unidades)
+    ? FORMATO_PESOS.format(unidades)
+    : FORMATO_PESOS_CON_CENTAVOS.format(unidades);
+  return `${monedaDe(moneda) === 'USD' ? 'US$' : '$'} ${numero}`;
 }
 
 /**
@@ -152,7 +178,7 @@ export function formatearCentavos(centavos: number): string {
  * miles ("1.500"), igual que en una planilla en español.
  */
 export function parsearPrecio(texto: string): number | null {
-  const limpio = texto.replace(/\$|\s|ars/gi, '');
+  const limpio = texto.replace(/u\$s|us\$|usd|\$|\s|ars/gi, '');
   if (!/^\d[\d.,]*$/.test(limpio)) return null;
 
   let normalizado: string;
@@ -198,6 +224,7 @@ export const COLUMNAS_IMPORTACION = [
   'stock',
   'stock_minimo',
   'disponible',
+  'moneda',
 ] as const;
 
 export type ColumnaImportacion = (typeof COLUMNAS_IMPORTACION)[number];
@@ -221,6 +248,8 @@ export type ProductoImportado = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
+  /** Sólo si la planilla la dice (columna o "US$" en el precio); si no, no se toca. */
+  moneda?: Moneda;
   variantes: VarianteImportada[];
   /** Números de fila (1 = primera fila de datos) de donde salió, para los errores. */
   filas: number[];
@@ -263,6 +292,20 @@ function parsearEntero(texto: string, maximo: number): number | null | 'invalido
   return valor > maximo ? 'invalido' : valor;
 }
 
+/** "pesos", "ARS", "$" → ARS; "dólares", "USD", "US$" → USD; vacío → undefined (no se toca). */
+export function parsearMoneda(texto: string): Moneda | undefined | 'invalido' {
+  const valor = normalizarTexto(texto).replace(/\s/g, '');
+  if (valor === '') return undefined;
+  if (['ars', 'pesos', 'peso', '$', 'ar$'].includes(valor)) return 'ARS';
+  if (['usd', 'us$', 'u$s', 'dolares', 'dolar', 'u$d'].includes(valor)) return 'USD';
+  return 'invalido';
+}
+
+/** Un precio escrito "US$ 10" o "USD 10" dice la moneda aunque no haya columna. */
+function monedaDelPrecio(texto: string): Moneda | undefined {
+  return /^\s*(us\$|u\$s|usd)/i.test(texto) ? 'USD' : undefined;
+}
+
 function parsearBooleano(texto: string): boolean | 'invalido' {
   const valor = normalizarTexto(texto);
   if (valor === '') return true;
@@ -284,6 +327,7 @@ type FilaParseada = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
+  moneda: Moneda | undefined;
   variante: VarianteImportada;
 };
 
@@ -321,6 +365,9 @@ function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParsea
   if (stockMinimo === 'invalido') error('stock_minimo', 'Tiene que ser un número entero (o vacío)');
   const disponible = parsearBooleano(celda(fila, 'disponible'));
   if (disponible === 'invalido') error('disponible', 'Poné «sí» o «no»');
+  const monedaColumna = parsearMoneda(celda(fila, 'moneda'));
+  if (monedaColumna === 'invalido') error('moneda', 'Poné «ARS» (pesos) o «USD» (dólares), o dejala vacía');
+  const moneda = monedaColumna === 'invalido' ? undefined : (monedaColumna ?? monedaDelPrecio(precioTexto));
 
   if (errores.length > 0) return errores.map((e) => ({ fila: numero, ...e }));
 
@@ -330,6 +377,7 @@ function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParsea
     nombre,
     descripcion,
     categoria: categoria || null,
+    moneda,
     variante: {
       sku,
       nombre: variante,
@@ -374,6 +422,7 @@ export function agruparFilasImportacion(filas: Array<Record<string, unknown>>): 
         nombre: parseada.nombre,
         descripcion: parseada.descripcion,
         categoria: parseada.categoria,
+        ...(parseada.moneda !== undefined && { moneda: parseada.moneda }),
         variantes: [parseada.variante],
         filas: [numero],
       });
@@ -385,6 +434,12 @@ export function agruparFilasImportacion(filas: Array<Record<string, unknown>>): 
       conErrores.add(parseada.codigo);
       return;
     }
+    if (parseada.moneda !== undefined && existente.moneda !== undefined && parseada.moneda !== existente.moneda) {
+      errores.push({ fila: numero, mensaje: `las variantes del producto ${parseada.codigo} tienen que estar en la misma moneda`, columna: 'moneda' });
+      conErrores.add(parseada.codigo);
+      return;
+    }
+    if (existente.moneda === undefined && parseada.moneda !== undefined) existente.moneda = parseada.moneda;
     if (existente.variantes.length >= MAX_VARIANTES) {
       errores.push({ fila: numero, mensaje: `el producto ${parseada.codigo} tiene más de ${MAX_VARIANTES} variantes` });
       conErrores.add(parseada.codigo);

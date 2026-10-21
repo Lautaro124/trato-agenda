@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { buscarComoElAsistente, formatearCentavos, type ProductoEncontrado } from "@/lib/productos";
+import { buscarComoElAsistente, formatearCentavos, formatearMonto, type ProductoEncontrado } from "@/lib/productos";
 
 /**
  * "¿Qué encuentra mi asistente si le preguntan esto?": la misma búsqueda que
@@ -71,13 +71,13 @@ export function ProbarBusqueda() {
                     {variante.descuento ? (
                       <>
                         <strong className="text-[var(--color-primitive-coral-700)]">
-                          {formatearCentavos(variante.precioFinalCentavos)}
+                          {formatearMonto(variante.precioFinalCentavos, producto.moneda)}
                         </strong>{" "}
-                        <span className="text-muted line-through">{formatearCentavos(variante.precioCentavos)}</span> ·{" "}
+                        <span className="text-muted line-through">{formatearMonto(variante.precioCentavos, producto.moneda)}</span> ·{" "}
                         {variante.descuento.etiqueta}
                       </>
                     ) : (
-                      formatearCentavos(variante.precioCentavos)
+                      formatearMonto(variante.precioCentavos, producto.moneda)
                     )}{" "}
                     ({variante.stock})
                   </li>
