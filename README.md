@@ -126,11 +126,11 @@ está pendiente.
 | `LINEAR_TEAM_ID` | Opcional. Id (UUID) del equipo de Linear donde se crean esos issues — no la clave `LAU`. |
 | `LINEAR_LABEL_ID` | Opcional. Id de una etiqueta para marcarlos (ej. "Sugerencia"). |
 | `LINEAR_API_URL` | Opcional. Endpoint GraphQL de Linear. Por defecto `https://api.linear.app/graphql`. |
-| `MERCADOLIBRE_CLIENT_ID` / `MERCADOLIBRE_CLIENT_SECRET` | Opcionales, van juntas. Una app de [developers.mercadolibre.com.ar](https://developers.mercadolibre.com.ar): con ellas la importación rápida (plan Pro) pide un token de aplicación y lee las publicaciones por la API oficial, con variantes y SKU. Sin ellas una publicación se lee desde su página como cualquier tienda, y los listados de Mercado Libre no se pueden importar. |
+| `MERCADOLIBRE_CLIENT_ID` / `MERCADOLIBRE_CLIENT_SECRET` | Opcionales, van juntas. Una app de [developers.mercadolibre.com.ar](https://developers.mercadolibre.com.ar): con ellas la importación rápida (plan Pro) pide un token de aplicación y lee las publicaciones por la API oficial, con variantes y SKU. Si la búsqueda de la API no responde, una tienda (`/tienda/…`) se lee sacando los ids de publicación de su página. Sin ellas Mercado Libre rechaza la API y muestra una verificación de cuenta en lugar de la página: no se importa nada de Mercado Libre (el log dice `mercadolibre_no_disponible/sin_credenciales`). |
 | `MERCADOLIBRE_API_URL` | Opcional. Por defecto `https://api.mercadolibre.com`; en producción tiene que ser https. Sólo la cambia el stub de los e2e. |
 | `IMPORTACION_HOSTS_DE_PRUEBA` | **Sólo e2e.** Hosts a los que la importación rápida puede pedir aunque sean http o de la red interna (el stub de la tienda). La API no arranca con esto en producción. |
 | `SENTRY_DSN` | Opcional. DSN del proyecto de Sentry de la API. Vacía = sin Sentry (lo normal en local). La lee `src/instrument.ts`, que corre con `node --import` antes que la app, así que no pasa por `validateEnv`. |
-| `SENTRY_ENVIRONMENT` | Opcional. Environment de los eventos. Por defecto, el nombre del entorno de Railway (`RAILWAY_ENVIRONMENT_NAME`: `develop` o `production`, que corren los dos con `NODE_ENV=production`) y, fuera de Railway, `NODE_ENV`. La web hace lo mismo en el build. |
+| `SENTRY_ENVIRONMENT` | Opcional. Environment de los eventos. Por defecto, el nombre del entorno de Railway (`RAILWAY_ENVIRONMENT_NAME`: `develop` o `production`, que corren los dos con `NODE_ENV=production`) y, fuera de Railway, `local`. La web usa `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, luego Railway y finalmente `local`, resuelto en el build. Docker Compose fija ambos servicios como `local`. |
 | `SENTRY_TRACES_SAMPLE_RATE` | Opcional. Fracción de requests con traza de rendimiento. Por defecto `0.1` en producción y `0` fuera. |
 
 Sobre Sentry: **no** viajan prompts, mensajes, datos de Calendar, bodies,
@@ -332,6 +332,37 @@ minificados) y `SENTRY_PROJECT` (por defecto `trato-web`).
 En el servicio `api`, `SENTRY_DSN` con el DSN del proyecto `trato-api`. Los
 eventos quedan atados al commit por `RAILWAY_GIT_COMMIT_SHA`, que Railway define
 solo.
+
+### Distinguir alertas de Sentry
+
+El DSN identifica el proyecto, no el entorno: `SENTRY_DSN` de la API usa
+`trato-api` y `NEXT_PUBLIC_SENTRY_DSN` de la web usa `trato-web`. Copiarlos desde
+Settings → Projects → el proyecto → Client Keys (DSN), en la organización
+`inka-cf`. No usar `SENTRY_AUTH_TOKEN` como DSN: sólo sirve para subir source maps.
+
+| Dónde | API: `SENTRY_ENVIRONMENT` | Web: `NEXT_PUBLIC_SENTRY_ENVIRONMENT` |
+| --- | --- | --- |
+| Railway producción | `production` | `production` |
+| Railway develop | `develop` | `develop` |
+| Docker/local | `local` | `local` |
+
+En Railway se infiere el nombre del entorno si no se define explícitamente.
+Compose fija `local`, incluso para builds con `NODE_ENV=production`. La web
+requiere un nuevo build al cambiar el entorno. Cada evento lleva además el tag
+`servicio=api` o `servicio=web`; las trazas se muestrean por defecto sólo en
+`production`. Los eventos históricos conservan su etiqueta anterior.
+
+En Sentry, las reglas deben filtrar por **Environment** y llevar un nombre como
+`[production] trato-api`, `[develop] trato-api` o `[local] trato-api` (igual para
+`trato-web`), conservando sus condiciones y destinatarios. Una regla en **All
+Environments** mezcla las notificaciones aunque los eventos estén etiquetados.
+Para inspección se puede buscar `environment:production`, `environment:develop`
+o `environment:local`.
+
+En local, `SENTRY_DSN` va en `api/.env`; `NEXT_PUBLIC_SENTRY_DSN` va en el `.env`
+de la raíz para Compose, o en `web/.env.local` si Next se ejecuta directamente.
+Sin DSN el servicio no envía eventos. No guardar credenciales reales en
+`.env.example`.
 
 ### Cinco cosas que hay que hacer a mano
 

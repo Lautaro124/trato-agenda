@@ -13,7 +13,7 @@
  */
 import { esMoneda, LARGOS, MAX_VARIANTES, PRECIO_MAX_PESOS, type Moneda } from '../comercio/catalogo.rules.js';
 import { revisarUrl } from './ssrf.rules.js';
-import { textoSeguro } from './texto.rules.js';
+import { decodificarEntidades, textoSeguro } from './texto.rules.js';
 import { MAX_IMAGENES_OFRECIDAS, type AvisoBorrador, type ProductoExtraido, type VarianteExtraida } from './modelo.js';
 
 type Json = Record<string, unknown>;
@@ -144,10 +144,100 @@ export function idsDeBusqueda(respuesta: unknown, limite: number): { ids: string
   return { ids: [...new Set(ids)].slice(0, limite), total };
 }
 
-/** `GET /items?ids=…` (multiget) → los items que vinieron bien. */
-export function itemsDeMultiget(respuesta: unknown): unknown[] {
-  return arreglo(respuesta)
-    .filter(esObjeto)
-    .filter((entrada) => campo(entrada, 'code') === 200)
-    .map((entrada) => campo(entrada, 'body'));
+/**
+ * La página de una tienda (/tienda/…) → los ids de las publicaciones que
+ * enlaza, en orden y sin repetir. Es el camino cuando la búsqueda de la API
+ * no responde: la página lista los destacados, no el catálogo entero. Se
+ * leen del item_id / wid de los enlaces ("…/up/MLAU…?pdp_filters=item_id:MLA…")
+ * y de las rutas "/MLA-123…"; sólo los del sitio de la tienda.
+ */
+export function idsDePaginaDeTienda(html: string, sitio: string, limite: number): { ids: string[]; total: number } {
+  const vistos = new Set<string>();
+  // Patrones sin cuantificadores anidados: lineales aunque la página sea enorme.
+  const patron = /(?:item_id(?::|%3A|%253A)|wid=|\/)(M[A-Z]{2})-?(\d{6,15})\b/gi;
+  for (const encontrado of html.matchAll(patron)) {
+    const prefijo = encontrado[1].toUpperCase();
+    if (prefijo !== sitio) continue;
+    vistos.add(`${prefijo}${encontrado[2]}`);
+  }
+  const ids = [...vistos];
+  return { ids: ids.slice(0, limite), total: ids.length };
+}
+
+/**
+ * `GET /items?ids=…` (multiget) → los items que vinieron bien, y cuántos
+ * rechazó: el multiget responde 200 aunque cada publicación venga con su 403
+ * (Mercado Libre no deja leer las de otro vendedor con el token de la app).
+ */
+export function itemsDeMultiget(respuesta: unknown): { items: unknown[]; denegados: number } {
+  const entradas = arreglo(respuesta).filter(esObjeto);
+  return {
+    items: entradas.filter((entrada) => campo(entrada, 'code') === 200).map((entrada) => campo(entrada, 'body')),
+    denegados: entradas.filter((entrada) => campo(entrada, 'code') === 401 || campo(entrada, 'code') === 403).length,
+  };
+}
+
+/** "999796 pesos argentinos con 50 centavos" (el aria-label del precio) → centavos y moneda. */
+function precioDeTarjeta(etiqueta: string): { centavos: number | null; moneda: Moneda | null; monedaCruda: boolean } {
+  const leido = /(\d{1,12}) (pesos argentinos|d[oó]lares(?: estadounidenses)?|[a-záéíóú]+(?: [a-záéíóú]+)?)(?: con (\d{1,2}) centavos?)?$/i.exec(etiqueta);
+  if (!leido) return { centavos: null, moneda: null, monedaCruda: false };
+  const nombre = leido[2].toLowerCase();
+  const moneda: Moneda | null = nombre === 'pesos argentinos' ? 'ARS' : /^d[oó]lares/.test(nombre) ? 'USD' : null;
+  const total = Number(leido[1]) + Number(leido[3] ?? 0) / 100;
+  return { centavos: moneda ? centavos(total) : null, moneda, monedaCruda: true };
+}
+
+/**
+ * Las tarjetas ("poly-card") de la página de una tienda → un producto por
+ * publicación, con lo que muestra la tarjeta: nombre, precio actual, foto y
+ * enlace. Es el camino cuando la API no deja leer las publicaciones: sin
+ * descripción ni variantes, que el dueño completa en la vista previa. El
+ * precio es el que muestra la tienda, no lo calcula nadie.
+ */
+export function productosDeTarjetas(html: string, sitio: string, limite: number): ProductoExtraido[] {
+  const productos = new Map<string, ProductoExtraido>();
+  // Cada tarjeta empieza por su foto ("portada") y sigue con el título y el precio.
+  for (const entera of html.split('class="poly-card__portada"').slice(1)) {
+    if (productos.size >= limite) break;
+    // Una tarjeta real ocupa unos pocos KB: el tope deja las regex chicas aunque la página no tenga más tarjetas.
+    const tarjeta = entera.slice(0, 8192);
+    const enlace = /<a href="([^"]{1,2048})"[^>]{0,500}class="poly-component__title"[^>]{0,200}>([^<]{1,500})<\/a>/.exec(tarjeta);
+    if (!enlace) continue;
+    const href = decodificarEntidades(enlace[1]);
+    const id = /(?:item_id(?::|%3A|%253A)|wid=|\/)(M[A-Z]{2})-?(\d{6,15})\b/i.exec(href);
+    if (!id || id[1].toUpperCase() !== sitio) continue;
+    const idExterno = `${sitio}${id[2]}`;
+    const nombre = textoSeguro(enlace[2], { largo: LARGOS.nombre, sinMontos: true });
+    if (productos.has(idExterno) || nombre.length < 2) continue;
+
+    const avisos = new Set<AvisoBorrador>(['sin_descripcion']);
+    // El precio se busca después del título: un título no puede hacerse pasar por precio.
+    const actual = tarjeta.indexOf('poly-price__current', enlace.index + enlace[0].length);
+    const etiqueta = actual >= 0 ? /aria-label="(?:[^":]{1,20}: )?([^"]{1,120})"/.exec(tarjeta.slice(actual, actual + 2000)) : null;
+    const precio = etiqueta ? precioDeTarjeta(etiqueta[1]) : { centavos: null, moneda: null, monedaCruda: false };
+    if (!precio.monedaCruda) avisos.add('sin_moneda');
+    else if (!precio.moneda) avisos.add('moneda_no_soportada');
+    if (precio.centavos === null) avisos.add('sin_precio');
+
+    const foto = /<img class="poly-component__picture"[^>]{0,200} src="([^"]{1,2048})"/.exec(tarjeta)?.[1];
+    const fotoRevisada = foto ? revisarUrl(decodificarEntidades(foto)) : null;
+    const imagenes = fotoRevisada && 'url' in fotoRevisada ? [fotoRevisada.url.href] : [];
+    if (imagenes.length === 0) avisos.add('sin_imagen');
+
+    const revisada = revisarUrl(href);
+    const url = 'url' in revisada ? revisada.url : null;
+    if (url) url.hash = '';
+    productos.set(idExterno, {
+      nombre,
+      descripcion: '',
+      categoria: null,
+      moneda: precio.moneda,
+      variantes: [{ nombre: '', sku: null, precioCentavos: precio.centavos }],
+      imagenes,
+      avisos: [...avisos],
+      idExterno,
+      url: url?.href ?? null,
+    });
+  }
+  return [...productos.values()];
 }

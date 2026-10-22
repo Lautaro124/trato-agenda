@@ -177,6 +177,7 @@ function ImportarDesdeEnlaces() {
   if (paso.tipo === "listo") {
     const porClave = new Map(productos.map((producto) => [producto.borrador.claveOrigen, producto]));
     const importados = paso.resultados.filter((r) => r.estado === "creado" || r.estado === "actualizado").length;
+    const aMedida = paso.resultados.some((r) => (r.estado === "creado" || r.estado === "actualizado") && r.tipo === "a_medida");
     return (
       <section aria-labelledby="titulo-resultado" className="flex flex-col gap-4">
         <h2 id="titulo-resultado" className="font-display text-[19px] font-bold text-ink">
@@ -187,16 +188,32 @@ function ImportarDesdeEnlaces() {
             {error}
           </p>
         )}
+        {aMedida && (
+          <p role="status" className="rounded-md bg-sunken px-3 py-2 text-[13.5px] text-ink-secondary">
+            Los productos a medida necesitan sus preguntas para que tu asistente sepa qué pedirle al cliente y cómo
+            cotizar. Entrá a <strong className="text-ink">Completar configuración</strong> en cada uno.
+          </p>
+        )}
         <ul className="flex flex-col gap-2">
           {paso.resultados.map((resultado) => {
             const estado = ESTADO[resultado.estado];
             const foto = FOTO[resultado.foto];
+            const guardado = (resultado.estado === "creado" || resultado.estado === "actualizado") && resultado.productoId;
             return (
               <li key={resultado.claveOrigen} className="flex flex-wrap items-center gap-2 rounded-md bg-card px-3 py-2.5 text-[14px]">
                 <Badge tone={estado.tono}>{estado.texto}</Badge>
+                {resultado.tipo === "a_medida" && <Badge tone="info">A medida</Badge>}
                 <span className="font-semibold text-ink">{porClave.get(resultado.claveOrigen)?.nombre ?? "Producto"}</span>
                 {(resultado.motivo || foto) && (
                   <span className="text-[13px] text-ink-secondary">· {resultado.motivo ?? foto}</span>
+                )}
+                {guardado && (
+                  <Link
+                    href={`/productos/${encodeURIComponent(resultado.productoId ?? "")}`}
+                    className="ml-auto text-[13px] font-semibold text-[var(--color-semantic-text-link)] hover:underline"
+                  >
+                    {resultado.tipo === "a_medida" ? "Completar configuración" : "Editar"}
+                  </Link>
                 )}
               </li>
             );

@@ -20,6 +20,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // No anunciar el framework en cada respuesta.
   poweredByHeader: false,
+  // En local se entra por 127.0.0.1: Mercado Pago rechaza un back_url con
+  // localhost. Sin esto, next dev bloquea sus recursos y la página no hidrata.
+  allowedDevOrigins: ["127.0.0.1"],
   // También cubre builds fuera de Docker; el navegador no puede leer Railway.
   env: {
     NEXT_PUBLIC_SENTRY_ENVIRONMENT:

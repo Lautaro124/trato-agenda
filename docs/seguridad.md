@@ -178,7 +178,19 @@ pasa por `fetch-seguro.ts`:
   contados ya descomprimido (una gzip bomb corta igual), 1 MB de JSON de
   Mercado Libre, 2 MB por foto; sólo los content-types esperados.
 - **Listados**: de un listado genérico sólo se siguen enlaces del mismo host,
-  como mucho 20 (50 en Mercado Libre, por su API), de a 4.
+  como mucho 20 (50 en Mercado Libre, por su API), de a 4. Si la búsqueda de
+  la API de Mercado Libre no responde, de la página de la tienda sólo se sacan
+  ids de publicación del mismo sitio (`idsDePaginaDeTienda`), que se leen por
+  la API: la página no aporta otra URL que se pida.
+- **Landings sin datos de producto**: las secciones (`secciones.rules.ts`) se
+  leen con el mismo recorrido lineal, y sus fotos pasan por `revisarUrl`. Si no
+  hay secciones, la IA (`extraccion-ia.ts`) recibe el texto visible (≤ 30 000
+  caracteres) como dato entre `<pagina>`, con `POLITICA_DE_PROVEEDOR`, y
+  devuelve JSON con schema estricto: elige fotos por número de una lista armada
+  en la API (nunca escribe una URL) y su texto pasa por `textoSeguro` como el
+  resto. Una instrucción inyectada en la página como mucho cambia nombres o
+  descripciones que el dueño revisa antes de confirmar; no puede hacer pedir
+  otras URLs ni poner precios.
 - **Uso**: 30 enlaces y 60 productos confirmados por hora por cuenta, una
   extracción a la vez por cuenta y 5 en toda la API (`Limitador`, en memoria:
   alcanza por la réplica única).
@@ -200,8 +212,9 @@ pasa por `fetch-seguro.ts`:
   de origen con `referrerPolicy="no-referrer"`.
 - **Acceso**: cuenta de ventas (409) con el plan Pro pagando (403,
   `motivo: plan_pro_requerido`), chequeado en la API en cada pedido.
-- **Logs**: sólo el host y el código de error; nunca la ruta, la query ni el
-  contenido de una página.
+- **Logs**: sólo el código de error (y, para Mercado Libre, un subcódigo
+  como `sin_credenciales+muro`); nunca el host, la ruta, la query, el contenido
+  de una página ni la respuesta de la IA.
 - **Sólo e2e**: `IMPORTACION_HOSTS_DE_PRUEBA` habilita el stub (http, red de
   compose); `validateEnv` no deja arrancar con eso en producción, y exige
   `MERCADOLIBRE_API_URL` https.

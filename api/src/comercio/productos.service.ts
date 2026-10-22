@@ -82,7 +82,12 @@ type ProductoAGuardar = {
 };
 
 /** Un producto ya revisado en la vista previa de la importación rápida (LAU-31). */
-export type ProductoImportadoAGuardar = Pick<GuardarProductoDto, 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'variantes'> & {
+export type ProductoImportadoAGuardar = Pick<
+  GuardarProductoDto,
+  'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'variantes' | 'precioReferenciaCentavos' | 'materiales'
+> & {
+  /** De stock (con precio por variante) o a medida (se cotiza; las preguntas se cargan después en el editor). */
+  tipo: 'stock' | 'a_medida';
   moneda: Moneda;
   origen: { id: string; url: string };
 };
@@ -302,14 +307,18 @@ export class ProductosService {
     importado: ProductoImportadoAGuardar,
     { actualizar }: { actualizar: boolean },
   ): Promise<ResultadoImportado> {
-    // Siempre de stock: la importación no arma productos a medida.
-    const datos: ProductoAGuardar = {
-      ...desdeDto({ ...importado, solicitud: null }),
-      moneda: importado.moneda,
-      origen: importado.origen,
-      // Lo que la importación no trae no se pisa al actualizar.
-      descuento: undefined,
-    };
+    const { tipo, origen, ...producto } = importado;
+    const aMedida = tipo === 'a_medida';
+    // A medida nace sin preguntas (es válido: el dueño las arma en el editor) y en pesos, como lo valida desdeDto.
+    const datos: ProductoAGuardar = aMedida
+      ? { ...desdeDto({ ...producto, moneda: 'ARS', solicitud: { preguntas: [] } }), origen }
+      : {
+          ...desdeDto({ ...producto, solicitud: null, precioReferenciaCentavos: undefined, materiales: undefined }),
+          moneda: producto.moneda,
+          origen,
+          // Lo que la importación no trae no se pisa al actualizar.
+          descuento: undefined,
+        };
     try {
       const resultado = await this.prisma.$transaction(async (tx): Promise<ResultadoImportado> => {
         const [porOrigen, porCodigo] = await Promise.all([
@@ -324,10 +333,38 @@ export class ProductosService {
           return { estado: 'salteado', productoId: otroConElCodigo.id, motivo: `Ya hay un producto con el código ${datos.codigo}.` };
         }
         const existente = porOrigen ?? (porCodigo?.activo ? porCodigo : null);
-        if (existente && leerSolicitud(existente.solicitud) !== null) {
-          throw new ConflictException(`El producto ${existente.codigo} es a medida: no se actualiza con una importación.`);
+        // Una importación no cambia el tipo de un producto: eso se hace desde su editor.
+        const existenteAMedida = existente !== null && leerSolicitud(existente.solicitud) !== null;
+        if (existente?.activo && existenteAMedida && !aMedida) {
+          throw new ConflictException(`El producto ${existente.codigo} es a medida: no se actualiza como de stock con una importación.`);
         }
-        const id = await this.escribir(tx, userId, datos, porOrigen?.id ?? existente?.id);
+        if (existente?.activo && !existenteAMedida && aMedida) {
+          throw new ConflictException(`El producto ${existente.codigo} es de stock: no se actualiza como a medida con una importación.`);
+        }
+        // Lo que el dueño ya cargó en uno a medida (preguntas, y precio "desde", materiales y versiones si la
+        // vista previa los dejó vacíos) no se borra al actualizarlo desde una importación.
+        let aEscribir = datos;
+        if (existente?.activo && existenteAMedida && aMedida) {
+          const versiones =
+            datos.variantes.length > 0
+              ? datos.variantes
+              : (await tx.variante.findMany({ where: { productoId: existente.id, activo: true } })).map((variante) => ({
+                  sku: variante.sku,
+                  nombre: variante.nombre,
+                  precioCentavos: variante.precioCentavos,
+                  stock: variante.stock,
+                  stockMinimo: variante.stockMinimo,
+                  disponible: variante.disponible,
+                }));
+          aEscribir = {
+            ...datos,
+            solicitud: undefined,
+            variantes: versiones,
+            precioReferenciaCentavos: datos.precioReferenciaCentavos ?? undefined,
+            materiales: datos.materiales && datos.materiales.length > 0 ? datos.materiales : undefined,
+          };
+        }
+        const id = await this.escribir(tx, userId, aEscribir, porOrigen?.id ?? existente?.id);
         // Uno dado de baja que vuelve es, para el dueño, uno nuevo.
         return { estado: existente?.activo ? 'actualizado' : 'creado', productoId: id };
       });
