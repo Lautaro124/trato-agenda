@@ -75,13 +75,22 @@ export function enlaceMercadoLibre(url: URL): EnlaceMercadoLibre | null {
     // Un "%" suelto no es motivo para no reconocer el resto.
   }
 
-  // Una ficha de catálogo que ya dice qué publicación se eligió (wid / item_id) es esa publicación.
-  const elegida = idDeItem(`${url.search} ${url.hash}`.replace(/(wid|item_id)[=:]/gi, ' '));
+  // Una ficha que ya dice qué publicación se eligió (wid / item_id, a veces codificado en pdp_filters) es esa publicación.
+  let consulta = `${url.search} ${url.hash}`;
+  try {
+    consulta = decodeURIComponent(consulta);
+  } catch {
+    // Igual que la ruta: se lee lo que se pueda.
+  }
+  const conElegida = /(?:wid|item_id)[=:]\s?(M[A-Z]{2}-?\d{6,15})\b/i.exec(consulta);
+  const elegida = conElegida ? idDeItem(conElegida[1]) : null;
   const catalogo = /\/p\/(M[A-Z]{2}\d{6,15})\b/.exec(ruta);
   if (catalogo) {
-    if (elegida && /(wid|item_id)[=:]/i.test(`${url.search}${url.hash}`)) return { tipo: 'item', sitio, id: elegida };
+    if (elegida) return { tipo: 'item', sitio, id: elegida };
     return SITIOS_ML.has(catalogo[1].slice(0, 3)) ? { tipo: 'catalogo', sitio, id: catalogo[1] } : null;
   }
+  // Un "producto de usuario" (/up/MLAU…), que es como enlazan las tiendas oficiales: sólo sirve con la publicación elegida.
+  if (/\/up\/M[A-Z]{2}U\d{6,15}\b/i.test(ruta)) return elegida ? { tipo: 'item', sitio, id: elegida } : null;
 
   const vendedor = /_CustId_(\d{1,15})/i.exec(ruta);
   if (vendedor) return { tipo: 'listado', sitio, filtro: { vendedor: vendedor[1] } };
@@ -129,15 +138,20 @@ function idDeTiendamia(url: URL): string | null {
 /**
  * La clave con la que se reconoce un producto importado aunque se lo vuelva
  * a importar desde otra forma del enlace: el id de la publicación de Mercado
- * Libre, el del producto en Tiendamia, o un hash de la URL canónica.
+ * Libre, el del producto en Tiendamia, o un hash de la URL canónica (y de la
+ * sección, si salió de una landing con varios productos).
  */
-export function claveDeOrigen(fuente: FuenteImportacion, url: URL, idExterno: string | null): string {
+export function claveDeOrigen(fuente: FuenteImportacion, url: URL, idExterno: string | null, seccion: string | null = null): string {
   if (fuente === 'mercadolibre' && idExterno) return `ml:${idExterno}`;
-  if (fuente === 'tiendamia') {
+  if (fuente === 'tiendamia' && !seccion) {
     const id = idDeTiendamia(url);
     if (id) return `tiendamia:${id}`;
   }
-  const hash = createHash('sha256').update(canonizarUrl(url)).digest('hex').slice(0, 32);
+  // Las secciones de una misma landing comparten la URL: la sección las distingue.
+  const hash = createHash('sha256')
+    .update(seccion ? `${canonizarUrl(url)}#${seccion}` : canonizarUrl(url))
+    .digest('hex')
+    .slice(0, 32);
   return `${fuente === 'tiendamia' ? 'tiendamia' : 'web'}:${hash}`;
 }
 

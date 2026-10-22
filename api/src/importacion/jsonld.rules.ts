@@ -117,7 +117,7 @@ function mejorOferta(ofertas: Oferta[]): Oferta | null {
 }
 
 /** Una URL de imagen o de producto relativa a la página → absoluta, sólo si se la podría pedir. */
-function urlUtil(valor: unknown, base: URL, hostsDePrueba?: ReadonlySet<string>): string | null {
+export function urlUtil(valor: unknown, base: URL, hostsDePrueba?: ReadonlySet<string>): string | null {
   if (typeof valor !== 'string' || !valor.trim()) return null;
   let absoluta: string;
   try {

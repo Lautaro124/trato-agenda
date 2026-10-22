@@ -16,6 +16,7 @@ import { resumenDeError } from '../agents/openrouter.client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { funcionesDelPlan } from '../subscription/subscription.rules.js';
+import { ExtraccionIaService } from './extraccion-ia.js';
 import { descargar, DescargaError, textoDe } from './fetch-seguro.js';
 import { firmaValida, firmarBorrador } from './firma.js';
 import { hostsDePrueba } from './hosts-de-prueba.js';
@@ -26,9 +27,11 @@ import { IDS_POR_MULTIGET, MercadoLibreClient, MercadoLibreNoDisponibleError } f
 import {
   descripcionDesde,
   idsDeBusqueda,
+  idsDePaginaDeTienda,
   itemDeCatalogo,
   itemsDeMultiget,
   productoDesdeItem,
+  productosDeTarjetas,
 } from './mercadolibre.rules.js';
 import {
   MAX_PRODUCTOS_LISTADO_ML,
@@ -39,7 +42,9 @@ import {
   type ProductoExtraido,
   type ResultadoConfirmacion,
   type ResultadoExtraccion,
+  type TipoImportado,
 } from './modelo.js';
+import { leerSecciones, paginaParaIa, piezasDe } from './secciones.rules.js';
 import { revisarUrl } from './ssrf.rules.js';
 import { canonizarUrl, claveDeOrigen, codigoLibre, codigoSugerido, enlaceMercadoLibre, fuenteDe } from './url.rules.js';
 
@@ -62,7 +67,11 @@ const MAX_EXTRACCIONES_EN_CURSO = 5;
 type Encontrado = { producto: ProductoExtraido; url: URL; fuente: BorradorProducto['fuente'] };
 
 class ErrorDeImportacion extends Error {
-  constructor(readonly codigo: CodigoErrorImportacion) {
+  /** `detalle` es sólo para el log: un código, nunca la URL ni el contenido. */
+  constructor(
+    readonly codigo: CodigoErrorImportacion,
+    readonly detalle: string | null = null,
+  ) {
     super(codigo);
   }
 }
@@ -72,6 +81,23 @@ function codigoDe(error: unknown): CodigoErrorImportacion | null {
   if (error instanceof DescargaError) return error.codigo;
   if (error instanceof MercadoLibreNoDisponibleError) return 'mercadolibre_no_disponible';
   return null;
+}
+
+function detalleDe(error: unknown): string | null {
+  if (error instanceof ErrorDeImportacion) return error.detalle;
+  if (error instanceof MercadoLibreNoDisponibleError) return error.motivo;
+  return null;
+}
+
+/** Mercado Libre manda a verificar la cuenta cuando no deja leer una página sin navegador. */
+function esMuroDeMercadoLibre(url: URL): boolean {
+  return url.pathname.includes('/account-verification');
+}
+
+/** Cómo conviene cargar lo importado: con precio, de stock; si la página habla de cotizar, a medida; si no, lo elige el dueño. */
+function tipoSugerido(producto: ProductoExtraido): TipoImportado | null {
+  if (producto.avisos.includes('parece_a_medida')) return 'a_medida';
+  return producto.variantes.every((variante) => variante.precioCentavos !== null) ? 'stock' : null;
 }
 
 /** Corre `tarea` sobre cada elemento, de a `n` a la vez, en orden. */
@@ -108,6 +134,7 @@ export class ImportacionService {
     private readonly imagenes: ImagenesService,
     private readonly suscripciones: SubscriptionService,
     private readonly mercadoLibre: MercadoLibreClient,
+    private readonly extraccionIa: ExtraccionIaService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -161,7 +188,8 @@ export class ImportacionService {
           const codigo = codigoDe(error);
           if (!codigo) throw error;
           errores.push({ url, codigo });
-          this.logger.warn(`Importación: un enlace no se pudo leer (${codigo}).`);
+          const detalle = detalleDe(error);
+          this.logger.warn(`Importación: un enlace no se pudo leer (${codigo}${detalle ? `/${detalle}` : ''}).`);
         }
       }
       return { productos: await this.borradores(userId, encontrados), errores, recortado };
@@ -181,9 +209,10 @@ export class ImportacionService {
     const fuente = fuenteDe(url);
 
     const ml = enlaceMercadoLibre(url);
+    let motivoMl: string | null = null;
     if (ml) {
       try {
-        if (ml.tipo === 'listado') return await this.listadoMercadoLibre(ml.sitio, ml.filtro);
+        if (ml.tipo === 'listado') return await this.listadoMercadoLibre(url, ml.sitio, ml.filtro);
         const id = ml.tipo === 'item' ? ml.id : itemDeCatalogo(await this.mercadoLibre.catalogo(ml.id));
         if (!id) throw new ErrorDeImportacion('sin_datos_de_producto');
         const [item, descripcion] = await Promise.all([this.mercadoLibre.item(id), this.mercadoLibre.descripcion(id)]);
@@ -195,14 +224,26 @@ export class ImportacionService {
         // Sin la API (sin app configurada, o Mercado Libre la cortó), un listado no se puede leer;
         // una publicación sí, desde su página, como cualquier otra tienda.
         if (!(error instanceof MercadoLibreNoDisponibleError) || ml.tipo === 'listado') throw error;
+        motivoMl = error.motivo;
       }
     }
 
-    const pagina = await this.pagina(url);
+    // Las secciones (y la IA) sólo para una página de otra tienda: Mercado Libre sin API muestra un muro, no productos.
+    const pagina = await this.pagina(url, { secciones: fuente !== 'mercadolibre' });
     if (pagina.tipo === 'producto') {
       return { encontrados: [{ producto: pagina.producto, url: pagina.url, fuente }], errores: [], recortado: false };
     }
-    if (pagina.tipo === 'nada') throw new ErrorDeImportacion(fuente === 'mercadolibre' ? 'mercadolibre_no_disponible' : 'sin_datos_de_producto');
+    if (pagina.tipo === 'productos') {
+      return {
+        encontrados: pagina.productos.map((producto) => ({ producto, url: pagina.url, fuente })),
+        errores: [],
+        recortado: pagina.recortado,
+      };
+    }
+    if (pagina.tipo === 'nada') {
+      if (fuente !== 'mercadolibre') throw new ErrorDeImportacion('sin_datos_de_producto');
+      throw new ErrorDeImportacion('mercadolibre_no_disponible', pagina.muro ? `${motivoMl ?? 'sin_api'}+muro` : motivoMl);
+    }
 
     // Un listado: cada producto, del mismo sitio (lo garantiza leerJsonLd), de a varios a la vez.
     const errores: ErrorDeEnlace[] = [];
@@ -213,7 +254,7 @@ export class ImportacionService {
           return null;
         }
         try {
-          const producto = await this.pagina(new URL(enlace));
+          const producto = await this.pagina(new URL(enlace), { secciones: false });
           if (producto.tipo === 'producto') return { producto: producto.producto, url: producto.url, fuente };
           errores.push({ url: enlace, codigo: 'sin_datos_de_producto' });
         } catch (error) {
@@ -227,13 +268,19 @@ export class ImportacionService {
     return { encontrados, errores, recortado: pagina.recortado };
   }
 
-  /** Lo que dice una página: su JSON-LD y, si no tiene, sus <meta>. */
+  /**
+   * Lo que dice una página: su JSON-LD; si no tiene, sus <meta>; y si tampoco
+   * (y se pide), sus secciones de producto o, como último recurso, lo que lee
+   * la IA en su texto.
+   */
   private async pagina(
     url: URL,
+    opciones: { secciones: boolean },
   ): Promise<
     | { tipo: 'producto'; producto: ProductoExtraido; url: URL }
+    | { tipo: 'productos'; productos: ProductoExtraido[]; url: URL; recortado: boolean }
     | { tipo: 'listado'; urls: string[]; recortado: boolean }
-    | { tipo: 'nada' }
+    | { tipo: 'nada'; muro: boolean }
   > {
     const descarga = await descargar(url.href, {
       maxBytes: MAX_BYTES_PAGINA,
@@ -241,24 +288,57 @@ export class ImportacionService {
       timeoutMs: TIMEOUT_PAGINA_MS,
       hostsDePrueba: this.hosts,
     });
-    const html = leerHtml(textoDe(descarga));
+    const texto = textoDe(descarga);
+    const html = leerHtml(texto);
     const leido = leerJsonLd(html.jsonld, descarga.url, this.hosts);
     if (leido.tipo === 'producto') return { tipo: 'producto', producto: leido.producto, url: descarga.url };
     if (leido.tipo === 'listado') return leido;
     const porMetas = leerMetas(html.metas, descarga.url, this.hosts);
-    return porMetas ? { tipo: 'producto', producto: porMetas, url: descarga.url } : { tipo: 'nada' };
+    if (porMetas) return { tipo: 'producto', producto: porMetas, url: descarga.url };
+    if (!opciones.secciones) return { tipo: 'nada', muro: esMuroDeMercadoLibre(descarga.url) };
+
+    const piezas = piezasDe(texto, descarga.url, this.hosts);
+    const secciones = leerSecciones(piezas);
+    if (secciones.productos.length > 0) {
+      return { tipo: 'productos', productos: secciones.productos, url: descarga.url, recortado: secciones.recortado };
+    }
+    const porIa = await this.extraccionIa.productos(paginaParaIa(piezas));
+    return porIa.length > 0 ? { tipo: 'productos', productos: porIa, url: descarga.url, recortado: false } : { tipo: 'nada', muro: false };
   }
 
   private async listadoMercadoLibre(
+    url: URL,
     sitio: string,
     filtro: { vendedor: string } | { nickname: string } | { busqueda: string },
   ): Promise<{ encontrados: Encontrado[]; errores: ErrorDeEnlace[]; recortado: boolean }> {
-    const { ids, total } = idsDeBusqueda(await this.mercadoLibre.buscar(sitio, filtro, MAX_PRODUCTOS_LISTADO_ML), MAX_PRODUCTOS_LISTADO_ML);
+    let ids: string[];
+    let total: number;
+    let pagina: string | null = null;
+    try {
+      ({ ids, total } = idsDeBusqueda(await this.mercadoLibre.buscar(sitio, filtro, MAX_PRODUCTOS_LISTADO_ML), MAX_PRODUCTOS_LISTADO_ML));
+    } catch (error) {
+      // Mercado Libre restringe la búsqueda de la API; los ids de una tienda (o de un vendedor) también están en su página.
+      if (!(error instanceof MercadoLibreNoDisponibleError) || 'busqueda' in filtro) throw error;
+      ({ ids, total, pagina } = await this.idsDeTienda(url, sitio, error));
+    }
     if (ids.length === 0) throw new ErrorDeImportacion('sin_datos_de_producto');
     const tandas: string[][] = [];
     for (let desde = 0; desde < ids.length; desde += IDS_POR_MULTIGET) tandas.push(ids.slice(desde, desde + IDS_POR_MULTIGET));
-    const items = (await deA(tandas, 2, (tanda) => this.mercadoLibre.items(tanda))).flatMap(itemsDeMultiget);
-    const encontrados = (
+    let items: unknown[] = [];
+    let denegados = 0;
+    try {
+      for (const respuesta of await deA(tandas, 2, (tanda) => this.mercadoLibre.items(tanda))) {
+        const leidas = itemsDeMultiget(respuesta);
+        items.push(...leidas.items);
+        denegados += leidas.denegados;
+      }
+    } catch (error) {
+      // Con la página a mano, las tarjetas alcanzan; sin ella no hay de dónde leer.
+      if (!(error instanceof MercadoLibreNoDisponibleError) || pagina === null) throw error;
+      items = [];
+      denegados = ids.length;
+    }
+    const porApi = (
       await deA(items, EN_PARALELO, async (item): Promise<Encontrado | null> => {
         const id = typeof item === 'object' && item !== null && 'id' in item ? String((item as { id: unknown }).id) : '';
         const producto = productoDesdeItem(item, id ? descripcionDesde(await this.mercadoLibre.descripcion(id)) : null);
@@ -267,7 +347,41 @@ export class ImportacionService {
         return { producto, url: new URL(permalink), fuente: 'mercadolibre' };
       })
     ).filter((encontrado): encontrado is Encontrado => encontrado !== null);
+
+    // Las publicaciones que la API no dejó leer (las de otro vendedor, con el token de la app) salen de su tarjeta en la tienda.
+    const leidos = new Set(porApi.map((encontrado) => encontrado.producto.idExterno));
+    const porTarjeta: Encontrado[] =
+      pagina === null
+        ? []
+        : productosDeTarjetas(pagina, sitio, MAX_PRODUCTOS_LISTADO_ML)
+            .filter((producto) => producto.idExterno !== null && ids.includes(producto.idExterno) && !leidos.has(producto.idExterno))
+            .map((producto) => ({ producto, url: producto.url ? new URL(producto.url) : url, fuente: 'mercadolibre' }));
+    const orden = (encontrado: Encontrado) => ids.indexOf(encontrado.producto.idExterno ?? '');
+    const encontrados = [...porApi, ...porTarjeta].sort((a, b) => orden(a) - orden(b));
+    if (encontrados.length === 0 && denegados > 0) {
+      throw new ErrorDeImportacion('mercadolibre_no_disponible', pagina === null ? 'items_denegados' : 'items_denegados+sin_tarjetas');
+    }
     return { encontrados, errores: [], recortado: total > ids.length };
+  }
+
+  /** Los ids que enlaza la página de una tienda de Mercado Libre, y la página; si no hay (un muro), sigue el error de la API. */
+  private async idsDeTienda(
+    url: URL,
+    sitio: string,
+    causa: MercadoLibreNoDisponibleError,
+  ): Promise<{ ids: string[]; total: number; pagina: string }> {
+    const descarga = await descargar(url.href, {
+      maxBytes: MAX_BYTES_PAGINA,
+      tipos: TIPOS_HTML,
+      timeoutMs: TIMEOUT_PAGINA_MS,
+      hostsDePrueba: this.hosts,
+    });
+    const pagina = textoDe(descarga);
+    const encontrados = idsDePaginaDeTienda(pagina, sitio, MAX_PRODUCTOS_LISTADO_ML);
+    if (encontrados.ids.length === 0) {
+      throw new ErrorDeImportacion('mercadolibre_no_disponible', `${causa.motivo}${esMuroDeMercadoLibre(descarga.url) ? '+muro' : '+tienda_vacia'}`);
+    }
+    return { ...encontrados, pagina };
   }
 
   /**
@@ -279,8 +393,11 @@ export class ImportacionService {
     const unicos = new Map<string, Encontrado & { clave: string; origenUrl: string }>();
     for (const encontrado of encontrados) {
       const url = encontrado.producto.url ? new URL(encontrado.producto.url) : encontrado.url;
-      const clave = claveDeOrigen(encontrado.fuente, url, encontrado.producto.idExterno);
-      if (!unicos.has(clave)) unicos.set(clave, { ...encontrado, clave, origenUrl: canonizarUrl(url) });
+      const seccion = encontrado.producto.seccion ?? null;
+      const clave = claveDeOrigen(encontrado.fuente, url, encontrado.producto.idExterno, seccion);
+      // Una sección de una landing apunta a su ancla: la página es la misma para todas.
+      const origenUrl = seccion ? `${canonizarUrl(url)}#${seccion}` : canonizarUrl(url);
+      if (!unicos.has(clave)) unicos.set(clave, { ...encontrado, clave, origenUrl });
     }
     const lista = [...unicos.values()];
     if (lista.length === 0) return [];
@@ -319,9 +436,10 @@ export class ImportacionService {
             : null;
       const codigo = mismoOrigen?.codigo ?? (mismoCodigo ? sugerido : codigoLibre(sugerido, usados));
       usados.add(codigo);
-      const { idExterno: _id, url: _url, ...resto } = producto;
+      const { idExterno: _id, url: _url, seccion: _seccion, ...resto } = producto;
       return {
         ...resto,
+        tipoSugerido: tipoSugerido(producto),
         claveOrigen,
         origenUrl,
         fuente,
@@ -362,7 +480,12 @@ export class ImportacionService {
           continue;
         }
         const imagen = item.imagenElegida === null || item.imagenElegida === undefined ? null : item.imagenes[item.imagenElegida];
-        resultados.push({ claveOrigen: item.claveOrigen, ...guardado, foto: imagen ? await this.guardarFoto(userId, guardado.productoId, imagen) : 'sin_foto' });
+        resultados.push({
+          claveOrigen: item.claveOrigen,
+          ...guardado,
+          tipo: item.producto.tipo,
+          foto: imagen ? await this.guardarFoto(userId, guardado.productoId, imagen) : 'sin_foto',
+        });
       } catch (error) {
         if (!(error instanceof HttpException)) throw error;
         const respuesta = error.getResponse();

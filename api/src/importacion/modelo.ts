@@ -24,7 +24,13 @@ export type AvisoBorrador =
   | 'variantes_recortadas'
   | 'descripcion_recortada'
   | 'sin_descripcion'
-  | 'sin_imagen';
+  | 'sin_imagen'
+  /** La página habla de hacerlo a medida o de cotizarlo: se sugiere cargarlo como producto a medida. */
+  | 'parece_a_medida';
+
+/** Cómo se vende lo importado: con precio y stock, o a medida (se cotiza). */
+export type TipoImportado = 'stock' | 'a_medida';
+export const TIPOS_IMPORTADO: readonly TipoImportado[] = ['stock', 'a_medida'];
 
 /** Por qué un enlace no dio productos, en un código que la pantalla sabe explicar. */
 export type CodigoErrorImportacion =
@@ -62,18 +68,28 @@ export type ProductoExtraido = {
   idExterno: string | null;
   /** La URL canónica del producto, si la página la dice. */
   url: string | null;
+  /**
+   * El producto es una sección de una página con varios (una landing sin
+   * páginas por producto): distingue su clave de origen de la de los demás.
+   */
+  seccion?: string | null;
 };
 
 /** Ya existe en el catálogo: por qué se lo considera el mismo. */
 export type DuplicadoDe = { motivo: 'origen' | 'codigo' | 'sku'; productoId: string; nombre: string };
 
 /** Lo que vuelve a la vista previa por cada producto encontrado. */
-export type BorradorProducto = Omit<ProductoExtraido, 'idExterno' | 'url'> & {
+export type BorradorProducto = Omit<ProductoExtraido, 'idExterno' | 'url' | 'seccion'> & {
   claveOrigen: string;
   origenUrl: string;
   fuente: FuenteImportacion;
   codigoSugerido: string;
   duplicado: DuplicadoDe | null;
+  /**
+   * Cómo conviene cargarlo: de stock si la página trae precio, a medida si
+   * habla de cotizar o de medidas a pedido; null = el dueño lo tiene que elegir.
+   */
+  tipoSugerido: TipoImportado | null;
   /** Firma de { claveOrigen, origenUrl, imagenes }: la confirmación sólo acepta lo que salió de acá. */
   firma: string;
   emitidaAt: string;
@@ -96,6 +112,8 @@ export type ResultadoConfirmacion = {
     claveOrigen: string;
     estado: EstadoConfirmado;
     productoId?: string;
+    /** Con qué tipo quedó guardado, para mandar al editor que corresponde. */
+    tipo?: TipoImportado;
     /** Por qué se salteó o falló, en una frase para el dueño. */
     motivo?: string;
     foto: EstadoFoto;

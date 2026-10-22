@@ -5,7 +5,8 @@
 //
 //   - /tienda/…: páginas de producto con JSON-LD (en pesos, en dólares con
 //     variantes, sin precio), un listado (ItemList), una sin datos de
-//     producto, una que redirige a la metadata de la nube y la foto;
+//     producto, una que redirige a la metadata de la nube, la foto y una
+//     landing sin datos de producto (modelos en secciones, sin precio);
 //   - /ml/…: lo que la API lee de api.mercadolibre.com (una publicación con
 //     variaciones, su descripción, la búsqueda por vendedor y el multiget).
 //
@@ -75,6 +76,16 @@ function responder(res, status, cuerpo, tipo = 'application/json') {
   res.end(typeof cuerpo === 'string' || Buffer.isBuffer(cuerpo) ? cuerpo : JSON.stringify(cuerpo));
 }
 
+/** Una landing armada con un constructor visual: cada modelo es un título con su foto y sus medidas, sin precio. */
+const LANDING = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Sillones de prueba</title></head><body>
+<nav><img src="/tienda/logo.png"><a href="#modelos">Modelos</a></nav>
+<h1>Sillones directos de fábrica</h1>
+<h2>Elegí tu modelo</h2><p>Todos se hacen en fábrica.</p>
+<section><h2>Línea Retro</h2><img src="/tienda/mate.jpg" alt=""><div>Tres cuerpos:</div><div>190 x 80 x 90 cm</div><a href="#">Cotizar a medida</a></section>
+<section><h2>Línea Kiev</h2><img src="/tienda/kiev.jpg" alt=""><div>Tres cuerpos:</div><div>Medida estándar</div></section>
+<h2>Medios de pago</h2><p>Efectivo y transferencia.</p>
+</body></html>`;
+
 function pagina(dato) {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Tienda de prueba</title>
 <script type="application/ld+json">${JSON.stringify(dato)}</script></head><body><h1>Tienda de prueba</h1></body></html>`;
@@ -86,7 +97,8 @@ const servidor = http.createServer((req, res) => {
 
   if (ruta === '/health') return responder(res, 200, { status: 'ok' });
 
-  if (ruta === '/tienda/mate.jpg') return responder(res, 200, FOTO, 'image/jpeg');
+  if (ruta === '/tienda/mate.jpg' || ruta === '/tienda/kiev.jpg') return responder(res, 200, FOTO, 'image/jpeg');
+  if (ruta === '/tienda/landing') return responder(res, 200, LANDING, 'text/html; charset=utf-8');
   if (ruta === '/tienda/blog') return responder(res, 200, '<!doctype html><html><head><title>Blog</title></head><body>Hola</body></html>', 'text/html; charset=utf-8');
   if (ruta === '/tienda/a-la-metadata') {
     res.writeHead(302, { Location: 'http://169.254.169.254/latest/meta-data/' });

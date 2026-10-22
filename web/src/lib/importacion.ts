@@ -1,9 +1,12 @@
 import { apiFetch } from "./api";
 import { ErrorDeApi, leerCentavos, type Moneda } from "./productos";
+import { LARGO_MAX_MATERIAL, MAX_MATERIALES } from "./solicitud";
 
 /** Espejo de los topes de la API (importacion/modelo.ts). */
 export const MAX_URLS_POR_PEDIDO = 10;
 export const MAX_PRODUCTOS_POR_CONFIRMACION = 10;
+/** Versiones con precio fijo de un producto a medida (como las variantes en la API). */
+export const MAX_VERSIONES = 50;
 
 export type FuenteImportacion = "mercadolibre" | "tiendamia" | "web";
 
@@ -14,7 +17,11 @@ export type AvisoBorrador =
   | "variantes_recortadas"
   | "descripcion_recortada"
   | "sin_descripcion"
-  | "sin_imagen";
+  | "sin_imagen"
+  | "parece_a_medida";
+
+/** Cómo se vende lo importado: de stock (precio fijo por variante) o a medida (se cotiza). */
+export type TipoImportado = "stock" | "a_medida";
 
 export type CodigoErrorImportacion =
   | "url_invalida"
@@ -45,6 +52,8 @@ export type BorradorProducto = {
   avisos: AvisoBorrador[];
   codigoSugerido: string;
   duplicado: { motivo: "origen" | "codigo" | "sku"; productoId: string; nombre: string } | null;
+  /** Lo que sugiere la API según la página; null = sin precio ni pistas: lo elige el dueño. */
+  tipoSugerido: TipoImportado | null;
   firma: string;
   emitidaAt: string;
 };
@@ -60,6 +69,7 @@ export type ResultadoConfirmacion = {
     claveOrigen: string;
     estado: "creado" | "actualizado" | "salteado" | "error";
     productoId?: string;
+    tipo?: TipoImportado;
     motivo?: string;
     foto: "guardada" | "sin_foto" | "fallo" | "limite";
   }>;
@@ -76,7 +86,14 @@ export type ProductoEnRevision = {
   descripcion: string;
   categoria: string;
   moneda: Moneda | null;
+  /** null hasta que el dueño elige: lo pregunta la tarjeta cuando la página no trae precio. */
+  tipo: TipoImportado | null;
+  /** De stock: cada variante con su precio. */
   variantes: Array<{ clave: string; nombre: string; sku: string; precio: string; stock: string }>;
+  /** A medida: el precio "desde" (opcional), los materiales separados por coma y las versiones con precio fijo. */
+  precioDesde: string;
+  materiales: string;
+  versiones: Array<{ clave: string; nombre: string; precio: string }>;
   /** Índice de la foto elegida en `borrador.imagenes`, o null para ninguna. */
   imagen: number | null;
 };
@@ -94,6 +111,7 @@ export function enRevision(borrador: BorradorProducto): ProductoEnRevision {
     descripcion: borrador.descripcion,
     categoria: borrador.categoria ?? "",
     moneda: borrador.moneda,
+    tipo: borrador.tipoSugerido,
     variantes: borrador.variantes.map((variante, indice) => ({
       clave: `${indice}`,
       nombre: variante.nombre,
@@ -101,8 +119,30 @@ export function enRevision(borrador: BorradorProducto): ProductoEnRevision {
       precio: variante.precioCentavos === null ? "" : CENTAVOS_A_TEXTO.format(variante.precioCentavos / 100),
       stock: "",
     })),
+    precioDesde: "",
+    materiales: "",
+    // Si se carga a medida, las variantes con nombre y precio de la página pasan a ser versiones con precio fijo.
+    versiones: borrador.variantes.flatMap((variante, indice) =>
+      variante.nombre && variante.precioCentavos !== null
+        ? [{ clave: `${indice}`, nombre: variante.nombre, precio: CENTAVOS_A_TEXTO.format(variante.precioCentavos / 100) }]
+        : [],
+    ),
     imagen: borrador.imagenes.length > 0 ? 0 : null,
   };
+}
+
+/** "Pana, chenille\nLino" → ["Pana", "chenille", "Lino"], sin repetir. */
+export function materialesDe(texto: string): string[] {
+  const vistos = new Set<string>();
+  return texto
+    .split(/[,\n]/)
+    .map((material) => material.trim())
+    .filter((material) => {
+      const clave = material.toLowerCase();
+      if (!material || vistos.has(clave)) return false;
+      vistos.add(clave);
+      return true;
+    });
 }
 
 function entero(texto: string): number | null | "invalido" {
@@ -115,6 +155,8 @@ function entero(texto: string): number | null | "invalido" {
 export function problemaDelProducto(producto: ProductoEnRevision): string | null {
   if (!producto.codigo.trim()) return "Falta el código.";
   if (producto.nombre.trim().length < 2) return "Falta el nombre.";
+  if (!producto.tipo) return "Elegí si es un producto a medida o de stock.";
+  if (producto.tipo === "a_medida") return problemaAMedida(producto);
   if (!producto.moneda) return "Elegí si el precio es en pesos o en dólares.";
   if (producto.variantes.length > 1 && producto.variantes.some((variante) => !variante.nombre.trim())) {
     return "Poné el nombre de cada variante.";
@@ -127,9 +169,31 @@ export function problemaDelProducto(producto: ProductoEnRevision): string | null
   return null;
 }
 
+/** Lo de un producto a medida: espejo de las reglas de la API (desdeDto y normalizarMateriales). */
+function problemaAMedida(producto: ProductoEnRevision): string | null {
+  if (producto.precioDesde.trim() && leerCentavos(producto.precioDesde) === null) return "Revisá el precio \"desde\".";
+  const materiales = materialesDe(producto.materiales);
+  if (materiales.length > MAX_MATERIALES) return `Poné hasta ${MAX_MATERIALES} materiales.`;
+  if (materiales.some((material) => material.length > LARGO_MAX_MATERIAL)) {
+    return `Cada material puede tener hasta ${LARGO_MAX_MATERIAL} caracteres.`;
+  }
+  for (const version of producto.versiones) {
+    if (!version.nombre.trim()) return "Poné el nombre de cada versión con precio fijo.";
+    if (!version.precio.trim()) return `Falta el precio de ${version.nombre.trim()}.`;
+    if (leerCentavos(version.precio) === null) return `Revisá el precio de ${version.nombre.trim()}.`;
+  }
+  return null;
+}
+
 /** Lo editado → el item que acepta `POST /importacion/confirmar`. Sólo con `problemaDelProducto` en null. */
 export function itemParaConfirmar(producto: ProductoEnRevision) {
   const { borrador } = producto;
+  const base = {
+    codigo: producto.codigo.trim(),
+    nombre: producto.nombre.trim(),
+    descripcion: producto.descripcion.trim(),
+    categoria: producto.categoria.trim() || null,
+  };
   return {
     claveOrigen: borrador.claveOrigen,
     origenUrl: borrador.origenUrl,
@@ -138,19 +202,31 @@ export function itemParaConfirmar(producto: ProductoEnRevision) {
     firma: borrador.firma,
     accion: producto.actualizar ? "actualizar" : "crear",
     imagenElegida: producto.imagen,
-    producto: {
-      codigo: producto.codigo.trim(),
-      nombre: producto.nombre.trim(),
-      descripcion: producto.descripcion.trim(),
-      categoria: producto.categoria.trim() || null,
-      moneda: producto.moneda,
-      variantes: producto.variantes.map((variante) => ({
-        nombre: variante.nombre.trim(),
-        ...(variante.sku.trim() ? { sku: variante.sku.trim() } : {}),
-        precioCentavos: leerCentavos(variante.precio),
-        stock: entero(variante.stock),
-      })),
-    },
+    producto:
+      producto.tipo === "a_medida"
+        ? {
+            ...base,
+            tipo: "a_medida",
+            // Se cotiza en pesos, como los presupuestos.
+            moneda: "ARS",
+            variantes: producto.versiones.map((version) => ({
+              nombre: version.nombre.trim(),
+              precioCentavos: leerCentavos(version.precio),
+            })),
+            precioReferenciaCentavos: producto.precioDesde.trim() ? leerCentavos(producto.precioDesde) : null,
+            materiales: materialesDe(producto.materiales),
+          }
+        : {
+            ...base,
+            tipo: "stock",
+            moneda: producto.moneda,
+            variantes: producto.variantes.map((variante) => ({
+              nombre: variante.nombre.trim(),
+              ...(variante.sku.trim() ? { sku: variante.sku.trim() } : {}),
+              precioCentavos: leerCentavos(variante.precio),
+              stock: entero(variante.stock),
+            })),
+          },
   };
 }
 
@@ -208,7 +284,8 @@ export const EXPLICACION_ERROR: Record<CodigoErrorImportacion, string> = {
   sin_conexion: "No pudimos llegar a esa página. Revisá que el enlace esté bien escrito.",
   pagina_no_soportada: "Ese tipo de página no se puede importar.",
   sin_datos_de_producto: "La página no dice qué producto es ni su precio. Cargalo a mano o probá con otro enlace.",
-  mercadolibre_no_disponible: "Mercado Libre no nos dejó leer ese enlace ahora. Probá con el enlace de una publicación o más tarde.",
+  mercadolibre_no_disponible:
+    "Mercado Libre no nos dejó leer ese enlace ahora. Probá pegando los enlaces de cada publicación, o de nuevo más tarde.",
   listado_no_soportado: "No pudimos leer los productos de ese listado. Pegá los enlaces de los productos de a uno.",
 };
 
@@ -220,6 +297,7 @@ export const EXPLICACION_AVISO: Record<AvisoBorrador, string> = {
   descripcion_recortada: "La descripción era más larga y quedó recortada.",
   sin_descripcion: "No trae descripción: tu asistente la usa para recomendar, conviene agregarla.",
   sin_imagen: "No trae foto.",
+  parece_a_medida: "La página habla de hacerlo a medida o de cotizarlo: te sugerimos cargarlo como producto a medida.",
 };
 
 export const NOMBRE_FUENTE: Record<FuenteImportacion, string> = {

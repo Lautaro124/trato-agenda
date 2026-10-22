@@ -152,10 +152,13 @@ Fallos de generación por modelo (12/09), para el que quiera mirar fino:
 2. **`reasoning`**: el runtime lo llama con `{ effort: 'low', exclude: true }`,
    que es lo que le permite interpretar cómo escribe la gente por WhatsApp
    ("el jueves a la tardecita", "mejor movelo una hora").
-3. **Structured outputs** (`response_format: json_schema` con `strict`): sólo lo
-   necesita la generación de agentes, que además manda
+3. **Structured outputs** (`response_format: json_schema` con `strict`): lo
+   necesitan la generación de agentes y la extracción de productos de la
+   importación rápida (`api/src/importacion/extraccion-ia.ts`, schema
+   `productos_de_pagina`, sin razonamiento, 20 s), que además mandan
    `provider.require_parameters` para que OpenRouter no rutee a un proveedor que
-   lo ignore.
+   lo ignore. La extracción sólo corre para una página pública sin datos de
+   producto ni secciones reconocibles, con el plan Pro.
 4. **Endpoint con ZDR disponible**, o la llamada no rutea.
 
 Los 7 de la tabla cumplen 1–3 (por eso están en la lista) y, según esta corrida,
@@ -242,6 +245,8 @@ Inception.
   OpenRouter.
 - `api/src/conversation/llm.provider.ts` — `ChatOpenAI` del runtime, `TIMEOUT_MS`,
   `reasoning`.
+- `api/src/importacion/extraccion-ia.ts` — último recurso de la importación
+  rápida para leer productos de una landing sin datos estructurados.
 - `api/src/config/env.ts` — defaults de `OPENROUTER_MODEL` y
   `OPENROUTER_MODEL_AGENTES`.
 - `api/evals/` — los evals, los perfiles y la lista de modelos con precios.

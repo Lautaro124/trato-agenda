@@ -671,6 +671,11 @@ const servidor = http.createServer(async (req, res) => {
       return responder(res, 400, { error: { message: 'JSON inválido' } });
     }
     if (Array.isArray(body.tools) && body.tools.length > 0) return conversar(body, res);
+    // La importación le pide a la IA los productos de una página sin datos ni secciones: en los E2E no hay ninguno.
+    if (body.response_format?.json_schema?.name === 'productos_de_pagina') {
+      llamadas.push({ tipo: 'importacion', ...resumenDelPedido(body) });
+      return responder(res, 200, completion(body.model, { content: JSON.stringify({ productos: [] }) }));
+    }
 
     llamadas.push({ tipo: 'resumen', ...resumenDelPedido(body) });
     return responder(res, 200, completion(body.model, { content: 'Cliente de prueba E2E.' }));
