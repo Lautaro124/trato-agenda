@@ -8,8 +8,16 @@ import { chip } from "@/components/onboarding/controles";
 import { Conversion } from "@/components/rendimiento/Conversion";
 import { Etapas } from "@/components/rendimiento/Etapas";
 import { TablaProductos } from "@/components/rendimiento/TablaProductos";
+import { Zonas } from "@/components/rendimiento/Zonas";
 import { cn } from "@/lib/cn";
-import { diaLegible, obtenerPerformance, type Performance } from "@/lib/performance";
+import {
+  diaLegible,
+  obtenerPerformance,
+  ZONAS,
+  type FiltroZona,
+  type FiltrosPerformance,
+  type Performance,
+} from "@/lib/performance";
 import { ErrorDeApi, MONEDAS, type Moneda } from "@/lib/productos";
 import { useRequireSession } from "@/lib/session";
 import { claveDia, rangoDePeriodo, type Periodo } from "@/lib/ventas";
@@ -56,14 +64,20 @@ export default function RendimientoPage() {
 /** Lo que dice si el período tiene datos a medias o ninguno: el registro arranca con el primer chat. */
 function AvisoDeDatos({ performance }: { performance: Performance }) {
   if (performance.datos === "completos") return null;
-  const desde = performance.registroDesde ? diaLegible(performance.registroDesde) : null;
+  const desde = performance.registroDesde
+    ? diaLegible(performance.registroDesde)
+    : null;
   const texto =
     performance.datos === "sin_datos"
       ? desde
         ? `Este período es anterior al ${desde}, cuando empezamos a medir: no hay datos.`
         : "Todavía no hay datos: empezamos a medir con el próximo chat de un cliente."
       : `Empezamos a medir el ${desde}: lo de antes de ese día no está contado.`;
-  return <p className="rounded-md border border-line bg-sunken px-3 py-2 text-[13.5px] text-ink-secondary">{texto}</p>;
+  return (
+    <p className="rounded-md border border-line bg-sunken px-3 py-2 text-[13.5px] text-ink-secondary">
+      {texto}
+    </p>
+  );
 }
 
 function Rendimiento() {
@@ -71,7 +85,12 @@ function Rendimiento() {
   const [periodo, setPeriodo] = useState<Periodo>("30");
   const [fechas, setFechas] = useState({ desde: "", hasta: "" });
   const [moneda, setMoneda] = useState<Moneda>("ARS");
-  const [respuesta, setRespuesta] = useState<{ clave: string; datos: Performance } | null>(null);
+  // Una zona acota todo lo demás (conversión, etapas y productos): así se cruza producto con zona.
+  const [zona, setZona] = useState<FiltroZona | "">("");
+  const [respuesta, setRespuesta] = useState<{
+    clave: string;
+    datos: Performance;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const rango = periodo === "personalizado" ? fechas : rangoDePeriodo(periodo);
@@ -81,12 +100,12 @@ function Rendimiento() {
       : rango.desde > rango.hasta
         ? "La fecha de inicio es posterior a la de fin."
         : null;
-  const clave = JSON.stringify({ ...rango, moneda });
+  const clave = JSON.stringify({ ...rango, moneda, zona });
 
   useEffect(() => {
     if (problemaDeRango) return;
     const ctrl = { cancelado: false };
-    obtenerPerformance(JSON.parse(clave) as { desde: string; hasta: string; moneda: Moneda })
+    obtenerPerformance(JSON.parse(clave) as FiltrosPerformance)
       .then((datos) => {
         if (ctrl.cancelado) return;
         setRespuesta({ clave, datos });
@@ -94,7 +113,12 @@ function Rendimiento() {
       })
       .catch(
         (err: unknown) =>
-          !ctrl.cancelado && setError(err instanceof ErrorDeApi ? err.message : "No pudimos cargar el rendimiento."),
+          !ctrl.cancelado &&
+          setError(
+            err instanceof ErrorDeApi
+              ? err.message
+              : "No pudimos cargar el rendimiento.",
+          ),
       );
     return () => {
       ctrl.cancelado = true;
@@ -103,28 +127,47 @@ function Rendimiento() {
 
   const elegirPeriodo = (valor: Periodo) => {
     // Al pasar a "Elegir fechas" se arranca del rango que se estaba viendo.
-    if (valor === "personalizado" && periodo !== "personalizado" && !fechas.desde) setFechas(rangoDePeriodo(periodo));
+    if (
+      valor === "personalizado" &&
+      periodo !== "personalizado" &&
+      !fechas.desde
+    )
+      setFechas(rangoDePeriodo(periodo));
     setPeriodo(valor);
   };
 
   const datos = respuesta?.datos;
-  const recargando = !problemaDeRango && respuesta !== null && respuesta.clave !== clave;
+  const recargando =
+    !problemaDeRango && respuesta !== null && respuesta.clave !== clave;
 
   return (
     <main className="flex-1 bg-page p-5 pb-24 md:pb-8">
       <div className="mx-auto flex max-w-[960px] flex-col gap-5">
         <div>
-          <h1 className="mb-1 font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">Rendimiento</h1>
+          <h1 className="mb-1 font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">
+            Rendimiento
+          </h1>
           <p className="text-sm leading-[1.6] text-ink-secondary">
-            Cómo les va a tus productos en los chats: cuántos llegan a pedir y a pagar, y dónde se quedan.
+            Cómo les va a tus productos en los chats: cuántos llegan a pedir y a
+            pagar, y dónde se quedan.
           </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <div role="group" aria-label="Período" className="flex flex-wrap gap-1.5">
+            <div
+              role="group"
+              aria-label="Período"
+              className="flex flex-wrap gap-1.5"
+            >
               {PERIODOS.map(({ valor, etiqueta }) => (
-                <button key={valor} type="button" aria-pressed={periodo === valor} onClick={() => elegirPeriodo(valor)} className={chip(periodo === valor)}>
+                <button
+                  key={valor}
+                  type="button"
+                  aria-pressed={periodo === valor}
+                  onClick={() => elegirPeriodo(valor)}
+                  className={chip(periodo === valor)}
+                >
                   {etiqueta}
                 </button>
               ))}
@@ -136,7 +179,12 @@ function Rendimiento() {
                   aria-label="Desde"
                   value={fechas.desde}
                   max={fechas.hasta || hoy}
-                  onChange={(e) => setFechas((actual) => ({ ...actual, desde: e.target.value }))}
+                  onChange={(e) =>
+                    setFechas((actual) => ({
+                      ...actual,
+                      desde: e.target.value,
+                    }))
+                  }
                   className={FECHA}
                 />
                 <span aria-hidden="true">a</span>
@@ -146,36 +194,67 @@ function Rendimiento() {
                   value={fechas.hasta}
                   min={fechas.desde || undefined}
                   max={hoy}
-                  onChange={(e) => setFechas((actual) => ({ ...actual, hasta: e.target.value }))}
+                  onChange={(e) =>
+                    setFechas((actual) => ({
+                      ...actual,
+                      hasta: e.target.value,
+                    }))
+                  }
                   className={FECHA}
                 />
               </div>
             )}
           </div>
-          <div role="radiogroup" aria-label="Moneda de los pedidos" className="flex w-fit gap-1 rounded-md border border-line bg-sunken p-1">
-            {MONEDAS.map((opcion) => (
-              <label
-                key={opcion}
-                className={cn(
-                  "cursor-pointer rounded-sm px-3 py-1.5 text-[13px] font-semibold",
-                  moneda === opcion ? "bg-card text-ink shadow-sm" : "text-ink-secondary",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="moneda-rendimiento"
-                  value={opcion}
-                  checked={moneda === opcion}
-                  onChange={() => setMoneda(opcion)}
-                  className="sr-only"
-                />
-                {opcion === "USD" ? "En dólares" : "En pesos"}
-              </label>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={zona}
+              onChange={(e) => setZona(e.target.value as FiltroZona | "")}
+              aria-label="Zona"
+              className="rounded-md border border-line bg-card px-3 py-2 text-[13.5px] text-ink"
+            >
+              <option value="">Todas las zonas</option>
+              {(Object.keys(ZONAS) as Array<keyof typeof ZONAS>).map(
+                (clave) => (
+                  <option key={clave} value={clave}>
+                    {ZONAS[clave]}
+                  </option>
+                ),
+              )}
+              <option value="sin_zona">Sin zona</option>
+            </select>
+            <div
+              role="radiogroup"
+              aria-label="Moneda de los pedidos"
+              className="flex w-fit gap-1 rounded-md border border-line bg-sunken p-1"
+            >
+              {MONEDAS.map((opcion) => (
+                <label
+                  key={opcion}
+                  className={cn(
+                    "cursor-pointer rounded-sm px-3 py-1.5 text-[13px] font-semibold",
+                    moneda === opcion
+                      ? "bg-card text-ink shadow-sm"
+                      : "text-ink-secondary",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="moneda-rendimiento"
+                    value={opcion}
+                    checked={moneda === opcion}
+                    onChange={() => setMoneda(opcion)}
+                    className="sr-only"
+                  />
+                  {opcion === "USD" ? "En dólares" : "En pesos"}
+                </label>
+              ))}
+            </div>
           </div>
         </div>
 
-        {problemaDeRango && <p className="text-sm text-ink-secondary">{problemaDeRango}</p>}
+        {problemaDeRango && (
+          <p className="text-sm text-ink-secondary">{problemaDeRango}</p>
+        )}
         {error && (
           <p role="alert" className="text-sm text-danger-text">
             {error}
@@ -183,13 +262,43 @@ function Rendimiento() {
         )}
 
         {!datos ? (
-          !error && !problemaDeRango && <p className="py-10 text-center text-sm text-muted">Cargando el rendimiento…</p>
+          !error &&
+          !problemaDeRango && (
+            <p className="py-10 text-center text-sm text-muted">
+              Cargando el rendimiento…
+            </p>
+          )
         ) : (
-          <div aria-busy={recargando} className={cn("flex flex-col gap-6 transition-opacity", recargando && "opacity-60")}>
+          <div
+            aria-busy={recargando}
+            className={cn(
+              "flex flex-col gap-6 transition-opacity",
+              recargando && "opacity-60",
+            )}
+          >
             <AvisoDeDatos performance={datos} />
+            {datos.zona && (
+              <p className="rounded-md border border-line bg-sunken px-3 py-2 text-[13.5px] text-ink">
+                Estás viendo sólo los chats de{" "}
+                <strong>
+                  {datos.zona === "sin_zona"
+                    ? "zona desconocida"
+                    : ZONAS[datos.zona]}
+                </strong>
+                .{" "}
+                <button
+                  type="button"
+                  onClick={() => setZona("")}
+                  className="cursor-pointer font-semibold text-primary underline-offset-2 hover:underline"
+                >
+                  Ver todas las zonas
+                </button>
+              </p>
+            )}
             <Conversion performance={datos} />
             <Etapas performance={datos} />
             <TablaProductos performance={datos} />
+            <Zonas performance={datos} onElegir={setZona} />
           </div>
         )}
       </div>

@@ -64,7 +64,7 @@ export function TablaProductos({ performance }: { performance: Performance }) {
           Ningún chat nuevo del período vio un producto todavía.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line bg-card">
+        <div className="relative overflow-x-auto rounded-lg border border-line bg-card">
           <table className="w-full min-w-[720px] text-[13.5px] text-ink">
             <caption className="sr-only">Rendimiento de cada producto en el período</caption>
             <thead className="border-b border-line text-[12px] text-ink-secondary">

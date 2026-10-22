@@ -19,6 +19,36 @@ export const ETIQUETA_ETAPA: Record<Etapa, string> = {
   pagado: "Pagó",
 };
 
+/** Copia a mano de ZONAS en api/src/performance/zona.rules.ts. */
+export const ZONAS = {
+  caba: "Ciudad de Buenos Aires",
+  amba: "CABA o Gran Buenos Aires",
+  buenos_aires: "Buenos Aires",
+  catamarca: "Catamarca",
+  chaco: "Chaco",
+  chubut: "Chubut",
+  cordoba: "Córdoba",
+  corrientes: "Corrientes",
+  entre_rios: "Entre Ríos",
+  formosa: "Formosa",
+  jujuy: "Jujuy",
+  la_pampa: "La Pampa",
+  la_rioja: "La Rioja",
+  mendoza: "Mendoza",
+  misiones: "Misiones",
+  neuquen: "Neuquén",
+  rio_negro: "Río Negro",
+  salta: "Salta",
+  san_juan: "San Juan",
+  san_luis: "San Luis",
+  santa_cruz: "Santa Cruz",
+  santa_fe: "Santa Fe",
+  santiago_del_estero: "Santiago del Estero",
+  tierra_del_fuego: "Tierra del Fuego",
+  tucuman: "Tucumán",
+} as const;
+export type FiltroZona = keyof typeof ZONAS | "sin_zona";
+
 /** `valor` null es "sin datos" (no hubo base), que no es lo mismo que 0 %. */
 export type Tasa = { valor: number | null };
 
@@ -57,8 +87,21 @@ export type ProductoPerformance = {
   cortanEn: Etapa | null;
 };
 
+export type ZonaPerformance = {
+  zona: FiltroZona;
+  nombre: string;
+  chats: number;
+  /** Cuántos tienen la zona inferida por la característica del celular. */
+  inferidas: number;
+  conPedido: number;
+  conPago: number;
+  chatAPedido: Tasa;
+  chatAPago: Tasa;
+};
+
 export type Performance = {
   moneda: Moneda;
+  zona: FiltroZona | null;
   rango: { primerDia: string; ultimoDia: string };
   datos: "completos" | "parciales" | "sin_datos";
   registroDesde: string | null;
@@ -70,15 +113,20 @@ export type Performance = {
     estancado: string;
     abandonado: string;
     sinDatos: string;
+    zona: string;
   };
   conversion: ConteosConversion & { anterior: ConteosConversion | null };
   etapas: EtapaPerformance[];
   productos: ProductoPerformance[];
+  zonas: ZonaPerformance[];
 };
 
-export async function obtenerPerformance(filtros: { desde: string; hasta: string; moneda: Moneda }): Promise<Performance> {
+export type FiltrosPerformance = { desde: string; hasta: string; moneda: Moneda; zona: FiltroZona | "" };
+
+export async function obtenerPerformance(filtros: FiltrosPerformance): Promise<Performance> {
   const params = new URLSearchParams({ desde: filtros.desde, hasta: filtros.hasta });
   if (filtros.moneda !== "ARS") params.set("moneda", filtros.moneda);
+  if (filtros.zona) params.set("zona", filtros.zona);
   const res = await apiFetch(`/performance?${params.toString()}`);
   if (!res.ok) {
     const cuerpo = (await res.json().catch(() => null)) as { message?: string | string[] } | null;

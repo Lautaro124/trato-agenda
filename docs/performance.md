@@ -187,7 +187,26 @@ Arriba se elige el período y la moneda. Después muestra:
 - dónde están los chats, con la etapa en la que más se quedan;
 - la tabla de productos, que se puede ordenar por más vistos, más pedidos o más pagados.
 
+**Zona (hecho).**
+
+Reglas puras en `api/src/performance/zona.rules.ts`; los nombres de las zonas están copiados a mano en `web/src/lib/performance.ts`. De dónde sale la zona:
+- **Inferida:** sale de la característica de un celular argentino.
+  - Se calcula en `tocarChat` y sólo si el chat todavía no tiene zona.
+  - La tabla cubre las características principales; una que no está queda sin zona.
+  - La característica 11 es "CABA o Gran Buenos Aires", porque no distingue la Ciudad del conurbano.
+- **Dato:** sale de `registrarZonaDeDatos`, que el nodo `catalogo` llama después de `crear_pedido`, `pedir_variante` y `aceptar_presupuesto` con los datos guardados del pedido.
+  - Se toma el campo provincia o, si no está, la letra del código postal. Un código de 4 números sólo se lee en la Ciudad (1000–1499).
+  - Le gana a la inferida.
+  - Si el país no es Argentina, no se guarda provincia.
+
+Cómo se lee:
+- `GET /performance?zona=<clave>|sin_zona` acota la conversión, las etapas y los productos a esa zona: así se cruza producto con zona.
+- Con el filtro de zona, los intereses ya desligados de su chat quedan afuera, porque no se sabe de qué zona son.
+- `zonas` trae siempre todas las zonas, con cuántas son inferidas, para poder compararlas.
+- La pantalla tiene el selector de zona y la sección "Por zona", con el botón "Ver sólo esta".
+
+Los chats anteriores a este cambio sólo tienen zona si vuelven a escribir.
+
 **Pendiente:**
-- zona;
 - clasificación de preguntas (`PreguntaChat`);
 - tips.

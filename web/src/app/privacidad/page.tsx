@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 21 de octubre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 22 de octubre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -138,8 +138,10 @@ export default function PrivacidadPage() {
             que elijas mostrarle el detalle del presupuesto. Los avisos que te mostramos en el
             panel (ventas, pedidos, stock, consultas) repiten algunos de esos datos. Para mostrarte
             cómo rinden tus productos, de cada chat anotamos hasta qué paso llegó (consultó, vio
-            productos, pidió, pagó), si se pasó a una persona y qué productos de tu catálogo vio o
-            pidió; no anotamos lo que escribió.
+            productos, pidió, pagó), si se pasó a una persona, qué productos de tu catálogo vio o
+            pidió y su provincia: la que dio en un pedido o, si no la dio, la que corresponde a la
+            característica de su número (la calculamos nosotros, sin mandar el número a nadie). No
+            anotamos lo que escribió, ni su número ni su dirección.
           </p>
           <p>
             <Fuerte>De tu cuenta de Mercado Pago, si la conectás</Fuerte> para cobrar tus ventas: tu
@@ -350,9 +352,9 @@ export default function PrivacidadPage() {
               presupuestos y las fechas quedan.
             </Punto>
             <Punto>
-              <Fuerte>Rendimiento de tus productos:</Fuerte> el paso al que llegó cada chat y los
-              productos que vio o pidió quedan atados a ese chat por 12 meses; después quedan sólo
-              como números de tu cuenta, sin forma de saber de qué cliente eran.
+              <Fuerte>Rendimiento de tus productos:</Fuerte> el paso al que llegó cada chat, los
+              productos que vio o pidió y su provincia quedan atados a ese chat por 12 meses; después
+              quedan sólo como números de tu cuenta, sin forma de saber de qué cliente eran.
             </Punto>
             <Punto>
               <Fuerte>Avisos del panel:</Fuerte> los leídos se borran a los 90 días; los que nunca
