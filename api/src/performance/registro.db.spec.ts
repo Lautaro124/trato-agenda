@@ -87,6 +87,28 @@ describe.skipIf(!hayBaseDePrueba)('registro de performance (Postgres)', () => {
     expect(await etapa()).toMatchObject({ etapa: 'pagado' });
   });
 
+  it('infiere la zona de la característica y la que da el cliente le gana', async () => {
+    const cordobes = await conversacion(dueno.id, '5493511234567@s.whatsapp.net');
+    const zona = () => prisma.etapaChat.findUnique({ where: { conversationId: cordobes.id }, select: { provincia: true, origenZona: true } });
+
+    await registro.tocarChat(dueno.id, cordobes.id);
+    expect(await zona()).toEqual({ provincia: 'cordoba', origenZona: 'inferida' });
+
+    await registro.registrarZonaDeDatos(dueno.id, cordobes.id, [{ etiqueta: 'Provincia', valor: 'Mendoza' }]);
+    expect(await zona()).toEqual({ provincia: 'mendoza', origenZona: 'dato' });
+
+    // La inferida no pisa un dato, y datos que no dicen provincia no borran nada.
+    await registro.tocarChat(dueno.id, cordobes.id);
+    await registro.registrarZonaDeDatos(dueno.id, cordobes.id, [{ etiqueta: 'Dirección', valor: 'Belgrano 100' }]);
+    expect(await zona()).toEqual({ provincia: 'mendoza', origenZona: 'dato' });
+  });
+
+  it('un número de otro país queda sin zona', async () => {
+    const uruguayo = await conversacion(dueno.id, '59899123456@s.whatsapp.net');
+    await registro.tocarChat(dueno.id, uruguayo.id);
+    expect(await prisma.etapaChat.findUnique({ where: { conversationId: uruguayo.id } })).toMatchObject({ provincia: null, origenZona: null });
+  });
+
   it('marca el chat derivado', async () => {
     await registro.marcarDerivado(dueno.id, chat.id);
     expect(await etapa()).toMatchObject({ derivado: true, etapa: 'consulta' });

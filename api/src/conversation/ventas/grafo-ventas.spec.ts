@@ -146,6 +146,7 @@ function crearRegistro() {
     registrarInteres: vi.fn().mockResolvedValue(undefined),
     registrarPedidoDeVariantes: vi.fn().mockResolvedValue(undefined),
     marcarDerivado: vi.fn().mockResolvedValue(undefined),
+    registrarZonaDeDatos: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -1643,10 +1644,14 @@ describe('grafo de ventas', () => {
       expect(registro.registrarInteres).toHaveBeenCalledWith('user-1', 'conv-1', ['p-1'], 'vio');
     });
 
-    it('un pedido se anota por sus variantes', async () => {
+    it('un pedido se anota por sus variantes y con la zona que dio el cliente', async () => {
       const registro = crearRegistro();
       const ventas = crearVentas();
-      ventas.crearPedido.mockResolvedValue({ ...VENTA, items: [{ ...VENTA.items[0], varianteId: 'v-1' }] });
+      ventas.crearPedido.mockResolvedValue({
+        ...VENTA,
+        items: [{ ...VENTA.items[0], varianteId: 'v-1' }],
+        datosCliente: [{ etiqueta: 'Provincia', valor: 'Salta' }],
+      });
       const llm = crearModelo([
         BUSCAR_MATE,
         llamada('crear_pedido', { nombreCliente: 'Juan', items: [{ varianteId: 'v-1', cantidad: 1 }] }),
@@ -1656,6 +1661,8 @@ describe('grafo de ventas', () => {
       await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), ventas, registro });
 
       expect(registro.registrarPedidoDeVariantes).toHaveBeenCalledWith('user-1', 'conv-1', ['v-1']);
+      // La provincia que dio el cliente va a la zona del chat.
+      expect(registro.registrarZonaDeDatos).toHaveBeenCalledWith('user-1', 'conv-1', [{ etiqueta: 'Provincia', valor: 'Salta' }]);
     });
 
     it('derivar una consulta marca el chat derivado', async () => {

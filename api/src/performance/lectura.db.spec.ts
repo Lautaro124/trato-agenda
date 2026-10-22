@@ -35,12 +35,19 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     });
 
   /** Un chat registrado con su etapa; devuelve el id de la conversación. */
-  async function chat(userId: string, etapa: Etapa, creado: Date, ultimaActividadAt = creado, derivado = false) {
+  async function chat(
+    userId: string,
+    etapa: Etapa,
+    creado: Date,
+    ultimaActividadAt = creado,
+    derivado = false,
+    zona: { provincia: string; origenZona: 'dato' | 'inferida' } | null = null,
+  ) {
     const conversacion = await prisma.conversation.create({
       data: { userId, remoteJid: `54911${String(++numero).padStart(8, '0')}@s.whatsapp.net` },
     });
     await prisma.etapaChat.create({
-      data: { userId, conversationId: conversacion.id, etapa, createdAt: creado, ultimaActividadAt, derivado },
+      data: { userId, conversationId: conversacion.id, etapa, createdAt: creado, ultimaActividadAt, derivado, ...zona },
     });
     return conversacion.id;
   }
@@ -107,12 +114,12 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
 
     // Octubre:
     // 1. vio y pagó el mate (2 unidades).
-    const pago = await chat(dueno.id, 'pagado', dia(2));
+    const pago = await chat(dueno.id, 'pagado', dia(2), dia(2), false, { provincia: 'cordoba', origenZona: 'dato' });
     await interes(dueno.id, pago, mate.id, 'vio');
     await interes(dueno.id, pago, mate.id, 'pidio');
     await venta(dueno.id, pago, { estado: 'pagada', varianteId: mate.varianteId, cantidad: 2, subtotal: 2_000_000 });
     // 2. pidió el mate y no pagó; el chat está quieto hace 3 días: estancado.
-    const pendiente = await chat(dueno.id, 'pedido', dia(5), dia(28, '12:00'));
+    const pendiente = await chat(dueno.id, 'pedido', dia(5), dia(28, '12:00'), false, { provincia: 'cordoba', origenZona: 'inferida' });
     await interes(dueno.id, pendiente, mate.id, 'vio');
     await interes(dueno.id, pendiente, mate.id, 'pidio');
     await venta(dueno.id, pendiente, { estado: 'pendiente_pago', varianteId: mate.varianteId });
@@ -120,7 +127,7 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     const abandonado = await chat(dueno.id, 'vio_productos', dia(6), dia(7), true);
     await interes(dueno.id, abandonado, mate.id, 'vio');
     // 4. pidió el placard a medida y lo pagó.
-    const aMedida = await chat(dueno.id, 'pagado', dia(10));
+    const aMedida = await chat(dueno.id, 'pagado', dia(10), dia(10), false, { provincia: 'mendoza', origenZona: 'dato' });
     await interes(dueno.id, aMedida, placard, 'pidio');
     await prisma.venta.create({
       data: {
@@ -211,6 +218,31 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
       vioAPidio: { valor: null },
       cortanEn: null,
     });
+  });
+
+  it('reparte los chats por zona, con las inferidas aparte y los sin zona al final', async () => {
+    const { zonas } = await lectura.leer(dueno.id, OCTUBRE, AHORA);
+
+    expect(zonas).toEqual([
+      expect.objectContaining({ zona: 'cordoba', nombre: 'Córdoba', chats: 2, inferidas: 1, conPedido: 2, conPago: 1, chatAPago: { valor: 0.5 } }),
+      expect.objectContaining({ zona: 'mendoza', chats: 1, inferidas: 0, conPago: 1 }),
+      expect.objectContaining({ zona: 'sin_zona', nombre: 'Sin zona', chats: 2, conPedido: 0 }),
+    ]);
+  });
+
+  it('filtrar por zona acota la conversión, las etapas y los productos', async () => {
+    const cordoba = await lectura.leer(dueno.id, { ...OCTUBRE, zona: 'cordoba' }, AHORA);
+
+    expect(cordoba.zona).toBe('cordoba');
+    expect(cordoba.conversion).toMatchObject({ chats: 2, conPedido: 2, conPago: 1, pedidos: 2, pagados: 1 });
+    expect(cordoba.etapas.reduce((total, etapa) => total + etapa.total, 0)).toBe(2);
+    expect(cordoba.productos).toEqual([expect.objectContaining({ codigo: 'MATE', vieron: 2, pidieron: 2, pagaron: 1 })]);
+    // El desglose por zona no se filtra: es para comparar.
+    expect(cordoba.zonas).toHaveLength(3);
+
+    const sinZona = await lectura.leer(dueno.id, { ...OCTUBRE, zona: 'sin_zona' }, AHORA);
+    expect(sinZona.conversion.chats).toBe(2);
+    expect(sinZona.productos.map((producto) => [producto.codigo, producto.vieron])).toEqual([['MATE', 1]]);
   });
 
   it('un período anterior al primer chat no tiene datos', async () => {

@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import type { Moneda } from '../comercio/catalogo.rules.js';
+import { Prisma } from '../generated/prisma/client.js';
 import { rangoDeDias, type Rango } from '../comercio/historico.rules.js';
 import { claveDia } from '../conversation/graph/agenda-rules.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -16,10 +17,19 @@ import {
 import type {
   ConteosConversion,
   EtapaPublica,
+  FiltroZona,
   FiltrosPerformanceQuery,
   PerformancePublica,
   ProductoPerformance,
+  ZonaPerformance,
 } from './performance.types.js';
+import { SIN_ZONA, ZONAS, esZona } from './zona.rules.js';
+
+/** La condición sobre EtapaChat (alias `e`) para filtrar por zona; vacía sin filtro. */
+function condicionDeZona(zona: FiltroZona | null): Prisma.Sql {
+  if (!zona) return Prisma.empty;
+  return zona === SIN_ZONA ? Prisma.sql`AND e."provincia" IS NULL` : Prisma.sql`AND e."provincia" = ${zona}`;
+}
 
 /** Etapas que cuentan como "hizo un pedido". */
 const CON_PEDIDO: Etapa[] = ['pedido', 'cotizado', 'pagado'];
@@ -37,6 +47,7 @@ export class LecturaPerformanceService {
   async leer(userId: string, filtros: FiltrosPerformanceQuery, ahora: Date = new Date()): Promise<PerformancePublica> {
     const rango = rangoDeDias(filtros.desde, filtros.hasta, ahora);
     const moneda = filtros.moneda ?? 'ARS';
+    const zona = filtros.zona ?? null;
     await this.exigirVentas(userId);
 
     const primero = await this.prisma.etapaChat.aggregate({ where: { userId }, _min: { createdAt: true } });
@@ -44,15 +55,17 @@ export class LecturaPerformanceService {
     const datos = cobertura(rango, primerRegistro);
     const anterior = rangoAnterior(rango);
 
-    const [conteos, conteosAnteriores, etapas, productos] = await Promise.all([
-      this.conversion(userId, rango, moneda),
-      cobertura(anterior, primerRegistro) === 'sin_datos' ? null : this.conversion(userId, anterior, moneda),
-      this.etapas(userId, rango, ahora),
-      this.productos(userId, rango, moneda),
+    const [conteos, conteosAnteriores, etapas, productos, zonas] = await Promise.all([
+      this.conversion(userId, rango, moneda, zona),
+      cobertura(anterior, primerRegistro) === 'sin_datos' ? null : this.conversion(userId, anterior, moneda, zona),
+      this.etapas(userId, rango, ahora, zona),
+      this.productos(userId, rango, moneda, zona),
+      this.zonas(userId, rango),
     ]);
 
     return {
       moneda,
+      zona,
       rango: { primerDia: rango.primerDia, ultimoDia: rango.ultimoDia },
       datos,
       registroDesde: primerRegistro ? claveDia(primerRegistro) : null,
@@ -60,31 +73,75 @@ export class LecturaPerformanceService {
       conversion: { ...conTasas(conteos), anterior: conteosAnteriores ? conTasas(conteosAnteriores) : null },
       etapas,
       productos,
+      zonas,
     };
   }
 
-  private async conversion(userId: string, rango: Rango, moneda: Moneda): Promise<ConteosConversion> {
+  /** Los chats nuevos del período por zona: cuántos, cuántos con zona inferida y cuántos pidieron y pagaron. */
+  private async zonas(userId: string, rango: Rango): Promise<ZonaPerformance[]> {
+    const filas = await this.prisma.$queryRaw<
+      Array<{ zona: string | null; chats: number; inferidas: number; conPedido: number; conPago: number }>
+    >`
+      SELECT e."provincia" AS "zona", COUNT(*)::int AS "chats",
+             COUNT(*) FILTER (WHERE e."origenZona" = 'inferida')::int AS "inferidas",
+             COUNT(*) FILTER (WHERE e."etapa" IN (${CON_PEDIDO[0]}, ${CON_PEDIDO[1]}, ${CON_PEDIDO[2]}))::int AS "conPedido",
+             COUNT(*) FILTER (WHERE e."etapa" = 'pagado')::int AS "conPago"
+      FROM "EtapaChat" e
+      WHERE e."userId" = ${userId} AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta}
+      GROUP BY 1
+    `;
+    const porZona = new Map<FiltroZona, ZonaPerformance>();
+    for (const fila of filas) {
+      // Una provincia que no es de la lista (no debería pasar) cuenta como sin zona.
+      const zona: FiltroZona = esZona(fila.zona) ? fila.zona : SIN_ZONA;
+      const actual = porZona.get(zona) ?? {
+        zona,
+        nombre: zona === SIN_ZONA ? 'Sin zona' : ZONAS[zona],
+        chats: 0,
+        inferidas: 0,
+        conPedido: 0,
+        conPago: 0,
+        chatAPedido: tasa(0, 0),
+        chatAPago: tasa(0, 0),
+      };
+      actual.chats += fila.chats;
+      actual.inferidas += zona === SIN_ZONA ? 0 : fila.inferidas;
+      actual.conPedido += fila.conPedido;
+      actual.conPago += fila.conPago;
+      porZona.set(zona, actual);
+    }
+    return [...porZona.values()]
+      .map((fila) => ({ ...fila, chatAPedido: tasa(fila.conPedido, fila.chats), chatAPago: tasa(fila.conPago, fila.chats) }))
+      .sort((a, b) => Number(a.zona === SIN_ZONA) - Number(b.zona === SIN_ZONA) || b.chats - a.chats || a.nombre.localeCompare(b.nombre));
+  }
+
+  private async conversion(userId: string, rango: Rango, moneda: Moneda, zona: FiltroZona | null): Promise<ConteosConversion> {
+    const deZona = condicionDeZona(zona);
     const [[chats], [ventas]] = await Promise.all([
       this.prisma.$queryRaw<Array<{ chats: number; conPedido: number; conPago: number }>>`
         SELECT COUNT(*)::int AS "chats",
                COUNT(*) FILTER (WHERE e."etapa" IN (${CON_PEDIDO[0]}, ${CON_PEDIDO[1]}, ${CON_PEDIDO[2]}))::int AS "conPedido",
                COUNT(*) FILTER (WHERE e."etapa" = 'pagado')::int AS "conPago"
         FROM "EtapaChat" e
-        WHERE e."userId" = ${userId} AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta}
+        WHERE e."userId" = ${userId} AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
       `,
       this.prisma.$queryRaw<Array<{ pedidos: number; pagados: number }>>`
         SELECT COUNT(*)::int AS "pedidos", COUNT(*) FILTER (WHERE v."estado" = 'pagada')::int AS "pagados"
         FROM "Venta" v JOIN "EtapaChat" e ON e."conversationId" = v."conversationId"
         WHERE v."userId" = ${userId} AND e."userId" = ${userId} AND NOT v."dePrueba" AND v."moneda" = ${moneda}
-          AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta}
+          AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
       `,
     ]);
     return { chats: chats.chats, conPedido: chats.conPedido, pedidos: ventas.pedidos, pagados: ventas.pagados, conPago: chats.conPago };
   }
 
-  private async etapas(userId: string, rango: Rango, ahora: Date): Promise<EtapaPublica[]> {
+  private async etapas(userId: string, rango: Rango, ahora: Date, zona: FiltroZona | null): Promise<EtapaPublica[]> {
     const filas = await this.prisma.etapaChat.findMany({
-      where: { userId, createdAt: { gte: rango.desde, lt: rango.hasta } },
+      where: {
+        userId,
+        createdAt: { gte: rango.desde, lt: rango.hasta },
+        ...(zona ? { provincia: zona === SIN_ZONA ? null : zona } : {}),
+      },
       select: { etapa: true, ultimaActividadAt: true, derivado: true },
     });
     const porEtapa = new Map<Etapa, EtapaPublica>(
@@ -103,7 +160,10 @@ export class LecturaPerformanceService {
     return [...porEtapa.values()];
   }
 
-  private async productos(userId: string, rango: Rango, moneda: Moneda): Promise<ProductoPerformance[]> {
+  private async productos(userId: string, rango: Rango, moneda: Moneda, zona: FiltroZona | null): Promise<ProductoPerformance[]> {
+    const deZona = condicionDeZona(zona);
+    // Con zona, una fila desligada (sin conversación) no se sabe de dónde es: queda afuera.
+    const interesDeZona = zona ? Prisma.sql`AND i."conversationId" IS NOT NULL ${deZona}` : Prisma.empty;
     const [intereses, pagos, cortes] = await Promise.all([
       // Una fila desligada (sin conversación, pasados los 12 meses) cuenta por su propia fecha.
       this.prisma.$queryRaw<Array<{ productoId: string; tipo: string; chats: number }>>`
@@ -113,6 +173,7 @@ export class LecturaPerformanceService {
           AND CASE WHEN i."conversationId" IS NULL
                    THEN i."createdAt" >= ${rango.desde} AND i."createdAt" < ${rango.hasta}
                    ELSE e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} END
+          ${interesDeZona}
         GROUP BY 1, 2
       `,
       // Lo de stock sale de los renglones (por variante); lo a medida, del producto de la solicitud.
@@ -121,7 +182,7 @@ export class LecturaPerformanceService {
           SELECT v."id", v."tipo", v."conversationId", v."solicitud", v."totalCentavos"
           FROM "Venta" v JOIN "EtapaChat" e ON e."conversationId" = v."conversationId"
           WHERE v."userId" = ${userId} AND e."userId" = ${userId} AND v."estado" = 'pagada' AND NOT v."dePrueba"
-            AND v."moneda" = ${moneda} AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta}
+            AND v."moneda" = ${moneda} AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
         )
         SELECT x."productoId", COUNT(DISTINCT x."conversationId")::int AS "pagaron",
                SUM(x."unidades")::int AS "unidades", SUM(x."cobrado")::int AS "cobrado"
@@ -141,7 +202,7 @@ export class LecturaPerformanceService {
         SELECT i."productoId", e."etapa", COUNT(*)::int AS "chats"
         FROM "InteresProducto" i JOIN "EtapaChat" e ON e."conversationId" = i."conversationId"
         WHERE i."userId" = ${userId} AND e."userId" = ${userId} AND i."tipo" = 'vio' AND e."etapa" <> 'pagado'
-          AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta}
+          AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
         GROUP BY 1, 2
       `,
     ]);

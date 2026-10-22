@@ -2,6 +2,11 @@ import { IsIn, IsOptional, Matches } from 'class-validator';
 import { MONEDAS, type Moneda } from '../comercio/catalogo.rules.js';
 import type { Etapa } from './etapas.rules.js';
 import type { Cobertura, DEFINICIONES, Tasa } from './lectura.rules.js';
+import { SIN_ZONA, ZONAS, type Zona } from './zona.rules.js';
+
+/** Las zonas por las que se puede filtrar: cada provincia, o los chats sin zona. */
+export const FILTROS_ZONA = [...(Object.keys(ZONAS) as Zona[]), SIN_ZONA] as const;
+export type FiltroZona = Zona | typeof SIN_ZONA;
 
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -19,6 +24,11 @@ export class FiltrosPerformanceQuery {
   @IsOptional()
   @IsIn(MONEDAS)
   moneda?: Moneda;
+
+  /** Sólo los chats de esa zona (todas las métricas). Sin ella, todos. */
+  @IsOptional()
+  @IsIn(FILTROS_ZONA)
+  zona?: FiltroZona;
 }
 
 export type ConteosConversion = {
@@ -69,8 +79,22 @@ export type ProductoPerformance = {
   cortanEn: Etapa | null;
 };
 
+export type ZonaPerformance = {
+  zona: FiltroZona;
+  nombre: string;
+  chats: number;
+  /** De esos chats, cuántos tienen la zona inferida por la característica (no la dio el cliente). */
+  inferidas: number;
+  conPedido: number;
+  conPago: number;
+  chatAPedido: Tasa;
+  chatAPago: Tasa;
+};
+
 export type PerformancePublica = {
   moneda: Moneda;
+  /** La zona por la que se filtró, o null si son todas. */
+  zona: FiltroZona | null;
   rango: { primerDia: string; ultimoDia: string };
   /** Qué tanto cubre el registro al período: arranca con el primer chat registrado de la cuenta. */
   datos: Cobertura;
@@ -80,4 +104,6 @@ export type PerformancePublica = {
   conversion: Conversion;
   etapas: EtapaPublica[];
   productos: ProductoPerformance[];
+  /** Los chats nuevos del período por zona (siempre todas, aunque se filtre por una). */
+  zonas: ZonaPerformance[];
 };

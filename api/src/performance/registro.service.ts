@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ETAPA_DE_INTERES, etapasAnterioresA, type Etapa, type TipoInteres } from './etapas.rules.js';
+import { zonaDeDatosCliente, zonaDeJid } from './zona.rules.js';
 
 /** Prefijo del chat del banco de pruebas del Home (conversation.service.ts): nunca se registra. */
 const PREFIJO_CHAT_DE_PRUEBA = 'web-test:';
@@ -26,7 +27,8 @@ export class RegistroPerformanceService {
 
   /**
    * Cada mensaje del cliente: marca la actividad y, si Jev calculó la etapa
-   * de compra, la guarda y avanza el chat hasta ella.
+   * de compra, la guarda y avanza el chat hasta ella. Si el chat todavía no
+   * tiene zona, la infiere de la característica (sin guardar el número).
    */
   async tocarChat(
     userId: string,
@@ -34,11 +36,19 @@ export class RegistroPerformanceService {
     opciones: { etapaJev?: 'eligiendo' | 'lista' | null; ahora?: Date } = {},
   ): Promise<void> {
     await this.seguro('tocarChat', conversationId, async () => {
-      if (!(await this.asegurar(userId, conversationId))) return;
+      const remoteJid = await this.asegurar(userId, conversationId);
+      if (!remoteJid) return;
       await this.prisma.etapaChat.updateMany({
         where: { userId, conversationId },
         data: { ultimaActividadAt: opciones.ahora ?? new Date(), ...(opciones.etapaJev ? { etapaJev: opciones.etapaJev } : {}) },
       });
+      const inferida = zonaDeJid(remoteJid);
+      if (inferida) {
+        await this.prisma.etapaChat.updateMany({
+          where: { userId, conversationId, provincia: null },
+          data: { provincia: inferida, origenZona: 'inferida' },
+        });
+      }
       if (opciones.etapaJev) await this.subirA(userId, conversationId, opciones.etapaJev);
     });
   }
@@ -60,6 +70,24 @@ export class RegistroPerformanceService {
         select: { productoId: true },
       });
       await this.interes(userId, conversationId, variantes.map((variante) => variante.productoId), 'pidio');
+    });
+  }
+
+  /**
+   * Los datos que dio el cliente en un pedido: si dicen la provincia (o un
+   * código postal con letra), esa es la zona del chat, aunque ya hubiera una
+   * inferida. Se guarda sólo la provincia.
+   */
+  async registrarZonaDeDatos(
+    userId: string,
+    conversationId: string,
+    datos: Array<{ etiqueta: string; valor: string }>,
+  ): Promise<void> {
+    const zona = zonaDeDatosCliente(datos);
+    if (!zona) return;
+    await this.seguro('registrarZonaDeDatos', conversationId, async () => {
+      if (!(await this.asegurar(userId, conversationId))) return;
+      await this.prisma.etapaChat.updateMany({ where: { userId, conversationId }, data: { provincia: zona, origenZona: 'dato' } });
     });
   }
 
@@ -95,19 +123,20 @@ export class RegistroPerformanceService {
   }
 
   /**
-   * Deja la fila del chat creada. Devuelve false (y no crea nada) si la
+   * Deja la fila del chat creada y devuelve el remoteJid de la conversación
+   * (sólo para inferir la zona; no se guarda). Null (y no crea nada) si la
    * conversación no es de esta cuenta o es la del banco de pruebas.
    * `createMany` + `skipDuplicates` es un INSERT … ON CONFLICT DO NOTHING:
    * dos escrituras a la vez no chocan.
    */
-  private async asegurar(userId: string, conversationId: string): Promise<boolean> {
+  private async asegurar(userId: string, conversationId: string): Promise<string | null> {
     const conversacion = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId, NOT: { remoteJid: { startsWith: PREFIJO_CHAT_DE_PRUEBA } } },
-      select: { id: true },
+      select: { remoteJid: true },
     });
-    if (!conversacion) return false;
+    if (!conversacion) return null;
     await this.prisma.etapaChat.createMany({ data: [{ userId, conversationId }], skipDuplicates: true });
-    return true;
+    return conversacion.remoteJid;
   }
 
   /** Avanza sólo si el chat está antes: nunca retrocede, y es atómico. */

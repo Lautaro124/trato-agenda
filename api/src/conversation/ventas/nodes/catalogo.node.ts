@@ -66,7 +66,10 @@ export type DepsCatalogo = {
     | 'pedirVariante'
   >;
   /** Módulo de performance (LAU-30): qué productos vio o pidió el chat y si se derivó. Sin él (evals), nada. */
-  registro?: Pick<RegistroPerformanceService, 'registrarInteres' | 'registrarPedidoDeVariantes' | 'marcarDerivado'>;
+  registro?: Pick<
+    RegistroPerformanceService,
+    'registrarInteres' | 'registrarPedidoDeVariantes' | 'marcarDerivado' | 'registrarZonaDeDatos'
+  >;
 };
 
 /** Lo que vuelve al modelo y, si hay fotos aprobadas, lo que la fachada le manda al cliente. */
@@ -155,6 +158,11 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       state.esPropietario
         ? Promise.resolve()
         : deps.registro?.registrarInteres(state.ownerUserId, state.contexto.conversation.id, productoIds, 'pidio'),
+    /** La provincia que dio el cliente en el pedido (lo guardado, ya normalizado). */
+    zona: (state: EstadoVentasValue, datosCliente: unknown) =>
+      state.esPropietario
+        ? Promise.resolve()
+        : deps.registro?.registrarZonaDeDatos(state.ownerUserId, state.contexto.conversation.id, leerDatosDeVenta(datosCliente)),
   };
 
   async function crearPedido(state: EstadoVentasValue, args: Args): Promise<string> {
@@ -179,6 +187,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const varianteIds = venta.items.flatMap((item) => (item.varianteId ? [item.varianteId] : []));
         await deps.registro?.registrarPedidoDeVariantes(state.ownerUserId, conversation.id, varianteIds);
       }
+      await registrar.zona(state, venta.datosCliente);
       return formatearPedidoCreado(agent, venta);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
@@ -285,6 +294,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       });
       const productoId = leerSolicitudDeVenta(venta.solicitud)?.productoId;
       if (productoId) await registrar.pedidos(state, [productoId]);
+      await registrar.zona(state, venta.datosCliente);
       return formatearCobroAMedida(state.contexto.agent, venta, true);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo anotar el pedido: ${error.message}`;
@@ -300,6 +310,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         entrega: leerEntrega(args.entrega),
         datosCliente: leerDatosDeVenta(args.datosCliente),
       });
+      await registrar.zona(state, venta.datosCliente);
       return formatearCobroAMedida(state.contexto.agent, venta);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo generar el cobro: ${error.message}`;
