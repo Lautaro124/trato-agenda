@@ -12,6 +12,10 @@ describe('enlaceMercadoLibre', () => {
       { tipo: 'item', sitio: 'MLA', id: 'MLA9876543210' },
     ],
     ['https://www.mercadolibre.com.ar/mate/p/MLA12345678#wid=MLA111222333', { tipo: 'item', sitio: 'MLA', id: 'MLA111222333' }],
+    [
+      'https://www.mercadolibre.com.ar/sillon-retro/up/MLAU3084296950?pdp_filters=item_id%3AMLA1484453779#polycard_client=mshops',
+      { tipo: 'item', sitio: 'MLA', id: 'MLA1484453779' },
+    ],
     ['https://produto.mercadolivre.com.br/MLB-998877665-tenis', { tipo: 'item', sitio: 'MLB', id: 'MLB998877665' }],
     ['https://listado.mercadolibre.com.ar/_CustId_123456', { tipo: 'listado', sitio: 'MLA', filtro: { vendedor: '123456' } }],
     ['https://www.mercadolibre.com.ar/tienda/mi-tienda', { tipo: 'listado', sitio: 'MLA', filtro: { nickname: 'mi-tienda' } }],
@@ -23,6 +27,8 @@ describe('enlaceMercadoLibre', () => {
   it('no reconoce lo que no es de Mercado Libre ni un prefijo inventado', () => {
     expect(enlaceMercadoLibre(u('https://mercadolibre.com.ar.evil.com/MLA-1234567890'))).toBeNull();
     expect(enlaceMercadoLibre(u('https://articulo.mercadolibre.com.ar/MZZ-1234567890'))).toBeNull();
+    // Un producto de usuario sin la publicación elegida no dice cuál leer.
+    expect(enlaceMercadoLibre(u('https://www.mercadolibre.com.ar/sillon/up/MLAU3084296950'))).toBeNull();
   });
 });
 
@@ -39,6 +45,13 @@ describe('claves y códigos', () => {
     expect(claveDeOrigen('mercadolibre', u('https://articulo.mercadolibre.com.ar/MLA-1'), 'MLA1234567890')).toBe('ml:MLA1234567890');
     expect(claveDeOrigen('tiendamia', u('https://tiendamia.com/ar/producto?amz=b0abc123&pName=x'), null)).toBe('tiendamia:amz:B0ABC123');
     expect(fuenteDe(u('https://tiendamia.com/ar/producto?amz=1'))).toBe('tiendamia');
+  });
+
+  it('las secciones de una misma landing tienen claves distintas', () => {
+    const landing = u('https://sillones.com/?utm_source=ig');
+    expect(claveDeOrigen('web', landing, null, 'linea-retro')).not.toBe(claveDeOrigen('web', landing, null, 'linea-kiev'));
+    expect(claveDeOrigen('web', landing, null, 'linea-retro')).toBe(claveDeOrigen('web', u('https://sillones.com/'), null, 'linea-retro'));
+    expect(claveDeOrigen('web', landing, null, 'linea-retro')).not.toBe(claveDeOrigen('web', landing, null));
   });
 
   it('canoniza sin seguimiento ni fragmento', () => {

@@ -15,7 +15,14 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { LARGOS, MAX_VARIANTES, MONEDAS, PRECIO_MAX_PESOS, STOCK_MAX, type Moneda } from '../comercio/catalogo.rules.js';
-import { MAX_IMAGENES_OFRECIDAS, MAX_PRODUCTOS_POR_CONFIRMACION, MAX_URLS_POR_PEDIDO } from './modelo.js';
+import { LARGO_MAX_MATERIAL, MAX_MATERIALES } from '../comercio/solicitud.rules.js';
+import {
+  MAX_IMAGENES_OFRECIDAS,
+  MAX_PRODUCTOS_POR_CONFIRMACION,
+  MAX_URLS_POR_PEDIDO,
+  TIPOS_IMPORTADO,
+  type TipoImportado,
+} from './modelo.js';
 import { LARGO_MAX_URL } from './ssrf.rules.js';
 
 /** Body de `POST /importacion/extraer`. */
@@ -51,8 +58,16 @@ export class VarianteConfirmadaDto {
   stock?: number | null;
 }
 
-/** El producto ya revisado (y editado) por el dueño. */
+/**
+ * El producto ya revisado (y editado) por el dueño. De stock lleva precio en
+ * cada variante; a medida, en pesos, con precio "desde", materiales y
+ * versiones con precio fijo opcionales (sin stock): lo valida desdeDto con
+ * las mismas reglas que el editor.
+ */
 export class ProductoConfirmadoDto {
+  @IsIn(TIPOS_IMPORTADO)
+  tipo!: TipoImportado;
+
   @IsString()
   @MinLength(1)
   @MaxLength(LARGOS.codigo)
@@ -76,12 +91,28 @@ export class ProductoConfirmadoDto {
   @IsIn(MONEDAS)
   moneda!: Moneda;
 
+  /** De stock, al menos una (lo exige desdeDto); a medida, las versiones con precio fijo, que pueden no estar. */
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(MAX_VARIANTES)
   @ValidateNested({ each: true })
   @Type(() => VarianteConfirmadaDto)
   variantes!: VarianteConfirmadaDto[];
+
+  /** Sólo a medida: el precio "desde". */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsInt()
+  @Min(0)
+  @Max(PRECIO_MAX_PESOS * 100)
+  precioReferenciaCentavos?: number | null;
+
+  /** Sólo a medida: con qué materiales se hace. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_MATERIALES)
+  @IsString({ each: true })
+  @MaxLength(LARGO_MAX_MATERIAL, { each: true })
+  materiales?: string[];
 }
 
 export class ItemConfirmadoDto {

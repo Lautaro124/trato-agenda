@@ -16,6 +16,7 @@ import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { SubscriptionService } from '../subscription/subscription.service.js';
+import type { ExtraccionIaService } from './extraccion-ia.js';
 import { ImportacionService } from './importacion.service.js';
 import type { ItemConfirmadoDto } from './importacion.types.js';
 import { MercadoLibreClient } from './mercadolibre.client.js';
@@ -35,6 +36,7 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
   let otroDueno: User;
   let foto: Buffer;
   const plan = vi.fn();
+  const extraccionIa = vi.fn();
   let importacion: ImportacionService;
 
   beforeAll(async () => {
@@ -75,6 +77,18 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
         html(jsonLd({ '@type': 'Product', name: 'Taza', offers: { priceCurrency: 'ARS' } }));
       } else if (ruta === '/categoria') {
         html(jsonLd({ '@type': 'ItemList', itemListElement: [{ url: '/mate' }, { url: '/auriculares' }, { url: '/nada' }] }));
+      } else if (ruta === '/landing') {
+        // Una landing sin datos de producto: cada modelo es un título con su foto y sus medidas.
+        const modelo = (nombre: string, foto: string, texto: string) =>
+          `<section><h2>${nombre}</h2><img src="/fotos/${foto}.jpg" alt=""><p>Un cuerpo:</p><p>100 x 80 cm</p><p>${texto}</p></section>`;
+        html(
+          `<html><body><header><img src="/logo.png"><h1>Sillones</h1></header>` +
+            `<h2>Elegí tu modelo</h2><p>Todos se hacen en fábrica.</p>` +
+            modelo('Línea Retro', 'retro', 'Cotizar a medida') +
+            modelo('Línea Cubos', 'cubos', 'Medidas a pedido') +
+            modelo('Línea Kiev', 'kiev', 'Tela pana') +
+            `<h2>Medios de pago</h2><p>Efectivo con 15% de descuento</p></body></html>`,
+        );
       } else if (ruta === '/blog') {
         html('<html><head><title>Hola</title></head></html>');
       } else if (ruta === '/a-la-base') {
@@ -131,6 +145,7 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
       new ImagenesService(prisma),
       { planVigente: plan } as unknown as SubscriptionService,
       new MercadoLibreClient(config),
+      { productos: extraccionIa } as unknown as ExtraccionIaService,
       config,
     );
   });
@@ -143,6 +158,7 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
 
   beforeEach(async () => {
     plan.mockReset().mockResolvedValue('pro');
+    extraccionIa.mockReset().mockResolvedValue([]);
     await prisma.producto.deleteMany({ where: { userId: dueno.id } });
   });
 
@@ -156,6 +172,7 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
       accion: 'crear',
       imagenElegida: borrador.imagenes.length > 0 ? 0 : null,
       producto: {
+        tipo: 'stock',
         codigo: borrador.codigoSugerido,
         nombre: borrador.nombre,
         descripcion: borrador.descripcion,
@@ -215,6 +232,85 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
       ]),
     );
     expect(await prisma.producto.count({ where: { userId: dueno.id } })).toBe(0);
+    // /blog no tiene productos ni secciones: se le preguntó a la IA, que no encontró nada.
+    expect(extraccionIa).toHaveBeenCalledTimes(1);
+  });
+
+  it('lee una landing sin datos de producto por sus secciones, sin precio y sugeridas a medida', async () => {
+    const resultado = await importacion.extraer(dueno.id, [`${base}/landing`]);
+    expect(resultado.errores).toEqual([]);
+    expect(extraccionIa).not.toHaveBeenCalled();
+    expect(resultado.productos.map((producto) => [producto.nombre, producto.tipoSugerido])).toEqual([
+      ['Línea Retro', 'a_medida'],
+      ['Línea Cubos', 'a_medida'],
+      ['Línea Kiev', null],
+    ]);
+    const [retro, cubos] = resultado.productos;
+    expect(retro).toMatchObject({
+      descripcion: 'Un cuerpo: 100 x 80 cm\nCotizar a medida',
+      imagenes: [`${base}/fotos/retro.jpg`],
+      variantes: [{ precioCentavos: null }],
+      origenUrl: `${base}/landing#linea-retro`,
+    });
+    expect(retro.claveOrigen).not.toBe(cubos.claveOrigen);
+  });
+
+  it('confirma un producto sin precio como a medida, y una importación no le cambia el tipo', async () => {
+    const [retro] = (await importacion.extraer(dueno.id, [`${base}/landing`])).productos;
+    const comoAMedida = (borrador: BorradorProducto, extra: Partial<ItemConfirmadoDto> = {}) =>
+      confirmable(borrador, {
+        imagenElegida: null,
+        producto: {
+          ...confirmable(borrador).producto,
+          tipo: 'a_medida',
+          moneda: 'ARS',
+          variantes: [],
+          precioReferenciaCentavos: 50_000_000,
+          materiales: ['Pana', 'Chenille'],
+        },
+        ...extra,
+      });
+    const creado = await importacion.confirmar(dueno.id, [comoAMedida(retro)]);
+    expect(creado.resultados).toEqual([expect.objectContaining({ estado: 'creado', tipo: 'a_medida' })]);
+    const guardado = await prisma.producto.findFirstOrThrow({ where: { userId: dueno.id }, include: { variantes: true } });
+    expect(guardado).toMatchObject({
+      nombre: 'Línea Retro',
+      moneda: 'ARS',
+      solicitud: { preguntas: [] },
+      precioReferenciaCentavos: 50_000_000,
+      materiales: ['Pana', 'Chenille'],
+    });
+    expect(guardado.variantes).toEqual([]);
+
+    // Las preguntas que el dueño cargó después no se pierden al actualizarlo desde la importación.
+    const conPreguntas = { preguntas: [{ texto: '¿Qué medida?', sobre: 'solicita', opciones: [], textoLibre: true, obligatoria: true }] };
+    await prisma.producto.update({ where: { id: guardado.id }, data: { solicitud: conPreguntas } });
+    const actualizado = await importacion.confirmar(dueno.id, [comoAMedida(retro, { accion: 'actualizar' })]);
+    expect(actualizado.resultados).toEqual([expect.objectContaining({ estado: 'actualizado' })]);
+    expect(await prisma.producto.findUniqueOrThrow({ where: { id: guardado.id } })).toMatchObject({
+      solicitud: conPreguntas,
+      precioReferenciaCentavos: 50_000_000,
+      materiales: ['Pana', 'Chenille'],
+    });
+    // Sin precio "desde" ni materiales en la vista previa, se conservan los que ya tenía.
+    const sinDatos = comoAMedida(retro, { accion: 'actualizar' });
+    sinDatos.producto = { ...sinDatos.producto, precioReferenciaCentavos: null, materiales: [] };
+    await importacion.confirmar(dueno.id, [sinDatos]);
+    expect(await prisma.producto.findUniqueOrThrow({ where: { id: guardado.id } })).toMatchObject({
+      precioReferenciaCentavos: 50_000_000,
+      materiales: ['Pana', 'Chenille'],
+    });
+
+    // De stock sobre uno a medida: no se cambia de tipo con una importación.
+    const comoStock = await importacion.confirmar(dueno.id, [confirmable(retro, { accion: 'actualizar', imagenElegida: null })]);
+    expect(comoStock.resultados).toEqual([expect.objectContaining({ estado: 'error', motivo: expect.stringContaining('es a medida') })]);
+
+    // A medida no lleva stock: lo valida el código, no la pantalla.
+    const [kiev] = (await importacion.extraer(dueno.id, [`${base}/landing`])).productos.slice(2);
+    const conStock = await importacion.confirmar(dueno.id, [
+      comoAMedida(kiev, { producto: { ...comoAMedida(kiev).producto, variantes: [{ nombre: 'Tres cuerpos', precioCentavos: 100, stock: 3 }] } }),
+    ]);
+    expect(conStock.resultados).toEqual([expect.objectContaining({ estado: 'error', motivo: expect.stringContaining('no lleva stock') })]);
   });
 
   it('confirma con la foto, y reimportar no duplica: se marca, se saltea o se actualiza', async () => {

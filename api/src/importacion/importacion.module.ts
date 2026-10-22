@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
+import { OpenRouterClient } from '../agents/openrouter.client.js';
 import { ComercioModule } from '../comercio/comercio.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
+import { ExtraccionIaService } from './extraccion-ia.js';
 import { ImportacionController } from './importacion.controller.js';
 import { ImportacionService } from './importacion.service.js';
 import { MercadoLibreClient } from './mercadolibre.client.js';
@@ -14,6 +16,7 @@ import { MercadoLibreClient } from './mercadolibre.client.js';
 @Module({
   imports: [PassportModule.register({ session: false }), ComercioModule, SubscriptionModule],
   controllers: [ImportacionController],
-  providers: [ImportacionService, MercadoLibreClient],
+  // OpenRouterClient sólo depende de la configuración: se provee acá en vez de importar AgentsModule entero.
+  providers: [ImportacionService, MercadoLibreClient, ExtraccionIaService, OpenRouterClient],
 })
 export class ImportacionModule {}

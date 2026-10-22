@@ -10,9 +10,12 @@ const MAX_BYTES = 1024 * 1024;
 /** Ids por multiget: el máximo que acepta Mercado Libre. */
 export const IDS_POR_MULTIGET = 20;
 
+/** Por qué no se pudo usar la API, para el log (nunca para el dueño). */
+export type MotivoNoDisponible = 'sin_credenciales' | 'token_rechazado' | 'acceso_denegado' | 'caida';
+
 /** La API no se pudo usar (sin app configurada, token rechazado, caída): el servicio prueba con la página. */
 export class MercadoLibreNoDisponibleError extends Error {
-  constructor() {
+  constructor(readonly motivo: MotivoNoDisponible = 'caida') {
     super('La API de Mercado Libre no está disponible.');
     this.name = 'MercadoLibreNoDisponibleError';
   }
@@ -57,13 +60,13 @@ export class MercadoLibreClient {
         body: new URLSearchParams({ grant_type: 'client_credentials', client_id: id, client_secret: secreto }).toString(),
       });
       const datos = JSON.parse(textoDe(respuesta)) as { access_token?: unknown; expires_in?: unknown };
-      if (typeof datos.access_token !== 'string') throw new MercadoLibreNoDisponibleError();
+      if (typeof datos.access_token !== 'string') throw new MercadoLibreNoDisponibleError('token_rechazado');
       const segundos = typeof datos.expires_in === 'number' ? datos.expires_in : 3600;
       // Un minuto antes, para no usarlo justo cuando vence.
       this.token = { valor: datos.access_token, venceAt: Date.now() + Math.max(segundos - 60, 60) * 1000 };
       return this.token.valor;
     } catch {
-      throw new MercadoLibreNoDisponibleError();
+      throw new MercadoLibreNoDisponibleError('token_rechazado');
     }
   }
 
@@ -81,8 +84,10 @@ export class MercadoLibreClient {
       return JSON.parse(textoDe(respuesta)) as unknown;
     } catch (error) {
       if (error instanceof DescargaError && error.codigo === 'no_encontrada') return null;
-      if (error instanceof DescargaError && error.codigo === 'acceso_denegado') this.token = null;
-      throw new MercadoLibreNoDisponibleError();
+      const denegado = error instanceof DescargaError && error.codigo === 'acceso_denegado';
+      if (denegado) this.token = null;
+      // Sin token, Mercado Libre rechaza casi todo: el motivo real es que falta configurar la app.
+      throw new MercadoLibreNoDisponibleError(!denegado ? 'caida' : token ? 'acceso_denegado' : 'sin_credenciales');
     }
   }
 
