@@ -146,6 +146,9 @@ export type Performance = {
 
 export type FiltrosPerformance = { desde: string; hasta: string; moneda: Moneda; zona: FiltroZona | "" };
 
+/** Lo que dice la falla genérica: la pantalla lo reconoce para mostrar su texto tranquilizador. */
+export const ERROR_DE_CARGA = "No pudimos cargar el rendimiento.";
+
 export async function obtenerPerformance(filtros: FiltrosPerformance): Promise<Performance> {
   const params = new URLSearchParams({ desde: filtros.desde, hasta: filtros.hasta });
   if (filtros.moneda !== "ARS") params.set("moneda", filtros.moneda);
@@ -154,7 +157,7 @@ export async function obtenerPerformance(filtros: FiltrosPerformance): Promise<P
   if (!res.ok) {
     const cuerpo = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
     const mensaje = Array.isArray(cuerpo?.message) ? cuerpo.message[0] : cuerpo?.message;
-    throw new ErrorDeApi(res.status < 500 && mensaje ? mensaje : "No pudimos cargar el rendimiento.");
+    throw new ErrorDeApi(res.status < 500 && mensaje ? mensaje : ERROR_DE_CARGA);
   }
   return (await res.json()) as Performance;
 }

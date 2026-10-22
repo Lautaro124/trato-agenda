@@ -7,12 +7,14 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { chip } from "@/components/onboarding/controles";
 import { Conversion } from "@/components/rendimiento/Conversion";
 import { Etapas } from "@/components/rendimiento/Etapas";
+import { ErrorDeCarga } from "@/components/rendimiento/ErrorDeCarga";
 import { Preguntas } from "@/components/rendimiento/Preguntas";
 import { TablaProductos } from "@/components/rendimiento/TablaProductos";
 import { Zonas } from "@/components/rendimiento/Zonas";
 import { cn } from "@/lib/cn";
 import {
   diaLegible,
+  ERROR_DE_CARGA,
   obtenerPerformance,
   ZONAS,
   type FiltroZona,
@@ -93,6 +95,8 @@ function Rendimiento() {
     datos: Performance;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Reintentar vuelve a pedir lo mismo: cambia la dependencia del efecto.
+  const [intento, setIntento] = useState(0);
 
   const rango = periodo === "personalizado" ? fechas : rangoDePeriodo(periodo);
   const problemaDeRango =
@@ -118,13 +122,13 @@ function Rendimiento() {
           setError(
             err instanceof ErrorDeApi
               ? err.message
-              : "No pudimos cargar el rendimiento.",
+              : ERROR_DE_CARGA,
           ),
       );
     return () => {
       ctrl.cancelado = true;
     };
-  }, [clave, problemaDeRango]);
+  }, [clave, problemaDeRango, intento]);
 
   const elegirPeriodo = (valor: Periodo) => {
     // Al pasar a "Elegir fechas" se arranca del rango que se estaba viendo.
@@ -256,14 +260,15 @@ function Rendimiento() {
         {problemaDeRango && (
           <p className="text-sm text-ink-secondary">{problemaDeRango}</p>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-danger-text">
-            {error}
-          </p>
-        )}
-
-        {!datos ? (
-          !error &&
+        {error && !problemaDeRango ? (
+          <ErrorDeCarga
+            detalle={error === ERROR_DE_CARGA ? undefined : error}
+            onReintentar={() => {
+              setError(null);
+              setIntento((n) => n + 1);
+            }}
+          />
+        ) : !datos ? (
           !problemaDeRango && (
             <p className="py-10 text-center text-sm text-muted">
               Cargando el rendimiento…
