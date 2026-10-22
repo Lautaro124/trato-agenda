@@ -13,7 +13,11 @@ Hasta ahora lo único parecido es el histórico de `/ventas` (`api/src/comercio/
 
 ## Base y período
 
-- **Chat**: una `Conversation` de una cuenta de ventas con al menos un mensaje del cliente (`role = 'user'`) dentro del período. Quedan fuera el banco de pruebas (`web-test:`) y las ventas `dePrueba`.
+- **Chat nuevo del período**: la base de todo. Es una conversación de una cuenta de ventas que escribió por primera vez dentro del período (`EtapaChat.createdAt`).
+  - Sus pedidos y pagos cuentan aunque lleguen después.
+  - Como la base no depende de los mensajes, que se borran a los 90 días, cualquier período se puede volver a calcular igual.
+  - Un cliente que vuelve meses después sigue en el período en que escribió por primera vez.
+  - Quedan fuera el banco de pruebas (`web-test:`) y las ventas `dePrueba`.
 - **Período**: días de negocio en `TIMEZONE`, con las mismas reglas que el histórico (`rangoDeDias`, `diasEntre`; máximo 366 días). Para comparar, se toma el período anterior de igual largo.
 
 ## Conversión
@@ -22,9 +26,9 @@ Hay dos tasas separadas y una tasa final:
 
 | Tasa | Numerador | Base |
 | --- | --- | --- |
-| Chat → pedido | chats con al menos una `Venta` creada en el período (stock: `pendiente_pago` o posterior; a medida: `solicitado` / `a_cotizar` o posterior) | chats del período |
-| Pedido → pago | pedidos que llegaron a `estado = 'pagada'` (`pagadaAt` no nulo) | pedidos creados en el período |
-| Chat → pago (final) | chats con al menos una venta pagada | chats del período |
+| Chat → pedido | chats que llegaron a la etapa *pedido* o más (hicieron un pedido o una solicitud a medida) | chats nuevos del período |
+| Pedido → pago | pedidos de esos chats que llegaron a `estado = 'pagada'`, en la moneda elegida | pedidos de esos chats, en la moneda elegida |
+| Chat → pago (final) | chats que llegaron a *pagado* | chats nuevos del período |
 
 - **El evento de conversión es el pago.** Lo marca `VentasService.marcarPagada`, sea por el webhook o la conciliación de Mercado Pago o porque el dueño lo marcó a mano. El medio sale de `medioPago` / `mpPaymentId`.
 - Cada tasa se muestra junto a su definición y su base.
@@ -152,8 +156,27 @@ La retención desliga la conversación a los 12 meses (`RetentionService.desliga
 
 Columnas que existen pero todavía nadie escribe: `provincia` y `origenZona` (paso de zona) y `clasificadaAt` (paso de preguntas).
 
+**Lectura (hecho).**
+
+`GET /performance?desde&hasta&moneda` (`api/src/performance/lectura.service.ts`, reglas puras en `lectura.rules.ts`):
+- Es sólo para cuentas de ventas; una cuenta de agenda recibe 409. Todo se filtra por cuenta.
+- Sin fechas, toma los últimos 30 días, como el histórico.
+
+Qué devuelve:
+- **`datos`**: `completos`, `parciales` o `sin_datos`, según el primer chat registrado de la cuenta (`registroDesde`).
+- **`definiciones`**: los textos que se muestran tal cual al lado de cada métrica.
+- **`conversion`**: conteos y tasas. Una tasa con `valor: null` significa "sin datos" y no es 0 %. Incluye `anterior`, el período anterior de igual largo, o `null` si ese período no tiene datos.
+- **`etapas`**: cada etapa con su total, cuántos chats están activos, estancados o abandonados, y cuántos se derivaron.
+- **`productos`** (hasta 50, los de más interés primero):
+  - cuántos chats lo vieron, lo pidieron y lo pagaron, y las tasas entre esos pasos;
+  - unidades y monto cobrado;
+  - `cortanEn`: la etapa donde más se quedan los chats que lo vieron y no pagaron.
+
+Cómo se cuentan los productos:
+- Los de stock salen de los renglones del pedido, por variante. Los a medida salen de `solicitud.productoId`.
+- A partir de los 12 meses, el interés se cuenta por su propia fecha. En cambio, los pagos sólo se atribuyen a un producto mientras el chat no se haya desligado.
+
 **Pendiente:**
-- lectura y agregación (`GET /performance`);
 - zona;
 - clasificación de preguntas (`PreguntaChat`);
 - tips;
