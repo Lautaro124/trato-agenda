@@ -15,6 +15,12 @@ import {
 } from "@/lib/importacion";
 import { MONEDAS, NOMBRE_MONEDA } from "@/lib/productos";
 
+/**
+ * El radio de un segmento: invisible pero cubriendo todo su label, así el clic
+ * (y Playwright) cae en el input y no en un píxel recortado como con sr-only.
+ */
+const RADIO_OCULTO = "absolute inset-0 m-0 cursor-pointer opacity-0";
+
 const SEGMENTO = "relative flex-1 cursor-pointer rounded-sm px-3 py-1.5 text-center text-[13px] font-semibold";
 
 const TIPOS: Array<{ valor: TipoImportado; texto: string; detalle: string }> = [
@@ -130,7 +136,7 @@ export function TarjetaBorrador({
                     value={opcion.valor}
                     checked={producto.tipo === opcion.valor}
                     onChange={() => onCambio({ tipo: opcion.valor })}
-                    className="sr-only"
+                    className={RADIO_OCULTO}
                   />
                   {opcion.texto}
                   <span className="block text-[11.5px] font-normal text-muted">{opcion.detalle}</span>
@@ -201,7 +207,7 @@ export function TarjetaBorrador({
                         value={opcion}
                         checked={producto.moneda === opcion}
                         onChange={() => onCambio({ moneda: opcion })}
-                        className="sr-only"
+                        className={RADIO_OCULTO}
                       />
                       {NOMBRE_MONEDA[opcion]}
                     </label>
@@ -382,7 +388,7 @@ export function TarjetaBorrador({
                       name={`${id}-foto`}
                       checked={producto.imagen === indice}
                       onChange={() => onCambio({ imagen: indice })}
-                      className="sr-only"
+                      className={RADIO_OCULTO}
                       aria-label={`Foto ${indice + 1}`}
                     />
                     {/* eslint-disable-next-line @next/next/no-img-element -- es una foto de la página de origen, sólo para elegir */}
@@ -391,7 +397,7 @@ export function TarjetaBorrador({
                 ))}
                 <label
                   className={cn(
-                    "grid size-20 cursor-pointer place-items-center rounded-md border-2 bg-sunken px-1 text-center text-[12px] text-ink-secondary",
+                    "relative grid size-20 cursor-pointer place-items-center rounded-md border-2 bg-sunken px-1 text-center text-[12px] text-ink-secondary",
                     producto.imagen === null ? "border-primary" : "border-transparent",
                   )}
                 >
@@ -400,7 +406,7 @@ export function TarjetaBorrador({
                     name={`${id}-foto`}
                     checked={producto.imagen === null}
                     onChange={() => onCambio({ imagen: null })}
-                    className="sr-only"
+                    className={RADIO_OCULTO}
                   />
                   Sin foto
                 </label>
