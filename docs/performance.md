@@ -176,8 +176,18 @@ Cómo se cuentan los productos:
 - Los de stock salen de los renglones del pedido, por variante. Los a medida salen de `solicitud.productoId`.
 - A partir de los 12 meses, el interés se cuenta por su propia fecha. En cambio, los pagos sólo se atribuyen a un producto mientras el chat no se haya desligado.
 
+**Pantalla (hecho).**
+
+`/rendimiento` (`web/src/app/rendimiento/page.tsx`, componentes en `web/src/components/rendimiento/`, tipos copiados a mano en `web/src/lib/performance.ts`) es sólo para cuentas de ventas. En escritorio es la pestaña "Rendimiento"; en el celular se llega desde el menú de usuario.
+
+Arriba se elige el período y la moneda. Después muestra:
+- un aviso cuando el período tiene datos a medias o ninguno;
+- las tres tasas, cada una con su definición y su diferencia con el período anterior;
+- el embudo, en cantidades;
+- dónde están los chats, con la etapa en la que más se quedan;
+- la tabla de productos, que se puede ordenar por más vistos, más pedidos o más pagados.
+
 **Pendiente:**
 - zona;
 - clasificación de preguntas (`PreguntaChat`);
-- tips;
-- pantalla.
+- tips.
