@@ -15,7 +15,7 @@ import {
 } from "@/lib/importacion";
 import { MONEDAS, NOMBRE_MONEDA } from "@/lib/productos";
 
-const SEGMENTO = "flex-1 cursor-pointer rounded-sm px-3 py-1.5 text-center text-[13px] font-semibold";
+const SEGMENTO = "relative flex-1 cursor-pointer rounded-sm px-3 py-1.5 text-center text-[13px] font-semibold";
 
 const TIPOS: Array<{ valor: TipoImportado; texto: string; detalle: string }> = [
   { valor: "stock", texto: "De stock", detalle: "Precio fijo, sin cambios" },
@@ -373,7 +373,7 @@ export function TarjetaBorrador({
                   <label
                     key={imagen}
                     className={cn(
-                      "size-20 cursor-pointer overflow-hidden rounded-md border-2 bg-sunken",
+                      "relative size-20 cursor-pointer overflow-hidden rounded-md border-2 bg-sunken",
                       producto.imagen === indice ? "border-primary" : "border-transparent",
                     )}
                   >
