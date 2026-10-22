@@ -7,6 +7,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { chip } from "@/components/onboarding/controles";
 import { Conversion } from "@/components/rendimiento/Conversion";
 import { Etapas } from "@/components/rendimiento/Etapas";
+import { Preguntas } from "@/components/rendimiento/Preguntas";
 import { TablaProductos } from "@/components/rendimiento/TablaProductos";
 import { Zonas } from "@/components/rendimiento/Zonas";
 import { cn } from "@/lib/cn";
@@ -298,6 +299,7 @@ function Rendimiento() {
             <Conversion performance={datos} />
             <Etapas performance={datos} />
             <TablaProductos performance={datos} />
+            <Preguntas performance={datos} />
             <Zonas performance={datos} onElegir={setZona} />
           </div>
         )}

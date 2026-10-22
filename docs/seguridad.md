@@ -228,6 +228,20 @@ mientras la fila está atada a la conversación (que tiene el número):
 - **Retención.** A los 12 meses `RetentionService.desligarPerformance` pone la
   conversación en null. La provincia queda sólo como conteo de la cuenta. Está
   publicado en `/privacidad`.
+- **Preguntas de los clientes.** `PreguntasPerformanceService` clasifica cada
+  chat una sola vez, cuando queda quieto 48 horas o paga.
+  - `clasificadaAt` se reserva con un `updateMany` condicional antes de
+    llamar, así dos pasadas no mandan el mismo chat; si el llamado falla no
+    se reintenta.
+  - Va un único llamado a OpenRouter con `POLITICA_DE_PROVEEDOR` y el modelo
+    de siempre (sin `response_format`, para no achicar los proveedores ZDR).
+  - Se mandan sólo los últimos mensajes de texto, saneados en código por
+    `sanear` (emails, URLs y números de 7 o más dígitos; es de mejor
+    esfuerzo, no detecta nombres), cada uno como dato (`JSON.stringify`).
+  - La respuesta se valida en código: tema fuera del catálogo → `otro`,
+    producto que el chat no vio → null, texto saneado otra vez, máximo 10.
+  - Los logs llevan el id de `EtapaChat` y `resumenDeError`.
+  - El texto guardado se borra a los 90 días (`purgarPreguntas`).
 - **Lectura.** `GET /performance` filtra cada consulta por el `userId` de la
   sesión, usa SQL con parámetros (el filtro de zona es `Prisma.sql`, validado
   contra la lista de zonas en el DTO) y devuelve conteos, sin nombres,

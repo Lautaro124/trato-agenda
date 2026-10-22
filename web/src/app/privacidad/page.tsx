@@ -201,6 +201,16 @@ export default function PrivacidadPage() {
             llegan a ningún modelo.
           </p>
           <p>
+            Para mostrarte qué preguntan tus clientes, cuando un chat de ventas queda quieto dos días
+            o termina en un pago, mandamos una sola vez al mismo modelo los últimos mensajes de texto
+            de ese chat, con la misma configuración de no retención, para que agrupe las preguntas por
+            tema. Antes de mandarlos les sacamos los emails, los links y los números largos (teléfonos,
+            DNI), y no mandamos el número de WhatsApp ni el nombre con que lo tenemos guardado. Ese
+            filtro es automático: si el cliente escribió su nombre o su dirección en el chat, eso puede
+            viajar en los mensajes y quedar en la pregunta guardada. Guardamos cada pregunta reescrita
+            en una frase corta, su tema, el producto si era sobre uno y si quedó contestada.
+          </p>
+          <p>
             Cuando un cliente pregunta qué vendés y tu catálogo es grande, el asistente le sugiere las
             categorías (o los productos) que más le pueden interesar. Para elegirlas usa{" "}
             <Scope>typesafe/jev-1.13</Scope>, un modelo de decisiones (no genera texto) al que también
@@ -354,7 +364,9 @@ export default function PrivacidadPage() {
             <Punto>
               <Fuerte>Rendimiento de tus productos:</Fuerte> el paso al que llegó cada chat, los
               productos que vio o pidió y su provincia quedan atados a ese chat por 12 meses; después
-              quedan sólo como números de tu cuenta, sin forma de saber de qué cliente eran.
+              quedan sólo como números de tu cuenta, sin forma de saber de qué cliente eran. El texto
+              de las preguntas de los clientes se borra a los 90 días (antes, si el chat se desliga);
+              el tema y si quedó contestada quedan como números.
             </Punto>
             <Punto>
               <Fuerte>Avisos del panel:</Fuerte> los leídos se borran a los 90 días; los que nunca

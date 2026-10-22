@@ -49,6 +49,27 @@ export const ZONAS = {
 } as const;
 export type FiltroZona = keyof typeof ZONAS | "sin_zona";
 
+/** Copia a mano de TEMAS en api/src/performance/preguntas.rules.ts. */
+export const TEMAS = {
+  precio: "Precio",
+  envio: "Envío",
+  stock: "Stock y variantes",
+  medidas: "Medidas y materiales",
+  pago: "Formas de pago",
+  plazos: "Plazos de entrega",
+  local: "Local y retiro",
+  otro: "Otro",
+} as const;
+export type Tema = keyof typeof TEMAS;
+
+export type PreguntasPerformance = {
+  analizados: number;
+  chats: number;
+  porTema: Array<{ tema: Tema; nombre: string; total: number; sinResolver: number; ejemplos: string[] }>;
+  porProducto: Array<{ productoId: string; nombre: string; total: number; sinResolver: number; temaPrincipal: Tema }>;
+  dondeSeQuedan: Array<{ etapa: Etapa; tema: Tema; total: number }>;
+};
+
 /** `valor` null es "sin datos" (no hubo base), que no es lo mismo que 0 %. */
 export type Tasa = { valor: number | null };
 
@@ -113,12 +134,14 @@ export type Performance = {
     estancado: string;
     abandonado: string;
     sinDatos: string;
+    preguntas: string;
     zona: string;
   };
   conversion: ConteosConversion & { anterior: ConteosConversion | null };
   etapas: EtapaPerformance[];
   productos: ProductoPerformance[];
   zonas: ZonaPerformance[];
+  preguntas: PreguntasPerformance;
 };
 
 export type FiltrosPerformance = { desde: string; hasta: string; moneda: Moneda; zona: FiltroZona | "" };

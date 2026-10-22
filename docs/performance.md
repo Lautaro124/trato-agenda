@@ -207,6 +207,25 @@ Cómo se lee:
 
 Los chats anteriores a este cambio sólo tienen zona si vuelven a escribir.
 
+**Preguntas (hecho).**
+
+Cómo se clasifican (`api/src/performance/preguntas.rules.ts` y `preguntas.service.ts`):
+- Cada 10 minutos, un barrido toma hasta 20 chats que nunca se clasificaron.
+- Entran los que quedaron quietos 48 horas o los que pagaron.
+- Cada chat se clasifica una sola vez: un llamado al modelo, sin reintento.
+- Sin `OPENROUTER_API_KEY`, no hace nada.
+
+Ajuste a la definición: la "etapa" de una pregunta es **la etapa en la que quedó el chat** cuando se clasificó, no la del mensaje. No se guarda la etapa por mensaje, y para "qué preguntan donde se quedan" es el dato que sirve.
+
+`GET /performance` suma `preguntas`, filtrado por cohorte y zona:
+- cuántos chats ya se analizaron, sobre el total;
+- `porTema`, con total, sin resolver y hasta 3 ejemplos;
+- `porProducto`;
+- `dondeSeQuedan`: por etapa y tema, sólo de los chats que no pagaron.
+
+La pantalla muestra todo eso en la sección "Qué preguntan".
+
+El stub de E2E reconoce el pedido por `MARCA_CLASIFICACION` y contesta un JSON fijo.
+
 **Pendiente:**
-- clasificación de preguntas (`PreguntaChat`);
 - tips.
