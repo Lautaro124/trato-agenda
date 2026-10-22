@@ -882,6 +882,7 @@ model EtapaChat {
   updatedAt         DateTime @updatedAt
 
   @@index([userId, ultimaActividadAt])
+  @@index([userId, createdAt])
 }
 
 /// Producto que un chat de ventas vio o pidió (LAU-30). Una fila por chat,
