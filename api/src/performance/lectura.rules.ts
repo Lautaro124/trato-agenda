@@ -84,6 +84,8 @@ export const DEFINICIONES = {
   estancado: `Un chat sin pagar está estancado si no escribe hace ${HORAS_ESTANCADO} horas o más.`,
   abandonado: `Un chat sin pagar está abandonado si no escribe hace más de ${DIAS_ABANDONADO} días.`,
   sinDatos: 'Sin datos: no hubo chats para calcularlo, o el período es anterior al registro. No es lo mismo que 0 %.',
+  preguntas:
+    'Las preguntas las agrupa automáticamente la inteligencia artificial cuando el chat queda quieto 48 horas o paga: es una estimación, no lo que se registró palabra por palabra.',
   zona:
     'La provincia que dio el cliente en un pedido; si no la dio, la de la característica de su celular (inferida: es la zona de la línea, no necesariamente la del cliente).',
 } as const;

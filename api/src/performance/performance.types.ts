@@ -2,6 +2,7 @@ import { IsIn, IsOptional, Matches } from 'class-validator';
 import { MONEDAS, type Moneda } from '../comercio/catalogo.rules.js';
 import type { Etapa } from './etapas.rules.js';
 import type { Cobertura, DEFINICIONES, Tasa } from './lectura.rules.js';
+import type { Tema } from './preguntas.rules.js';
 import { SIN_ZONA, ZONAS, type Zona } from './zona.rules.js';
 
 /** Las zonas por las que se puede filtrar: cada provincia, o los chats sin zona. */
@@ -91,6 +92,16 @@ export type ZonaPerformance = {
   chatAPago: Tasa;
 };
 
+export type PreguntasPerformance = {
+  /** Chats nuevos del período ya clasificados, de `chats`. */
+  analizados: number;
+  chats: number;
+  porTema: Array<{ tema: Tema; nombre: string; total: number; sinResolver: number; ejemplos: string[] }>;
+  porProducto: Array<{ productoId: string; nombre: string; total: number; sinResolver: number; temaPrincipal: Tema }>;
+  /** Qué preguntaron los chats que no pagaron, según la etapa en la que quedaron. */
+  dondeSeQuedan: Array<{ etapa: Etapa; tema: Tema; total: number }>;
+};
+
 export type PerformancePublica = {
   moneda: Moneda;
   /** La zona por la que se filtró, o null si son todas. */
@@ -106,4 +117,6 @@ export type PerformancePublica = {
   productos: ProductoPerformance[];
   /** Los chats nuevos del período por zona (siempre todas, aunque se filtre por una). */
   zonas: ZonaPerformance[];
+  /** Las preguntas de los clientes, clasificadas por el modelo (inferencia). */
+  preguntas: PreguntasPerformance;
 };

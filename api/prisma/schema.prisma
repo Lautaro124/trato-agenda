@@ -55,6 +55,7 @@ model User {
   configCotizacion ConfigCotizacion?
   etapasChat       EtapaChat[]
   interesProductos InteresProducto[]
+  preguntasChat    PreguntaChat[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -401,6 +402,7 @@ model Producto {
 
   variantes Variante[]
   intereses InteresProducto[]
+  preguntas PreguntaChat[]
   /// El descuento propio del producto (del formulario), si tiene.
   descuento Descuento?
   /// La foto que el asistente le manda al cliente cuando la pide (una sola).
@@ -878,6 +880,8 @@ model EtapaChat {
 
   /// Último mensaje del cliente: de ahí sale si está activo, estancado o abandonado.
   ultimaActividadAt DateTime @default(now())
+
+  preguntas PreguntaChat[]
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -905,4 +909,32 @@ model InteresProducto {
   @@unique([conversationId, productoId, tipo])
   @@index([userId, createdAt])
   @@index([productoId])
+}
+
+/// Pregunta de un cliente en un chat de ventas, clasificada por el modelo
+/// cuando el chat se estanca o paga (LAU-30). Cuelga de EtapaChat, así hereda
+/// la zona y la cohorte aunque la conversación se desligue. Reglas en
+/// performance/preguntas.rules.ts.
+model PreguntaChat {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  etapaChatId String
+  etapaChat   EtapaChat @relation(fields: [etapaChatId], references: [id], onDelete: Cascade)
+
+  /// Saneada en código (sin emails, URLs ni números largos). Null pasados 90 días.
+  texto      String?
+  /// "precio" | "envio" | "stock" | "medidas" | "pago" | "plazos" | "local" | "otro"
+  tema       String
+  /// Sólo un producto que ese chat vio o pidió.
+  productoId String?
+  producto   Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  /// Si el negocio la contestó con información concreta (inferencia del modelo).
+  resuelta   Boolean
+  /// La etapa en la que quedó el chat cuando se clasificó.
+  etapa      String
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([etapaChatId])
 }

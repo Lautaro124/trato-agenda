@@ -7,6 +7,9 @@
 // este stub sólo distingue tres tipos de pedido:
 //   - conversación (trae `tools`): un guion por palabras clave del último
 //     mensaje humano, que agenda/mueve/cancela con tool calls reales;
+//   - clasificación de preguntas del módulo de performance (sin tools, el
+//     system empieza con MARCA_CLASIFICACION): un JSON fijo con una pregunta
+//     de envío, sin resolver;
 //   - resumen del cliente (sin tools): texto fijo;
 //   - embeddings del catálogo de ventas: bolsa de palabras determinista;
 //   - la Decisions API (Jev) de las sugerencias de ventas: palabras en común.
@@ -15,6 +18,9 @@
 import http from 'node:http';
 
 const PUERTO = Number(process.env.PORT ?? 4010);
+
+/** Copia de MARCA_CLASIFICACION (api/src/performance/preguntas.rules.ts). */
+const MARCA_CLASIFICACION = 'Clasificá las preguntas de un cliente';
 const ZONA = 'America/Argentina/Buenos_Aires';
 
 /** Registro de pedidos para que los tests afirmen qué mandó la API. */
@@ -671,6 +677,13 @@ const servidor = http.createServer(async (req, res) => {
       return responder(res, 400, { error: { message: 'JSON inválido' } });
     }
     if (Array.isArray(body.tools) && body.tools.length > 0) return conversar(body, res);
+
+    const sistema = body.messages?.find((mensaje) => mensaje.role === 'system')?.content;
+    if (typeof sistema === 'string' && sistema.startsWith(MARCA_CLASIFICACION)) {
+      llamadas.push({ tipo: 'clasificacion', ...resumenDelPedido(body) });
+      const preguntas = [{ texto: '¿Hacen envíos?', tema: 'envio', productoId: null, resuelta: false }];
+      return responder(res, 200, completion(body.model, { content: JSON.stringify({ preguntas }) }));
+    }
 
     llamadas.push({ tipo: 'resumen', ...resumenDelPedido(body) });
     return responder(res, 200, completion(body.model, { content: 'Cliente de prueba E2E.' }));

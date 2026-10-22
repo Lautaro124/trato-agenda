@@ -144,6 +144,19 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     await venta(dueno.id, consulta, { estado: 'pagada', varianteId: mate.varianteId, dePrueba: true });
     await venta(dueno.id, consulta, { estado: 'pagada', varianteId: mate.varianteId, moneda: 'USD' });
 
+    // Preguntas, ya clasificadas, de tres de esos chats.
+    const preguntas: Array<[string, string, string, boolean, string | null, string | null]> = [
+      // [conversación, etapa del chat, tema, resuelta, producto, texto]
+      [pendiente, 'pedido', 'envio', false, mate.id, '¿Hacen envíos a Córdoba?'],
+      [abandonado, 'vio_productos', 'precio', true, mate.id, '¿Cuánto sale el mate?'],
+      [abandonado, 'vio_productos', 'envio', false, mate.id, null],
+      [pago, 'pagado', 'stock', true, mate.id, '¿Tiene virola?'],
+    ];
+    for (const [conversationId, etapaDelChat, tema, resuelta, productoId, texto] of preguntas) {
+      const { id: etapaChatId } = await prisma.etapaChat.update({ where: { conversationId }, data: { clasificadaAt: dia(31) } });
+      await prisma.preguntaChat.create({ data: { userId: dueno.id, etapaChatId, etapa: etapaDelChat, tema, resuelta, productoId, texto } });
+    }
+
     // Otra cuenta, mismo período: no se mezcla.
     const deOtro = await chat(otro.id, 'pagado', dia(3));
     await interes(otro.id, deOtro, ajeno.id, 'vio');
@@ -243,6 +256,35 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     const sinZona = await lectura.leer(dueno.id, { ...OCTUBRE, zona: 'sin_zona' }, AHORA);
     expect(sinZona.conversion.chats).toBe(2);
     expect(sinZona.productos.map((producto) => [producto.codigo, producto.vieron])).toEqual([['MATE', 1]]);
+  });
+
+  it('las preguntas: por tema con ejemplos, por producto y dónde se quedan', async () => {
+    const { preguntas } = await lectura.leer(dueno.id, OCTUBRE, AHORA);
+
+    expect(preguntas.analizados).toBe(3);
+    expect(preguntas.chats).toBe(5);
+    expect(preguntas.porTema).toEqual([
+      // El texto vencido (null) no aparece entre los ejemplos.
+      { tema: 'envio', nombre: 'Envío', total: 2, sinResolver: 2, ejemplos: ['¿Hacen envíos a Córdoba?'] },
+      { tema: 'precio', nombre: 'Precio', total: 1, sinResolver: 0, ejemplos: ['¿Cuánto sale el mate?'] },
+      { tema: 'stock', nombre: 'Stock y variantes', total: 1, sinResolver: 0, ejemplos: ['¿Tiene virola?'] },
+    ]);
+    expect(preguntas.porProducto).toEqual([{ productoId: mate.id, nombre: 'Mate', total: 4, sinResolver: 2, temaPrincipal: 'envio' }]);
+    // Los chats que pagaron no cuentan para "dónde se quedan".
+    expect(preguntas.dondeSeQuedan).toEqual([
+      { etapa: 'pedido', tema: 'envio', total: 1 },
+      { etapa: 'vio_productos', tema: 'envio', total: 1 },
+      { etapa: 'vio_productos', tema: 'precio', total: 1 },
+    ]);
+
+    const cordoba = await lectura.leer(dueno.id, { ...OCTUBRE, zona: 'cordoba' }, AHORA);
+    expect(cordoba.preguntas.analizados).toBe(2);
+    expect(cordoba.preguntas.porTema.map((fila) => [fila.tema, fila.total])).toEqual([
+      ['envio', 1],
+      ['stock', 1],
+    ]);
+    // La otra cuenta no ve ninguna.
+    expect((await lectura.leer(otro.id, OCTUBRE, AHORA)).preguntas.porTema).toEqual([]);
   });
 
   it('un período anterior al primer chat no tiene datos', async () => {

@@ -59,11 +59,22 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       const altas = await this.descartarAltasPendientes();
       const sugerencias = await this.purgarSugerencias();
       const performance = await this.desligarPerformance();
-      if (mensajes > 0 || anonimizadas > 0 || ventas > 0 || avisos > 0 || altas > 0 || sugerencias > 0 || performance > 0) {
+      const preguntas = await this.purgarPreguntas();
+      if (
+        mensajes > 0 ||
+        anonimizadas > 0 ||
+        ventas > 0 ||
+        avisos > 0 ||
+        altas > 0 ||
+        sugerencias > 0 ||
+        performance > 0 ||
+        preguntas > 0
+      ) {
         this.logger.log(
           `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
             `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas, ` +
-            `${sugerencias} sugerencias ya enviadas borradas, ${performance} registros de performance desligados.`,
+            `${sugerencias} sugerencias ya enviadas borradas, ${performance} registros de performance desligados, ` +
+            `${preguntas} preguntas de clientes sin texto.`,
         );
       }
     } catch (error) {
@@ -205,6 +216,23 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       data: { conversationId: null },
     });
     return etapas.count + intereses.count;
+  }
+
+  /**
+   * El texto de las preguntas de los clientes (ya saneado) dura lo mismo que
+   * los mensajes de donde salió: a los `DIAS_RETENCION_MENSAJES`, o antes si
+   * el chat ya se desligó. Quedan el tema, el producto, la etapa y si se
+   * resolvió, que son conteos.
+   */
+  private async purgarPreguntas(ahora: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.preguntaChat.updateMany({
+      where: {
+        texto: { not: null },
+        OR: [{ createdAt: { lt: fechaLimite(DIAS_RETENCION_MENSAJES, ahora) } }, { etapaChat: { conversationId: null } }],
+      },
+      data: { texto: null },
+    });
+    return count;
   }
 
   /** Sugerencias de mejora que ya están en Linear hace más de `DIAS_RETENCION_SUGERENCIAS`. */

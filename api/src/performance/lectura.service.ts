@@ -14,12 +14,14 @@ import {
   rangoAnterior,
   tasa,
 } from './lectura.rules.js';
+import { esTema, TEMAS, type Tema } from './preguntas.rules.js';
 import type {
   ConteosConversion,
   EtapaPublica,
   FiltroZona,
   FiltrosPerformanceQuery,
   PerformancePublica,
+  PreguntasPerformance,
   ProductoPerformance,
   ZonaPerformance,
 } from './performance.types.js';
@@ -30,6 +32,9 @@ function condicionDeZona(zona: FiltroZona | null): Prisma.Sql {
   if (!zona) return Prisma.empty;
   return zona === SIN_ZONA ? Prisma.sql`AND e."provincia" IS NULL` : Prisma.sql`AND e."provincia" = ${zona}`;
 }
+
+/** Productos con preguntas que devuelve la lectura. */
+const MAX_PRODUCTOS_CON_PREGUNTAS = 20;
 
 /** Etapas que cuentan como "hizo un pedido". */
 const CON_PEDIDO: Etapa[] = ['pedido', 'cotizado', 'pagado'];
@@ -55,12 +60,13 @@ export class LecturaPerformanceService {
     const datos = cobertura(rango, primerRegistro);
     const anterior = rangoAnterior(rango);
 
-    const [conteos, conteosAnteriores, etapas, productos, zonas] = await Promise.all([
+    const [conteos, conteosAnteriores, etapas, productos, zonas, preguntas] = await Promise.all([
       this.conversion(userId, rango, moneda, zona),
       cobertura(anterior, primerRegistro) === 'sin_datos' ? null : this.conversion(userId, anterior, moneda, zona),
       this.etapas(userId, rango, ahora, zona),
       this.productos(userId, rango, moneda, zona),
       this.zonas(userId, rango),
+      this.preguntas(userId, rango, zona),
     ]);
 
     return {
@@ -74,6 +80,90 @@ export class LecturaPerformanceService {
       etapas,
       productos,
       zonas,
+      preguntas: { ...preguntas, chats: conteos.chats },
+    };
+  }
+
+  /** Las preguntas de los chats nuevos del período (y de la zona, si se filtra). */
+  private async preguntas(userId: string, rango: Rango, zona: FiltroZona | null): Promise<Omit<PreguntasPerformance, 'chats'>> {
+    const deZona = condicionDeZona(zona);
+    const cohorte = Prisma.sql`p."userId" = ${userId} AND e."userId" = ${userId}
+      AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}`;
+    const [[{ analizados }], temas, ejemplos, productos, quedan] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ analizados: number }>>`
+        SELECT COUNT(*)::int AS "analizados" FROM "EtapaChat" e
+        WHERE e."userId" = ${userId} AND e."clasificadaAt" IS NOT NULL
+          AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
+      `,
+      this.prisma.$queryRaw<Array<{ tema: string; total: number; sinResolver: number }>>`
+        SELECT p."tema", COUNT(*)::int AS "total", COUNT(*) FILTER (WHERE NOT p."resuelta")::int AS "sinResolver"
+        FROM "PreguntaChat" p JOIN "EtapaChat" e ON e."id" = p."etapaChatId"
+        WHERE ${cohorte}
+        GROUP BY 1
+      `,
+      // Hasta 3 por tema: primero las que quedaron sin resolver, después las más nuevas.
+      this.prisma.$queryRaw<Array<{ tema: string; texto: string }>>`
+        SELECT x."tema", x."texto" FROM (
+          SELECT p."tema", p."texto",
+                 ROW_NUMBER() OVER (PARTITION BY p."tema" ORDER BY p."resuelta" ASC, p."createdAt" DESC) AS "n"
+          FROM "PreguntaChat" p JOIN "EtapaChat" e ON e."id" = p."etapaChatId"
+          WHERE ${cohorte} AND p."texto" IS NOT NULL
+        ) x
+        WHERE x."n" <= 3
+        ORDER BY x."tema", x."n"
+      `,
+      this.prisma.$queryRaw<Array<{ productoId: string; total: number; sinResolver: number; temaPrincipal: string }>>`
+        SELECT p."productoId", COUNT(*)::int AS "total", COUNT(*) FILTER (WHERE NOT p."resuelta")::int AS "sinResolver",
+               MODE() WITHIN GROUP (ORDER BY p."tema") AS "temaPrincipal"
+        FROM "PreguntaChat" p JOIN "EtapaChat" e ON e."id" = p."etapaChatId"
+        WHERE ${cohorte} AND p."productoId" IS NOT NULL
+        GROUP BY 1
+        ORDER BY 2 DESC, 1
+        LIMIT ${MAX_PRODUCTOS_CON_PREGUNTAS}
+      `,
+      this.prisma.$queryRaw<Array<{ etapa: string; tema: string; total: number }>>`
+        SELECT p."etapa", p."tema", COUNT(*)::int AS "total"
+        FROM "PreguntaChat" p JOIN "EtapaChat" e ON e."id" = p."etapaChatId"
+        WHERE ${cohorte} AND p."etapa" <> 'pagado'
+        GROUP BY 1, 2
+        ORDER BY 3 DESC, 1, 2
+      `,
+    ]);
+
+    const ejemplosDe = new Map<string, string[]>();
+    for (const fila of ejemplos) ejemplosDe.set(fila.tema, [...(ejemplosDe.get(fila.tema) ?? []), fila.texto]);
+    const tema = (valor: string): Tema => (esTema(valor) ? valor : 'otro');
+
+    // Sólo productos de la cuenta, con su nombre de hoy.
+    const nombres = new Map(
+      (
+        await this.prisma.producto.findMany({
+          where: { userId, id: { in: productos.map((fila) => fila.productoId) } },
+          select: { id: true, nombre: true },
+        })
+      ).map((producto) => [producto.id, producto.nombre]),
+    );
+
+    return {
+      analizados,
+      porTema: temas
+        .map((fila) => ({
+          tema: tema(fila.tema),
+          nombre: TEMAS[tema(fila.tema)],
+          total: fila.total,
+          sinResolver: fila.sinResolver,
+          ejemplos: ejemplosDe.get(fila.tema) ?? [],
+        }))
+        .sort((a, b) => b.total - a.total || b.sinResolver - a.sinResolver || a.nombre.localeCompare(b.nombre)),
+      porProducto: productos.flatMap((fila) => {
+        const nombre = nombres.get(fila.productoId);
+        return nombre === undefined
+          ? []
+          : [{ productoId: fila.productoId, nombre, total: fila.total, sinResolver: fila.sinResolver, temaPrincipal: tema(fila.temaPrincipal) }];
+      }),
+      dondeSeQuedan: quedan.flatMap((fila) =>
+        (ETAPAS as readonly string[]).includes(fila.etapa) ? [{ etapa: fila.etapa as Etapa, tema: tema(fila.tema), total: fila.total }] : [],
+      ),
     };
   }
 

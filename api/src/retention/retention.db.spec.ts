@@ -8,6 +8,7 @@ import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../.
 import {
   DIAS_RETENCION_AVISOS_LEIDOS,
   DIAS_RETENCION_DATOS_CLIENTE,
+  DIAS_RETENCION_MENSAJES,
   DIAS_RETENCION_SUGERENCIAS,
   fechaLimite,
 } from './retention.rules.js';
@@ -206,5 +207,30 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
       ['pidio', conversation.id],
       ['vio', null],
     ]);
+  });
+  it('el texto de las preguntas se borra a los 90 días o cuando el chat se desliga; el tema queda', async () => {
+    const conversation = await prisma.conversation.create({
+      data: { userId: dueno.id, remoteJid: '5491100000002@s.whatsapp.net' },
+    });
+    const ligada = await prisma.etapaChat.create({ data: { userId: dueno.id, conversationId: conversation.id } });
+    const desligada = await prisma.etapaChat.create({ data: { userId: dueno.id, conversationId: null } });
+    const pregunta = (etapaChatId: string, createdAt: Date) =>
+      prisma.preguntaChat.create({
+        data: { userId: dueno.id, etapaChatId, texto: '¿Hacen envíos?', tema: 'envio', resuelta: true, etapa: 'pedido', createdAt },
+      });
+    const vieja = await pregunta(ligada.id, pasado(DIAS_RETENCION_MENSAJES));
+    const nueva = await pregunta(ligada.id, reciente(DIAS_RETENCION_MENSAJES));
+    const deDesligado = await pregunta(desligada.id, reciente(DIAS_RETENCION_MENSAJES));
+
+    await servicio['purgarPreguntas'](AHORA);
+
+    const trasPurga = await prisma.preguntaChat.findMany({
+      where: { id: { in: [vieja.id, nueva.id, deDesligado.id] } },
+      select: { id: true, texto: true, tema: true },
+    });
+    const por = new Map(trasPurga.map((fila) => [fila.id, fila]));
+    expect(por.get(vieja.id)).toMatchObject({ texto: null, tema: 'envio' });
+    expect(por.get(nueva.id)).toMatchObject({ texto: '¿Hacen envíos?' });
+    expect(por.get(deDesligado.id)).toMatchObject({ texto: null, tema: 'envio' });
   });
 });
