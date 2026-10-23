@@ -20,34 +20,36 @@ export const ETIQUETA_ETAPA: Record<Etapa, string> = {
 };
 
 /** Copia a mano de ZONAS en api/src/performance/zona.rules.ts. */
-export const ZONAS = {
-  caba: "Ciudad de Buenos Aires",
-  amba: "CABA o Gran Buenos Aires",
-  buenos_aires: "Buenos Aires",
-  catamarca: "Catamarca",
-  chaco: "Chaco",
-  chubut: "Chubut",
-  cordoba: "Córdoba",
-  corrientes: "Corrientes",
-  entre_rios: "Entre Ríos",
-  formosa: "Formosa",
-  jujuy: "Jujuy",
-  la_pampa: "La Pampa",
-  la_rioja: "La Rioja",
-  mendoza: "Mendoza",
-  misiones: "Misiones",
-  neuquen: "Neuquén",
-  rio_negro: "Río Negro",
-  salta: "Salta",
-  san_juan: "San Juan",
-  san_luis: "San Luis",
-  santa_cruz: "Santa Cruz",
-  santa_fe: "Santa Fe",
-  santiago_del_estero: "Santiago del Estero",
-  tierra_del_fuego: "Tierra del Fuego",
-  tucuman: "Tucumán",
-} as const;
-export type FiltroZona = keyof typeof ZONAS | "sin_zona";
+const PARES_ZONA = [
+  ["caba", "Ciudad de Buenos Aires"],
+  ["amba", "CABA o Gran Buenos Aires"],
+  ["buenos_aires", "Buenos Aires"],
+  ["catamarca", "Catamarca"],
+  ["chaco", "Chaco"],
+  ["chubut", "Chubut"],
+  ["cordoba", "Córdoba"],
+  ["corrientes", "Corrientes"],
+  ["entre_rios", "Entre Ríos"],
+  ["formosa", "Formosa"],
+  ["jujuy", "Jujuy"],
+  ["la_pampa", "La Pampa"],
+  ["la_rioja", "La Rioja"],
+  ["mendoza", "Mendoza"],
+  ["misiones", "Misiones"],
+  ["neuquen", "Neuquén"],
+  ["rio_negro", "Río Negro"],
+  ["salta", "Salta"],
+  ["san_juan", "San Juan"],
+  ["san_luis", "San Luis"],
+  ["santa_cruz", "Santa Cruz"],
+  ["santa_fe", "Santa Fe"],
+  ["santiago_del_estero", "Santiago del Estero"],
+  ["tierra_del_fuego", "Tierra del Fuego"],
+  ["tucuman", "Tucumán"],
+] as const;
+export type ClaveZona = (typeof PARES_ZONA)[number][0];
+export const ZONAS = Object.fromEntries(PARES_ZONA) as Record<ClaveZona, string>;
+export type FiltroZona = ClaveZona | "sin_zona";
 
 /** Copia a mano de TEMAS en api/src/performance/preguntas.rules.ts. */
 export const TEMAS = {
@@ -84,41 +86,23 @@ export type ConteosConversion = {
   chatAPago: Tasa;
 };
 
-export type EtapaPerformance = {
-  etapa: Etapa;
-  total: number;
-  activos: number;
-  estancados: number;
-  abandonados: number;
-  derivados: number;
-};
+type Conteo<K extends string> = Record<K, number>;
+type Tasas<K extends string> = Record<K, Tasa>;
 
-export type ProductoPerformance = {
-  productoId: string;
-  codigo: string;
-  nombre: string;
-  aMedida: boolean;
-  vieron: number;
-  pidieron: number;
-  pagaron: number;
-  vioAPidio: Tasa;
-  pidioAPago: Tasa;
-  unidades: number;
-  cobradoCentavos: number;
-  cortanEn: Etapa | null;
-};
+export type EtapaPerformance = Conteo<"total" | "activos" | "estancados" | "abandonados" | "derivados"> & { etapa: Etapa };
 
-export type ZonaPerformance = {
-  zona: FiltroZona;
-  nombre: string;
-  chats: number;
-  /** Cuántos tienen la zona inferida por la característica del celular. */
-  inferidas: number;
-  conPedido: number;
-  conPago: number;
-  chatAPedido: Tasa;
-  chatAPago: Tasa;
-};
+export type ProductoPerformance = Conteo<"vieron" | "pidieron" | "pagaron" | "unidades" | "cobradoCentavos"> &
+  Tasas<"vioAPidio" | "pidioAPago"> & {
+    productoId: string;
+    codigo: string;
+    nombre: string;
+    aMedida: boolean;
+    cortanEn: Etapa | null;
+  };
+
+/** `inferidas`: cuántos chats tienen la zona inferida por la característica del celular. */
+export type ZonaPerformance = Conteo<"chats" | "inferidas" | "conPedido" | "conPago"> &
+  Tasas<"chatAPedido" | "chatAPago"> & { zona: FiltroZona; nombre: string };
 
 export type Performance = {
   moneda: Moneda;
