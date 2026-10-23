@@ -48,6 +48,8 @@ export type DepsGrafoVentas = {
   ventanaHistorialMs?: number;
   /** Jev, para saber si ya es momento de pedir los datos del cliente. Sin él, la regla de siempre. */
   decisiones?: DepsContextoVentas['decisiones'];
+  /** Módulo de performance (LAU-30). Sin él (evals, tests), no se registra nada. */
+  registro?: NonNullable<DepsCatalogo['registro']> & NonNullable<DepsContextoVentas['registro']>;
 };
 
 /**

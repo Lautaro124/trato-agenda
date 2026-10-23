@@ -9,6 +9,7 @@ import {
 } from '../notificaciones/avisos.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RegistroPerformanceService } from '../performance/registro.service.js';
 import { MercadoPagoNoAutorizadoError } from '../subscription/mercadopago.client.js';
 import { CostosService } from './costos.service.js';
 import { leerPolitica, leerReceta, recetaConContenido, type PoliticaCotizacion } from './costos.rules.js';
@@ -167,6 +168,7 @@ export class PedidosAMedidaService {
     private readonly cuentas: CuentaMercadoPagoService,
     private readonly notificaciones: NotificacionesService,
     private readonly costos: CostosService,
+    private readonly registro: RegistroPerformanceService,
   ) {}
 
   // --- Lectura -----------------------------------------------------------------
@@ -664,6 +666,7 @@ export class PedidosAMedidaService {
     });
 
     const venta = await this.prisma.venta.findUniqueOrThrow({ where: { id: ventaId }, include: INCLUIR });
+    if (venta.conversationId && !venta.dePrueba) await this.registro.marcarDerivado(venta.userId, venta.conversationId);
     if (input.autor !== 'dueno') {
       await this.avisar(
         input.userId,
@@ -817,6 +820,7 @@ export class PedidosAMedidaService {
     if (resultado.linkViejo) await this.ventas.vencerLink(userId, resultado.linkViejo, ahora);
 
     const venta = await this.prisma.venta.findUniqueOrThrow({ where: { id: ventaId }, include: INCLUIR });
+    await this.registro.avanzarPorVenta(venta, 'cotizado');
     const conMercadoPago = (await this.cuentas.tokenDe(userId)) !== null;
     const texto = textoDelPresupuesto(
       {

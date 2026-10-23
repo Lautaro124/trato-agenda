@@ -96,6 +96,9 @@ jobs:
         run: npm test
 
       - name: Build
+        # El type-check supera el heap por defecto de Node (~2 GB).
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build
 
   web:

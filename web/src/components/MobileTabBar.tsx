@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useSession } from "@/lib/session";
 
-// "plan", "cuenta" y "asistente" no tienen ítem propio (se llega desde el menú
+// "plan", "cuenta", "asistente", "costos" y "rendimiento" no tienen ítem propio (se llega desde el menú
 // de usuario): se incluyen para que esas pantallas puedan montar la barra sin
 // marcar ninguna pestaña como activa.
-type Tab = "inicio" | "calendario" | "reuniones" | "productos" | "ventas" | "chat" | "plan" | "cuenta" | "asistente" | "costos";
+type Tab = "inicio" | "calendario" | "reuniones" | "productos" | "ventas" | "chat" | "plan" | "cuenta" | "asistente" | "costos" | "rendimiento";
 
 type Item = { tab: Tab; href: string; label: string; icon: React.ReactNode };
 

@@ -96,6 +96,14 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
     await prisma.configCotizacion.create({ data: { userId: dueno.id } });
     await prisma.notificacion.create({ data: { userId: dueno.id, tipo: 'pedido_manual', titulo: 'Pedido', cuerpo: 'Ana' } });
     await prisma.sugerenciaMejora.create({ data: { userId: dueno.id, tipo: 'idea', texto: 'Recordatorios el día antes' } });
+    // El registro del módulo de performance (LAU-30).
+    const etapaChat = await prisma.etapaChat.create({ data: { userId: dueno.id, conversationId: conversacion.id, etapa: 'pedido' } });
+    await prisma.preguntaChat.create({
+      data: { userId: dueno.id, etapaChatId: etapaChat.id, texto: '¿Tiene virola?', tema: 'stock', resuelta: true, etapa: 'pedido' },
+    });
+    await prisma.interesProducto.create({
+      data: { userId: dueno.id, conversationId: conversacion.id, productoId: producto.id, tipo: 'pidio' },
+    });
     await prisma.cuentaMercadoPago.create({
       data: { userId: dueno.id, mpUserId: '123', accessToken: 'cifrado', refreshToken: 'cifrado', expiraAt: new Date() },
     });
@@ -139,8 +147,11 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       prisma.eventoVenta.count({ where: { ventaId: aMedida.id } }),
       prisma.insumo.count({ where: donde }),
       prisma.configCotizacion.count({ where: donde }),
+      prisma.etapaChat.count({ where: donde }),
+      prisma.interesProducto.count({ where: donde }),
+      prisma.preguntaChat.count({ where: donde }),
     ]);
-    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it('borrar y volver a crear la cuenta no reinicia el mes de prueba', async () => {

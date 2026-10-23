@@ -223,6 +223,43 @@ pasa por `fetch-seguro.ts`:
   (cubierta por `ssrf.rules.spec.ts` y `fetch-seguro.spec.ts`, que prueban
   redirecciones a la metadata, DNS mezclado, IPv4 mapeada, gzip bomb y goteo).
 
+## Rendimiento de productos y chats (2026-10-22, LAU-30)
+
+El módulo de performance (`api/src/performance/`, definiciones en
+`docs/performance.md`) guarda, por chat de ventas, la etapa, los productos que
+vio o pidió y la **provincia** del cliente. La provincia es un dato personal
+mientras la fila está atada a la conversación (que tiene el número):
+
+- **Qué se guarda.** Sólo una clave de provincia (`EtapaChat.provincia`) y su
+  origen:
+  - `dato`: sale del campo provincia o del código postal con letra que dio el cliente en un pedido;
+  - `inferida`: sale de la característica de un celular argentino.
+
+  Nunca se guardan el número, la dirección ni el texto del cliente.
+- **Dónde se calcula.** `zona.rules.ts` es puro y local: el número no sale a
+  ningún servicio, y los logs del registro llevan sólo ids.
+- **Retención.** A los 12 meses `RetentionService.desligarPerformance` pone la
+  conversación en null. La provincia queda sólo como conteo de la cuenta. Está
+  publicado en `/privacidad`.
+- **Preguntas de los clientes.** `PreguntasPerformanceService` clasifica cada
+  chat una sola vez, cuando queda quieto 48 horas o paga.
+  - `clasificadaAt` se reserva con un `updateMany` condicional antes de
+    llamar, así dos pasadas no mandan el mismo chat; si el llamado falla no
+    se reintenta.
+  - Va un único llamado a OpenRouter con `POLITICA_DE_PROVEEDOR` y el modelo
+    de siempre (sin `response_format`, para no achicar los proveedores ZDR).
+  - Se mandan sólo los últimos mensajes de texto, saneados en código por
+    `sanear` (emails, URLs y números de 7 o más dígitos; es de mejor
+    esfuerzo, no detecta nombres), cada uno como dato (`JSON.stringify`).
+  - La respuesta se valida en código: tema fuera del catálogo → `otro`,
+    producto que el chat no vio → null, texto saneado otra vez, máximo 10.
+  - Los logs llevan el id de `EtapaChat` y `resumenDeError`.
+  - El texto guardado se borra a los 90 días (`purgarPreguntas`).
+- **Lectura.** `GET /performance` filtra cada consulta por el `userId` de la
+  sesión, usa SQL con parámetros (el filtro de zona es `Prisma.sql`, validado
+  contra la lista de zonas en el DTO) y devuelve conteos, sin nombres,
+  teléfonos ni ids de conversación.
+
 ## Vincular con código desde el celular (2026-10-11, LAU-11)
 
 Un celular no puede escanear el QR de su propia pantalla, así que

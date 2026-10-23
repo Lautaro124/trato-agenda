@@ -140,6 +140,16 @@ function crearPedidosAMedida() {
   };
 }
 
+function crearRegistro() {
+  return {
+    tocarChat: vi.fn().mockResolvedValue(undefined),
+    registrarInteres: vi.fn().mockResolvedValue(undefined),
+    registrarPedidoDeVariantes: vi.fn().mockResolvedValue(undefined),
+    marcarDerivado: vi.fn().mockResolvedValue(undefined),
+    registrarZonaDeDatos: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 function crearVentas() {
   return {
     crearPedido: vi.fn(),
@@ -192,6 +202,7 @@ function correr(
     pedidos?: ReturnType<typeof crearPedidosAMedida>;
     imagenes?: Pick<ImagenesService, 'estadoDeFoto'>;
     decisiones?: { ordenar: Mock<(pedido: unknown) => Promise<string[]>>; configurado: boolean };
+    registro?: ReturnType<typeof crearRegistro>;
   },
   esPropietario = false,
   mensajes: BaseMessage[] = [new HumanMessage('¿tenés mates?')],
@@ -1621,5 +1632,55 @@ describe('grafo de ventas', () => {
       expect(ventas.crearPedido).not.toHaveBeenCalled();
     });
   });
-});
 
+  describe('registro de performance (LAU-30)', () => {
+    it('anota la actividad del chat y los productos que le mostró la búsqueda', async () => {
+      const registro = crearRegistro();
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo el mate.')]);
+
+      await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), registro });
+
+      expect(registro.tocarChat).toHaveBeenCalledWith('user-1', 'conv-1', { etapaJev: null });
+      expect(registro.registrarInteres).toHaveBeenCalledWith('user-1', 'conv-1', ['p-1'], 'vio');
+    });
+
+    it('un pedido se anota por sus variantes y con la zona que dio el cliente', async () => {
+      const registro = crearRegistro();
+      const ventas = crearVentas();
+      ventas.crearPedido.mockResolvedValue({
+        ...VENTA,
+        items: [{ ...VENTA.items[0], varianteId: 'v-1' }],
+        datosCliente: [{ etiqueta: 'Provincia', valor: 'Salta' }],
+      });
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('crear_pedido', { nombreCliente: 'Juan', items: [{ varianteId: 'v-1', cantidad: 1 }] }),
+        new AIMessage('Listo.'),
+      ]);
+
+      await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), ventas, registro });
+
+      expect(registro.registrarPedidoDeVariantes).toHaveBeenCalledWith('user-1', 'conv-1', ['v-1']);
+      // La provincia que dio el cliente va a la zona del chat.
+      expect(registro.registrarZonaDeDatos).toHaveBeenCalledWith('user-1', 'conv-1', [{ etiqueta: 'Provincia', valor: 'Salta' }]);
+    });
+
+    it('derivar una consulta marca el chat derivado', async () => {
+      const registro = crearRegistro();
+      const llm = crearModelo([llamada('derivar_consulta', { resumen: '¿Hacen envíos a Rosario?' }), new AIMessage('Le aviso.')]);
+
+      await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, registro });
+
+      expect(registro.marcarDerivado).toHaveBeenCalledWith('user-1', 'conv-1');
+    });
+
+    it('el banco de pruebas del Home no registra nada', async () => {
+      const registro = crearRegistro();
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo el mate.')]);
+
+      await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), registro }, true);
+
+      for (const metodo of Object.values(registro)) expect(metodo).not.toHaveBeenCalled();
+    });
+  });
+});

@@ -2,6 +2,8 @@
 
 FROM node:26-alpine AS base
 WORKDIR /app
+# El type-check de nest build supera el heap por defecto de Node (~2 GB).
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY package*.json ./
 RUN npm ci
 
