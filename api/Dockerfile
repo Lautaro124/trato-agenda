@@ -14,6 +14,8 @@ EXPOSE 4000
 CMD ["sh", "-c", "npx prisma generate && npm run start:dev"]
 
 FROM base AS build
+# El type-check de nest build supera el heap por defecto de Node (~2 GB).
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY . .
 RUN npx prisma generate && npm run build && npm prune --omit=dev
 
