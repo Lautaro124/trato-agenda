@@ -2,8 +2,10 @@ import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { ComercioModule } from '../comercio/comercio.module.js';
 import { ConversationModule } from '../conversation/conversation.module.js';
+import { HorarioAtencionModule } from '../horario-atencion/horario-atencion.module.js';
 import { NotificacionesModule } from '../notificaciones/notificaciones.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
+import { AsistenteController } from './asistente.controller.js';
 import { AvisosPorWhatsapp } from './avisos-por-whatsapp.js';
 import { WhatsappController } from './whatsapp.controller.js';
 import { WhatsappService } from './whatsapp.service.js';
@@ -15,13 +17,14 @@ import { WhatsappService } from './whatsapp.service.js';
     PassportModule.register({ session: false }),
     ConversationModule,
     SubscriptionModule,
+    HorarioAtencionModule,
     NotificacionesModule,
     // Las fotos de productos que manda el asistente de ventas.
     ComercioModule,
   ],
   // Exportado para la baja de cuenta, que necesita cerrar el socket de Baileys.
   exports: [WhatsappService],
-  controllers: [WhatsappController],
+  controllers: [WhatsappController, AsistenteController],
   providers: [WhatsappService, AvisosPorWhatsapp],
 })
 export class WhatsappModule {}

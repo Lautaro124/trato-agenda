@@ -1,6 +1,13 @@
 import type { Page } from '@playwright/test';
 import { agenteActual, esperarRuta, expect, sufijo, test, visible } from './fixtures';
-import { botonContinuar, elegirAsistente, elegirAtencion, preguntaInicial, tarjetaEvento } from './onboarding';
+import {
+  botonContinuar,
+  elegirAsistente,
+  elegirAtencion,
+  pasarHorarioAtencion,
+  preguntaInicial,
+  tarjetaEvento,
+} from './onboarding';
 
 /** Hasta "¿Cómo atendés?" inclusive: asistente de turnos, nombre del negocio y la forma de atender. */
 async function hastaAtencion(page: Page, atencion: 'En grupo' | 'Las dos cosas'): Promise<void> {
@@ -44,6 +51,7 @@ function botonListo(page: Page) {
 }
 
 async function terminar(page: Page): Promise<void> {
+  await pasarHorarioAtencion(page);
   await visible(page.getByLabel('Nombre del asistente')).fill('Tati');
   await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
   await esperarRuta(page, '/listo');
@@ -55,7 +63,7 @@ test.describe('wizard de /contanos: clases grupales', () => {
     await hastaAtencion(page, 'En grupo');
 
     await expect(page.getByRole('heading', { name: '¿Qué clases das?' })).toBeVisible();
-    await expect(visible(page.getByText('Paso 5 de 6'))).toBeVisible();
+    await expect(visible(page.getByText('Paso 5 de 7'))).toBeVisible();
     await expect(visible(page.getByText('Elegí al menos una clase.'))).toBeVisible();
     await expect(botonContinuar(page)).toBeDisabled();
 
@@ -91,7 +99,7 @@ test.describe('wizard de /contanos: clases grupales', () => {
     await expect(visible(page.getByText('1 clase elegida'))).toBeVisible();
 
     await botonContinuar(page).click();
-    await expect(visible(page.getByText('Paso 6 de 6'))).toBeVisible();
+    await expect(visible(page.getByText('Paso 6 de 7'))).toBeVisible();
     await terminar(page);
 
     const agente = await agenteActual(context.request);

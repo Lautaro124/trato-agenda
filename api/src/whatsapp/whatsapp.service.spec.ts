@@ -18,6 +18,7 @@ import {
 } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
 import type { PedidosAMedidaService } from '../comercio/pedidos-a-medida.service.js';
+import type { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 
 type UsuarioMock = { id: string; googleId: string | null; phoneNumber: string | null };
 
@@ -64,6 +65,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     enAtencionHumana: vi.fn().mockResolvedValue(false),
     guardarMensajeEnPausa: vi.fn().mockResolvedValue(undefined),
   };
+  const horarioAtencion = { debeAtender: vi.fn().mockResolvedValue(true) };
   const service = new WhatsappService(
     prisma,
     config,
@@ -72,6 +74,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     imagenes,
     notificaciones,
     pedidos as unknown as PedidosAMedidaService,
+    horarioAtencion as unknown as HorarioAtencionService,
   );
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
@@ -79,7 +82,18 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
   const eventos: LinkEvent[] = [];
   service.linkEvents$('user-1').subscribe((mensaje) => eventos.push(mensaje.data as LinkEvent));
 
-  return { service, prisma, connectSpy, eventos, conversationService, subscriptionService, imagenes, notificaciones, pedidos };
+  return {
+    service,
+    prisma,
+    connectSpy,
+    eventos,
+    conversationService,
+    subscriptionService,
+    imagenes,
+    notificaciones,
+    pedidos,
+    horarioAtencion,
+  };
 }
 
 /** Atajo: dispara handleConnectionUpdate como si Baileys hubiera cerrado la conexión. */
@@ -455,6 +469,31 @@ describe('WhatsappService — mensajes de clientes', () => {
     expect(sock.sendMessage).not.toHaveBeenCalled();
     expect(sock.readMessages).not.toHaveBeenCalled();
     expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
+  });
+
+  it('fuera del horario de atención: silencio, sin grafo ni leído ni "escribiendo…"', async () => {
+    const { service, conversationService, horarioAtencion } = crearServicio();
+    horarioAtencion.debeAtender.mockResolvedValue(false);
+    const sock = socketDeChat();
+
+    await recibirMensaje(service, sock);
+    await vi.runAllTimersAsync();
+
+    expect(horarioAtencion.debeAtender).toHaveBeenCalledWith('user-1', JID, expect.any(Date));
+    expect(conversationService.responder).not.toHaveBeenCalled();
+    expect(sock.sendMessage).not.toHaveBeenCalled();
+    expect(sock.readMessages).not.toHaveBeenCalled();
+    expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
+  });
+
+  it('vencida: ni siquiera consulta el horario', async () => {
+    const { service, subscriptionService, horarioAtencion } = crearServicio();
+    vi.mocked(subscriptionService.asistenteActivo).mockResolvedValue(false);
+
+    await recibirMensaje(service, socketDeChat());
+    await vi.runAllTimersAsync();
+
+    expect(horarioAtencion.debeAtender).not.toHaveBeenCalled();
   });
 });
 

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { SeccionDatosCliente } from "@/components/cuenta/SeccionDatosCliente";
+import { SeccionHorarioAtencion } from "@/components/cuenta/SeccionHorarioAtencion";
 import { SeccionLocal } from "@/components/cuenta/SeccionLocal";
 import { AVISOS_MP, SeccionMercadoPago } from "@/components/cuenta/SeccionMercadoPago";
 import { MobileTabBar } from "@/components/MobileTabBar";
@@ -122,6 +123,8 @@ function CuentaContenido() {
           )}
 
           {esVentas && <SeccionMercadoPago />}
+
+          <SeccionHorarioAtencion />
 
           {/* null = todavía no armó su asistente: no hay lugar que editar. */}
           {user.tipoAsistente && <SeccionLocal tipoAsistente={user.tipoAsistente} />}
