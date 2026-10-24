@@ -59,7 +59,8 @@ export type EstadoAsistente = {
 
 /** "hoy a las 09:00", "mañana a las 09:00", "el lunes a las 09:00". */
 export function textoVuelve(vuelve: NonNullable<EstadoAsistente["vuelve"]>): string {
-  const cuando =
-    vuelve.enDias === 0 ? "hoy" : vuelve.enDias === 1 ? "mañana" : `el ${NOMBRE_DIA[vuelve.dia].toLowerCase()}`;
+  let cuando = `el ${NOMBRE_DIA[vuelve.dia].toLowerCase()}`;
+  if (vuelve.enDias === 0) cuando = "hoy";
+  else if (vuelve.enDias === 1) cuando = "mañana";
   return `${cuando} a las ${vuelve.desde}`;
 }

@@ -60,19 +60,22 @@ function textos(estado: EstadoAsistente): { corto: string; detalle: string | nul
   };
 }
 
+function tonoDe(estado: EstadoAsistente) {
+  if (estado.prendido) return "success";
+  return estado.motivo === "suscripcion_vencida" ? "danger" : "neutral";
+}
+
 export function BadgeEstadoAsistente({ estado }: Readonly<{ estado: EstadoAsistente }>) {
   if (estado.motivo === "sin_whatsapp") return null;
   const { corto, detalle } = textos(estado);
-  const tono = estado.prendido ? "success" : estado.motivo === "suscripcion_vencida" ? "danger" : "neutral";
   const completo = detalle ? `${corto}, ${detalle}` : corto;
   return (
-    <span
+    <output
       className="whitespace-nowrap"
-      role="status"
       aria-label={`${completo} (hora de ${nombreDeZona(estado.zona)})`}
       title={`Hora de ${nombreDeZona(estado.zona)}`}
     >
-      <Badge tone={tono}>
+      <Badge tone={tonoDe(estado)}>
         <span aria-hidden className="inline-flex items-center gap-1.5">
           <span
             className={`size-1.5 rounded-full ${estado.prendido ? "bg-success" : "bg-current opacity-60"}`}
@@ -82,6 +85,6 @@ export function BadgeEstadoAsistente({ estado }: Readonly<{ estado: EstadoAsiste
           {detalle && <span className="hidden font-normal lg:inline"> · {detalle}</span>}
         </span>
       </Badge>
-    </span>
+    </output>
   );
 }

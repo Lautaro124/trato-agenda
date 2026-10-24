@@ -533,6 +533,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (upsert.type !== 'notify') return;
 
+    // De a uno y en orden: los chequeos de cada mensaje deciden si entra a su ráfaga.
     for (const mensaje of upsert.messages) {
       const remoteJid = mensaje.key.remoteJid;
       if (!remoteJid || isJidGroup(remoteJid)) continue;
@@ -541,45 +542,57 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       if (mensaje.key.fromMe) {
         // Lo que el dueño contesta desde su teléfono: sólo se guarda en un chat en atención humana.
         if (texto) await this.guardarRespuestaDelDueno(userId, sock, remoteJid, mensaje.key.id, texto);
-        continue;
+      } else if (texto) {
+        await this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, texto);
       }
-      if (!texto) continue;
-
-      if (!(await this.subscriptionService.asistenteActivo(userId))) {
-        this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
-        continue;
-      }
-
-      // Fuera del horario de atención (LAU-29) un chat nuevo no se atiende:
-      // silencio igual que con la suscripción vencida, y el dueño lo ve en su
-      // teléfono. Una conversación en curso se termina de atender.
-      if (!(await this.horarioAtencion.debeAtender(userId, remoteJid, new Date()))) {
-        this.logger.debug(`Mensaje ignorado: ${userId} está fuera de su horario de atención.`);
-        continue;
-      }
-
-      // Un pedido de este chat lo atiende una persona (LAU-27): el asistente no
-      // contesta, ni marca leído, ni muestra "escribiendo…". El mensaje queda
-      // guardado para que el dueño lo vea en Ventas y el asistente al retomar.
-      if (await this.pedidos.enAtencionHumana(userId, remoteJid)) {
-        await this.pedidos
-          .guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'cliente')
-          .catch((error: unknown) =>
-            this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
-          );
-        continue;
-      }
-
-      this.rafagas.agregar(`${userId}\n${remoteJid}`, {
-        userId,
-        remoteJid,
-        sock,
-        key: mensaje.key,
-        texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
-        enviadoEn: timestampEnMs(mensaje.messageTimestamp),
-        recibidoEn: Date.now(),
-      });
     }
+  }
+
+  /**
+   * Un mensaje de texto de un cliente: pasa por la suscripción, el horario de
+   * atención y la atención humana antes de sumarse a la ráfaga de su chat.
+   */
+  private async recibirMensajeDeCliente(
+    userId: string,
+    sock: WASocket,
+    mensaje: WAMessage,
+    remoteJid: string,
+    texto: string,
+  ): Promise<void> {
+    if (!(await this.subscriptionService.asistenteActivo(userId))) {
+      this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
+      return;
+    }
+
+    // Fuera del horario de atención (LAU-29) un chat nuevo no se atiende:
+    // silencio igual que con la suscripción vencida, y el dueño lo ve en su
+    // teléfono. Una conversación en curso se termina de atender.
+    if (!(await this.horarioAtencion.debeAtender(userId, remoteJid, new Date()))) {
+      this.logger.debug(`Mensaje ignorado: ${userId} está fuera de su horario de atención.`);
+      return;
+    }
+
+    // Un pedido de este chat lo atiende una persona (LAU-27): el asistente no
+    // contesta, ni marca leído, ni muestra "escribiendo…". El mensaje queda
+    // guardado para que el dueño lo vea en Ventas y el asistente al retomar.
+    if (await this.pedidos.enAtencionHumana(userId, remoteJid)) {
+      await this.pedidos
+        .guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'cliente')
+        .catch((error: unknown) =>
+          this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
+        );
+      return;
+    }
+
+    this.rafagas.agregar(`${userId}\n${remoteJid}`, {
+      userId,
+      remoteJid,
+      sock,
+      key: mensaje.key,
+      texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
+      enviadoEn: timestampEnMs(mensaje.messageTimestamp),
+      recibidoEn: Date.now(),
+    });
   }
 
   /**
