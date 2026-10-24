@@ -9,9 +9,15 @@ import type {
   ActualizarMensajesDto,
   GenerarAgenteVentasDto,
   GenerateAgentDto,
+  HorarioAtencionOnboardingDto,
   LocalPresencialDto,
   TipoEventoDto,
 } from './agents.types.js';
+import {
+  datosDelHorario,
+  normalizarHorarioAtencion,
+  type HorarioAtencion,
+} from '../horario-atencion/horario-atencion.rules.js';
 import { CLAVES_MENSAJE, leerMensajes, normalizarMensajes } from './mensajes.rules.js';
 import { normalizarLocal, type LocalPresencial } from './local.js';
 import { normalizarCampos } from '../comercio/datos-cliente.rules.js';
@@ -68,6 +74,7 @@ export class AgentsService {
     }
     const tiposEvento = this.validarTiposEvento(dto.tiposEvento);
     const local = dto.local ? this.validarLocal(dto.local, 'agenda') : undefined;
+    const horario = dto.horarioAtencion ? this.validarHorarioAtencion(dto.horarioAtencion) : undefined;
     await this.exigirMismoTipo(userId, 'agenda');
 
     const conTipos: GenerateAgentDto = { ...dto, tiposEvento };
@@ -94,23 +101,20 @@ export class AgentsService {
       ...(local ? { local: local as unknown as Prisma.InputJsonValue } : {}),
     };
 
-    return this.prisma.agent.upsert({
-      where: { userId },
-      create: { userId, ...datos },
-      update: datos,
-    });
+    return this.guardarConHorario(userId, datos, horario);
   }
 
   /**
    * Onboarding del asistente de ventas: plantilla determinista propia
-   * (agent-template-ventas.ts). No usa franja horaria (atiende 24/7) ni tipos
-   * de turno; esas columnas quedan en sus defaults y el grafo de ventas no las
+   * (agent-template-ventas.ts). No usa la franja de turnos ni tipos de turno
+   * (cuándo atiende lo decide el horario de la cuenta, LAU-29); esas columnas quedan en sus defaults y el grafo de ventas no las
    * lee. `tipoUso` queda en "comercio" sólo como dato informativo: lo que
    * decide el grafo es `tipoAsistente`.
    */
   async generarVentas(userId: string, dto: GenerarAgenteVentasDto): Promise<Agent> {
     // Antes que exigirMismoTipo: un local inválido es un 400 aunque la cuenta sea de agenda.
     const local = dto.local ? this.validarLocal(dto.local, 'ventas') : undefined;
+    const horario = dto.horarioAtencion ? this.validarHorarioAtencion(dto.horarioAtencion) : undefined;
     await this.exigirMismoTipo(userId, 'ventas');
     const nombreTitular = dto.nombreTitular.trim();
     const nombreBot = dto.nombreBot.trim();
@@ -137,11 +141,36 @@ export class AgentsService {
         : {}),
     };
 
-    return this.prisma.agent.upsert({
+    return this.guardarConHorario(userId, datos, horario);
+  }
+
+  /**
+   * Guarda el agente y, si vino el paso "Cuándo atiende", el horario de la
+   * cuenta en la misma transacción: el asistente nunca queda prendido sin el
+   * horario que eligió el dueño en el onboarding.
+   */
+  private async guardarConHorario(
+    userId: string,
+    datos: Omit<Prisma.AgentUncheckedCreateInput, 'userId'>,
+    horario: HorarioAtencion | undefined,
+  ): Promise<Agent> {
+    const upsert = this.prisma.agent.upsert({
       where: { userId },
       create: { userId, ...datos },
       update: datos,
     });
+    if (!horario) return upsert;
+    const [agent] = await this.prisma.$transaction([
+      upsert,
+      this.prisma.user.update({ where: { id: userId }, data: datosDelHorario(horario) }),
+    ]);
+    return agent;
+  }
+
+  private validarHorarioAtencion(dto: HorarioAtencionOnboardingDto): HorarioAtencion {
+    const resultado = normalizarHorarioAtencion({ activo: true, franjas: dto.franjas, zona: dto.zona });
+    if ('error' in resultado) throw new BadRequestException(resultado.error);
+    return resultado.horario;
   }
 
   /**

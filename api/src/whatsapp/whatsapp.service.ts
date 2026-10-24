@@ -31,6 +31,7 @@ import { ImagenesService } from '../comercio/imagenes.service.js';
 import { PedidosAMedidaService } from '../comercio/pedidos-a-medida.service.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
+import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
 import { avisoWhatsappCaido, avisoWhatsappParaVolverAVincular, type Aviso } from '../notificaciones/avisos.js';
 import { resumenDeError } from '../agents/openrouter.client.js';
@@ -199,6 +200,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly imagenes: ImagenesService,
     private readonly notificaciones: NotificacionesService,
     private readonly pedidos: PedidosAMedidaService,
+    private readonly horarioAtencion: HorarioAtencionService,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
@@ -545,6 +547,14 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       if (!(await this.subscriptionService.asistenteActivo(userId))) {
         this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
+        continue;
+      }
+
+      // Fuera del horario de atención (LAU-29) un chat nuevo no se atiende:
+      // silencio igual que con la suscripción vencida, y el dueño lo ve en su
+      // teléfono. Una conversación en curso se termina de atender.
+      if (!(await this.horarioAtencion.debeAtender(userId, remoteJid, new Date()))) {
+        this.logger.debug(`Mensaje ignorado: ${userId} está fuera de su horario de atención.`);
         continue;
       }
 

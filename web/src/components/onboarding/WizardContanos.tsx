@@ -18,6 +18,7 @@ import {
   textoFinal,
 } from "./controles";
 import { EditorDatosCliente } from "./DatosCliente";
+import { ControlesHorarioAtencion } from "./ControlesHorarioAtencion";
 import { ControlesLocal } from "./ControlesLocal";
 import { ControlesLugar } from "./ControlesLugar";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
@@ -351,6 +352,20 @@ function ContenidoDelPaso({
         </>
       );
 
+    case "cuando":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Cuándo querés que atienda?"
+            bajada="En estos días y horarios el asistente contesta los chats nuevos por WhatsApp. Fuera de ellos no empieza ninguna conversación: los mensajes te quedan a vos. Si un chat ya venía en curso, lo termina de atender."
+          />
+          <div className="max-w-[600px]">
+            <ControlesHorarioAtencion semana={ob.horarioBot} zona={ob.zona} onZona={ob.setZona} />
+          </div>
+        </>
+      );
+
     case "asistente":
       return (
         <>
@@ -359,7 +374,7 @@ function ContenidoDelPaso({
             titulo="¿Cómo se llama tu asistente?"
             bajada={
               ob.esVentas
-                ? "Con este nombre saluda a quien te escribe. Atiende las 24 horas, todos los días."
+                ? "Con este nombre saluda a quien te escribe, en el horario que elegiste."
                 : "Con este nombre saluda a quien te escribe por WhatsApp."
             }
           />

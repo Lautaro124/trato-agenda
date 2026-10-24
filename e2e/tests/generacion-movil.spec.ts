@@ -8,10 +8,10 @@ test.describe('generación de agente: wizard en el celular', { tag: '@movil' }, 
 
     await page.goto('/contanos');
     await expect(preguntaInicial(page)).toBeVisible();
-    await expect(visible(page.getByText('Paso 1 de 7'))).toBeVisible();
+    await expect(visible(page.getByText('Paso 1 de 8'))).toBeVisible();
 
     await completarWizard(page, perfil);
-    await expect(visible(page.getByText('Paso 7 de 7'))).toBeVisible();
+    await expect(visible(page.getByText('Paso 8 de 8'))).toBeVisible();
     await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
 
     await esperarRuta(page, '/listo');

@@ -154,6 +154,20 @@ async function elegirFranja(page: Page, perfil: PerfilWizard): Promise<void> {
   ).toBeVisible();
 }
 
+/** Título del paso "Cuándo atiende" (LAU-29). */
+export function preguntaHorarioAtencion(page: Page): Locator {
+  return page.getByRole('heading', { name: '¿Cuándo querés que atienda?' });
+}
+
+/**
+ * Paso "Cuándo atiende" (LAU-29): deja el horario que viene precargado y sigue.
+ * Con turnos uno a uno arranca con la franja de lunes a viernes.
+ */
+export async function pasarHorarioAtencion(page: Page): Promise<void> {
+  await expect(preguntaHorarioAtencion(page)).toBeVisible();
+  await botonContinuar(page).click();
+}
+
 async function nombrarAsistente(page: Page, perfil: PerfilWizard): Promise<void> {
   await visible(page.getByLabel('Nombre del asistente')).fill(perfil.nombreBot);
   await expect(visible(page.getByText(saludoEsperado(perfil)))).toBeVisible();
@@ -230,5 +244,6 @@ export async function completarWizard(page: Page, perfil: PerfilWizard): Promise
   await elegirFranja(page, perfil);
   await botonContinuar(page).click();
 
+  await pasarHorarioAtencion(page);
   await nombrarAsistente(page, perfil);
 }

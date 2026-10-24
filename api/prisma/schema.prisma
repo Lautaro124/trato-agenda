@@ -37,6 +37,16 @@ model User {
   /// Refresh token de Google cifrado con AES-256-GCM. Nunca se expone por la API.
   googleRefreshToken String?
 
+  /// Horario de atención del asistente (LAU-29), igual para agenda y ventas.
+  /// Con `horarioAtencionActivo` en false atiende siempre (el default de las
+  /// cuentas de antes); en true no inicia atenciones fuera de `horarioAtencion`
+  /// ([{ dia, desde, hasta }]) leído en `zonaHoraria` (IANA). Las franjas se
+  /// conservan al desactivarlo. Forma y reglas en src/horario-atencion/.
+  horarioAtencionActivo Boolean @default(false)
+  horarioAtencion       Json    @default("[]")
+  /// Sólo para el horario de atención: la agenda y las ventas siguen en Buenos Aires.
+  zonaHoraria           String  @default("America/Argentina/Buenos_Aires")
+
   whatsappSession WhatsappSession?
   agent           Agent?
   conversaciones  Conversation[]

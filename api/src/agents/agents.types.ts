@@ -119,6 +119,23 @@ export class FranjaLocalDto {
 }
 
 /**
+ * El horario de atención que pide el onboarding (LAU-29): siempre queda activo,
+ * así que sólo trae franjas y zona. Lo valida normalizarHorarioAtencion
+ * (horario-atencion.rules.ts) y se guarda en el usuario, no en el agente.
+ */
+export class HorarioAtencionOnboardingDto {
+  @IsArray()
+  @ArrayMaxSize(MAX_FRANJAS)
+  @ValidateNested({ each: true })
+  @Type(() => FranjaLocalDto)
+  franjas!: FranjaLocalDto[];
+
+  @IsString()
+  @MaxLength(64)
+  zona!: string;
+}
+
+/**
  * El local a la calle de un comercio, o dónde da los turnos un asistente de
  * agenda. Que cierre después de abrir, que las franjas de un día no se pisen
  * y lo que exige cada tipo de asistente lo mira normalizarLocal (local.ts).
@@ -190,6 +207,12 @@ export class GenerateAgentDto {
   @ValidateNested()
   @Type(() => LocalPresencialDto)
   local?: LocalPresencialDto;
+
+  /** El paso "Cuándo atiende" (LAU-29). Sin él no se toca el horario de la cuenta. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => HorarioAtencionOnboardingDto)
+  horarioAtencion?: HorarioAtencionOnboardingDto;
 }
 
 /** Un dato que el asistente de ventas le pide al cliente (datos-cliente.rules.ts). */
@@ -239,6 +262,12 @@ export class GenerarAgenteVentasDto {
   @ValidateNested()
   @Type(() => LocalPresencialDto)
   local?: LocalPresencialDto;
+
+  /** El paso "Cuándo atiende" (LAU-29). Sin él no se toca el horario de la cuenta. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => HorarioAtencionOnboardingDto)
+  horarioAtencion?: HorarioAtencionOnboardingDto;
 }
 
 /** Body de `PUT /agents/me/datos-cliente`: reemplaza la configuración entera. */

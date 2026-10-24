@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CampanaNotificaciones } from "@/components/CampanaNotificaciones";
+import { BadgeEstadoAsistente, useEstadoAsistente } from "@/components/EstadoAsistente";
 import { BotonSugerirMejora, Lamparita, PanelSugerencia } from "@/components/SugerirMejora";
 import { Badge } from "@/components/ui/Badge";
 import { Wordmark } from "@/components/Wordmark";
@@ -88,6 +89,9 @@ function FlechaMenu({ abierto, size }: { abierto: boolean; size: number }) {
 export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
   const { signOut } = useSession();
   const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(null);
+  const estadoAsistente = useEstadoAsistente();
+  // Con el estado del asistente a la vista, "WhatsApp conectado" sobra en el celular, donde no entran los dos.
+  const conEstado = estadoAsistente !== null && estadoAsistente.motivo !== "sin_whatsapp";
   const [menuAbierto, setMenuAbierto] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuBoton = useRef<HTMLButtonElement>(null);
@@ -168,8 +172,9 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
       <div className="ml-auto flex items-center gap-3 sm:gap-4">
         <BotonSugerirMejora abierto={sugerenciaAbierta} onAbrir={abrirSugerencia} />
         <CampanaNotificaciones />
+        {estadoAsistente && <BadgeEstadoAsistente estado={estadoAsistente} />}
         {whatsapp && (
-          <span className="whitespace-nowrap">
+          <span className={`whitespace-nowrap ${conEstado && whatsapp.linked ? "hidden md:inline" : ""}`}>
             <Badge tone={whatsapp.linked ? "success" : "warning"}>
               {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
             </Badge>

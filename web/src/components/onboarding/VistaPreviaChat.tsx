@@ -108,10 +108,12 @@ function EjemploDeAtencion({ grupal }: { grupal: boolean }) {
 
 export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?: string }) {
   const paso = ob.pasoId;
+  // "Cuándo atiende" no cambia la charla: se ve lo mismo que en el paso final.
+  const alFinal = paso === "cuando" || paso === "asistente";
   const pasoTurnos = ob.atencion !== "grupal";
-  const conTurnos = pasoTurnos && (paso === "turnos" || paso === "horarios" || paso === "asistente");
-  const conHorarios = pasoTurnos && (paso === "horarios" || paso === "asistente");
-  const conClases = ob.atencion !== "individual" && (paso === "clases" || paso === "horarios" || paso === "asistente");
+  const conTurnos = pasoTurnos && (paso === "turnos" || paso === "horarios" || alFinal);
+  const conHorarios = pasoTurnos && (paso === "horarios" || alFinal);
+  const conClases = ob.atencion !== "individual" && (paso === "clases" || paso === "horarios" || alFinal);
   const inicial = (ob.nombreBot.trim()[0] ?? "A").toUpperCase();
 
   return (
@@ -139,13 +141,13 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
             <DelAsistente>
               {ob.presentacion} Sí, tengo el mate de calabaza curado a $ 8.000. ¿Te lo reservo?
             </DelAsistente>
-            {(paso === "local" || paso === "datos" || paso === "asistente") && (
+            {(paso === "local" || paso === "datos" || alFinal) && (
               <>
                 <DelCliente>¿Puedo pasar a buscarlo?</DelCliente>
                 <DelAsistente>{respuestaDelLocal(ob)}</DelAsistente>
               </>
             )}
-            {(paso === "datos" || paso === "asistente") && <PedidoDeDatos ob={ob} />}
+            {(paso === "datos" || alFinal) && <PedidoDeDatos ob={ob} />}
           </>
         ) : (
           <>
