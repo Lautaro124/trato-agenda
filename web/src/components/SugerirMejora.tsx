@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useAvisos } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -77,8 +78,18 @@ export function PanelSugerencia({ onCerrar }: Readonly<{ onCerrar: () => void }>
   const errorTexto = !validacion.ok && !validacion.muyCorta ? validacion.error : null;
   const error = errorTexto ?? errorApi;
 
-  const cerrar = () => {
-    if (!enviada && texto.trim() && !window.confirm("Tenés una sugerencia sin mandar. ¿Descartarla?")) return;
+  const { confirmar } = useAvisos();
+  const cerrar = async () => {
+    if (!enviada && texto.trim()) {
+      const descartar = await confirmar({
+        titulo: "Tenés una sugerencia sin mandar",
+        texto: "Si cerrás ahora, se pierde lo que escribiste.",
+        confirmar: "Descartar",
+        cancelar: "Seguir escribiendo",
+        tono: "neutro",
+      });
+      if (!descartar) return;
+    }
     onCerrar();
   };
   useEffect(() => {
@@ -94,7 +105,7 @@ export function PanelSugerencia({ onCerrar }: Readonly<{ onCerrar: () => void }>
    */
   const alTeclado = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Escape") {
-      cerrar();
+      void cerrar();
       return;
     }
     if (e.key !== "Tab" || !panel.current) return;
@@ -144,7 +155,7 @@ export function PanelSugerencia({ onCerrar }: Readonly<{ onCerrar: () => void }>
       className="fixed inset-0 z-30 flex items-end justify-center bg-black/35 sm:items-stretch sm:justify-end"
       // Sólo el fondo cierra: un click adentro del panel tiene otro target.
       onClick={(e) => {
-        if (e.target === e.currentTarget) cerrar();
+        if (e.target === e.currentTarget) void cerrar();
       }}
       onKeyDown={alTeclado}
     >

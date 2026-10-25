@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { INPUT, LABEL } from "@/components/productos/EditorProducto";
+import { useAvisos } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -92,11 +93,20 @@ function FilaInsumo({
       .finally(() => setTrabajando(false));
   };
 
-  const borrar = () => {
-    if (!window.confirm(`¿Quitar ${JSON.stringify(insumo.nombre)}? Los productos que lo usan en su receta van a quedar para cotizar a mano.`)) return;
+  const { confirmar, avisar } = useAvisos();
+  const borrar = async () => {
+    const confirmado = await confirmar({
+      titulo: `¿Quitar «${insumo.nombre}»?`,
+      texto: "Los productos que lo usan en su receta van a quedar para cotizar a mano.",
+      confirmar: "Sí, quitar",
+    });
+    if (!confirmado) return;
     setTrabajando(true);
     borrarInsumo(insumo.id)
-      .then(() => onBorrado(insumo.id))
+      .then(() => {
+        onBorrado(insumo.id);
+        avisar(`Quitaste «${insumo.nombre}».`);
+      })
       .catch((err: unknown) => {
         setError(mensajeDe(err, "No pudimos quitarlo."));
         setTrabajando(false);

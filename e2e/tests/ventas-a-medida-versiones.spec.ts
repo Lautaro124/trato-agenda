@@ -145,7 +145,6 @@ test.describe('versiones con precio fijo de un producto a medida', () => {
     const aCotizar = (await pedidosAMedida(context.request)).find((pedido) => pedido.estado === 'a_cotizar');
     expect(aCotizar).toMatchObject({ totalCentavos: null, solicitud: { variante: { nombre: 'Pino 1,00 m' }, cambios: 'de 140 cm' } });
 
-    page.on('dialog', (dialogo) => void dialogo.accept());
     await page.goto(`/ventas?venta=${aCotizar!.id}`);
     const detalle = page.getByRole('dialog');
     const loQuePidio = detalle.getByRole('region', { name: 'Lo que pidió' });
@@ -186,7 +185,6 @@ test.describe('versiones con precio fijo de un producto a medida', () => {
     expect(conDatos.reply).toContain('Pedido anotado');
     const [pedido] = await pedidosAMedida(context.request);
 
-    page.on('dialog', (dialogo) => void dialogo.accept());
     await page.goto(`/ventas?venta=${pedido.id}`);
     const detalle = page.getByRole('dialog');
     await expect(detalle.getByText('Con envío', { exact: true })).toBeVisible();
