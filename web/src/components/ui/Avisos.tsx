@@ -64,6 +64,13 @@ const ICONO_TONO: Record<Tono, { fondo: string; trazo: ReactNode }> = {
   },
 };
 
+// En neutro la acción segura (seguir) es la principal y confirmar queda como secundaria.
+const VARIANTE_CONFIRMAR: Record<Tono, "danger" | "ghost" | "primary"> = {
+  peligro: "danger",
+  cuidado: "primary",
+  neutro: "ghost",
+};
+
 const ICONO_AVISO: Record<TonoAviso, { color: string; trazo: ReactNode }> = {
   exito: { color: "text-[var(--color-primitive-green-200)]", trazo: <path d="M20 6L9 17l-5-5" /> },
   error: {
@@ -129,6 +136,7 @@ export function AvisosProvider({ children }: Readonly<{ children: ReactNode }>) 
     if (!pedido && el.open) el.close();
   }, [pedido]);
 
+  // Escape (o Cancelar) cierra; un clic en el fondo no, para no cerrar por accidente.
   // Escape se resuelve acá y no llega a los paneles de abajo (DetalleVenta cierra con Escape en document).
   useEffect(() => {
     if (!pedido) return;
@@ -153,9 +161,6 @@ export function AvisosProvider({ children }: Readonly<{ children: ReactNode }>) 
         role="alertdialog"
         aria-labelledby="confirmacion-titulo"
         aria-describedby={pedido?.texto ? "confirmacion-texto" : undefined}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) responder(false);
-        }}
         className={cn(
           "mt-auto mb-0 w-full max-w-none rounded-t-[20px] border-0 bg-card p-0 text-ink shadow-lg",
           "sm:m-auto sm:max-w-[440px] sm:rounded-lg",
@@ -198,7 +203,7 @@ export function AvisosProvider({ children }: Readonly<{ children: ReactNode }>) 
               </Button>
               <Button
                 size="lg"
-                variant={tono === "peligro" ? "danger" : tono === "neutro" ? "ghost" : "primary"}
+                variant={VARIANTE_CONFIRMAR[tono]}
                 className="sm:px-[18px] sm:py-2.5 sm:text-[15px]"
                 onClick={() => responder(true)}
               >
@@ -209,14 +214,13 @@ export function AvisosProvider({ children }: Readonly<{ children: ReactNode }>) 
         )}
       </dialog>
 
-      <div
-        aria-live="polite"
-        className="pointer-events-none fixed inset-x-4 bottom-24 z-40 flex flex-col items-center gap-2 md:bottom-8"
+      <div className="pointer-events-none fixed inset-x-4 bottom-24 z-40 flex flex-col items-center gap-2 md:bottom-8"
       >
         {avisos.map((aviso) => (
-          <div
+          // <output> ya es una región viva (status); los errores se anuncian como alert.
+          <output
             key={aviso.id}
-            role={aviso.tono === "error" ? "alert" : "status"}
+            role={aviso.tono === "error" ? "alert" : undefined}
             className="pointer-events-auto flex w-full max-w-[440px] items-center gap-3 rounded-md bg-ink py-2 pr-2 pl-[18px] text-white shadow-lg animate-[trato-entrar_200ms_var(--motion-easing-out)] motion-reduce:animate-none"
           >
             <svg
@@ -244,7 +248,7 @@ export function AvisosProvider({ children }: Readonly<{ children: ReactNode }>) 
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
             </button>
-          </div>
+          </output>
         ))}
       </div>
     </AvisosContext.Provider>
