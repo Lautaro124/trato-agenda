@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { isoDate } from "@/lib/calendarWeek";
+import { useAvisos } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
 import type { EventoSemana } from "./WeekGrid";
 
@@ -50,9 +51,15 @@ export function EventDetailModal({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { confirmar, avisar } = useAvisos();
   async function eliminar() {
     if (!evento) return;
-    if (!window.confirm(`¿Eliminar "${evento.resumen || "este evento"}" del calendario?`)) return;
+    const confirmado = await confirmar({
+      titulo: evento.resumen ? `¿Eliminar «${evento.resumen}»?` : "¿Eliminar este evento?",
+      texto: "Se borra del calendario.",
+      confirmar: "Eliminar",
+    });
+    if (!confirmado) return;
     setGuardando(true);
     setError(null);
     try {
@@ -60,6 +67,7 @@ export function EventDetailModal({
       if (!res.ok) throw new Error("No se pudo eliminar");
       onChanged();
       onClose();
+      avisar("Eliminaste el evento.");
     } catch {
       setError("No pudimos eliminar el evento. Probá de nuevo.");
       setGuardando(false);

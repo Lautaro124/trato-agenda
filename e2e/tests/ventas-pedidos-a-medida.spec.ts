@@ -40,7 +40,6 @@ async function pedidoAMedida(request: APIRequestContext): Promise<{ id: string; 
 
 /** El detalle del pedido abierto desde el link de un aviso. */
 async function abrirPedido(page: Page, id: string) {
-  page.on('dialog', (dialogo) => void dialogo.accept());
   await page.goto(`/ventas?venta=${id}`);
   const detalle = page.getByRole('dialog');
   await expect(detalle.getByText('Lo que pidió')).toBeVisible();
@@ -70,6 +69,7 @@ test.describe('pedidos a medida (LAU-27)', () => {
     await renglon.getByLabel('Qué es').fill('Placard de melamina 120 × 240');
     await renglon.getByLabel('Precio por unidad').fill('185.000');
     await detalle.getByRole('button', { name: 'Mandar al cliente' }).click();
+    await page.getByRole('alertdialog', { name: '¿Mandárselo al cliente?' }).getByRole('button', { name: 'Mandar' }).click();
     await expect(detalle.getByText('Vigente')).toBeVisible();
     await expect(detalle.getByText('Cotizado').first()).toBeVisible();
 
@@ -81,6 +81,7 @@ test.describe('pedidos a medida (LAU-27)', () => {
 
     await page.reload();
     await page.getByRole('dialog').getByRole('button', { name: 'Marcar pagada' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Marcar pagada' }).click();
     await expect(page.getByRole('dialog').getByText('Pagada').first()).toBeVisible();
     await expect(page.getByRole('dialog').getByRole('list', { name: 'Historial del pedido' })).toContainText('Pasó a pagada');
   });

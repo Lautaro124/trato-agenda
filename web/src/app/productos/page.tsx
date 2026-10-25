@@ -9,6 +9,7 @@ import { FilaProducto } from "@/components/productos/FilaProducto";
 import { ImportarProductos } from "@/components/productos/ImportarProductos";
 import { ProbarBusqueda } from "@/components/productos/ProbarBusqueda";
 import { Promociones } from "@/components/productos/Promociones";
+import { useAvisos } from "@/components/ui/Avisos";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
@@ -103,12 +104,19 @@ function Catalogo() {
       actual ? { ...actual, productos: actual.productos.map((p) => (p.id === producto.id ? producto : p)) } : actual,
     );
 
-  const borrar = (producto: Producto) => {
-    if (!window.confirm(`¿Borrar "${producto.nombre}"? El asistente deja de ofrecerlo; las ventas pasadas no cambian.`)) {
-      return;
-    }
+  const { confirmar, avisar } = useAvisos();
+  const borrar = async (producto: Producto) => {
+    const confirmado = await confirmar({
+      titulo: `¿Borrar «${producto.nombre}»?`,
+      texto: "El asistente deja de ofrecerlo. Las ventas pasadas no cambian.",
+      confirmar: "Sí, borrar",
+    });
+    if (!confirmado) return;
     eliminarProducto(producto.id)
-      .then(recargar)
+      .then(() => {
+        recargar();
+        avisar(`Borraste «${producto.nombre}».`);
+      })
       .catch(() => setError(true));
   };
 

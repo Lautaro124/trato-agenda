@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { useAvisos } from "@/components/ui/Avisos";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
@@ -77,10 +78,15 @@ export function Promociones({ categorias, onCambio }: Readonly<{ categorias: Cat
       .catch(() => setError("No pudimos cambiar la promoción."));
   };
 
-  const borrar = (promo: Descuento) => {
-    if (!window.confirm(`¿Borrar la promoción "${promo.nombre}"?`)) return;
+  const { confirmar, avisar } = useAvisos();
+  const borrar = async (promo: Descuento) => {
+    const confirmado = await confirmar({ titulo: `¿Borrar la promoción «${promo.nombre}»?`, confirmar: "Sí, borrar" });
+    if (!confirmado) return;
     eliminarPromocion(promo.id)
-      .then(despuesDeCambiar)
+      .then(() => {
+        despuesDeCambiar();
+        avisar(`Borraste la promoción «${promo.nombre}».`);
+      })
       .catch(() => setError("No pudimos borrar la promoción."));
   };
 

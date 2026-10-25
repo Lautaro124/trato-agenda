@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
+import { useAvisos } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
 import { API_URL, apiFetch } from "@/lib/api";
 
@@ -31,14 +32,23 @@ export function SeccionMercadoPago() {
       .catch(() => setEstado(null));
   }, []);
 
-  const desconectar = () => {
-    if (!window.confirm("¿Desconectar Mercado Pago? El asistente deja de mandar links de pago.")) return;
+  const { confirmar, avisar } = useAvisos();
+  const desconectar = async () => {
+    const confirmado = await confirmar({
+      titulo: "¿Desconectar Mercado Pago?",
+      texto: "El asistente deja de mandar links de pago. Podés volver a conectarlo cuando quieras.",
+      confirmar: "Desconectar",
+      cancelar: "Mantener",
+      tono: "cuidado",
+    });
+    if (!confirmado) return;
     setTrabajando(true);
     setError(null);
     apiFetch("/mercadopago", { method: "DELETE" })
       .then((res) => {
         if (!res.ok) throw new Error("no se pudo");
         setEstado((previo) => (previo ? { ...previo, conectada: false, mpUserId: null, conectadaAt: null } : previo));
+        avisar("Desconectaste Mercado Pago.");
       })
       .catch(() => setError("No pudimos desconectar Mercado Pago. Probá de nuevo."))
       .finally(() => setTrabajando(false));
