@@ -99,7 +99,7 @@ export function TarjetaBorrador({
                 checked={producto.actualizar}
                 onChange={(e) => onCambio({ actualizar: e.target.checked })}
                 className="size-4 accent-[var(--color-semantic-primary-default)]"
-              />
+              />{" "}
               Actualizar el que ya tengo con estos datos
             </label>
           )}
@@ -407,7 +407,7 @@ export function TarjetaBorrador({
                     checked={producto.imagen === null}
                     onChange={() => onCambio({ imagen: null })}
                     className={RADIO_OCULTO}
-                  />
+                  />{" "}
                   Sin foto
                 </label>
               </div>

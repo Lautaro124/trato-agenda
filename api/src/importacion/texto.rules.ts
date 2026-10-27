@@ -58,7 +58,7 @@ const ENTIDADES: Record<string, string> = {
 export function decodificarEntidades(texto: string): string {
   return texto.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,8});/gi, (entera, nombre: string) => {
     if (nombre[0] === '#') {
-      const codigo = nombre[1] === 'x' || nombre[1] === 'X' ? parseInt(nombre.slice(2), 16) : Number(nombre.slice(1));
+      const codigo = nombre[1] === 'x' || nombre[1] === 'X' ? Number.parseInt(nombre.slice(2), 16) : Number(nombre.slice(1));
       return Number.isInteger(codigo) && codigo > 0 && codigo <= 0x10ffff ? String.fromCodePoint(codigo) : '';
     }
     return Object.hasOwn(ENTIDADES, nombre) ? ENTIDADES[nombre] : entera;

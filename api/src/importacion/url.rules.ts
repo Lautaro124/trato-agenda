@@ -97,7 +97,7 @@ export function enlaceMercadoLibre(url: URL): EnlaceMercadoLibre | null {
   const tienda = /^\/(?:tienda|pagina)\/([a-z0-9._-]{2,60})/i.exec(ruta);
   if (tienda) return { tipo: 'listado', sitio, filtro: { nickname: tienda[1] } };
   if (host.startsWith('listado.')) {
-    const termino = ruta.split('/').filter(Boolean)[0]?.split('_')[0]?.replace(/-/g, ' ').trim();
+    const termino = ruta.split('/').filter(Boolean)[0]?.split('_')[0]?.replaceAll('-', ' ').trim();
     return termino ? { tipo: 'listado', sitio, filtro: { busqueda: termino.slice(0, 120) } } : null;
   }
 
@@ -165,9 +165,9 @@ export function codigoSugerido(nombre: string, idExterno: string | null): string
   const base = normalizarTexto(nombre)
     .toUpperCase()
     .replace(/[^A-Z0-9Ñ]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/^-|-$/g, '')
     .slice(0, 50)
-    .replace(/-+$/, '');
+    .replace(/-$/, '');
   return base || 'PRODUCTO';
 }
 
