@@ -180,7 +180,7 @@ Cómo se cuentan los productos:
 
 `/rendimiento` (`web/src/app/rendimiento/page.tsx`, componentes en `web/src/components/rendimiento/`, tipos copiados a mano en `web/src/lib/performance.ts`) es sólo para cuentas de ventas. En escritorio es la pestaña "Rendimiento"; en el celular se llega desde el menú de usuario.
 
-Arriba se elige el período y la moneda. Después muestra:
+Arriba se elige el período (hoy, 7 o 30 días, este mes o fechas) y la moneda. Un período que llega hasta hoy está **en vivo**: se vuelve a pedir cada 30 segundos y al volver a la pestaña, sólo con la pestaña a la vista, y muestra la hora de la última actualización. Un refresco que falla deja los datos anteriores. Después muestra:
 - un aviso cuando el período tiene datos a medias o ninguno;
 - las tres tasas, cada una con su definición y su diferencia con el período anterior;
 - el embudo, en cantidades;
