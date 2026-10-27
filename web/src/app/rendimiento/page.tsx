@@ -15,6 +15,7 @@ import { cn } from "@/lib/cn";
 import {
   diaLegible,
   ERROR_DE_CARGA,
+  horaLegible,
   obtenerPerformance,
   ZONAS,
   type FiltroZona,
@@ -26,11 +27,15 @@ import { useRequireSession } from "@/lib/session";
 import { claveDia, rangoDePeriodo, type Periodo } from "@/lib/ventas";
 
 const PERIODOS: Array<{ valor: Periodo; etiqueta: string }> = [
+  { valor: "hoy", etiqueta: "Hoy" },
   { valor: "7", etiqueta: "7 días" },
   { valor: "30", etiqueta: "30 días" },
   { valor: "mes", etiqueta: "Este mes" },
   { valor: "personalizado", etiqueta: "Elegir fechas" },
 ];
+
+/** Cada cuánto se vuelve a pedir un período que incluye hoy, sólo con la pestaña a la vista. */
+const EN_VIVO_CADA_MS = 30_000;
 
 const FECHA =
   "rounded-md border border-line bg-card px-2.5 py-1.5 text-[13.5px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
@@ -93,6 +98,8 @@ function Rendimiento() {
   const [respuesta, setRespuesta] = useState<{
     clave: string;
     datos: Performance;
+    // Cuándo llegaron: se muestra como "actualizado 17:42" mientras está en vivo.
+    recibida: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Reintentar vuelve a pedir lo mismo: cambia la dependencia del efecto.
@@ -106,29 +113,41 @@ function Rendimiento() {
         ? "La fecha de inicio es posterior a la de fin."
         : null;
   const clave = JSON.stringify({ ...rango, moneda, zona });
+  // Un período que llega hasta hoy sigue cambiando: se refresca solo.
+  const enVivo = !problemaDeRango && rango.hasta >= claveDia(new Date());
 
   useEffect(() => {
     if (problemaDeRango) return;
-    const ctrl = { cancelado: false };
-    obtenerPerformance(JSON.parse(clave) as FiltrosPerformance)
-      .then((datos) => {
-        if (ctrl.cancelado) return;
-        setRespuesta({ clave, datos });
-        setError(null);
-      })
-      .catch(
-        (err: unknown) =>
-          !ctrl.cancelado &&
-          setError(
-            err instanceof ErrorDeApi
-              ? err.message
-              : ERROR_DE_CARGA,
-          ),
-      );
-    return () => {
-      ctrl.cancelado = true;
+    const filtros = JSON.parse(clave) as FiltrosPerformance;
+    let cancelado = false;
+    // Sólo se aplica la última respuesta pedida, aunque una anterior llegue después.
+    let ultimo = 0;
+    const cargar = (deFondo: boolean) => {
+      const pedido = ++ultimo;
+      obtenerPerformance(filtros)
+        .then((datos) => {
+          if (cancelado || pedido !== ultimo) return;
+          setRespuesta({ clave, datos, recibida: Date.now() });
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          // Un refresco de fondo que falla deja a la vista lo último que llegó.
+          if (cancelado || deFondo || pedido !== ultimo) return;
+          setError(err instanceof ErrorDeApi ? err.message : ERROR_DE_CARGA);
+        });
     };
-  }, [clave, problemaDeRango, intento]);
+    cargar(false);
+    const refrescar = () => {
+      if (document.visibilityState === "visible") cargar(true);
+    };
+    const timer = enVivo ? setInterval(refrescar, EN_VIVO_CADA_MS) : undefined;
+    if (enVivo) document.addEventListener("visibilitychange", refrescar);
+    return () => {
+      cancelado = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refrescar);
+    };
+  }, [clave, problemaDeRango, intento, enVivo]);
 
   const elegirPeriodo = (valor: Periodo) => {
     // Al pasar a "Elegir fechas" se arranca del rango que se estaba viendo.
@@ -156,6 +175,15 @@ function Rendimiento() {
             Cómo les va a tus productos en los chats: cuántos llegan a pedir y a
             pagar, y dónde se quedan.
           </p>
+          {enVivo && respuesta?.clave === clave && (
+            <p className="mt-2 flex items-center gap-2 text-[13px] text-ink-secondary">
+              <span
+                aria-hidden="true"
+                className="size-2 animate-pulse rounded-full bg-success motion-reduce:animate-none"
+              />
+              En vivo · actualizado {horaLegible(respuesta.recibida)}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">

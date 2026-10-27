@@ -170,6 +170,18 @@ export function diaLegible(dia: string): string {
   return `${Number(d)}/${Number(mes)}/${anio}`;
 }
 
+const HORA = new Intl.DateTimeFormat("es-AR", {
+  timeZone: "America/Argentina/Buenos_Aires",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** "17:42", en la hora del negocio. */
+export function horaLegible(instante: number): string {
+  return HORA.format(new Date(instante));
+}
+
 /** La etapa abierta donde más chats se quedaron (estancados o abandonados), o null. */
 export function dondeSeQuedan(etapas: EtapaPerformance[]): EtapaPerformance | null {
   let mejor: EtapaPerformance | null = null;
