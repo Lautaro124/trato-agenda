@@ -1,15 +1,15 @@
 import type { Page } from '@playwright/test';
 import { API_URL } from '../entorno';
 import { agenteActual, esperarRuta, expect, sufijo, test, visible } from './fixtures';
-import { botonContinuar, elegirAsistente, preguntaInicial } from './onboarding';
+import { botonContinuar, elegirAsistente, pasarHorarioAtencion, preguntaInicial } from './onboarding';
 
 async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string } = {}): Promise<string> {
   const negocio = `Mates E2E ${sufijo()}`;
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
   // Ventas no pregunta turnos ni horarios ni cómo vende (eso lo dice cada producto), sí por el local y,
-  // opcional, por los datos del cliente: cinco pasos.
-  await expect(visible(page.getByText('Paso 2 de 5'))).toBeVisible();
+  // opcional, por los datos del cliente, y cuándo atiende: seis pasos.
+  await expect(visible(page.getByText('Paso 2 de 6'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
   await botonContinuar(page).click();
   // "Tu local": sin tocar nada queda "vendo sólo online".
@@ -26,6 +26,7 @@ async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string
   // Los datos del cliente se pueden saltear.
   await expect(visible(page.getByRole('heading', { name: '¿Le pedís datos a tus clientes?' }))).toBeVisible();
   await botonContinuar(page).click();
+  await pasarHorarioAtencion(page);
   await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
   // La vista previa del saludo usa lo que se escribió.
   await expect(visible(page.getByText(`Hola, soy Sol, el asistente de ${negocio}.`, { exact: false }))).toBeVisible();
@@ -46,8 +47,8 @@ test.describe('onboarding de un comercio', () => {
     await visible(page.getByRole('button', { name: /^(Atrás|Volver al paso anterior)$/ })).first().click();
     await expect(page.getByRole('radio', { name: /Vender productos/ })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('radio', { name: /Agendar turnos/ }).click();
-    // Turnos suma "¿Cómo atendés?" y "¿Dónde atendés?": uno a uno son 7 pasos.
-    await expect(visible(page.getByText('Paso 1 de 7'))).toBeVisible();
+    // Turnos suma "¿Cómo atendés?" y "¿Dónde atendés?": uno a uno son 8 pasos.
+    await expect(visible(page.getByText('Paso 1 de 8'))).toBeVisible();
 
     await botonContinuar(page).click();
     await expect(visible(page.getByLabel('¿Cómo se llama tu negocio?'))).toHaveValue('Mates del Sur');

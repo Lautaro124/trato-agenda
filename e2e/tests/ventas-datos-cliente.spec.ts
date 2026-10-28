@@ -1,7 +1,7 @@
 import type { APIRequestContext } from '@playwright/test';
 import { API_URL } from '../entorno';
 import { agenteActual, esperarRuta, expect, sufijo, test, visible } from './fixtures';
-import { botonContinuar, elegirAsistente } from './onboarding';
+import { botonContinuar, elegirAsistente, pasarHorarioAtencion } from './onboarding';
 import { crearAgenteVentasPorApi, crearProductoPorApi } from './ventas';
 
 /** El chat de prueba por API, para los tests que no prueban la pantalla del chat. */
@@ -40,6 +40,7 @@ test.describe('datos que el asistente de ventas le pide al cliente', () => {
     await expect(page.getByText('¿Te lo envío o lo retirás?', { exact: false })).toHaveCount(0);
     await botonContinuar(page).click();
 
+    await pasarHorarioAtencion(page);
     await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
     await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
     await esperarRuta(page, '/listo');

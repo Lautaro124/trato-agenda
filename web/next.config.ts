@@ -20,6 +20,14 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // No anunciar el framework en cada respuesta.
   poweredByHeader: false,
+  // En local se entra por 127.0.0.1: Mercado Pago rechaza un back_url con
+  // localhost. Sin esto, next dev bloquea sus recursos y la página no hidrata.
+  allowedDevOrigins: ["127.0.0.1"],
+  // También cubre builds fuera de Docker; el navegador no puede leer Railway.
+  env: {
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT:
+      process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || process.env.RAILWAY_ENVIRONMENT_NAME || "local",
+  },
   images: {
     // Las fotos de perfil de Google salen de este host.
     remotePatterns: [new URL("https://lh3.googleusercontent.com/**")],

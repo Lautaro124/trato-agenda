@@ -39,6 +39,8 @@ export type ProductoPanorama = {
    * En un producto a medida, su precio de referencia (null = sin precio).
    */
   precioDesdeCentavos: number | null;
+  /** La de sus precios; ausente = pesos. */
+  moneda?: string;
   /** Producto a medida (tiene `solicitud`): no tiene stock, se cotiza. */
   aMedida?: boolean;
   /** Producto a medida: con qué materiales se hace. */

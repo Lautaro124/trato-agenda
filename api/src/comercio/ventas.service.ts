@@ -5,6 +5,7 @@ import type { Env } from '../config/env.js';
 import type { ItemVenta, Prisma, Venta } from '../generated/prisma/client.js';
 import { avisoMercadoPagoDesconectado, avisoPedidoManual, avisoStock, avisoVentaPagada } from '../notificaciones/avisos.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
+import { RegistroPerformanceService } from '../performance/registro.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   MercadoPagoClient,
@@ -13,7 +14,7 @@ import {
   type PagoMp,
   type Preferencia,
 } from '../subscription/mercadopago.client.js';
-import { describirStock, hayStock, stockBajo } from './catalogo.rules.js';
+import { describirStock, hayStock, monedaDe, stockBajo, type Moneda } from './catalogo.rules.js';
 import {
   LARGO_MAX_ETIQUETA,
   LARGO_MAX_VALOR,
@@ -103,9 +104,14 @@ type VarianteBloqueada = {
   nombreProducto: string;
   productoId: string;
   categoria: string | null;
+  moneda: string;
   /** Una versión de un producto a medida: se pide con pedir_variante, no se reserva como stock. */
   aMedida: boolean;
 };
+
+/** Un pedido es de una sola moneda: el link de Mercado Pago y los totales no mezclan. */
+const PEDIDO_CON_DOS_MONEDAS =
+  'No se pueden mezclar productos en pesos y en dólares en un mismo pedido: hacé un pedido para cada moneda.';
 
 /** Estados desde los que el dueño (o el cliente) puede cancelar un pedido. */
 const ESTADOS_CANCELABLES = ['solicitado', 'a_cotizar', 'cotizado', 'pendiente_pago', 'vencida'] as const;
@@ -132,6 +138,7 @@ export class VentasService {
     private readonly cuentas: CuentaMercadoPagoService,
     private readonly config: ConfigService<Env, true>,
     private readonly notificaciones: NotificacionesService,
+    private readonly registro: RegistroPerformanceService,
   ) {}
 
   /** Unidades retenidas por pedidos pendientes y sin vencer, por variante (ver reservas.ts). */
@@ -155,6 +162,12 @@ export class VentasService {
     const nombreCliente = input.nombreCliente.trim();
     if (!nombreCliente) throw new PedidoRechazadoError('Falta el nombre de la persona: preguntáselo antes.');
 
+    // Mercado Pago cobra en pesos: un pedido en dólares se coordina a mano. La
+    // moneda se vuelve a leer, bloqueada, dentro de la reserva.
+    const moneda = await this.monedaDelPedido(input.userId, input.items.map((item) => item.varianteId));
+    const medioPago: MedioDePago = moneda === 'USD' ? 'manual' : input.medioPago;
+    input = { ...input, medioPago };
+
     const token = input.medioPago === 'mercadopago' ? await this.cuentas.tokenDe(input.userId) : null;
     if (input.medioPago === 'mercadopago' && !token) {
       throw new PedidoRechazadoError(
@@ -163,7 +176,7 @@ export class VentasService {
     }
 
     const items = agruparItems(input.items);
-    const venta = await this.prisma.$transaction((tx) => this.reservar(tx, input, items, nombreCliente, ahora));
+    const venta = await this.prisma.$transaction((tx) => this.reservar(tx, input, items, nombreCliente, ahora, moneda));
 
     if (token) {
       try {
@@ -223,18 +236,30 @@ export class VentasService {
     }
   }
 
+  /** La moneda de las variantes pedidas (sin bloquear); con dos distintas, rechaza. */
+  private async monedaDelPedido(userId: string, varianteIds: string[]): Promise<Moneda> {
+    const productos = await this.prisma.producto.findMany({
+      where: { userId, variantes: { some: { id: { in: varianteIds } } } },
+      select: { moneda: true },
+    });
+    const monedas = new Set(productos.map((producto) => monedaDe(producto.moneda)));
+    if (monedas.size > 1) throw new PedidoRechazadoError(PEDIDO_CON_DOS_MONEDAS);
+    return monedas.has('USD') ? 'USD' : 'ARS';
+  }
+
   private async reservar(
     tx: Tx,
     input: CrearPedidoInput,
     items: ItemPedido[],
     nombreCliente: string,
     ahora: Date,
+    moneda: Moneda,
   ): Promise<VentaConItems> {
     const ids = items.map((item) => item.varianteId).sort();
     // Orden fijo de bloqueo (por id): dos pedidos con las mismas variantes no se traban entre sí.
     const variantes = await tx.$queryRaw<VarianteBloqueada[]>`
       SELECT v."id", v."sku", v."nombre", v."precioCentavos", v."stock", v."disponible", v."activo",
-             p."codigo", p."nombre" AS "nombreProducto", p."id" AS "productoId", p."categoria",
+             p."codigo", p."nombre" AS "nombreProducto", p."id" AS "productoId", p."categoria", p."moneda",
              (p."solicitud" IS NOT NULL) AS "aMedida"
       FROM "Variante" v JOIN "Producto" p ON p."id" = v."productoId"
       WHERE v."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo" AND v."activo"
@@ -245,6 +270,15 @@ export class VentasService {
     if (items.some((item) => !porId.has(item.varianteId))) {
       throw new PedidoRechazadoError(
         'Alguno de los productos ya no está en el catálogo (o el id de variante no es de una búsqueda). Volvé a buscarlo.',
+      );
+    }
+    // Si el dueño cambió la moneda entre la lectura de arriba y este bloqueo, se
+    // rechaza en vez de cobrar en la que no era.
+    if (variantes.some((variante) => monedaDe(variante.moneda) !== moneda)) {
+      throw new PedidoRechazadoError(
+        new Set(variantes.map((variante) => monedaDe(variante.moneda))).size > 1
+          ? PEDIDO_CON_DOS_MONEDAS
+          : 'El precio de alguno de los productos acaba de cambiar. Volvé a buscarlo.',
       );
     }
     if (variantes.some((variante) => variante.aMedida)) {
@@ -289,7 +323,7 @@ export class VentasService {
       const variante = porId.get(item.varianteId) as VarianteBloqueada;
       const descuento = mejorDescuento(
         descuentos,
-        { id: variante.productoId, categoria: variante.categoria },
+        { id: variante.productoId, categoria: variante.categoria, moneda },
         variante.precioCentavos,
         ahora,
       );
@@ -317,6 +351,7 @@ export class VentasService {
         estado: 'pendiente_pago',
         medioPago: input.medioPago,
         totalCentavos: renglones.reduce((suma, renglon) => suma + renglon.subtotalCentavos, 0),
+        moneda,
         reservaVenceAt: vencimientoDeReserva(input.medioPago, ahora),
         dePrueba: input.dePrueba ?? false,
         entrega: leerEntrega(input.entrega),
@@ -396,7 +431,7 @@ export class VentasService {
     opciones: { mpPaymentId?: string; ahora?: Date } = {},
   ): Promise<ResultadoPago | null> {
     const ahora = opciones.ahora ?? new Date();
-    return this.prisma.$transaction(async (tx) => {
+    const resultado = await this.prisma.$transaction(async (tx) => {
       const [bloqueada] = await tx.$queryRaw<Array<{ id: string; estado: string }>>`
         SELECT "id", "estado" FROM "Venta" WHERE "id" = ${ventaId} FOR UPDATE
       `;
@@ -461,6 +496,9 @@ export class VentasService {
       }
       return { venta, nueva: true, stockBajo: conStockBajo };
     });
+    // Fuera de la transacción: la métrica nunca frena el pago (y es de mejor esfuerzo).
+    if (resultado?.nueva) await this.registro.avanzarPorVenta(resultado.venta, 'pagado');
+    return resultado;
   }
 
   /**
@@ -520,7 +558,10 @@ export class VentasService {
         ? {
             plantilla,
             detalle: /\{detalle\}/.test(plantilla)
-              ? detalleDeRenglones(await this.prisma.itemVenta.findMany({ where: { ventaId: venta.id }, orderBy: { id: 'asc' } }))
+              ? detalleDeRenglones(
+                  await this.prisma.itemVenta.findMany({ where: { ventaId: venta.id }, orderBy: { id: 'asc' } }),
+                  venta.moneda,
+                )
               : '',
           }
         : null;

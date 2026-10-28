@@ -14,10 +14,15 @@ import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
 import type { SugerenciasService } from '../../../comercio/sugerencias.service.js';
 import type { PedidosAMedidaService } from '../../../comercio/pedidos-a-medida.service.js';
-import { MOTIVOS_DEL_ASISTENTE, type MotivoDelAsistente } from '../../../comercio/pedido-a-medida.rules.js';
+import {
+  MOTIVOS_DEL_ASISTENTE,
+  leerSolicitudDeVenta,
+  type MotivoDelAsistente,
+} from '../../../comercio/pedido-a-medida.rules.js';
 import { validarRespuestasSolicitud, type RespuestaSolicitud } from '../../../comercio/solicitud.rules.js';
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
+import type { RegistroPerformanceService } from '../../../performance/registro.service.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
@@ -31,6 +36,7 @@ import {
   formatearCatalogo,
   formatearDescuentos,
   formatearListadoVentas,
+  totalesDeVentas,
   formatearPedidoCreado,
   formatearPedidos,
   formatearResultados,
@@ -58,6 +64,11 @@ export type DepsCatalogo = {
     | 'derivar'
     | 'varianteParaPedir'
     | 'pedirVariante'
+  >;
+  /** Módulo de performance (LAU-30): qué productos vio o pidió el chat y si se derivó. Sin él (evals), nada. */
+  registro?: Pick<
+    RegistroPerformanceService,
+    'registrarInteres' | 'registrarPedidoDeVariantes' | 'marcarDerivado' | 'registrarZonaDeDatos'
   >;
 };
 
@@ -134,6 +145,26 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
 
   type Args = OperacionPendiente['args'];
 
+  /**
+   * Lo que va al módulo de performance. El banco de pruebas del Home no
+   * cuenta. El registro nunca tira error (es de mejor esfuerzo).
+   */
+  const registrar = {
+    vistos: (state: EstadoVentasValue, productoIds: string[]) =>
+      state.esPropietario
+        ? Promise.resolve()
+        : deps.registro?.registrarInteres(state.ownerUserId, state.contexto.conversation.id, productoIds, 'vio'),
+    pedidos: (state: EstadoVentasValue, productoIds: string[]) =>
+      state.esPropietario
+        ? Promise.resolve()
+        : deps.registro?.registrarInteres(state.ownerUserId, state.contexto.conversation.id, productoIds, 'pidio'),
+    /** La provincia que dio el cliente en el pedido (lo guardado, ya normalizado). */
+    zona: (state: EstadoVentasValue, datosCliente: unknown) =>
+      state.esPropietario
+        ? Promise.resolve()
+        : deps.registro?.registrarZonaDeDatos(state.ownerUserId, state.contexto.conversation.id, leerDatosDeVenta(datosCliente)),
+  };
+
   async function crearPedido(state: EstadoVentasValue, args: Args): Promise<string> {
     const { agent, conversation, mpConectado } = state.contexto;
     const porDefecto: MedioDePago = mpConectado ? 'mercadopago' : 'manual';
@@ -152,6 +183,11 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         // El banco de pruebas del Home (quien habla es el dueño): pedido real, fuera del histórico.
         dePrueba: state.esPropietario,
       });
+      if (!state.esPropietario) {
+        const varianteIds = venta.items.flatMap((item) => (item.varianteId ? [item.varianteId] : []));
+        await deps.registro?.registrarPedidoDeVariantes(state.ownerUserId, conversation.id, varianteIds);
+      }
+      await registrar.zona(state, venta.datosCliente);
       return formatearPedidoCreado(agent, venta);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
@@ -176,6 +212,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         dePrueba: state.esPropietario,
       }),
     );
+    if (!state.esPropietario) await deps.registro?.marcarDerivado(state.ownerUserId, conversation.id);
     return `Listo, le avisé a ${titular}. ${decile}`;
   }
 
@@ -228,6 +265,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
           : {}),
         dePrueba: state.esPropietario,
       });
+      await registrar.pedidos(state, [producto.id]);
       const cotizacion = await deps.pedidos.cotizarSolicitud(resultado, previa);
       return formatearSolicitudRegistrada(
         resultado,
@@ -254,6 +292,9 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         datosCliente: leerDatosDeVenta(args.datosCliente),
         dePrueba: state.esPropietario,
       });
+      const productoId = leerSolicitudDeVenta(venta.solicitud)?.productoId;
+      if (productoId) await registrar.pedidos(state, [productoId]);
+      await registrar.zona(state, venta.datosCliente);
       return formatearCobroAMedida(state.contexto.agent, venta, true);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo anotar el pedido: ${error.message}`;
@@ -269,6 +310,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         entrega: leerEntrega(args.entrega),
         datosCliente: leerDatosDeVenta(args.datosCliente),
       });
+      await registrar.zona(state, venta.datosCliente);
       return formatearCobroAMedida(state.contexto.agent, venta);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo generar el cobro: ${error.message}`;
@@ -307,15 +349,24 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       hasta: typeof args.hasta === 'string' ? args.hasta : undefined,
     };
     try {
+      // Los totales van por moneda: nunca se suman pesos con dólares.
       if (operacion.nombre === 'listar_ventas') {
         const estado = typeof args.estado === 'string' ? (args.estado as never) : undefined;
-        return formatearListadoVentas(await deps.historico.listar(state.ownerUserId, { ...filtros, estado }));
+        const listado = await deps.historico.listar(state.ownerUserId, { ...filtros, estado });
+        if (!listado.monedas.includes('USD')) return formatearListadoVentas(listado);
+        const enDolares = await deps.historico.listar(state.ownerUserId, { ...filtros, estado, moneda: 'USD' });
+        return `${formatearListadoVentas(listado)}\n${totalesDeVentas(enDolares)}`;
       }
       const [resumen, listado] = await Promise.all([
         deps.historico.resumen(state.ownerUserId, filtros),
         deps.historico.listar(state.ownerUserId, filtros),
       ]);
-      return formatearResumenVentas(resumen, listado);
+      if (!listado.monedas.includes('USD')) return formatearResumenVentas(resumen, listado);
+      const [resumenUsd, listadoUsd] = await Promise.all([
+        deps.historico.resumen(state.ownerUserId, { ...filtros, moneda: 'USD' }),
+        deps.historico.listar(state.ownerUserId, { ...filtros, moneda: 'USD' }),
+      ]);
+      return `${formatearResumenVentas(resumen, listado)}\nEn dólares: ${formatearResumenVentas(resumenUsd, listadoUsd)}`;
     } catch (error) {
       if (error instanceof RangoInvalidoError) return `Fechas inválidas: ${error.message}`;
       throw error;
@@ -344,6 +395,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     ) {
       return `Esa versión no tiene foto propia y la de ${nombre} ya se la mandaste: no la repitas, seguí la charla.`;
     }
+    await registrar.vistos(state, [productoId]);
     return {
       texto:
         `Listo: la foto de ${nombre} le llega al cliente junto con tu respuesta. No la describas ni pegues ` +
@@ -359,12 +411,14 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const consulta = String(args.consulta);
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const productos = await deps.busqueda.buscar(state.ownerUserId, consulta, { categoria });
+        await registrar.vistos(state, productos.map((producto) => producto.productoId));
         const texto = formatearResultados(consulta, productos, state.contexto.agent);
         return productos.length > 0 ? ofrecer(texto) : texto;
       }
       case 'ver_catalogo': {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const catalogo = await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria);
+        if (catalogo.tipo === 'listado') await registrar.vistos(state, catalogo.productos.map((producto) => producto.productoId));
         const fotos = fotosDelListado(catalogo, fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)));
         const texto = formatearCatalogo(catalogo, state.contexto.agent, new Set(fotos.map((foto) => foto.productoId)));
         if (catalogo.tipo === 'vacio') return texto;

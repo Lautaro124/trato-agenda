@@ -4,11 +4,13 @@
  * Pago), no sólo la agenda. Si alguien agrega una relación sin `onDelete:
  * Cascade`, el `delete` del usuario falla y este test lo marca.
  */
+import { randomInt } from 'node:crypto';
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
 import type { CheckpointerService } from '../conversation/checkpointer.provider.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import { SubscriptionService as SubscriptionServiceReal } from '../subscription/subscription.service.js';
 import type { SubscriptionService } from '../subscription/subscription.service.js';
 import type { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
@@ -94,6 +96,14 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
     await prisma.configCotizacion.create({ data: { userId: dueno.id } });
     await prisma.notificacion.create({ data: { userId: dueno.id, tipo: 'pedido_manual', titulo: 'Pedido', cuerpo: 'Ana' } });
     await prisma.sugerenciaMejora.create({ data: { userId: dueno.id, tipo: 'idea', texto: 'Recordatorios el día antes' } });
+    // El registro del módulo de performance (LAU-30).
+    const etapaChat = await prisma.etapaChat.create({ data: { userId: dueno.id, conversationId: conversacion.id, etapa: 'pedido' } });
+    await prisma.preguntaChat.create({
+      data: { userId: dueno.id, etapaChatId: etapaChat.id, texto: '¿Tiene virola?', tema: 'stock', resuelta: true, etapa: 'pedido' },
+    });
+    await prisma.interesProducto.create({
+      data: { userId: dueno.id, conversationId: conversacion.id, productoId: producto.id, tipo: 'pidio' },
+    });
     await prisma.cuentaMercadoPago.create({
       data: { userId: dueno.id, mpUserId: '123', accessToken: 'cifrado', refreshToken: 'cifrado', expiraAt: new Date() },
     });
@@ -137,7 +147,38 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       prisma.eventoVenta.count({ where: { ventaId: aMedida.id } }),
       prisma.insumo.count({ where: donde }),
       prisma.configCotizacion.count({ where: donde }),
+      prisma.etapaChat.count({ where: donde }),
+      prisma.interesProducto.count({ where: donde }),
+      prisma.preguntaChat.count({ where: donde }),
     ]);
-    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('borrar y volver a crear la cuenta no reinicia el mes de prueba', async () => {
+    const hace29 = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
+    const telefono = `54911${randomInt(10_000_000, 99_999_999)}`;
+    const original = await prisma.user.create({ data: { phoneNumber: telefono, calendario: 'local', createdAt: hace29 } });
+    const config = { get: () => 'ab'.repeat(32) } as unknown as ConfigService<Env, true>;
+    const cuentas = new CuentaService(
+      prisma,
+      config,
+      { unlink: vi.fn().mockResolvedValue(undefined) } as unknown as WhatsappService,
+      { cancelar: vi.fn() } as unknown as SubscriptionService,
+      { saver: { deleteThread: vi.fn() } } as unknown as CheckpointerService,
+    );
+    await cuentas.eliminar(original);
+
+    const nueva = await prisma.user.create({ data: { phoneNumber: telefono, calendario: 'local' } });
+    const suscripciones = new SubscriptionServiceReal(prisma, {} as never, config, {} as never);
+    const { estado } = await (suscripciones as unknown as {
+      resolver(id: string): Promise<{ estado: { diasRestantes: number; estado: string } }>;
+    }).resolver(nueva.id);
+    expect(estado.diasRestantes).toBeLessThanOrEqual(1);
+
+    const otra = await prisma.user.create({ data: { phoneNumber: `${telefono}9`, calendario: 'local' } });
+    const { estado: estadoOtra } = await (suscripciones as unknown as {
+      resolver(id: string): Promise<{ estado: { diasRestantes: number } }>;
+    }).resolver(otra.id);
+    expect(estadoOtra.diasRestantes).toBe(30);
   });
 });

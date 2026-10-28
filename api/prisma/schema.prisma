@@ -37,6 +37,16 @@ model User {
   /// Refresh token de Google cifrado con AES-256-GCM. Nunca se expone por la API.
   googleRefreshToken String?
 
+  /// Horario de atención del asistente (LAU-29), igual para agenda y ventas.
+  /// Con `horarioAtencionActivo` en false atiende siempre (el default de las
+  /// cuentas de antes); en true no inicia atenciones fuera de `horarioAtencion`
+  /// ([{ dia, desde, hasta }]) leído en `zonaHoraria` (IANA). Las franjas se
+  /// conservan al desactivarlo. Forma y reglas en src/horario-atencion/.
+  horarioAtencionActivo Boolean @default(false)
+  horarioAtencion       Json    @default("[]")
+  /// Sólo para el horario de atención: la agenda y las ventas siguen en Buenos Aires.
+  zonaHoraria           String  @default("America/Argentina/Buenos_Aires")
+
   whatsappSession WhatsappSession?
   agent           Agent?
   conversaciones  Conversation[]
@@ -53,6 +63,9 @@ model User {
   sugerencias     SugerenciaMejora[]
   insumos          Insumo[]
   configCotizacion ConfigCotizacion?
+  etapasChat       EtapaChat[]
+  interesProductos InteresProducto[]
+  preguntasChat    PreguntaChat[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -209,6 +222,9 @@ model Conversation {
   turnos   Turno[]
   ventas   Venta[]
 
+  etapaChat        EtapaChat?
+  interesProductos InteresProducto[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -265,6 +281,18 @@ model Turno {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Lápida de una prueba gratis ya empezada. Sobrevive a la baja de la cuenta
+/// (sin FK al User) para que borrar y volver a crear la cuenta no regale otro
+/// mes: guarda sólo un HMAC de la identidad (Google, email o teléfono) y la
+/// fecha de alta original, nunca el dato legible. Ver
+/// api/src/subscription/prueba-consumida.ts. No se purga: si caducara, esperar
+/// un mes reabriría el hueco.
+model PruebaConsumida {
+  id     String   @id @default(cuid())
+  huella String   @unique
+  inicio DateTime
 }
 
 /// Suscripción paga del dueño. La fila recién existe cuando arranca un pago:
@@ -361,6 +389,10 @@ model Producto {
   nombre      String
   descripcion String  @default("")
   categoria   String?
+  /// "ARS" | "USD": la moneda de los precios de todas sus variantes. Un
+  /// pedido no mezcla monedas y uno en dólares se cobra a mano (Mercado Pago
+  /// cobra en pesos). Los a medida son siempre en pesos.
+  moneda      String  @default("ARS")
 
   /// Baja lógica: un producto borrado deja de venderse pero sus ventas
   /// guardan igual su snapshot.
@@ -379,6 +411,8 @@ model Producto {
   embeddingHash String?
 
   variantes Variante[]
+  intereses InteresProducto[]
+  preguntas PreguntaChat[]
   /// El descuento propio del producto (del formulario), si tiene.
   descuento Descuento?
   /// La foto que el asistente le manda al cliente cuando la pide (una sola).
@@ -405,10 +439,19 @@ model Producto {
   /// lo aprueba) | "automatica" (el asistente cotiza y lo manda).
   politicaCotizacion String @default("manual")
 
+  /// Importación rápida (LAU-31): de dónde salió el producto, como clave
+  /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
+  /// no crea otro producto. Null en los cargados a mano o por planilla.
+  origenId    String?
+  /// El enlace tal cual se importó (sin parámetros de seguimiento).
+  origenUrl   String?
+  importadoAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, codigo])
+  @@unique([userId, origenId])
   @@index([userId, categoria])
   @@index([busqueda], type: Gin)
   @@index([textoBusqueda(ops: raw("gin_trgm_ops"))], type: Gin)
@@ -815,4 +858,93 @@ model ConfigCotizacion {
   desgloseAlCliente String  @default("total")
 
   updatedAt DateTime @updatedAt
+}
+
+/// Etapa de un chat de ventas para el módulo de performance (LAU-30). Una
+/// fila por conversación, sin datos personales: la conversación se desliga a
+/// los 12 meses (retention.rules.ts) y queda sólo el conteo. Etapas y reglas
+/// en performance/etapas.rules.ts; definiciones en docs/performance.md.
+model EtapaChat {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Null cuando se desligó por retención o se borró la conversación.
+  conversationId String?       @unique
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  /// La más avanzada que alcanzó; nunca retrocede.
+  /// "consulta" | "vio_productos" | "eligiendo" | "lista" | "pedido" | "cotizado" | "pagado"
+  etapa    String  @default("consulta")
+  /// Última etapa que calculó Jev: "eligiendo" | "lista". Null si nunca se calculó.
+  etapaJev String?
+  /// El chat se derivó a una persona (derivar_consulta o atención humana).
+  derivado Boolean @default(false)
+
+  /// Provincia del cliente (paso de zona). Null = sin zona.
+  provincia     String?
+  /// "dato" | "inferida"
+  origenZona    String?
+  /// Cuándo se clasificaron sus preguntas (paso de preguntas); se reserva antes de llamar al modelo.
+  clasificadaAt DateTime?
+
+  /// Último mensaje del cliente: de ahí sale si está activo, estancado o abandonado.
+  ultimaActividadAt DateTime @default(now())
+
+  preguntas PreguntaChat[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId, ultimaActividadAt])
+  @@index([userId, createdAt])
+}
+
+/// Producto que un chat de ventas vio o pidió (LAU-30). Una fila por chat,
+/// producto y tipo, así un turno descartado y rehecho no cuenta dos veces.
+/// Se desliga de la conversación a los 12 meses, como EtapaChat.
+model InteresProducto {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  productoId     String
+  producto       Producto      @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  /// "vio" | "pidio"
+  tipo      String
+  createdAt DateTime @default(now())
+
+  @@unique([conversationId, productoId, tipo])
+  @@index([userId, createdAt])
+  @@index([productoId])
+}
+
+/// Pregunta de un cliente en un chat de ventas, clasificada por el modelo
+/// cuando el chat se estanca o paga (LAU-30). Cuelga de EtapaChat, así hereda
+/// la zona y la cohorte aunque la conversación se desligue. Reglas en
+/// performance/preguntas.rules.ts.
+model PreguntaChat {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  etapaChatId String
+  etapaChat   EtapaChat @relation(fields: [etapaChatId], references: [id], onDelete: Cascade)
+
+  /// Saneada en código (sin emails, URLs ni números largos). Null pasados 90 días.
+  texto      String?
+  /// "precio" | "envio" | "stock" | "medidas" | "pago" | "plazos" | "local" | "otro"
+  tema       String
+  /// Sólo un producto que ese chat vio o pidió.
+  productoId String?
+  producto   Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  /// Si el negocio la contestó con información concreta (inferencia del modelo).
+  resuelta   Boolean
+  /// La etapa en la que quedó el chat cuando se clasificó.
+  etapa      String
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([etapaChatId])
 }

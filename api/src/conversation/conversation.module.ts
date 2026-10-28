@@ -4,6 +4,7 @@ import { AgentsModule } from '../agents/agents.module.js';
 import { CalendarModule } from '../calendar/calendar.module.js';
 import { ComercioModule } from '../comercio/comercio.module.js';
 import { NotificacionesModule } from '../notificaciones/notificaciones.module.js';
+import { PerformanceModule } from '../performance/performance.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { CheckpointerService } from './checkpointer.provider.js';
 import { ConversationController } from './conversation.controller.js';
@@ -18,6 +19,7 @@ import { llmProvider } from './llm.provider.js';
     CalendarModule,
     ComercioModule,
     NotificacionesModule,
+    PerformanceModule,
     SubscriptionModule,
     PassportModule.register({ session: false }),
   ],

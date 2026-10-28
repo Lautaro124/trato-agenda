@@ -154,6 +154,30 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       await productos.eliminar(dueno.id, creado.id);
     });
 
+    it('guarda la moneda, y al cambiarla borra un descuento de monto fijo en vez de reinterpretarlo', async () => {
+      const dto = { codigo: 'CAM-USD', nombre: 'Cámara', variantes: [{ precioCentavos: 100_000, stock: 2 }] };
+      const creado = await productos.crear(dueno.id, { ...dto, descuento: { tipo: 'monto', valor: 10_000 } });
+      expect(creado).toMatchObject({ moneda: 'ARS', descuento: { tipo: 'monto', etiqueta: '$ 100 off' } });
+
+      // Sin mandar el descuento: el form viejo no lo pisa, pero el monto en pesos no vale en dólares.
+      const enDolares = await productos.actualizar(dueno.id, creado.id, { ...dto, moneda: 'USD' });
+      expect(enDolares).toMatchObject({ moneda: 'USD', descuento: null });
+
+      const conPorcentaje = await productos.actualizar(dueno.id, creado.id, {
+        ...dto,
+        moneda: 'USD',
+        descuento: { tipo: 'porcentaje', valor: 10 },
+      });
+      const otraVez = await productos.actualizar(dueno.id, creado.id, { ...dto, moneda: 'ARS' });
+      expect(conPorcentaje.descuento).toMatchObject({ tipo: 'porcentaje' });
+      expect(otraVez).toMatchObject({ moneda: 'ARS', descuento: { tipo: 'porcentaje' } });
+
+      await expect(
+        productos.crear(dueno.id, { codigo: 'MED-USD', nombre: 'Mesa', moneda: 'USD', solicitud: { preguntas: [] } }),
+      ).rejects.toThrow('se cotizan en pesos');
+      await productos.eliminar(dueno.id, creado.id);
+    });
+
     it('edita una variante sólo si es del dueño', async () => {
       const [remera] = (await productos.listar(dueno.id, { q: 'remera' })).productos;
       const talleM = remera.variantes.find((variante) => variante.nombre === 'Talle M')!;

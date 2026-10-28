@@ -1,6 +1,7 @@
 # Override para los E2E de Playwright (paquete e2e/). Suma un OpenRouter falso
-# y determinista, un Mercado Pago falso (OAuth, links de pago y webhooks
-# firmados) y le prende a la API el login de desarrollo:
+# y determinista, un Mercado Pago falso (OAuth, links de pago, suscripciones y
+# webhooks firmados), una tienda y un Mercado Libre falsos para la importación
+# rápida, y le prende a la API el login de desarrollo:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
 #   cd e2e && npm run e2e
@@ -10,7 +11,7 @@
 # override esté activo.
 services:
   openrouter-stub:
-    image: node:24-alpine
+    image: node:26.12.1-alpine
     working_dir: /stub
     command: ["node", "server.mjs"]
     volumes:
@@ -24,7 +25,7 @@ services:
       retries: 10
 
   mercadopago-stub:
-    image: node:24-alpine
+    image: node:26.12.1-alpine
     working_dir: /stub
     command: ["node", "server.mjs"]
     environment:
@@ -41,6 +42,20 @@ services:
       - "4020:4020"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4020/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  importacion-stub:
+    image: node:26.12.1-alpine
+    working_dir: /stub
+    command: ["node", "server.mjs"]
+    environment:
+      PORT: "4030"
+    volumes:
+      - ./e2e/importacion-stub:/stub:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4030/health"]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -65,8 +80,20 @@ services:
       MERCADOPAGO_AUTH_URL: http://localhost:4020
       MERCADOPAGO_CLIENT_ID: e2e-app
       MERCADOPAGO_CLIENT_SECRET: e2e-secret
+      # La suscripción de Trato (preapproval) también va al Mercado Pago falso:
+      # así un spec puede pasar una cuenta al plan Pro de verdad.
+      MERCADOPAGO_ACCESS_TOKEN: e2e-access-token
+      # Importación rápida: la tienda y el Mercado Libre falsos. Este host es
+      # el único al que la importación puede pedir por http y en la red
+      # interna; validateEnv no deja arrancar con esto en producción.
+      MERCADOLIBRE_API_URL: http://importacion-stub:4030/ml
+      MERCADOLIBRE_CLIENT_ID: e2e-ml-app
+      MERCADOLIBRE_CLIENT_SECRET: e2e-ml-secret
+      IMPORTACION_HOSTS_DE_PRUEBA: importacion-stub
     depends_on:
       openrouter-stub:
         condition: service_healthy
       mercadopago-stub:
+        condition: service_healthy
+      importacion-stub:
         condition: service_healthy

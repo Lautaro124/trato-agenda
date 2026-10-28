@@ -156,6 +156,10 @@ con la config de cuenta).
   hay uno activo, cierra la sesión de WhatsApp, borra los threads del
   checkpointer de LangGraph —que están fuera del cascade de Prisma— y borra el
   usuario con todo lo que cuelga de él. Autoservicio desde `/cuenta` en la app.
+  Lo único que queda es una lápida antifraude (`PruebaConsumida`): un HMAC
+  irreversible del id de Google, el mail y el teléfono más la fecha de alta,
+  para que recrear la cuenta no reinicie el mes de prueba. No contiene datos de
+  Google ni nada legible; está declarado en `/privacidad`.
 - Retención (`api/src/retention/retention.rules.ts`): mensajes y estado de
   conversación a los **90 días** de inactividad; nombre y resumen del cliente a
   los **12 meses**; los turnos mientras exista la cuenta. Lo aplica una purga

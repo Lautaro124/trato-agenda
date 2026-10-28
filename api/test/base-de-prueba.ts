@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../src/config/env.js';
-import type { User } from '../src/generated/prisma/client.js';
+import type { Prisma, User } from '../src/generated/prisma/client.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
 export const URL_BASE_DE_PRUEBA = process.env.TEST_DATABASE_URL ?? '';
@@ -27,7 +27,10 @@ export function crearPrismaDePrueba(): PrismaService {
   return new PrismaService(config);
 }
 
-export async function crearUsuarioDePrueba(prisma: PrismaService, datos: Partial<User> = {}): Promise<User> {
+export async function crearUsuarioDePrueba(
+  prisma: PrismaService,
+  datos: Partial<Prisma.UserUncheckedCreateInput> = {},
+): Promise<User> {
   return prisma.user.create({
     data: { name: 'Prueba', calendario: 'local', googleId: `test:${randomUUID()}`, ...datos },
   });

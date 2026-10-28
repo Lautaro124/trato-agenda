@@ -2,9 +2,10 @@
 
 import { Fragment, useEffect, useId, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
+import { useAvisos, type Confirmacion } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { ErrorDeApi, formatearCentavos } from "@/lib/productos";
+import { ErrorDeApi, formatearCentavos, formatearMonto } from "@/lib/productos";
 import {
   cambiarAtencion,
   cancelarVenta,
@@ -47,9 +48,11 @@ export function DetalleVenta({
     return () => document.removeEventListener("keydown", alEscape);
   }, [onCerrar]);
 
+  const { confirmar } = useAvisos();
+
   /** Corre una acción sobre el pedido y lo reemplaza por lo que devuelve la API. true si salió bien. */
-  const correr = (hacer: () => Promise<Detalle>, confirmacion?: string): Promise<boolean> => {
-    if (confirmacion && !window.confirm(confirmacion)) return Promise.resolve(false);
+  const correr = async (hacer: () => Promise<Detalle>, confirmacion?: Confirmacion): Promise<boolean> => {
+    if (confirmacion && !(await confirmar(confirmacion))) return false;
     setTrabajando(true);
     setError(null);
     setAviso(null);
@@ -64,7 +67,7 @@ export function DetalleVenta({
       })
       .finally(() => setTrabajando(false));
   };
-  const accion = (hacer: () => Promise<Detalle>, confirmacion: string) => void correr(hacer, confirmacion);
+  const accion = (hacer: () => Promise<Detalle>, confirmacion: Confirmacion) => void correr(hacer, confirmacion);
 
   /** Cuando el chat no está vinculado el presupuesto queda guardado igual: se avisa que no llegó. */
   const avisarSiNoLlego = (actualizado: Detalle & { mandado?: boolean }) => {
@@ -79,28 +82,52 @@ export function DetalleVenta({
     atender: () =>
       accion(
         () => cambiarAtencion(venta.id, true),
-        "¿Lo atendés vos? Tu asistente deja de contestar en ese chat hasta que se lo devuelvas.",
+        {
+          titulo: "¿Lo atendés vos?",
+          texto: "Tu asistente deja de contestar en ese chat hasta que se lo devuelvas.",
+          confirmar: "Sí, lo atiendo yo",
+          tono: "cuidado",
+        },
       ),
     devolver: (nota) => void correr(() => cambiarAtencion(venta.id, false, nota)),
     guardarPresupuesto: (presupuesto) =>
       correr(
         () => crearPresupuesto(venta.id, presupuesto).then(avisarSiNoLlego),
         presupuesto.enviar
-          ? "¿Mandárselo al cliente? Le llega por su chat y pasa a ser el presupuesto vigente (si había otro link de pago, deja de valer)."
+          ? {
+              titulo: "¿Mandárselo al cliente?",
+              texto: "Le llega por su chat y pasa a ser el presupuesto vigente. Si había otro link de pago, deja de valer.",
+              confirmar: "Mandar",
+              tono: "cuidado",
+            }
           : undefined,
       ),
     enviarPresupuesto: (presupuesto) =>
       accion(
         () => enviarPresupuesto(venta.id, presupuesto.id).then(avisarSiNoLlego),
-        "¿Mandárselo al cliente? Le llega por su chat y pasa a ser el presupuesto vigente.",
+        {
+          titulo: "¿Mandárselo al cliente?",
+          texto: "Le llega por su chat y pasa a ser el presupuesto vigente.",
+          confirmar: "Mandar",
+          tono: "cuidado",
+        },
       ),
     descartarPresupuesto: (presupuesto) =>
-      accion(() => descartarPresupuesto(venta.id, presupuesto.id), "¿Descartar este presupuesto sin mandarlo?"),
+      accion(() => descartarPresupuesto(venta.id, presupuesto.id), {
+        titulo: "¿Descartar este presupuesto sin mandarlo?",
+        confirmar: "Descartar",
+        tono: "neutro",
+      }),
     desdeReceta: () => void correr(() => presupuestoDesdeReceta(venta.id)),
     cobrar: () =>
       accion(
         () => cobrarPedido(venta.id),
-        "¿Generar el cobro del presupuesto vigente? Si tenés Mercado Pago conectado se crea el link; si no, queda para coordinar.",
+        {
+          titulo: "¿Generar el cobro del presupuesto vigente?",
+          texto: "Si tenés Mercado Pago conectado se crea el link; si no, queda para coordinar.",
+          confirmar: "Generar cobro",
+          tono: "cuidado",
+        },
       ),
   };
 
@@ -150,17 +177,17 @@ export function DetalleVenta({
                   {item.cantidad} × {item.nombreProducto}
                   {item.nombreVariante && <span className="text-ink-secondary"> ({item.nombreVariante})</span>}
                   <span className="block text-[11.5px] text-muted">
-                    {item.codigo} · {formatearCentavos(item.precioUnitarioCentavos)} c/u
+                    {item.codigo} · {formatearMonto(item.precioUnitarioCentavos, venta.moneda)} c/u
                     {item.descuentoCentavos > 0 && item.precioListaCentavos !== null && (
                       <>
                         {" "}
-                        <span className="line-through">{formatearCentavos(item.precioListaCentavos)}</span>
+                        <span className="line-through">{formatearMonto(item.precioListaCentavos, venta.moneda)}</span>
                         {item.descuentoEtiqueta && ` · ${item.descuentoEtiqueta}`}
                       </>
                     )}
                   </span>
                 </td>
-                <td className="py-2 text-right text-ink tabular-nums">{formatearCentavos(item.subtotalCentavos)}</td>
+                <td className="py-2 text-right text-ink tabular-nums">{formatearMonto(item.subtotalCentavos, venta.moneda)}</td>
               </tr>
             ))}
             <tr>
@@ -269,9 +296,12 @@ export function DetalleVenta({
               onClick={() =>
                 accion(
                   () => cancelarVenta(venta.id),
-                  aMedida
-                    ? "¿Cancelar el pedido? Si tenía un link de pago, deja de valer."
-                    : "¿Cancelar el pedido? Se libera la reserva del stock.",
+                  {
+                    titulo: "¿Cancelar el pedido?",
+                    texto: aMedida ? "Si tenía un link de pago, deja de valer." : "Se libera la reserva del stock.",
+                    confirmar: "Sí, cancelar pedido",
+                    cancelar: "Volver",
+                  },
                 )
               }
             >
@@ -286,10 +316,18 @@ export function DetalleVenta({
                   accion(
                     () => marcarPagada(venta.id),
                     venta.medioPago === "mercadopago"
-                      ? `¿Te pagó por otro medio? Si lo marcás pagado${aMedida ? "" : " se descuenta el stock;"} si además paga el link de Mercado Pago, vas a tener que devolverle uno de los dos pagos.`
-                      : aMedida
-                        ? "¿Marcar el pedido como pagado?"
-                        : "¿Marcar el pedido como pagado? Se descuenta el stock.",
+                      ? {
+                          titulo: "¿Te pagó por otro medio?",
+                          texto: `Si lo marcás pagado${aMedida ? "" : " se descuenta el stock;"} si además paga el link de Mercado Pago, vas a tener que devolverle uno de los dos pagos.`,
+                          confirmar: "Marcar pagada",
+                          tono: "cuidado",
+                        }
+                      : {
+                          titulo: "¿Marcar el pedido como pagado?",
+                          texto: aMedida ? undefined : "Se descuenta el stock.",
+                          confirmar: "Marcar pagada",
+                          tono: "cuidado",
+                        },
                   )
                 }
               >

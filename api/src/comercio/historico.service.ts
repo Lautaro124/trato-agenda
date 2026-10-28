@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { TIMEZONE } from '../conversation/graph/agenda-rules.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { MONEDAS, type Moneda } from './catalogo.rules.js';
 import { diasEntre, MAX_FILAS_CSV, rangoDeDias, ventasACsv, type Rango } from './historico.rules.js';
 import type { Atencion } from './pedido-a-medida.rules.js';
 import type { EstadoVenta } from './ventas.rules.js';
@@ -21,6 +22,8 @@ export type FiltrosHistorico = {
   atencion?: Atencion;
   /** Los pedidos del banco de pruebas no cuentan salvo que se pidan. */
   incluirPrueba?: boolean;
+  /** La moneda de los totales y del resumen: nunca se suman pesos con dólares. Por defecto, pesos. */
+  moneda?: Moneda;
   pagina?: number;
 };
 
@@ -41,11 +44,16 @@ export type ListadoVentas = {
   total: number;
   pagina: number;
   porPagina: number;
+  /** Los totales son sólo de esta moneda. */
+  moneda: Moneda;
   totales: TotalesHistorico;
+  /** Las monedas que tienen ventas en el período (para elegir de cuál ver los totales). */
+  monedas: Moneda[];
   rango: { primerDia: string; ultimoDia: string };
 };
 
 export type ResumenVentas = {
+  moneda: Moneda;
   rango: { primerDia: string; ultimoDia: string };
   /** Un punto por día del rango, con cero los días sin ventas. */
   porDia: Array<{ dia: string; cobradoCentavos: number; ventas: number }>;
@@ -68,9 +76,11 @@ export class HistoricoVentasService {
     const where = this.where(userId, rango, filtros, ahora);
     // Los totales son del período, como los gráficos: la búsqueda y el estado
     // sólo recortan el listado.
-    const base = this.where(userId, rango, { incluirPrueba: filtros.incluirPrueba }, ahora);
+    const periodo = this.where(userId, rango, { incluirPrueba: filtros.incluirPrueba }, ahora);
+    const moneda = filtros.moneda ?? 'ARS';
+    const base: Prisma.VentaWhereInput = { AND: [periodo, { moneda }] };
 
-    const [ventas, total, pagadas, pendientes, porCotizar] = await Promise.all([
+    const [ventas, total, pagadas, pendientes, porCotizar, monedas] = await Promise.all([
       this.prisma.venta.findMany({
         where,
         include: { items: true },
@@ -90,6 +100,7 @@ export class HistoricoVentasService {
         _count: { _all: true },
       }),
       this.prisma.venta.count({ where: { AND: [base, { estado: { in: ['solicitado', 'a_cotizar'] } }] } }),
+      this.prisma.venta.groupBy({ by: ['moneda'], where: periodo }),
     ]);
 
     const cobrado = pagadas._sum.totalCentavos ?? 0;
@@ -99,6 +110,8 @@ export class HistoricoVentasService {
       pagina,
       porPagina: VENTAS_POR_PAGINA,
       rango: { primerDia: rango.primerDia, ultimoDia: rango.ultimoDia },
+      moneda,
+      monedas: MONEDAS.filter((conocida) => monedas.some((fila) => fila.moneda === conocida)),
       totales: {
         cobradoCentavos: cobrado,
         pagadas: pagadas._count._all,
@@ -110,16 +123,21 @@ export class HistoricoVentasService {
     };
   }
 
-  async resumen(userId: string, filtros: Pick<FiltrosHistorico, 'desde' | 'hasta' | 'incluirPrueba'>, ahora: Date = new Date()): Promise<ResumenVentas> {
+  async resumen(
+    userId: string,
+    filtros: Pick<FiltrosHistorico, 'desde' | 'hasta' | 'incluirPrueba' | 'moneda'>,
+    ahora: Date = new Date(),
+  ): Promise<ResumenVentas> {
     const rango = rangoDeDias(filtros.desde, filtros.hasta, ahora);
     const incluirPrueba = filtros.incluirPrueba ?? false;
+    const moneda = filtros.moneda ?? 'ARS';
 
     const [porDia, top] = await Promise.all([
       this.prisma.$queryRaw<Array<{ dia: string; cobrado: number; ventas: number }>>`
         SELECT to_char(v."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${TIMEZONE}, 'YYYY-MM-DD') AS "dia",
                SUM(v."totalCentavos")::int AS "cobrado", COUNT(*)::int AS "ventas"
         FROM "Venta" v
-        WHERE v."userId" = ${userId} AND v."estado" = 'pagada'
+        WHERE v."userId" = ${userId} AND v."estado" = 'pagada' AND v."moneda" = ${moneda}
           AND v."createdAt" >= ${rango.desde} AND v."createdAt" < ${rango.hasta}
           AND (${incluirPrueba} OR NOT v."dePrueba")
         GROUP BY 1
@@ -128,7 +146,7 @@ export class HistoricoVentasService {
         SELECT i."codigo", MAX(i."nombreProducto") AS "nombreProducto",
                SUM(i."cantidad")::int AS "unidades", SUM(i."subtotalCentavos")::int AS "cobrado"
         FROM "ItemVenta" i JOIN "Venta" v ON v."id" = i."ventaId"
-        WHERE v."userId" = ${userId} AND v."estado" = 'pagada'
+        WHERE v."userId" = ${userId} AND v."estado" = 'pagada' AND v."moneda" = ${moneda}
           AND v."createdAt" >= ${rango.desde} AND v."createdAt" < ${rango.hasta}
           AND (${incluirPrueba} OR NOT v."dePrueba")
         GROUP BY i."codigo"
@@ -139,6 +157,7 @@ export class HistoricoVentasService {
 
     const porClave = new Map(porDia.map((fila) => [fila.dia, fila]));
     return {
+      moneda,
       rango: { primerDia: rango.primerDia, ultimoDia: rango.ultimoDia },
       porDia: diasEntre(rango.primerDia, rango.ultimoDia).map((dia) => ({
         dia,

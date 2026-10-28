@@ -8,6 +8,7 @@ import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../.
 import {
   DIAS_RETENCION_AVISOS_LEIDOS,
   DIAS_RETENCION_DATOS_CLIENTE,
+  DIAS_RETENCION_MENSAJES,
   DIAS_RETENCION_SUGERENCIAS,
   fechaLimite,
 } from './retention.rules.js';
@@ -173,5 +174,63 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     const quedan = await prisma.sugerenciaMejora.findMany({ where: { userId: dueno.id }, select: { id: true } });
     expect(quedan.map(({ id }) => id).sort()).toEqual([enviadaNueva.id, pendienteVieja.id].sort());
     expect(quedan.map(({ id }) => id)).not.toContain(enviadaVieja.id);
+  });
+  it('a los 12 meses el registro de performance se desliga del chat y queda como conteo', async () => {
+    const conversation = await prisma.conversation.create({
+      data: { userId: dueno.id, remoteJid: '5491100000001@s.whatsapp.net' },
+    });
+    const producto = await prisma.producto.create({ data: { userId: dueno.id, codigo: 'PERF', nombre: 'Mate' } });
+    const viejo = pasado(DIAS_RETENCION_DATOS_CLIENTE);
+    await prisma.etapaChat.create({
+      data: { userId: dueno.id, conversationId: conversation.id, etapa: 'pagado', ultimaActividadAt: viejo },
+    });
+    await prisma.interesProducto.createMany({
+      data: [
+        { userId: dueno.id, conversationId: conversation.id, productoId: producto.id, tipo: 'vio', createdAt: viejo },
+        {
+          userId: dueno.id,
+          conversationId: conversation.id,
+          productoId: producto.id,
+          tipo: 'pidio',
+          createdAt: reciente(DIAS_RETENCION_DATOS_CLIENTE),
+        },
+      ],
+    });
+
+    await servicio['desligarPerformance'](AHORA);
+
+    expect(await prisma.etapaChat.findMany({ where: { userId: dueno.id } })).toEqual([
+      expect.objectContaining({ conversationId: null, etapa: 'pagado' }),
+    ]);
+    const intereses = await prisma.interesProducto.findMany({ where: { userId: dueno.id }, orderBy: { tipo: 'asc' } });
+    expect(intereses.map((interes) => [interes.tipo, interes.conversationId])).toEqual([
+      ['pidio', conversation.id],
+      ['vio', null],
+    ]);
+  });
+  it('el texto de las preguntas se borra a los 90 días o cuando el chat se desliga; el tema queda', async () => {
+    const conversation = await prisma.conversation.create({
+      data: { userId: dueno.id, remoteJid: '5491100000002@s.whatsapp.net' },
+    });
+    const ligada = await prisma.etapaChat.create({ data: { userId: dueno.id, conversationId: conversation.id } });
+    const desligada = await prisma.etapaChat.create({ data: { userId: dueno.id, conversationId: null } });
+    const pregunta = (etapaChatId: string, createdAt: Date) =>
+      prisma.preguntaChat.create({
+        data: { userId: dueno.id, etapaChatId, texto: '¿Hacen envíos?', tema: 'envio', resuelta: true, etapa: 'pedido', createdAt },
+      });
+    const vieja = await pregunta(ligada.id, pasado(DIAS_RETENCION_MENSAJES));
+    const nueva = await pregunta(ligada.id, reciente(DIAS_RETENCION_MENSAJES));
+    const deDesligado = await pregunta(desligada.id, reciente(DIAS_RETENCION_MENSAJES));
+
+    await servicio['purgarPreguntas'](AHORA);
+
+    const trasPurga = await prisma.preguntaChat.findMany({
+      where: { id: { in: [vieja.id, nueva.id, deDesligado.id] } },
+      select: { id: true, texto: true, tema: true },
+    });
+    const por = new Map(trasPurga.map((fila) => [fila.id, fila]));
+    expect(por.get(vieja.id)).toMatchObject({ texto: null, tema: 'envio' });
+    expect(por.get(nueva.id)).toMatchObject({ texto: '¿Hacen envíos?' });
+    expect(por.get(deDesligado.id)).toMatchObject({ texto: null, tema: 'envio' });
   });
 });

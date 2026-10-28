@@ -28,6 +28,8 @@ export type Producto = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
+  /** La moneda de los precios de todas sus variantes. */
+  moneda: Moneda;
   activo: boolean;
   updatedAt: string;
   /** true cuando el asistente ya lo encuentra también por significado. */
@@ -52,11 +54,14 @@ export type ListadoProductos = { productos: Producto[]; total: number; pagina: n
 
 export type Categoria = { nombre: string; cantidad: number };
 
+/** `columna` (la de la plantilla) está sólo si el error se arregla corrigiendo un campo de esa fila. */
+export type ErrorDeFila = { fila: number; mensaje: string; columna?: string };
+
 export type ResumenImportacion = {
   nuevos: number;
   actualizados: number;
   variantes: number;
-  errores: Array<{ fila: number; mensaje: string }>;
+  errores: ErrorDeFila[];
   totalErrores: number;
   confirmado: boolean;
 };
@@ -68,6 +73,8 @@ export type ProductoEncontrado = {
   nombre: string;
   categoria: string | null;
   descripcion: string;
+  /** Ausente = pesos. */
+  moneda?: Moneda;
   variantes: Array<{
     varianteId: string;
     sku: string;
@@ -94,6 +101,7 @@ type ProductoBaseAGuardar = {
 
 /** Body de alta/edición en una cuenta con stock (`GuardarProductoDto`). */
 export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
+  moneda: Moneda;
   variantes: Array<{
     sku?: string;
     nombre: string;
@@ -199,8 +207,20 @@ const PESOS_CON_CENTAVOS = new Intl.NumberFormat("es-AR", { minimumFractionDigit
 
 /** 150000 → "$ 1.500"; 150050 → "$ 1.500,50". */
 export function formatearCentavos(centavos: number): string {
-  const pesos = centavos / 100;
-  return `$ ${Number.isInteger(pesos) ? PESOS.format(pesos) : PESOS_CON_CENTAVOS.format(pesos)}`;
+  return formatearMonto(centavos, "ARS");
+}
+
+/** Monedas de un producto (las de MONEDAS en la API): todo lo demás es en pesos. */
+export const MONEDAS = ["ARS", "USD"] as const;
+export type Moneda = (typeof MONEDAS)[number];
+
+export const NOMBRE_MONEDA: Record<Moneda, string> = { ARS: "Pesos", USD: "Dólares" };
+
+/** 150000 en pesos → "$ 1.500"; en dólares → "US$ 1.500". El mismo formato que la API. */
+export function formatearMonto(centavos: number, moneda: string = "ARS"): string {
+  const unidades = centavos / 100;
+  const numero = Number.isInteger(unidades) ? PESOS.format(unidades) : PESOS_CON_CENTAVOS.format(unidades);
+  return `${moneda === "USD" ? "US$" : "$"} ${numero}`;
 }
 
 /** Tope del precio, el mismo que PRECIO_MAX_PESOS de la API. */

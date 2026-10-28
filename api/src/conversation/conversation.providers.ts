@@ -16,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CheckpointerService } from './checkpointer.provider.js';
 import { construirGrafo, type GrafoConversacion } from './graph/graph.factory.js';
 import { LLM_CONVERSACION } from './llm.provider.js';
+import { RegistroPerformanceService } from '../performance/registro.service.js';
 import { construirGrafoVentas, type GrafoVentas } from './ventas/grafo-ventas.factory.js';
 
 export type { GrafoConversacion, GrafoVentas };
@@ -62,6 +63,7 @@ export const grafoVentasProvider = {
     ConfigService,
     DecisionesClient,
     PedidosAMedidaService,
+    RegistroPerformanceService,
   ],
   useFactory: (
     prisma: PrismaService,
@@ -77,6 +79,7 @@ export const grafoVentasProvider = {
     config: ConfigService<Env, true>,
     decisiones: DecisionesClient,
     pedidos: PedidosAMedidaService,
+    registro: RegistroPerformanceService,
   ): GrafoVentas =>
     construirGrafoVentas({
       prisma,
@@ -92,5 +95,6 @@ export const grafoVentasProvider = {
       ventanaHistorialMs: config.get('HISTORIAL_IA_VENTANA_MS', { infer: true }),
       decisiones,
       pedidos,
+      registro,
     }),
 };

@@ -31,6 +31,7 @@ services:
       # son las mismas que arriba. Fuera de compose (Railway, por ejemplo) esta
       # variable la define el proveedor y el resto del archivo no interviene.
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-trato}
+      SENTRY_ENVIRONMENT: local
       # La zona del negocio, para que los logs y cualquier `new Date` suelto no
       # queden en UTC. Las fechas de la agenda no dependen de esto: agenda-rules
       # ancla explícitamente lo que llega sin offset.
@@ -59,12 +60,14 @@ services:
         # tiene que llegar como build arg, no como variable de runtime.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: local
     environment:
       # El browser habla con la API por el puerto publicado en el host, no por
       # el nombre del servicio: "api" no resuelve fuera de la red de compose.
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
       # Vacío (el default) = sin Sentry en local.
       NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+      NEXT_PUBLIC_SENTRY_ENVIRONMENT: local
       NEXT_TELEMETRY_DISABLED: "1"
     ports:
       - "3000:3000"

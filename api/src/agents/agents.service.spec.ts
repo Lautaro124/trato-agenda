@@ -603,3 +603,54 @@ describe('lugar de atención del asistente de turnos (LAU-17)', () => {
     expect(data.local.retiroEnLocal).toBe(true);
   });
 });
+
+describe('horario de atención del onboarding (LAU-29)', () => {
+  const horarioAtencion = { franjas: [{ dia: 'lun' as const, desde: '09:00', hasta: '13:00' }], zona: 'America/Lima' };
+
+  function conTransaccion() {
+    const creado = crearServicio();
+    const userUpdate = vi.fn().mockResolvedValue({});
+    const transaction = vi.fn().mockImplementation((operaciones: Promise<unknown>[]) => Promise.all(operaciones));
+    Object.assign(creado.prisma, { user: { update: userUpdate }, $transaction: transaction });
+    return { ...creado, userUpdate, transaction };
+  }
+
+  it('lo guarda activo en el usuario, en la misma transacción que el agente', async () => {
+    const { service, userUpdate, transaction } = conTransaccion();
+    await service.generarVentas('user-1', { nombreTitular: 'Tienda', nombreBot: 'Tati', horarioAtencion });
+
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { horarioAtencionActivo: true, horarioAtencion: horarioAtencion.franjas, zonaHoraria: 'America/Lima' },
+    });
+  });
+
+  it('el de turnos también lo guarda', async () => {
+    const { service, userUpdate } = conTransaccion();
+    await service.generate('user-1', { ...dto, horarioAtencion });
+    expect(userUpdate).toHaveBeenCalledOnce();
+  });
+
+  it('sin el paso no toca el horario de la cuenta', async () => {
+    const { service, userUpdate, transaction } = conTransaccion();
+    await service.generate('user-1', dto);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+
+  it('un horario sin franjas o con una zona desconocida es un 400 antes de guardar nada', async () => {
+    const { service, upsert } = conTransaccion();
+    await expect(
+      service.generate('user-1', { ...dto, horarioAtencion: { franjas: [], zona: 'America/Lima' } }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      service.generarVentas('user-1', {
+        nombreTitular: 'Tienda',
+        nombreBot: 'Tati',
+        horarioAtencion: { ...horarioAtencion, zona: 'Asia/Tokyo' },
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});

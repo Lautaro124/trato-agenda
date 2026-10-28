@@ -2,27 +2,15 @@
 
 import { useCallback, useMemo, useState } from "react";
 import {
-  DIAS_SEMANA,
-  horariosDe,
   problemaDeLaDireccion,
-  problemaDelDia,
   problemaDelEnlace,
   semanaDesde,
   semanaInicial,
-  type DiaSemana,
   type LocalPresencial,
   type OpcionLugar,
-  type SemanaEnPantalla,
   type TipoLugar,
 } from "@/lib/local";
-
-function laMasTarde(a: string, b: string): string {
-  return a.localeCompare(b) >= 0 ? a : b;
-}
-
-function laMasTemprana(a: string, b: string): string {
-  return a.localeCompare(b) <= 0 ? a : b;
-}
+import { useSemana } from "./useSemana";
 
 const RESUMEN_LUGAR: Record<OpcionLugar, string> = {
   local: "En un local",
@@ -44,54 +32,7 @@ export function useLocal(inicial: LocalPresencial | null = null, { paraAgenda = 
   const [direccion, setDireccion] = useState(inicial?.direccion ?? "");
   const [enlaceUbicacion, setEnlaceUbicacion] = useState(inicial?.enlaceUbicacion ?? "");
   const [retiroEnLocal, setRetiroEnLocal] = useState(inicial?.retiroEnLocal ?? false);
-  const [semana, setSemana] = useState<SemanaEnPantalla>(() =>
-    inicial?.tieneLocal ? semanaDesde(inicial.horarios) : semanaInicial(),
-  );
-
-  const alternarDia = useCallback((dia: DiaSemana) => {
-    setSemana((previa) => ({ ...previa, [dia]: { ...previa[dia], abierto: !previa[dia].abierto } }));
-  }, []);
-
-  const fijarHora = useCallback((dia: DiaSemana, indice: number, campo: "desde" | "hasta", hora: string) => {
-    setSemana((previa) => ({
-      ...previa,
-      [dia]: {
-        ...previa[dia],
-        franjas: previa[dia].franjas.map((franja, i) => (i === indice ? { ...franja, [campo]: hora } : franja)),
-      },
-    }));
-  }, []);
-
-  /** El corte del mediodía: parte la franja en dos, de mañana y de tarde. */
-  const agregarCorte = useCallback((dia: DiaSemana) => {
-    setSemana((previa) => {
-      const [primera] = previa[dia].franjas;
-      // "HH:MM" se ordena bien como texto: la mañana cierra a las 13 y la tarde abre a las 16, dentro de la franja.
-      const manana = { desde: primera.desde, hasta: laMasTarde(primera.desde, "13:00") };
-      const tarde = { desde: laMasTemprana(primera.hasta, "16:00"), hasta: primera.hasta };
-      return { ...previa, [dia]: { ...previa[dia], franjas: [manana, tarde] } };
-    });
-  }, []);
-
-  const quitarCorte = useCallback((dia: DiaSemana) => {
-    setSemana((previa) => {
-      const [primera, segunda] = previa[dia].franjas;
-      const unida = { desde: primera.desde, hasta: segunda?.hasta ?? primera.hasta };
-      return { ...previa, [dia]: { ...previa[dia], franjas: [unida] } };
-    });
-  }, []);
-
-  /** Copia el horario de un día a los demás días que abren. */
-  const copiarATodos = useCallback((origen: DiaSemana) => {
-    setSemana((previa) =>
-      Object.fromEntries(
-        DIAS_SEMANA.map((dia) => [
-          dia,
-          previa[dia].abierto ? { ...previa[dia], franjas: previa[origen].franjas.map((franja) => ({ ...franja })) } : previa[dia],
-        ]),
-      ) as SemanaEnPantalla,
-    );
-  }, []);
+  const horarios = useSemana(() => (inicial?.tieneLocal ? semanaDesde(inicial.horarios) : semanaInicial()));
 
   const opcionLugar: OpcionLugar = tieneLocal ? lugar : "ninguno";
   const elegirOpcionLugar = useCallback((opcion: OpcionLugar) => {
@@ -103,19 +44,15 @@ export function useLocal(inicial: LocalPresencial | null = null, { paraAgenda = 
     () => ({
       direccion: problemaDeLaDireccion(direccion, paraAgenda),
       enlace: problemaDelEnlace(enlaceUbicacion),
-      dias: Object.fromEntries(DIAS_SEMANA.map((dia) => [dia, problemaDelDia(semana[dia])])) as Record<
-        DiaSemana,
-        string | null
-      >,
     }),
-    [direccion, enlaceUbicacion, semana, paraAgenda],
+    [direccion, enlaceUbicacion, paraAgenda],
   );
 
   const valido =
     !tieneLocal ||
     (!problemas.direccion &&
       !problemas.enlace &&
-      (paraAgenda || DIAS_SEMANA.every((dia) => !problemas.dias[dia])));
+      (paraAgenda || horarios.valida));
 
   /**
    * Body de `local` en POST /agents/generate, POST /agents/generate-ventas y
@@ -139,10 +76,10 @@ export function useLocal(inicial: LocalPresencial | null = null, { paraAgenda = 
       tieneLocal: true,
       ...(direccionLimpia ? { direccion: direccionLimpia } : {}),
       ...(enlaceLimpio ? { enlaceUbicacion: enlaceLimpio } : {}),
-      horarios: horariosDe(semana),
+      horarios: horarios.franjas(),
       retiroEnLocal,
     };
-  }, [tieneLocal, direccion, enlaceUbicacion, semana, retiroEnLocal, paraAgenda, lugar]);
+  }, [tieneLocal, direccion, enlaceUbicacion, horarios, retiroEnLocal, paraAgenda, lugar]);
 
   const resumenVentas = tieneLocal ? direccion.trim() || "Con local" : "Sólo online";
   const resumen = paraAgenda ? RESUMEN_LUGAR[opcionLugar] : resumenVentas;
@@ -158,12 +95,9 @@ export function useLocal(inicial: LocalPresencial | null = null, { paraAgenda = 
     setEnlaceUbicacion,
     retiroEnLocal,
     setRetiroEnLocal,
-    semana,
-    alternarDia,
-    fijarHora,
-    agregarCorte,
-    quitarCorte,
-    copiarATodos,
+    /** Los horarios del local (sólo ventas), para EditorSemana. */
+    horarios,
+    semana: horarios.semana,
     problemas,
     valido,
     payload,

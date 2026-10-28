@@ -23,6 +23,8 @@ export type Suscripcion = {
   moneda: string;
   /** Chats (clientes distintos) del mes en curso contra el tope del plan. */
   uso: { chats: number; limite: number };
+  /** Lo que habilita el plan vigente: la regla vive en la API (`funcionesDelPlan`). */
+  funciones?: { importacionRapida: boolean };
 };
 
 export type PlanId = "basico" | "pro";
@@ -124,7 +126,7 @@ export function formatearMonto(monto: number, moneda = "ARS"): string {
   }).format(monto);
 }
 
-/** "2.500", como se escribe en Argentina. */
+/** "1.500", como se escribe en Argentina. */
 export function formatearChats(chats: number): string {
   return new Intl.NumberFormat("es-AR").format(chats);
 }

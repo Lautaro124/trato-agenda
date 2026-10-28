@@ -2,118 +2,11 @@
 
 import type { LocalState } from "@/app/contanos/useLocal";
 import { cn } from "@/lib/cn";
-import {
-  DIAS_SEMANA,
-  HORAS_LOCAL,
-  LARGO_MAX_DIRECCION,
-  LARGO_MAX_ENLACE,
-  NOMBRE_DIA,
-  type DiaSemana,
-} from "@/lib/local";
+import { HORAS_LOCAL, LARGO_MAX_DIRECCION, LARGO_MAX_ENLACE } from "@/lib/local";
 import { INPUT } from "./controles";
+import { EditorSemana, TEXTOS_LOCAL } from "./EditorSemana";
 
 /** Controles del local a la calle: el paso "Tu local" de /contanos y la sección de /cuenta. */
-
-const SELECT_HORA =
-  "box-border min-h-10 rounded-sm border border-line bg-card px-2 text-[14px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
-
-const BOTON_TEXTO = "min-h-9 cursor-pointer text-[13px] font-semibold text-primary-hover hover:underline";
-
-function SelectorHora({
-  valor,
-  onChange,
-  etiqueta,
-}: Readonly<{
-  valor: string;
-  onChange: (hora: string) => void;
-  etiqueta: string;
-}>) {
-  // Una hora guardada que no está en la grilla (09:15 cargado por API) se sigue mostrando.
-  const opciones = HORAS_LOCAL.includes(valor)
-    ? HORAS_LOCAL
-    : [...HORAS_LOCAL, valor].sort((a, b) => a.localeCompare(b));
-  return (
-    <select aria-label={etiqueta} value={valor} onChange={(e) => onChange(e.target.value)} className={SELECT_HORA}>
-      {opciones.map((hora) => (
-        <option key={hora} value={hora}>
-          {hora}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-/** Cómo se nombra cada franja en las etiquetas: con corte, "(mañana)" y "(tarde)". */
-const PARTES_CON_CORTE = ["mañana", "tarde"];
-
-function FilaDia({ local, dia }: Readonly<{ local: LocalState; dia: DiaSemana }>) {
-  const { abierto, franjas } = local.semana[dia];
-  const nombre = NOMBRE_DIA[dia];
-  const problema = local.problemas.dias[dia];
-  const partes = franjas.length > 1 ? PARTES_CON_CORTE : ["única"];
-  return (
-    <li className="flex flex-col gap-2 border-b border-sunken py-3 last:border-b-0 sm:flex-row sm:items-start sm:gap-4">
-      <label className="flex min-h-10 w-[130px] flex-none cursor-pointer items-center gap-2.5 text-[14px] text-ink">
-        <input
-          type="checkbox"
-          checked={abierto}
-          onChange={() => local.alternarDia(dia)}
-          className="size-[18px] accent-[var(--color-semantic-primary-default)]"
-        />
-        {nombre}
-      </label>
-      {abierto ? (
-        <div className="flex flex-1 flex-col gap-2">
-          {franjas.map((franja, indice) => {
-            const parte = partes[indice];
-            const cual = franjas.length > 1 ? ` (${parte})` : "";
-            return (
-              <div key={parte} className="flex flex-wrap items-center gap-2">
-                <SelectorHora
-                  etiqueta={`${nombre}${cual}: abre`}
-                  valor={franja.desde}
-                  onChange={(hora) => local.fijarHora(dia, indice, "desde", hora)}
-                />
-                <span className="text-[13px] text-muted">a</span>
-                <SelectorHora
-                  etiqueta={`${nombre}${cual}: cierra`}
-                  valor={franja.hasta}
-                  onChange={(hora) => local.fijarHora(dia, indice, "hasta", hora)}
-                />
-                {indice === franjas.length - 1 && (
-                  <button
-                    type="button"
-                    onClick={() => (franjas.length > 1 ? local.quitarCorte(dia) : local.agregarCorte(dia))}
-                    className={BOTON_TEXTO}
-                  >
-                    {franjas.length > 1 ? "Sin corte" : "Cierra al mediodía"}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          <div className="flex flex-wrap items-center gap-3">
-            {problema && (
-              <p role="alert" className="text-[12.5px] text-danger-text">
-                {problema}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={() => local.copiarATodos(dia)}
-              aria-label={`Copiar el horario del ${nombre.toLowerCase()} a los demás días`}
-              className={cn(BOTON_TEXTO, "text-ink-secondary")}
-            >
-              Copiar a los demás días
-            </button>
-          </div>
-        </div>
-      ) : (
-        <span className="flex min-h-10 items-center text-[13.5px] text-muted">Cerrado</span>
-      )}
-    </li>
-  );
-}
 
 /**
  * La dirección y el link de Google Maps: lo que tienen en común el local de
@@ -214,14 +107,12 @@ export function ControlesLocal({ local }: Readonly<{ local: LocalState }>) {
         <>
           <CamposDireccion local={local} />
 
-          <fieldset>
-            <legend className="mb-1 text-[13px] font-semibold text-ink-secondary">Horarios del local</legend>
-            <ul className="rounded-md border border-line bg-card px-3.5">
-              {DIAS_SEMANA.map((dia) => (
-                <FilaDia key={dia} local={local} dia={dia} />
-              ))}
-            </ul>
-          </fieldset>
+          <EditorSemana
+            semana={local.horarios}
+            leyenda="Horarios del local"
+            textos={TEXTOS_LOCAL}
+            horas={HORAS_LOCAL}
+          />
 
           <div className="flex items-start gap-2.5 rounded-md border border-line bg-card px-3.5 py-3">
             <input

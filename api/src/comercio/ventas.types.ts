@@ -16,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { EventoVenta, ItemVenta, Message, Presupuesto, Venta } from '../generated/prisma/client.js';
+import { MONEDAS, type Moneda } from './catalogo.rules.js';
 import { leerDatosDeVenta, leerEntrega, type DatoCliente, type Entrega } from './datos-cliente.rules.js';
 import {
   ATENCIONES,
@@ -305,6 +306,11 @@ export class FiltrosVentasQuery {
   @Transform(({ value }) => value === true || value === 'true' || value === '1')
   @IsBoolean()
   incluirPrueba?: boolean;
+
+  /** La moneda de los totales y los gráficos (el listado trae todas). Por defecto, pesos. */
+  @IsOptional()
+  @IsIn(MONEDAS)
+  moneda?: Moneda;
 
   @IsOptional()
   @Type(() => Number)

@@ -75,7 +75,7 @@ function esLugar(valor: unknown): valor is TipoLugar {
   return typeof valor === 'string' && (TIPOS_LUGAR as readonly string[]).includes(valor);
 }
 
-function esDia(valor: unknown): valor is DiaSemana {
+export function esDia(valor: unknown): valor is DiaSemana {
   return typeof valor === 'string' && (DIAS_SEMANA as readonly string[]).includes(valor);
 }
 
@@ -93,7 +93,7 @@ function esHttps(enlace: string): boolean {
 }
 
 /** Ordenadas por día de la semana y, dentro del día, por hora. */
-function ordenar(franjas: FranjaLocal[]): FranjaLocal[] {
+export function ordenar(franjas: FranjaLocal[]): FranjaLocal[] {
   return [...franjas].sort(
     (a, b) => DIAS_SEMANA.indexOf(a.dia) - DIAS_SEMANA.indexOf(b.dia) || a.desde.localeCompare(b.desde),
   );
@@ -111,7 +111,7 @@ function problemaDeTextos(direccion: string, enlace: string): string | null {
 }
 
 /** Por qué los horarios (ya ordenados) no se pueden guardar, o null. */
-function problemaDeHorarios(horarios: FranjaLocal[]): string | null {
+export function problemaDeHorarios(horarios: FranjaLocal[]): string | null {
   if (horarios.length > MAX_FRANJAS) return 'Hay demasiados horarios cargados.';
   for (const [indice, franja] of horarios.entries()) {
     if (!esDia(franja.dia) || !HORA_HHMM.test(franja.desde) || !HORA_HHMM.test(franja.hasta)) {

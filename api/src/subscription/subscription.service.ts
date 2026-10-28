@@ -7,6 +7,7 @@ import { avisoCupoDeChats } from '../notificaciones/avisos.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { MercadoPagoClient, type Preapproval, type PreapprovalStatus } from './mercadopago.client.js';
+import { huellasDeIdentidad, inicioDePrueba } from './prueba-consumida.js';
 import {
   PLANES,
   IDS_DE_PLAN,
@@ -14,6 +15,7 @@ import {
   estadoDeSuscripcion,
   limiteDeChats,
   rangoDelMes,
+  planVigente,
   type EstadoSuscripcion,
   type PlanId,
 } from './subscription.rules.js';
@@ -127,6 +129,12 @@ export class SubscriptionService {
     }
     await this.prisma.user.update({ where: { id: user.id }, data: { email } });
     return email;
+  }
+
+  /** El plan que paga hoy (null en la prueba o sin suscripción activa): lo que decide qué funciones tiene. */
+  async planVigente(userId: string): Promise<PlanId | null> {
+    const { estado, suscripcion } = await this.resolver(userId);
+    return planVigente(estado, suscripcion?.plan);
   }
 
   async asistenteActivo(userId: string): Promise<boolean> {
@@ -331,8 +339,18 @@ export class SubscriptionService {
       throw new NotFoundException('El usuario no existe.');
     }
 
+    // La prueba cuenta desde la primera vez que esta identidad se dio de alta,
+    // aunque haya borrado la cuenta y vuelto a crearla.
+    const huellas = huellasDeIdentidad(user, this.config.get('TOKEN_ENCRYPTION_KEY', { infer: true }));
+    const lapidas = huellas.length
+      ? await this.prisma.pruebaConsumida.findMany({ where: { huella: { in: huellas } }, select: { inicio: true } })
+      : [];
+
     return {
-      estado: estadoDeSuscripcion({ creadoEl: user.createdAt, suscripcion: user.suscripcion }),
+      estado: estadoDeSuscripcion({
+        creadoEl: inicioDePrueba(user.createdAt, lapidas.map((l) => l.inicio)),
+        suscripcion: user.suscripcion,
+      }),
       suscripcion: user.suscripcion,
     };
   }

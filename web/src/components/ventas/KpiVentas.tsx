@@ -1,12 +1,12 @@
 "use client";
 
 import { cn } from "@/lib/cn";
-import { formatearCentavos } from "@/lib/productos";
+import { formatearMonto } from "@/lib/productos";
 import { pesosCompactos, type Totales } from "@/lib/ventas";
 
 /** Montos de más de diez millones van compactos: la tarjeta es angosta. */
-function monto(centavos: number): string {
-  return centavos >= 1_000_000_000 ? pesosCompactos(centavos) : formatearCentavos(centavos);
+function monto(centavos: number, moneda: string): string {
+  return centavos >= 1_000_000_000 ? pesosCompactos(centavos, moneda) : formatearMonto(centavos, moneda);
 }
 
 function Tarjeta({ etiqueta, valor, detalle }: { etiqueta: string; valor: string; detalle?: string }) {
@@ -20,21 +20,21 @@ function Tarjeta({ etiqueta, valor, detalle }: { etiqueta: string; valor: string
 }
 
 /** La fila de números del período: lo cobrado manda, el resto lo acompaña. */
-export function KpiVentas({ totales }: { totales: Totales }) {
+export function KpiVentas({ totales, moneda = "ARS" }: { totales: Totales; moneda?: string }) {
   // Lo que espera precio (productos a medida) sólo aparece si hay algo esperando.
   const conCotizar = (totales.porCotizar ?? 0) > 0;
   return (
     <div className={cn("grid grid-cols-2 gap-3", conCotizar ? "lg:grid-cols-5" : "lg:grid-cols-4")}>
-      <Tarjeta etiqueta="Cobrado" valor={monto(totales.cobradoCentavos)} />
+      <Tarjeta etiqueta="Cobrado" valor={monto(totales.cobradoCentavos, moneda)} />
       <Tarjeta etiqueta="Ventas pagadas" valor={totales.pagadas.toLocaleString("es-AR")} />
       {/* Un promedio con centavos es precisión de más: va redondeado al peso. */}
       <Tarjeta
         etiqueta="Ticket promedio"
-        valor={totales.pagadas > 0 ? monto(Math.round(totales.ticketPromedioCentavos / 100) * 100) : "–"}
+        valor={totales.pagadas > 0 ? monto(Math.round(totales.ticketPromedioCentavos / 100) * 100, moneda) : "–"}
       />
       <Tarjeta
         etiqueta="Pendiente de cobro"
-        valor={monto(totales.pendienteCentavos)}
+        valor={monto(totales.pendienteCentavos, moneda)}
         detalle={totales.pendientes === 1 ? "1 pedido por cobrar" : `${totales.pendientes} pedidos por cobrar`}
       />
       {conCotizar && (

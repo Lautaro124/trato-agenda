@@ -17,6 +17,9 @@ import {
   centavosParaInput,
   ErrorDeApi,
   leerCentavos,
+  MONEDAS,
+  NOMBRE_MONEDA,
+  type Moneda,
   type Producto,
   type ProductoDeStockAGuardar,
 } from "@/lib/productos";
@@ -142,6 +145,7 @@ export function EditorProducto({
   const [nombre, setNombre] = useState(productoInicial?.nombre ?? "");
   const [categoria, setCategoria] = useState(productoInicial?.categoria ?? "");
   const [descripcion, setDescripcion] = useState(productoInicial?.descripcion ?? "");
+  const [moneda, setMoneda] = useState<Moneda>(productoInicial?.moneda ?? "ARS");
   const [variantes, setVariantes] = useState<VarianteEnEdicion[]>(
     productoInicial ? desdeProducto(productoInicial) : [nuevaVariante()],
   );
@@ -156,6 +160,7 @@ export function EditorProducto({
       nombre,
       categoria,
       descripcion,
+      moneda,
       variantes.map((v) => [v.sku, v.nombre, v.precio, v.stock, v.stockMinimo, v.disponible]),
       descuento,
       foto?.name ?? null,
@@ -180,6 +185,7 @@ export function EditorProducto({
       nombre: nombre.trim(),
       categoria: categoria.trim() || null,
       descripcion: descripcion.trim(),
+      moneda,
     };
     const armadas: ProductoDeStockAGuardar["variantes"] = [];
     for (const [indice, variante] of variantes.entries()) {
@@ -312,6 +318,7 @@ export function EditorProducto({
 
           <SeccionDescuento
             descuento={descuento}
+            moneda={moneda}
             precios={variantes.map((v) => ({ clave: v.clave, nombre: v.nombre.trim(), centavos: leerCentavos(v.precio) }))}
             onCambio={(cambios) => setDescuento((actual) => ({ ...actual, ...cambios }))}
           />
@@ -321,6 +328,34 @@ export function EditorProducto({
           <legend className={LABEL}>
             {variantes.length > 1 ? "Variantes (talle, color, sabor…)" : "Precio y stock"}
           </legend>
+          <div role="radiogroup" aria-label="Moneda del precio">
+            <span className={LABEL} aria-hidden="true">
+              Moneda
+            </span>
+            <div className="flex gap-1 rounded-md border border-line bg-sunken p-1">
+              {MONEDAS.map((opcion) => (
+                <label
+                  key={opcion}
+                  className={cn(SEGMENTO, moneda === opcion ? "bg-card text-ink shadow-sm" : "text-ink-secondary")}
+                >
+                  <input
+                    type="radio"
+                    name="moneda-producto"
+                    value={opcion}
+                    checked={moneda === opcion}
+                    onChange={() => setMoneda(opcion)}
+                    className="sr-only"
+                  />
+                  {NOMBRE_MONEDA[opcion]}
+                </label>
+              ))}
+            </div>
+            {moneda === "USD" && (
+              <p className="mt-1.5 text-[12.5px] text-muted">
+                El asistente lo ofrece en dólares y esos pedidos se cobran a mano: Mercado Pago cobra en pesos.
+              </p>
+            )}
+          </div>
           {variantes.map((variante, indice) => {
             const id = (campo: string) => `${idCampos}-${variante.clave}-${campo}`;
             return (
@@ -345,7 +380,7 @@ export function EditorProducto({
                     Precio
                   </label>
                   <div className="flex items-center gap-2">
-                    <span className="text-[13px] text-muted">$</span>
+                    <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>
                     <input
                       id={id("precio")}
                       inputMode="decimal"
@@ -447,10 +482,12 @@ const SEGMENTO = "flex-1 cursor-pointer rounded-sm px-3 py-2 text-center text-[1
  */
 function SeccionDescuento({
   descuento,
+  moneda,
   precios,
   onCambio,
 }: Readonly<{
   descuento: DescuentoEnEdicion;
+  moneda: Moneda;
   precios: Array<{ clave: string; nombre: string; centavos: number | null }>;
   onCambio: (cambios: Partial<DescuentoEnEdicion>) => void;
 }>) {
@@ -460,7 +497,7 @@ function SeccionDescuento({
       ? []
       : precios
           .flatMap((precio) => {
-            const vista = precio.centavos === null ? null : vistaPrevia({ tipo: descuento.tipo, valor }, precio.centavos);
+            const vista = precio.centavos === null ? null : vistaPrevia({ tipo: descuento.tipo, valor }, precio.centavos, moneda);
             return vista ? [{ ...vista, clave: precio.clave, nombre: precio.nombre }] : [];
           })
           .slice(0, 3);
@@ -519,7 +556,7 @@ function SeccionDescuento({
                 {descuento.tipo === "porcentaje" ? "Porcentaje" : "Monto"}
               </label>
               <div className="flex items-center gap-1.5">
-                {descuento.tipo === "monto" && <span className="text-[13px] text-muted">$</span>}
+                {descuento.tipo === "monto" && <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>}
                 <input
                   id="descuento-valor"
                   inputMode={descuento.tipo === "porcentaje" ? "numeric" : "decimal"}

@@ -328,6 +328,8 @@ export const MAX_CANTIDAD_VARIANTE_FIJA = 50;
  * es un 400.
  */
 export function problemaDelProducto(producto: {
+  /** La moneda que pide el formulario; ausente no la cambia. */
+  moneda?: string;
   variantes: number;
   descuento: unknown;
   solicitud: unknown;
@@ -345,6 +347,7 @@ export function problemaDelProducto(producto: {
     }
     return null;
   }
+  if (producto.moneda !== undefined && producto.moneda !== 'ARS') return 'Los productos a medida se cotizan en pesos.';
   if (producto.conStock) return 'Un producto a medida tiene versiones con precio fijo, pero no lleva stock.';
   if (presente(producto.descuento)) return 'Un producto a medida no lleva descuento.';
   return null;

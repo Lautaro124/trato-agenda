@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:26-alpine AS base
+FROM node:26.12.1-alpine AS base
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -34,12 +34,13 @@ ARG SENTRY_PROJECT=trato-web
 # y el commit, para que los eventos queden separados y atados al release.
 ARG RAILWAY_ENVIRONMENT_NAME=
 ARG RAILWAY_GIT_COMMIT_SHA=
-ENV NEXT_PUBLIC_SENTRY_ENVIRONMENT=$RAILWAY_ENVIRONMENT_NAME
+ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT=${RAILWAY_ENVIRONMENT_NAME:-local}
+ENV NEXT_PUBLIC_SENTRY_ENVIRONMENT=$NEXT_PUBLIC_SENTRY_ENVIRONMENT
 COPY . .
 RUN npm run build
 
 # Producción: output "standalone" trae su propio server.js y su node_modules mínimo.
-FROM node:26-alpine AS prod
+FROM node:26.12.1-alpine AS prod
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

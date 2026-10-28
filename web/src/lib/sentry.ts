@@ -12,6 +12,7 @@ import type { Breadcrumb, Event } from "@sentry/nextjs";
  */
 
 export const SENTRY_DSN = process.env.NEXT_PUBLIC_SENTRY_DSN ?? "";
+const entorno = process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || "local";
 
 const MAX_TEXTO = 500;
 // Lineales a propósito (ver api/src/observabilidad/scrubbing.ts): corren sobre
@@ -92,9 +93,10 @@ export function limpiarSpan<T extends { name: string; attributes: Record<string,
 export const opcionesDeSentry = {
   dsn: SENTRY_DSN,
   enabled: SENTRY_DSN !== "",
-  environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || process.env.NODE_ENV,
+  environment: entorno,
+  initialScope: { tags: { servicio: "web" } },
   // Errores siempre; trazas de una muestra en producción.
-  tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 0,
+  tracesSampleRate: entorno === "production" ? 0.1 : 0,
   // Desde la v11 el SDK recolecta todo por defecto: acá va todo apagado.
   dataCollection: {
     userInfo: false,

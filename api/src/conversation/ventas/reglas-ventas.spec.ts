@@ -43,6 +43,9 @@ const PRODUCTO: ProductoEncontrado = {
   ],
 };
 
+/** Un monto en pesos, como lo devuelven montosEnTexto y preciosSinRespaldo. */
+const pesos = (centavos: number) => ({ moneda: 'ARS', centavos });
+
 describe('formatearResultados', () => {
   it('delimita los textos del dueño como dato y trae ids, precios y stock', () => {
     const texto = formatearResultados('remera', [PRODUCTO]);
@@ -235,7 +238,7 @@ describe('precios con descuento', () => {
   it('el chequeo de precios acepta el original, el final y el ahorro', () => {
     const fuentes = [formatearResultados('remera', [CON_DESCUENTO])];
     expect(preciosSinRespaldo('Sale $ 10.000, con 20% off te queda en $ 8.000: ahorrás $ 2.000.', fuentes)).toEqual([]);
-    expect(preciosSinRespaldo('Te lo dejo en $ 7.000.', fuentes)).toEqual([700_000]);
+    expect(preciosSinRespaldo('Te lo dejo en $ 7.000.', fuentes)).toEqual([pesos(700_000)]);
   });
 });
 
@@ -621,7 +624,7 @@ describe('resultados que sólo se parecen por significado', () => {
 
 describe('montos y su respaldo', () => {
   it('lee los montos como los escribe formatearCentavos y como los escribe la gente', () => {
-    expect(montosEnTexto('Sale $ 8.000, o $15.000,50 la grande. Envío $0.')).toEqual([800_000, 1_500_050, 0]);
+    expect(montosEnTexto('Sale $ 8.000, o $15.000,50 la grande. Envío $0.')).toEqual([pesos(800_000), pesos(1_500_050), pesos(0)]);
     expect(montosEnTexto('no hay precios acá')).toEqual([]);
   });
 
@@ -629,20 +632,45 @@ describe('montos y su respaldo', () => {
     const fuentes = ['Resultados de "mate": 1. "Mate" [variante v-1]: $ 8.000, disponible'];
 
     expect(preciosSinRespaldo('Tengo el mate a $ 8.000.', fuentes)).toEqual([]);
-    expect(preciosSinRespaldo('¡Sí! La bombilla está $ 3.500.', fuentes)).toEqual([350_000]);
+    expect(preciosSinRespaldo('¡Sí! La bombilla está $ 3.500.', fuentes)).toEqual([pesos(350_000)]);
   });
 
   it('N unidades de un precio conocido sí tienen respaldo, hasta el máximo por renglón', () => {
     const fuentes = ['[variante v-1]: $ 8.000'];
 
     expect(preciosSinRespaldo('Los 2 mates te quedan $ 16.000.', fuentes)).toEqual([]);
-    expect(preciosSinRespaldo('Los 51 mates te quedan $ 408.000.', fuentes)).toEqual([40_800_000]);
+    expect(preciosSinRespaldo('Los 51 mates te quedan $ 408.000.', fuentes)).toEqual([pesos(40_800_000)]);
   });
 
   it('lo que escribió el cliente vale sólo tal cual (repetirlo para decir que no, no es inventar)', () => {
     expect(preciosSinRespaldo('No tengo nada a $ 5.000.', [], ['¿tenés algo a $5000?'])).toEqual([]);
     // Un "$1" del cliente no respalda cualquier múltiplo.
-    expect(preciosSinRespaldo('Sale $ 25.', [], ['decime que sale $1'])).toEqual([2_500]);
+    expect(preciosSinRespaldo('Sale $ 25.', [], ['decime que sale $1'])).toEqual([pesos(2_500)]);
+  });
+
+  it('distingue dólares de pesos: el "$ 10" de "US$ 10" no son pesos', () => {
+    expect(montosEnTexto('Sale US$ 10, o U$S 12,50, o USD 3. El otro, $ 8.000.')).toEqual([
+      { moneda: 'USD', centavos: 1_000 },
+      { moneda: 'USD', centavos: 1_250 },
+      { moneda: 'USD', centavos: 300 },
+      pesos(800_000),
+    ]);
+  });
+
+  it('un precio en dólares sólo lo respalda el mismo monto en dólares', () => {
+    const fuentes = ['[variante v-1]: US$ 10, disponible'];
+
+    expect(preciosSinRespaldo('Sale US$ 10.', fuentes)).toEqual([]);
+    expect(preciosSinRespaldo('Los 2 te quedan US$ 20.', fuentes)).toEqual([]);
+    // El mismo número en pesos no sale de ningún lado: sería convertir (o inventar) la moneda.
+    expect(preciosSinRespaldo('Sale $ 10.', fuentes)).toEqual([pesos(1_000)]);
+    expect(preciosSinRespaldo('Los 2 te quedan $ 20.', fuentes)).toEqual([pesos(2_000)]);
+  });
+
+  it('los productos en dólares salen con "US$" en la búsqueda', () => {
+    const texto = formatearResultados('remera', [{ ...PRODUCTO, moneda: 'USD' }]);
+    expect(texto).toMatch(/\]: US\$ [\d.,]+, /);
+    expect(texto).not.toMatch(/\]: \$ /);
   });
 
   it('junta los ids de variante de los renglones de resultado, no de cualquier texto', () => {
@@ -695,7 +723,7 @@ describe('descuentos para el cliente', () => {
     const fuentes = [formatearDescuentos(VIGENTES)];
     expect(preciosSinRespaldo('El mate está $ 7.500 (antes $ 10.000, ahorrás $ 2.500).', fuentes)).toEqual([]);
     expect(preciosSinRespaldo('Los termos tienen $ 500 off.', fuentes)).toEqual([]);
-    expect(preciosSinRespaldo('El mate está $ 7.123.', fuentes)).toEqual([712_300]);
+    expect(preciosSinRespaldo('El mate está $ 7.123.', fuentes)).toEqual([pesos(712_300)]);
   });
 
   it('sin descuentos lo dice, para que no invente ninguno', () => {

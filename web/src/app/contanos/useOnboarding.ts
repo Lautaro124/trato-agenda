@@ -2,7 +2,17 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useDatosCliente, type PayloadDatosCliente } from "@/lib/datos-cliente";
-import { DIAS_SEMANA, NOMBRE_DIA, type DiaSemana, type LocalPresencial } from "@/lib/local";
+import { ZONA_POR_DEFECTO } from "@/lib/horario-atencion";
+import {
+  DIAS_SEMANA,
+  NOMBRE_DIA,
+  horariosDe,
+  semanaDesde,
+  semanaInicial,
+  type DiaSemana,
+  type FranjaLocal,
+  type LocalPresencial,
+} from "@/lib/local";
 import { formatearPrecio } from "@/lib/precio";
 import {
   MAX_HORARIOS_GRUPALES,
@@ -15,6 +25,10 @@ import {
 } from "@/lib/turnos-grupales";
 import { useClases } from "./useClases";
 import { useLocal, type LocalState } from "./useLocal";
+import { useSemana } from "./useSemana";
+
+/** La franja de turnos vale de lunes a viernes: de ahí sale la sugerencia del horario de atención. */
+const DIAS_HABILES: DiaSemana[] = ["lun", "mar", "mie", "jue", "vie"];
 
 export type TipoUsoId = "consultorio" | "otro";
 
@@ -118,6 +132,7 @@ export type PasoId =
   | "horarios"
   | "local"
   | "datos"
+  | "cuando"
   | "asistente";
 
 /**
@@ -129,8 +144,9 @@ export type PasoId =
 export type Atencion = "individual" | "grupal" | "ambas";
 
 /**
- * Los pasos de cada asistente, en orden. Ventas no pide turnos ni franja: vende
- * las 24 horas y lo que ofrece sale del catálogo, que se carga en /productos.
+ * Los pasos de cada asistente, en orden. Ventas no pide turnos ni franja: lo
+ * que ofrece sale del catálogo, que se carga en /productos. Los dos piden
+ * cuándo atiende el asistente por WhatsApp (LAU-29), que no es la franja de turnos.
  * Sí pregunta por el local a la calle, para contestar dónde queda y si se retira.
  * Su paso "datos" (qué le pide al cliente, envíos) es opcional. Si vende con
  * stock o a medida no se pregunta: lo dice cada producto al cargarlo.
@@ -144,6 +160,7 @@ export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> 
     { id: "turnos", label: "Qué turnos das" },
     { id: "clases", label: "Tus clases" },
     { id: "horarios", label: "Horarios" },
+    { id: "cuando", label: "Cuándo atiende" },
     { id: "asistente", label: "Tu asistente" },
   ],
   ventas: [
@@ -151,6 +168,7 @@ export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> 
     { id: "negocio", label: "Tu negocio" },
     { id: "local", label: "Tu local" },
     { id: "datos", label: "Datos del cliente" },
+    { id: "cuando", label: "Cuándo atiende" },
     { id: "asistente", label: "Tu asistente" },
   ],
 };
@@ -180,6 +198,8 @@ export const AYUDA_POR_PASO: Record<PasoId, string> = {
   horarios: "Fuera de esta franja el asistente no ofrece horarios.",
   local: "Lo que no cargues, el asistente no lo inventa: te pasa la consulta a vos.",
   datos: "Es opcional: lo podés cambiar cuando quieras desde Cuenta.",
+  cuando:
+    "Fuera de este horario el asistente no empieza chats nuevos: los ves vos en WhatsApp. Lo cambiás o lo sacás desde Cuenta.",
   asistente: "Así arranca cada conversación en WhatsApp.",
 };
 
@@ -190,7 +210,15 @@ export const ETIQUETA_ATENCION: Record<Atencion, string> = {
 };
 
 /** Body de POST /agents/generate-ventas. */
-export type DatosVentas = { nombreTitular: string; nombreBot: string; local: LocalPresencial } & PayloadDatosCliente;
+export type DatosVentas = {
+  nombreTitular: string;
+  nombreBot: string;
+  local: LocalPresencial;
+  horarioAtencion: HorarioAtencionOnboarding;
+} & PayloadDatosCliente;
+
+/** El paso "Cuándo atiende" en los dos bodies: siempre queda activo. */
+export type HorarioAtencionOnboarding = { franjas: FranjaLocal[]; zona: string };
 
 export type Onboarding = ReturnType<typeof useOnboarding>;
 
@@ -443,6 +471,9 @@ export function useOnboarding() {
   const lugar = useLocal(null, { paraAgenda: true });
   // Con nombre propio y no esparcido: comparte nombres (`agregarPersonalizado`) con los tipos de evento.
   const datosCliente = useDatosCliente();
+  // Cuándo atiende por WhatsApp (LAU-29): de la cuenta, igual para los dos asistentes.
+  const horarioBot = useSemana(semanaInicial);
+  const [zona, setZona] = useState(ZONA_POR_DEFECTO);
 
   const elegirTipoUso = useCallback(
     (id: TipoUsoId) => {
@@ -486,6 +517,22 @@ export function useOnboarding() {
 
   const rangoValido = horaDesde < horaHasta;
 
+  // Al llegar a "Cuándo atiende" se precarga lo que ya contestó (la franja de
+  // turnos o los horarios del local), mientras no lo haya tocado a mano.
+  const horarioSugerido = useMemo(() => {
+    const delLocal = horariosDe(local.semana);
+    if (esVentas) return local.tieneLocal && delLocal.length > 0 ? semanaDesde(delLocal) : semanaInicial();
+    if (!conTurnos || !rangoValido) return semanaInicial();
+    return semanaDesde(DIAS_HABILES.map((dia) => ({ dia, desde: horaDesde, hasta: horaHasta })));
+  }, [esVentas, local.tieneLocal, local.semana, conTurnos, rangoValido, horaDesde, horaHasta]);
+  const claveSugerida = JSON.stringify(horarioSugerido);
+  const [precargado, setPrecargado] = useState<string | null>(null);
+  if (pasoId === "cuando" && !horarioBot.tocada && precargado !== claveSugerida) {
+    setPrecargado(claveSugerida);
+    horarioBot.precargar(horarioSugerido);
+  }
+  const diasConAtencion = DIAS_SEMANA.filter((dia) => horarioBot.semana[dia].abierto).length;
+
   const puedeAvanzar: Record<PasoId, boolean> = {
     tipo: true,
     negocio: nombreTitular.trim().length >= LARGO_MIN_NOMBRE,
@@ -497,6 +544,7 @@ export function useOnboarding() {
     local: local.valido,
     // Opcional: sin tildar nada el asistente sólo pide el nombre.
     datos: true,
+    cuando: horarioBot.valida && diasConAtencion > 0,
     asistente: nombreBot.trim().length >= LARGO_MIN_NOMBRE,
   };
 
@@ -511,6 +559,7 @@ export function useOnboarding() {
     horarios: `${horaDesde}–${horaHasta}`,
     local: local.resumen,
     datos: datosCliente.resumen,
+    cuando: `${diasConAtencion} ${diasConAtencion === 1 ? "día" : "días"}`,
     asistente: nombreBot.trim(),
   };
 
@@ -602,6 +651,9 @@ export function useOnboarding() {
     lugar,
     saludoLugar: respuestaDelLugar(lugar, titular),
     datosCliente,
+    horarioBot,
+    zona,
+    setZona,
     puedeAvanzar,
     presentacion,
     saludo,
@@ -613,6 +665,7 @@ export function useOnboarding() {
       nombreBot: nombreBot.trim(),
       local: local.payload(),
       ...datosCliente.payload(),
+      horarioAtencion: { franjas: horarioBot.franjas(), zona },
     }),
     /** Body de POST /agents/generate. */
     payload: () => ({
@@ -624,6 +677,7 @@ export function useOnboarding() {
       horaHasta,
       nombreBot: nombreBot.trim(),
       local: lugar.payload(),
+      horarioAtencion: { franjas: horarioBot.franjas(), zona },
     }),
   };
 }

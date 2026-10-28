@@ -37,8 +37,8 @@ test.describe('pedido sin Mercado Pago (cobro a coordinar)', () => {
     await expect(detalle.getByText('Pendiente de pago', { exact: true })).toBeVisible();
     await expect(detalle.getByText('A coordinar con vos')).toBeVisible();
 
-    page.once('dialog', (confirmacion) => void confirmacion.accept());
     await detalle.getByRole('button', { name: 'Marcar pagada' }).click();
+    await page.getByRole('alertdialog', { name: '¿Marcar el pedido como pagado?' }).getByRole('button', { name: 'Marcar pagada' }).click();
     await expect(detalle.getByText('Pagada', { exact: true })).toBeVisible();
     await expect(detalle.getByText('Pagada el')).toBeVisible();
     expect((await productoPorApi(context.request, producto.id)).variantes[0].stock).toBe(1);
@@ -59,8 +59,8 @@ test.describe('pedido sin Mercado Pago (cobro a coordinar)', () => {
     await page.goto('/ventas');
     await page.getByLabel('Incluir pedidos del chat de prueba').check();
     await page.getByRole('list', { name: 'Ventas' }).getByRole('button', { name: /Caro/ }).click();
-    page.once('dialog', (confirmacion) => void confirmacion.accept());
     await page.getByRole('dialog').getByRole('button', { name: 'Cancelar pedido' }).click();
+    await page.getByRole('alertdialog', { name: '¿Cancelar el pedido?' }).getByRole('button', { name: 'Sí, cancelar pedido' }).click();
     await expect(page.getByRole('dialog').getByText('Cancelada', { exact: true })).toBeVisible();
 
     // Liberada la reserva, se puede volver a pedir.
@@ -81,8 +81,8 @@ test.describe('pedido sin Mercado Pago (cobro a coordinar)', () => {
 
     const detalle = page.getByRole('dialog');
     await expect(detalle.getByText('$ 19.500').first()).toBeVisible();
-    page.once('dialog', (confirmacion) => void confirmacion.accept());
     await detalle.getByRole('button', { name: 'Marcar pagada' }).click();
+    await page.getByRole('alertdialog', { name: '¿Marcar el pedido como pagado?' }).getByRole('button', { name: 'Marcar pagada' }).click();
     await expect(detalle.getByText('Pagada', { exact: true })).toBeVisible();
 
     // Sin desborde horizontal: la página entra en el ancho del teléfono.

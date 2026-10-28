@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
+import { AvisosProvider } from "@/components/ui/Avisos";
 import { SessionProvider } from "@/lib/session";
 import { SuscripcionProvider } from "@/lib/suscripcion";
 import "./globals.css";
@@ -38,7 +39,9 @@ export default function RootLayout({
     <html lang="es" className={`${manrope.variable} ${jakarta.variable}`}>
       <body>
         <SessionProvider>
-          <SuscripcionProvider>{children}</SuscripcionProvider>
+          <SuscripcionProvider>
+            <AvisosProvider>{children}</AvisosProvider>
+          </SuscripcionProvider>
         </SessionProvider>
       </body>
     </html>

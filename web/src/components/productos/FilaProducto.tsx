@@ -11,6 +11,7 @@ import {
   centavosParaInput,
   etiquetaStock,
   formatearCentavos,
+  formatearMonto,
   leerCentavos,
   type Producto,
   type Variante,
@@ -240,6 +241,7 @@ export function FilaProducto({
                 variante={a.variante}
                 borrador={a.borrador}
                 nombreProducto={producto.nombre}
+                moneda={producto.moneda}
                 unica={producto.variantes.length === 1 && a.variante.nombre === ""}
                 editada={a.editada}
                 precioEditado={a.precioEditado}
@@ -351,6 +353,7 @@ function FilaVariante({
   variante,
   borrador,
   nombreProducto,
+  moneda,
   unica,
   editada,
   precioEditado,
@@ -363,6 +366,7 @@ function FilaVariante({
   variante: Variante;
   borrador: Borrador;
   nombreProducto: string;
+  moneda: string;
   unica: boolean;
   editada: boolean;
   precioEditado: boolean;
@@ -399,7 +403,7 @@ function FilaVariante({
       <label className="order-3 flex flex-col gap-1 @md:order-2">
         <span className={ETIQUETA}>Precio</span>
         <span className="flex items-center gap-1">
-          <span className="text-[13px] text-muted">$</span>
+          <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>
           <input
             inputMode="decimal"
             value={borrador.precio}
@@ -444,8 +448,8 @@ function FilaVariante({
 
       {final !== null && (
         <p className="order-5 col-span-2 text-[12.5px] font-bold text-[var(--color-primitive-coral-700)] @md:col-span-4">
-          Final {formatearCentavos(final)}{" "}
-          <span className="font-medium text-muted line-through">{formatearCentavos(variante.precioCentavos)}</span>
+          Final {formatearMonto(final, moneda)}{" "}
+          <span className="font-medium text-muted line-through">{formatearMonto(variante.precioCentavos, moneda)}</span>
         </p>
       )}
     </li>

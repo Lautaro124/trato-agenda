@@ -314,12 +314,13 @@ function OpcionDePlan({
       </div>
       <div className="mt-1 text-[12.5px] leading-[1.5] text-ink-secondary">
         Hasta {formatearChats(plan.chats)} chats por mes
+        {plan.id === "pro" && " · importá productos desde Mercado Libre, Tiendamia o tu web"}
       </div>
     </button>
   );
 }
 
-/** Uso del mes: "N de 2.500 chats", con una barra. Sólo informa, el asistente no se corta. */
+/** Uso del mes: "N de 1.500 chats", con una barra. Sólo informa, el asistente no se corta. */
 function UsoDelMes({ uso }: { uso: Suscripcion["uso"] }) {
   const porcentaje = Math.min(100, Math.round((uso.chats * 100) / uso.limite));
   return (
@@ -426,7 +427,8 @@ function PlanVigente({
         <div className="mb-4 rounded-md border border-line bg-card p-4">
           <p className="mb-3 text-[13.5px] leading-[1.55] text-ink-secondary">
             Plan Pro: hasta {formatearChats(pro.chats)} chats por mes por{" "}
-            {formatearMonto(pro.monto, precios?.moneda)} al mes. Pasás a Mercado Pago a autorizar el nuevo débito y
+            {formatearMonto(pro.monto, precios?.moneda)} al mes, y la importación rápida de productos desde Mercado
+            Libre, Tiendamia o cualquier tienda. Pasás a Mercado Pago a autorizar el nuevo débito y
             cancelamos el actual.
           </p>
           <Button disabled={enviando} onClick={() => onCambiar("pro")}>

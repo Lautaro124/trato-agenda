@@ -1,5 +1,5 @@
 import { apiFetch } from "./api";
-import { ErrorDeApi, formatearCentavos, leerCentavos } from "./productos";
+import { ErrorDeApi, formatearMonto, leerCentavos } from "./productos";
 
 export type TipoDescuento = "porcentaje" | "monto";
 export type AlcanceDescuento = "producto" | "categoria" | "catalogo";
@@ -126,10 +126,18 @@ export function leerValorDescuento(tipo: TipoDescuento, texto: string): number |
 }
 
 /** "$ 10.000 → $ 8.000" o null si con ese precio no descuenta nada. */
-export function vistaPrevia(descuento: Pick<DescuentoAGuardar, "tipo" | "valor">, precioCentavos: number) {
+export function vistaPrevia(
+  descuento: Pick<DescuentoAGuardar, "tipo" | "valor">,
+  precioCentavos: number,
+  moneda: string = "ARS",
+) {
   const monto = montoDeDescuento(descuento, precioCentavos);
   if (monto === 0) return null;
-  return { lista: formatearCentavos(precioCentavos), final: formatearCentavos(precioCentavos - monto), ahorro: formatearCentavos(monto) };
+  return {
+    lista: formatearMonto(precioCentavos, moneda),
+    final: formatearMonto(precioCentavos - monto, moneda),
+    ahorro: formatearMonto(monto, moneda),
+  };
 }
 
 /**

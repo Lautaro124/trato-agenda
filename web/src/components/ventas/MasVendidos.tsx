@@ -1,6 +1,6 @@
 "use client";
 
-import { formatearCentavos, unidades } from "@/lib/productos";
+import { formatearMonto, unidades } from "@/lib/productos";
 import type { ResumenVentas } from "@/lib/ventas";
 
 /**
@@ -8,7 +8,7 @@ import type { ResumenVentas } from "@/lib/ventas";
  * coral), con el valor al final de cada barra en tinta, no en el color de la
  * serie. Es una lista corta, así que la barra acompaña y el número manda.
  */
-export function MasVendidos({ productos }: { productos: ResumenVentas["topProductos"] }) {
+export function MasVendidos({ productos, moneda = "ARS" }: { productos: ResumenVentas["topProductos"]; moneda?: string }) {
   const maximo = Math.max(...productos.map((producto) => producto.cobradoCentavos), 1);
 
   return (
@@ -25,7 +25,7 @@ export function MasVendidos({ productos }: { productos: ResumenVentas["topProduc
               <div className="mb-1 flex items-baseline justify-between gap-3 text-[13px]">
                 <span className="min-w-0 truncate text-ink">{producto.nombreProducto}</span>
                 <span className="flex-none text-ink-secondary">
-                  {unidades(producto.unidades)} · <span className="font-semibold text-ink">{formatearCentavos(producto.cobradoCentavos)}</span>
+                  {unidades(producto.unidades)} · <span className="font-semibold text-ink">{formatearMonto(producto.cobradoCentavos, moneda)}</span>
                 </span>
               </div>
               <div

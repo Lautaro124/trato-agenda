@@ -65,7 +65,8 @@ describe.skipIf(!hayBaseDePrueba)('histórico de ventas (Postgres real)', () => 
       ],
     });
     // Pendiente vigente, pendiente vencida sin barrer, cancelada, de prueba y de otro dueño.
-    await venta(dueno.id, { creada: '2026-09-26T17:50:00Z', estado: 'pendiente_pago', total: 500_000, venceEn: '2026-09-26T18:20:00Z' });
+    // Vence en el futuro de verdad: el barrido de reservas de otros specs (global, sobre la misma base) no la toca.
+    await venta(dueno.id, { creada: '2026-09-26T17:50:00Z', estado: 'pendiente_pago', total: 500_000, venceEn: '2099-01-01T00:00:00Z' });
     await venta(dueno.id, { creada: '2026-09-26T10:00:00Z', estado: 'pendiente_pago', total: 700_000, venceEn: '2026-09-26T10:30:00Z' });
     await venta(dueno.id, { creada: '2026-09-24T12:00:00Z', estado: 'cancelada', total: 900_000, cliente: '=cmd' });
     await venta(dueno.id, { creada: '2026-09-26T12:00:00Z', estado: 'pagada', total: 99_900_000, dePrueba: true });
@@ -92,6 +93,23 @@ describe.skipIf(!hayBaseDePrueba)('histórico de ventas (Postgres real)', () => 
     });
     // La pendiente con la reserva pasada ya se ve como vencida.
     expect(listado.ventas.map((v) => v.estado).sort()).toEqual(['cancelada', 'pagada', 'pagada', 'pendiente_pago', 'vencida']);
+  });
+
+  it('nunca suma pesos con dólares: los totales y el resumen son de una moneda', async () => {
+    const enDolares = await venta(dueno.id, { creada: '2026-09-26T13:00:00Z', estado: 'pagada', total: 5_000 });
+    await prisma.venta.update({ where: { id: enDolares.id }, data: { moneda: 'USD' } });
+    try {
+      const pesos = await historico.listar(dueno.id, {}, AHORA);
+      expect(pesos).toMatchObject({ moneda: 'ARS', monedas: ['ARS', 'USD'], total: 6 });
+      expect(pesos.totales.cobradoCentavos).toBe(4_000_000);
+
+      const dolares = await historico.listar(dueno.id, { moneda: 'USD' }, AHORA);
+      expect(dolares.totales).toMatchObject({ cobradoCentavos: 5_000, pagadas: 1 });
+      const resumen = await historico.resumen(dueno.id, { moneda: 'USD' }, AHORA);
+      expect(resumen.porDia.find((dia) => dia.dia === '2026-09-26')).toMatchObject({ cobradoCentavos: 5_000, ventas: 1 });
+    } finally {
+      await prisma.venta.delete({ where: { id: enDolares.id } });
+    }
   });
 
   it('filtra por estado visible, por búsqueda y deja ver las de prueba si se pide', async () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { formatearCentavos } from "@/lib/productos";
+import { formatearMonto } from "@/lib/productos";
 import { diaConSemana, diaCorto, pesosCompactos, type ResumenVentas } from "@/lib/ventas";
 
 /** Alto del área de dibujo, sin contar los ejes. */
@@ -32,7 +32,7 @@ function columna(x: number, y: number, ancho: number, alto: number): string {
  * coral de la marca, validado contra la superficie de la tarjeta. Cada día es
  * su propia zona de hover; con el teclado, las flechas recorren los días.
  */
-export function GraficoPorDia({ porDia }: { porDia: ResumenVentas["porDia"] }) {
+export function GraficoPorDia({ porDia, moneda = "ARS" }: { porDia: ResumenVentas["porDia"]; moneda?: string }) {
   const contenedor = useRef<HTMLDivElement>(null);
   const [ancho, setAncho] = useState(0);
   const [activo, setActivo] = useState<number | null>(null);
@@ -96,7 +96,7 @@ export function GraficoPorDia({ porDia }: { porDia: ResumenVentas["porDia"] }) {
                 <tr key={fila.dia} className="border-t border-line">
                   <td className="py-1 text-ink-secondary">{diaConSemana(fila.dia)}</td>
                   <td className="py-1 text-right text-ink-secondary">{fila.ventas}</td>
-                  <td className="py-1 text-right text-ink">{formatearCentavos(fila.cobradoCentavos)}</td>
+                  <td className="py-1 text-right text-ink">{formatearMonto(fila.cobradoCentavos, moneda)}</td>
                 </tr>
               ))}
             </tbody>
@@ -135,7 +135,7 @@ export function GraficoPorDia({ porDia }: { porDia: ResumenVentas["porDia"] }) {
                       dominantBaseline="middle"
                       className="fill-muted text-[11px] tabular-nums"
                     >
-                      {pesosCompactos(valor)}
+                      {pesosCompactos(valor, moneda)}
                     </text>
                   </g>
                 );
@@ -176,7 +176,7 @@ export function GraficoPorDia({ porDia }: { porDia: ResumenVentas["porDia"] }) {
                         textAnchor="middle"
                         className="fill-ink-secondary text-[11px] font-semibold"
                       >
-                        {pesosCompactos(fila.cobradoCentavos)}
+                        {pesosCompactos(fila.cobradoCentavos, moneda)}
                       </text>
                     )}
                   </g>
@@ -194,7 +194,7 @@ export function GraficoPorDia({ porDia }: { porDia: ResumenVentas["porDia"] }) {
                 top: Math.max(y(dia.cobradoCentavos) - 58, 0),
               }}
             >
-              <span className="block font-semibold text-ink">{formatearCentavos(dia.cobradoCentavos)}</span>
+              <span className="block font-semibold text-ink">{formatearMonto(dia.cobradoCentavos, moneda)}</span>
               <span className="flex items-center gap-1.5 text-ink-secondary">
                 <span aria-hidden="true" className="inline-block h-0.5 w-3 rounded bg-primary" />
                 {diaConSemana(dia.dia)} · {dia.ventas === 1 ? "1 venta" : `${dia.ventas} ventas`}

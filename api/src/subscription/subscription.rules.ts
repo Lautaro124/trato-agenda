@@ -68,8 +68,8 @@ export function estadoDeSuscripcion(entrada: {
 
 /** Planes pagos. El Básico es el que ya existía; el Pro sube el tope de chats. */
 export const PLANES = {
-  basico: { nombre: 'Básico', chats: 2500 },
-  pro: { nombre: 'Pro', chats: 6000 },
+  basico: { nombre: 'Básico', chats: 1500 },
+  pro: { nombre: 'Pro', chats: 4500 },
 } as const;
 
 export type PlanId = keyof typeof PLANES;
@@ -90,6 +90,26 @@ export function esPlanId(valor: unknown): valor is PlanId {
 export function limiteDeChats(plan: string | null | undefined): number {
   if (plan === null || plan === undefined) return PLANES.pro.chats;
   return esPlanId(plan) ? PLANES[plan].chats : PLANES.basico.chats;
+}
+
+/**
+ * El plan que se está pagando, o null: sólo una suscripción `activa` tiene
+ * plan (la prueba, una vencida o una pendiente no). Un valor desconocido en la
+ * base cuenta como Básico, igual que en `limiteDeChats`.
+ */
+export function planVigente(estado: Pick<EstadoSuscripcion, 'estado'>, plan: string | null | undefined): PlanId | null {
+  if (estado.estado !== 'activa' || plan === null || plan === undefined) return null;
+  return esPlanId(plan) ? plan : 'basico';
+}
+
+/**
+ * Lo que cada plan habilita además del tope de chats. La importación rápida
+ * de productos (LAU-31) es sólo del Pro pagando: el mes de prueba no la trae.
+ */
+export type FuncionesDelPlan = { importacionRapida: boolean };
+
+export function funcionesDelPlan(plan: PlanId | null): FuncionesDelPlan {
+  return { importacionRapida: plan === 'pro' };
 }
 
 export type EstadoDeCupo = {

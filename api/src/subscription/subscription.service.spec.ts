@@ -13,6 +13,8 @@ const MS_POR_DIA = 24 * 60 * 60 * 1000;
 /** Base de datos en memoria: una sola fila Subscription, indexada por userId. */
 function crearServicio(opciones: {
   creadoHaceDias: number;
+  /** Alta de una cuenta anterior de la misma identidad, ya borrada. */
+  lapidaHaceDias?: number;
   suscripcion?: { estado: string } | null;
   preapproval?: Partial<Preapproval>;
   emailsTomados?: string[];
@@ -36,10 +38,18 @@ function crearServicio(opciones: {
         return {
           id: 'user-1',
           email: 'dueño@ejemplo.com',
+          googleId: 'google-1',
           createdAt: new Date(Date.now() - opciones.creadoHaceDias * MS_POR_DIA),
           suscripcion: filas.get('user-1') ?? null,
         };
       }),
+    },
+    pruebaConsumida: {
+      findMany: vi.fn().mockResolvedValue(
+        opciones.lapidaHaceDias === undefined
+          ? []
+          : [{ inicio: new Date(Date.now() - opciones.lapidaHaceDias * MS_POR_DIA) }],
+      ),
     },
     notificacion: {
       findFirst: vi
@@ -185,6 +195,17 @@ describe('SubscriptionService', () => {
     expect(await pagando.service.asistenteActivo('user-1')).toBe(true);
   });
 
+  it('una cuenta recreada hereda la prueba de la que se borró', async () => {
+    // Se dio de alta hace 31 días, borró la cuenta y volvió hoy: ya no tiene prueba.
+    const recreada = crearServicio({ creadoHaceDias: 0, lapidaHaceDias: DIAS_PRUEBA + 1 });
+    expect(await recreada.service.asistenteActivo('user-1')).toBe(false);
+
+    // Borró a los 29 días: le queda 1.
+    const aTiempo = crearServicio({ creadoHaceDias: 0, lapidaHaceDias: 29 });
+    expect(await aTiempo.service.asistenteActivo('user-1')).toBe(true);
+    expect((await aTiempo.service.estadoPublico('user-1')).diasRestantes).toBe(1);
+  });
+
   it('el checkout del Pro cobra el precio del Pro y lo guarda en la fila', async () => {
     const { service, mercadoPago, filas } = crearServicio({ creadoHaceDias: 2 });
 
@@ -300,8 +321,8 @@ describe('SubscriptionService', () => {
     expect(service.precioPublico()).toEqual({
       moneda: 'ARS',
       planes: [
-        { id: 'basico', nombre: 'Básico', chats: 2500, monto: 20000 },
-        { id: 'pro', nombre: 'Pro', chats: 6000, monto: 59000 },
+        { id: 'basico', nombre: 'Básico', chats: 1500, monto: 20000 },
+        { id: 'pro', nombre: 'Pro', chats: 4500, monto: 59000 },
       ],
     });
   });
@@ -311,8 +332,8 @@ describe('SubscriptionService', () => {
     pagandoPro.filas.set('user-1', { ...pagandoPro.filas.get('user-1'), plan: 'pro' } as Record<string, unknown>);
     const enPrueba = crearServicio({ creadoHaceDias: 2, chatsDelMes: 12 });
 
-    expect((await pagandoPro.service.estadoPublico('user-1'))).toMatchObject({ plan: 'pro', uso: { chats: 3100, limite: 6000 } });
-    expect((await enPrueba.service.estadoPublico('user-1'))).toMatchObject({ plan: null, uso: { chats: 12, limite: 6000 } });
+    expect((await pagandoPro.service.estadoPublico('user-1'))).toMatchObject({ plan: 'pro', uso: { chats: 3100, limite: 4500 } });
+    expect((await enPrueba.service.estadoPublico('user-1'))).toMatchObject({ plan: null, uso: { chats: 12, limite: 4500 } });
   });
 
   describe('avisarSiLlegaAlTope', () => {
@@ -325,26 +346,26 @@ describe('SubscriptionService', () => {
     }
 
     it('por debajo del 80 % no avisa', async () => {
-      const { service, notificaciones } = pagando('basico', 1999);
+      const { service, notificaciones } = pagando('basico', 1199);
       await service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(notificaciones.avisar).not.toHaveBeenCalled();
     });
 
     it('al 80 % avisa, una sola vez en el mes aunque ya lo haya leído', async () => {
-      const primera = pagando('basico', 2000);
+      const primera = pagando('basico', 1200);
       await primera.service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(primera.notificaciones.avisar).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({ tipo: 'cupo_chats', clave: 'cupo_chats:80:2026-10' }),
       );
 
-      const repetida = pagando('basico', 2100, ['cupo_chats:80:2026-10']);
+      const repetida = pagando('basico', 1300, ['cupo_chats:80:2026-10']);
       await repetida.service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(repetida.notificaciones.avisar).not.toHaveBeenCalled();
     });
 
-    it('al tope avisa con otra clave, y el Pro tiene 6.000', async () => {
-      const basico = pagando('basico', 2500);
+    it('al tope avisa con otra clave, y el Pro tiene 4.500', async () => {
+      const basico = pagando('basico', 1500);
       await basico.service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(basico.notificaciones.avisar).toHaveBeenCalledWith(
         'user-1',

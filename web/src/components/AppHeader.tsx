@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CampanaNotificaciones } from "@/components/CampanaNotificaciones";
+import { BadgeEstadoAsistente, useEstadoAsistente } from "@/components/EstadoAsistente";
 import { BotonSugerirMejora, Lamparita, PanelSugerencia } from "@/components/SugerirMejora";
 import { Badge } from "@/components/ui/Badge";
 import { Wordmark } from "@/components/Wordmark";
@@ -21,7 +22,8 @@ type Tab =
   | "plan"
   | "cuenta"
   | "asistente"
-  | "costos";
+  | "costos"
+  | "rendimiento";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 
@@ -48,6 +50,8 @@ function pestanasDe(user: Usuario): Pestana[] {
       // Con qué materiales y costos cotiza el asistente los productos a medida (LAU-26).
       { tab: "costos", href: "/costos", label: "Costos" },
       { tab: "ventas", href: "/ventas", label: "Ventas" },
+      // Cómo les va a los productos en los chats: conversión, etapas y abandono (LAU-30).
+      { tab: "rendimiento", href: "/rendimiento", label: "Rendimiento" },
       asistente,
       plan,
     ];
@@ -85,6 +89,9 @@ function FlechaMenu({ abierto, size }: { abierto: boolean; size: number }) {
 export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
   const { signOut } = useSession();
   const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(null);
+  const estadoAsistente = useEstadoAsistente();
+  // Con el estado del asistente a la vista, "WhatsApp conectado" sobra en el celular, donde no entran los dos.
+  const conEstado = estadoAsistente !== null && estadoAsistente.motivo !== "sin_whatsapp";
   const [menuAbierto, setMenuAbierto] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuBoton = useRef<HTMLButtonElement>(null);
@@ -165,8 +172,9 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
       <div className="ml-auto flex items-center gap-3 sm:gap-4">
         <BotonSugerirMejora abierto={sugerenciaAbierta} onAbrir={abrirSugerencia} />
         <CampanaNotificaciones />
+        {estadoAsistente && <BadgeEstadoAsistente estado={estadoAsistente} />}
         {whatsapp && (
-          <span className="whitespace-nowrap">
+          <span className={`whitespace-nowrap ${conEstado && whatsapp.linked ? "hidden md:inline" : ""}`}>
             <Badge tone={whatsapp.linked ? "success" : "warning"}>
               {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
             </Badge>
@@ -220,16 +228,26 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
               >
                 Vinculación
               </Link>
-              {/* En el celular la barra de abajo no tiene lugar para "Costos" ni "Asistente": se llega desde acá. */}
+              {/* En el celular la barra de abajo no tiene lugar para "Costos", "Rendimiento" ni "Asistente": se llega desde acá. */}
               {user.tipoAsistente === "ventas" && (
-                <Link
-                  href="/costos"
-                  role="menuitem"
-                  onClick={() => setMenuAbierto(false)}
-                  className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "costos" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
-                >
-                  Materiales y costos
-                </Link>
+                <>
+                  <Link
+                    href="/rendimiento"
+                    role="menuitem"
+                    onClick={() => setMenuAbierto(false)}
+                    className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "rendimiento" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
+                  >
+                    Rendimiento
+                  </Link>
+                  <Link
+                    href="/costos"
+                    role="menuitem"
+                    onClick={() => setMenuAbierto(false)}
+                    className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "costos" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
+                  >
+                    Materiales y costos
+                  </Link>
+                </>
               )}
               <Link
                 href="/asistente"

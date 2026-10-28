@@ -10,9 +10,15 @@
  *   cliente. Nunca se suman: no hay ninguna regla que diga que se acumulan.
  * - Un descuento que dejaría el precio en $ 0 (o menos) no aplica: Mercado
  *   Pago no cobra un ítem de precio cero, y regalar algo no es un descuento.
+ * - Un monto fijo de una promo (de categoría o de catálogo) está en pesos y
+ *   no le toca a un producto en dólares; el porcentaje le toca a cualquiera.
+ *   El monto fijo del descuento propio de un producto está en su moneda.
  */
 import { claveDia, fechaEnDia } from '../conversation/graph/agenda-rules.js';
-import { formatearCentavos, normalizarTexto } from './catalogo.rules.js';
+import { formatearMonto, monedaDe, normalizarTexto } from './catalogo.rules.js';
+
+/** Lo que hace falta de un producto para saber qué descuentos le tocan. */
+export type ProductoDeDescuento = { id: string; categoria: string | null; moneda?: string };
 
 export const TIPOS_DESCUENTO = ['porcentaje', 'monto'] as const;
 export type TipoDescuento = (typeof TIPOS_DESCUENTO)[number];
@@ -76,10 +82,12 @@ export function descuentoVigente(
 
 /** Si el descuento es para este producto, sin mirar la vigencia. */
 export function aplicaA(
-  descuento: Pick<DescuentoParaAplicar, 'productoId' | 'categoria'>,
-  producto: { id: string; categoria: string | null },
+  descuento: Pick<DescuentoParaAplicar, 'productoId' | 'categoria'> & { tipo?: string },
+  producto: ProductoDeDescuento,
 ): boolean {
-  switch (alcanceDe(descuento)) {
+  const alcance = alcanceDe(descuento);
+  if (alcance !== 'producto' && descuento.tipo === 'monto' && monedaDe(producto.moneda) !== 'ARS') return false;
+  switch (alcance) {
     case 'producto':
       return descuento.productoId === producto.id;
     case 'categoria':
@@ -104,9 +112,9 @@ export function montoDeDescuento(descuento: Pick<DescuentoParaAplicar, 'tipo' | 
   return monto > 0 && monto < precioCentavos ? monto : 0;
 }
 
-/** "20% off" o "$ 500 off". */
-export function etiquetaDescuento(descuento: Pick<DescuentoParaAplicar, 'tipo' | 'valor'>): string {
-  return descuento.tipo === 'porcentaje' ? `${descuento.valor}% off` : `${formatearCentavos(descuento.valor)} off`;
+/** "20% off", "$ 500 off" o "US$ 5 off" (el monto, en la moneda del producto). */
+export function etiquetaDescuento(descuento: Pick<DescuentoParaAplicar, 'tipo' | 'valor'>, moneda: string = 'ARS'): string {
+  return descuento.tipo === 'porcentaje' ? `${descuento.valor}% off` : `${formatearMonto(descuento.valor, moneda)} off`;
 }
 
 /**
@@ -116,7 +124,7 @@ export function etiquetaDescuento(descuento: Pick<DescuentoParaAplicar, 'tipo' |
  */
 export function mejorDescuento(
   descuentos: DescuentoParaAplicar[],
-  producto: { id: string; categoria: string | null },
+  producto: ProductoDeDescuento,
   precioCentavos: number,
   ahora: Date = new Date(),
 ): DescuentoAplicado | null {
@@ -143,7 +151,7 @@ export function mejorDescuento(
     precioListaCentavos: precioCentavos,
     descuentoCentavos: mejor.monto,
     precioFinalCentavos: precioCentavos - mejor.monto,
-    etiqueta: etiquetaDescuento(mejor.descuento),
+    etiqueta: etiquetaDescuento(mejor.descuento, alcanceDe(mejor.descuento) === 'producto' ? producto.moneda : 'ARS'),
     nombre: mejor.descuento.nombre,
     hastaDia: diaDeHasta(mejor.descuento.hasta),
   };
@@ -220,6 +228,7 @@ export type ProductoParaDescuentos = {
   id: string;
   nombre: string;
   categoria: string | null;
+  moneda?: string;
   preciosConStock: number[];
 };
 
@@ -235,6 +244,8 @@ export type PromocionVigente = {
 /** Un producto con su descuento propio, con el precio que se cobra de verdad. */
 export type ProductoConDescuento = {
   nombre: string;
+  /** Ausente = pesos. */
+  moneda?: string;
   /** Precio final de la variante con descuento más barata. */
   precioFinalCentavos: number;
   /** Precio de lista de esa misma variante. */
@@ -315,6 +326,7 @@ export function descuentosParaElCliente(
     return [
       {
         nombre: producto.nombre,
+        moneda: monedaDe(producto.moneda),
         precioFinalCentavos: masBarata.aplicado.precioFinalCentavos,
         precioListaCentavos: masBarata.precio,
         variosPrecios: finales.some((final) => precioDe(final) !== precioDe(finales[0])),

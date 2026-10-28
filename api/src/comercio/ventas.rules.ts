@@ -5,7 +5,7 @@
  * que el stock vuelva a estar disponible.
  */
 import { completarPlantilla } from '../agents/mensajes.rules.js';
-import { formatearCentavos } from './catalogo.rules.js';
+import { formatearMonto } from './catalogo.rules.js';
 
 /** Lo que dura la reserva de un pedido con link de Mercado Pago (el link vence a la vez). */
 export const MINUTOS_RESERVA_MP = 30;
@@ -122,13 +122,13 @@ export type RenglonVenta = {
   subtotalCentavos: number;
 };
 
-/** "2 × Mate de calabaza ($ 16.000), 1 × Remera (Talle M) ($ 15.000)". */
-export function detalleDeRenglones(items: RenglonVenta[]): string {
+/** "2 × Mate de calabaza ($ 16.000), 1 × Remera (Talle M) ($ 15.000)", en la moneda de la venta. */
+export function detalleDeRenglones(items: RenglonVenta[], moneda: string = 'ARS'): string {
   return items
     .map(
       (item) =>
         `${item.cantidad} × ${item.nombreProducto}${item.nombreVariante ? ` (${item.nombreVariante})` : ''} ` +
-        `(${formatearCentavos(item.subtotalCentavos)})`,
+        `(${formatearMonto(item.subtotalCentavos, moneda)})`,
     )
     .join(', ');
 }
@@ -158,7 +158,7 @@ export function fechaYHora(fecha: Date): string {
  * código, no del modelo: es un mensaje transaccional y el monto es el de la base.
  */
 export function mensajePagoAprobado(
-  venta: { nombreCliente: string | null; totalCentavos: number | null },
+  venta: { nombreCliente: string | null; totalCentavos: number | null; moneda?: string },
   nombreTitular: string | null,
   propio?: { plantilla: string; detalle: string } | null,
 ): string {
@@ -168,13 +168,13 @@ export function mensajePagoAprobado(
     // El texto del dueño (/asistente), con los datos de la base: tampoco pasa por el modelo.
     return completarPlantilla(propio.plantilla, {
       nombre: nombre ?? '',
-      total: formatearCentavos(venta.totalCentavos ?? 0),
+      total: formatearMonto(venta.totalCentavos ?? 0, venta.moneda),
       detalle: propio.detalle,
       negocio: titular,
     });
   }
   return (
-    `¡Listo${nombre ? `, ${nombre}` : ''}! Tu pago de ${formatearCentavos(venta.totalCentavos ?? 0)} fue aprobado. ` +
+    `¡Listo${nombre ? `, ${nombre}` : ''}! Tu pago de ${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)} fue aprobado. ` +
     'Te escribimos por acá para coordinar la entrega.'
   );
 }

@@ -3,6 +3,7 @@
  * stock y la idempotencia del pago son SQL que un mock no prueba. Ver
  * test/base-de-prueba.ts.
  */
+import { RegistroPerformanceService } from '../performance/registro.service.js';
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
@@ -65,6 +66,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       cuentas as unknown as CuentaMercadoPagoService,
       config,
       notificaciones as unknown as NotificacionesService,
+      new RegistroPerformanceService(prisma),
     );
     dueno = await crearUsuarioDePrueba(prisma);
     const crear = (codigo: string, precioCentavos: number, stock: number | null, stockMinimo: number | null = null) =>
@@ -253,6 +255,39 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     expect(await ventas.reservadasPorVariante([termo])).toEqual(new Map([[termo, 1]]));
   });
 
+  it('un pedido en dólares se cobra a mano aunque haya Mercado Pago, y no se mezcla con uno en pesos', async () => {
+    const auriculares = await prisma.producto.create({
+      data: {
+        userId: dueno.id,
+        codigo: 'AURI',
+        nombre: 'Auriculares',
+        moneda: 'USD',
+        variantes: { create: [{ sku: 'AURI', precioCentavos: 2_500, stock: 3 }] },
+      },
+      include: { variantes: true },
+    });
+    const varianteUsd = auriculares.variantes[0].id;
+    try {
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+
+      const venta = await pedido([{ varianteId: varianteUsd, cantidad: 2 }], { medioPago: 'mercadopago' });
+      expect(venta).toMatchObject({ moneda: 'USD', medioPago: 'manual', totalCentavos: 5_000, linkPago: null });
+      expect(mp.crearPreferencia).not.toHaveBeenCalled();
+      expect(avisosDeTipo('pedido_manual')[0][1]).toMatchObject({ titulo: 'Pedido para cobrar: US$ 50' });
+
+      await expect(
+        pedido([
+          { varianteId: varianteUsd, cantidad: 1 },
+          { varianteId: termo, cantidad: 1 },
+        ]),
+      ).rejects.toThrow('No se pueden mezclar productos en pesos y en dólares');
+      expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(1);
+    } finally {
+      await prisma.venta.deleteMany({ where: { userId: dueno.id } });
+      await prisma.producto.delete({ where: { id: auriculares.id } });
+    }
+  });
+
   it('el webhook sólo marca pagada con un pago aprobado de esa venta por el monto exacto', async () => {
     cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
     mp.crearPreferencia.mockResolvedValue({ id: 'pref-2', init_point: 'https://mp/pagar' });
@@ -369,7 +404,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
   it('vence las reservas pasadas de hora y cancela sólo lo que está sin pagar', async () => {
     const vieja = await pedido([{ varianteId: sinControl, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
-    expect(await ventas.vencerReservas()).toBe(1);
+    // El barrido es global: en la base compartida puede vencer también reservas de otros specs.
+    expect(await ventas.vencerReservas()).toBeGreaterThanOrEqual(1);
     expect((await prisma.venta.findUniqueOrThrow({ where: { id: vieja.id } })).estado).toBe('vencida');
 
     const pagada = await pedido([{ varianteId: sinControl, cantidad: 1 }]);

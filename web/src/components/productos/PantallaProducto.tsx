@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useId, type ReactNode } from "react";
+import { useAvisos } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 
@@ -44,10 +45,20 @@ export function PantallaProducto({
 }>) {
   const idTitulo = useId();
 
-  const cerrar = useCallback(() => {
-    if (hayCambios && !window.confirm("Tenés cambios sin guardar. ¿Descartarlos?")) return;
+  const { confirmar } = useAvisos();
+  const cerrar = useCallback(async () => {
+    if (hayCambios) {
+      const descartar = await confirmar({
+        titulo: "Tenés cambios sin guardar",
+        texto: "Si salís ahora, se pierde lo que cambiaste.",
+        confirmar: "Descartar cambios",
+        cancelar: "Seguir editando",
+        tono: "neutro",
+      });
+      if (!descartar) return;
+    }
     onCerrar();
-  }, [hayCambios, onCerrar]);
+  }, [hayCambios, onCerrar, confirmar]);
 
   // Cerrar la pestaña o recargar con cambios: el navegador pregunta antes de perderlos.
   useEffect(() => {

@@ -48,9 +48,9 @@ export type Env = {
    * GOOGLE_CALLBACK_URL, que ya es la API.
    */
   API_PUBLIC_URL: string;
-  /** Precio mensual del plan Básico (2.500 chats). */
+  /** Precio mensual del plan Básico (1.500 chats). */
   SUSCRIPCION_PRECIO_ARS: number;
-  /** Precio mensual del plan Pro (6.000 chats). */
+  /** Precio mensual del plan Pro (4.500 chats). */
   SUSCRIPCION_PRECIO_PRO_ARS: number;
   /**
    * Hasta cuánto para atrás ve el modelo el historial de un chat
@@ -69,6 +69,22 @@ export type Env = {
   LINEAR_LABEL_ID: string;
   /** Endpoint GraphQL de Linear. Sólo lo cambiaría un stub. */
   LINEAR_API_URL: string;
+  /** API de Mercado Libre para la importación rápida (LAU-31). Sólo la cambiaría un stub. */
+  MERCADOLIBRE_API_URL: string;
+  /**
+   * App de Mercado Libre (developers.mercadolibre.com.ar): con ellas la API
+   * pide un token de aplicación, que Mercado Libre exige para leer
+   * publicaciones. Vacías = se lee la página de la publicación como cualquier
+   * otra web, que puede no traer todo.
+   */
+  MERCADOLIBRE_CLIENT_ID: string;
+  MERCADOLIBRE_CLIENT_SECRET: string;
+  /**
+   * Sólo para los e2e: hosts (separados por coma) a los que la importación
+   * puede pedir aunque sean http, de otro puerto o de la red interna. En
+   * producción no arranca con esto puesto.
+   */
+  IMPORTACION_HOSTS_DE_PRUEBA: string;
 };
 
 const REQUIRED = [
@@ -91,6 +107,7 @@ export const OPENROUTER_BASE_URL_POR_DEFECTO = 'https://openrouter.ai/api/v1';
 export const OPENROUTER_DECISIONS_URL_POR_DEFECTO = 'https://openrouter.ai/api/alpha/decisions';
 export const MERCADOPAGO_BASE_URL_POR_DEFECTO = 'https://api.mercadopago.com';
 export const LINEAR_API_URL_POR_DEFECTO = 'https://api.linear.app/graphql';
+export const MERCADOLIBRE_API_URL_POR_DEFECTO = 'https://api.mercadolibre.com';
 
 export const HISTORIAL_IA_VENTANA_POR_DEFECTO = '14d';
 
@@ -169,6 +186,22 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     throw new Error('LINEAR_API_URL tiene que ser https en producción.');
   }
 
+  const hostsDePrueba = String(raw.IMPORTACION_HOSTS_DE_PRUEBA ?? '').trim();
+  // Abre la importación a la red interna: en producción sería un SSRF servido en bandeja.
+  if (nodeEnv === 'production' && hostsDePrueba) {
+    throw new Error('IMPORTACION_HOSTS_DE_PRUEBA no puede estar definida en producción. Borrala de las variables del deploy.');
+  }
+  const mercadoLibreApiUrl = sinBarrasFinales(String(raw.MERCADOLIBRE_API_URL || MERCADOLIBRE_API_URL_POR_DEFECTO));
+  // El token de aplicación viaja en el header.
+  if (nodeEnv === 'production' && !mercadoLibreApiUrl.startsWith('https://')) {
+    throw new Error('MERCADOLIBRE_API_URL tiene que ser https en producción.');
+  }
+  const mercadoLibreClientId = String(raw.MERCADOLIBRE_CLIENT_ID ?? '');
+  const mercadoLibreClientSecret = String(raw.MERCADOLIBRE_CLIENT_SECRET ?? '');
+  if (Boolean(mercadoLibreClientId) !== Boolean(mercadoLibreClientSecret)) {
+    throw new Error('MERCADOLIBRE_CLIENT_ID y MERCADOLIBRE_CLIENT_SECRET van juntas: definí las dos o ninguna.');
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: Number(raw.PORT ?? 4000),
@@ -202,5 +235,9 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     LINEAR_TEAM_ID: String(raw.LINEAR_TEAM_ID ?? ''),
     LINEAR_LABEL_ID: String(raw.LINEAR_LABEL_ID ?? ''),
     LINEAR_API_URL: linearApiUrl,
+    MERCADOLIBRE_API_URL: mercadoLibreApiUrl,
+    MERCADOLIBRE_CLIENT_ID: mercadoLibreClientId,
+    MERCADOLIBRE_CLIENT_SECRET: mercadoLibreClientSecret,
+    IMPORTACION_HOSTS_DE_PRUEBA: hostsDePrueba,
   };
 }

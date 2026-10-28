@@ -2,7 +2,8 @@
  * Textos de los avisos al dueño, como funciones puras: el mismo texto va a la
  * campanita del panel y a su propio chat de WhatsApp.
  */
-import { formatearCentavos } from '../comercio/catalogo.rules.js';
+import { formatearCentavos, formatearMonto } from '../comercio/catalogo.rules.js';
+import { PLANES } from '../subscription/subscription.rules.js';
 import { detalleDeRenglones, fechaYHora, type RenglonVenta } from '../comercio/ventas.rules.js';
 
 export const TIPOS_NOTIFICACION = [
@@ -40,6 +41,8 @@ type VentaAvisable = {
   nombreCliente: string | null;
   telefonoCliente: string | null;
   totalCentavos: number | null;
+  /** Ausente = pesos. */
+  moneda?: string;
   medioPago: string | null;
   reservaVenceAt: Date | null;
   sinStockAlPagar: boolean;
@@ -70,9 +73,9 @@ export function avisoVentaPagada(venta: VentaAvisable): Aviso {
     : '';
   return {
     tipo: 'venta_pagada',
-    titulo: `${prueba(venta)}Venta pagada: ${formatearCentavos(venta.totalCentavos ?? 0)}`,
+    titulo: `${prueba(venta)}Venta pagada: ${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)}`,
     cuerpo:
-      `${quien(venta)} pagó ${detalleDeRenglones(venta.items)} por Mercado Pago. ` +
+      `${quien(venta)} pagó ${detalleDeRenglones(venta.items, venta.moneda)} por Mercado Pago. ` +
       `Coordiná la entrega por WhatsApp.${entrega(venta)}${alerta}`,
     enlace: `/ventas?venta=${venta.id}`,
   };
@@ -81,9 +84,9 @@ export function avisoVentaPagada(venta: VentaAvisable): Aviso {
 export function avisoPedidoManual(venta: VentaAvisable): Aviso {
   return {
     tipo: 'pedido_manual',
-    titulo: `${prueba(venta)}Pedido para cobrar: ${formatearCentavos(venta.totalCentavos ?? 0)}`,
+    titulo: `${prueba(venta)}Pedido para cobrar: ${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)}`,
     cuerpo:
-      `${quien(venta)} pidió ${detalleDeRenglones(venta.items)}.` +
+      `${quien(venta)} pidió ${detalleDeRenglones(venta.items, venta.moneda)}.` +
       (venta.reservaVenceAt ? ` Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}.` : '') +
       ` Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}`,
     enlace: `/ventas?venta=${venta.id}`,
@@ -261,7 +264,7 @@ export function avisoCupoDeChats(datos: {
   const cierre =
     datos.plan === 'pro'
       ? 'El asistente sigue contestando igual.'
-      : 'El asistente sigue contestando igual; si querés más margen, podés pasarte al plan Pro (6.000 chats).';
+      : `El asistente sigue contestando igual; si querés más margen, podés pasarte al plan Pro (${PLANES.pro.chats.toLocaleString('es-AR')} chats).`;
   return {
     tipo: 'cupo_chats',
     titulo,
