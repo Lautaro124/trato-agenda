@@ -1,7 +1,15 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { API_URL } from '../entorno';
 import { crearAgentePorApi, esperarRuta, expect, sufijo, test, visible } from './fixtures';
-import { completarWizard, MANANA, perfilProduccion, preguntaInicial } from './onboarding';
+import {
+  botonContinuar,
+  completarWizard,
+  elegirAsistente,
+  MANANA,
+  perfilProduccion,
+  preguntaHorarioAtencion,
+  preguntaInicial,
+} from './onboarding';
 
 type HorarioAtencion = {
   activo: boolean;
@@ -23,7 +31,60 @@ async function fijarEstado(page: Page, estado: Record<string, unknown>): Promise
   await page.route(`${API_URL}/asistente/estado`, (route) => route.fulfill({ json: estado }));
 }
 
+/** Un comercio que vende sólo online, hasta el paso "Cuándo atiende". */
+async function hastaCuandoAtiendeVentas(page: Page): Promise<void> {
+  await page.goto('/contanos');
+  await elegirAsistente(page, 'ventas');
+  await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(`Mates E2E ${sufijo()}`);
+  await botonContinuar(page).click();
+  await botonContinuar(page).click();
+  await botonContinuar(page).click();
+  await expect(preguntaHorarioAtencion(page)).toBeVisible();
+}
+
+async function terminarVentas(page: Page): Promise<void> {
+  await botonContinuar(page).click();
+  await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
+  await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
+  await esperarRuta(page, '/listo');
+}
+
 test.describe('horario de atención del asistente (LAU-29)', () => {
+  test('el onboarding de un comercio lo carga con un horario típico y una sola franja para todos los días', async ({
+    page,
+    context,
+    usuarioDev,
+  }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await hastaCuandoAtiendeVentas(page);
+
+    const tipico = visible(page.getByRole('button', { name: 'Lunes a sábado · 09:00–20:00' }));
+    await tipico.click();
+    await expect(tipico).toHaveAttribute('aria-pressed', 'true');
+    await expect(visible(page.getByRole('button', { name: 'Sábado', exact: true }))).toHaveAttribute('aria-pressed', 'true');
+    // La franja general cambia en todos los días a la vez.
+    await visible(page.getByLabel('Hasta', { exact: true })).selectOption('19:00');
+    await expect(tipico).toHaveAttribute('aria-pressed', 'false');
+    await terminarVentas(page);
+
+    expect(await horarioActual(context.request)).toMatchObject({
+      activo: true,
+      franjas: [...LABORABLES, 'sab'].map((dia) => ({ dia, desde: '09:00', hasta: '19:00' })),
+    });
+  });
+
+  test('con el switch prendido el comercio atiende siempre', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await hastaCuandoAtiendeVentas(page);
+
+    await visible(page.getByRole('switch', { name: 'Atender todos los días, todo el día' })).check();
+    await expect(page.getByLabel('Zona horaria')).toHaveCount(0);
+    await terminarVentas(page);
+
+    expect((await horarioActual(context.request)).activo).toBe(false);
+  });
+
+
   test('el onboarding lo pide, precargado con la franja de turnos, y queda activo', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await page.goto('/contanos');

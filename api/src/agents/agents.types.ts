@@ -119,11 +119,17 @@ export class FranjaLocalDto {
 }
 
 /**
- * El horario de atención que pide el onboarding (LAU-29): siempre queda activo,
- * así que sólo trae franjas y zona. Lo valida normalizarHorarioAtencion
- * (horario-atencion.rules.ts) y se guarda en el usuario, no en el agente.
+ * El horario de atención que pide el onboarding (LAU-29). Sin `activo` queda
+ * activo, como antes del switch "Atender todos los días, todo el día"; con
+ * `false` atiende siempre y las franjas quedan guardadas igual. Lo valida
+ * normalizarHorarioAtencion (horario-atencion.rules.ts) y se guarda en el
+ * usuario, no en el agente.
  */
 export class HorarioAtencionOnboardingDto {
+  @IsOptional()
+  @IsBoolean()
+  activo?: boolean;
+
   @IsArray()
   @ArrayMaxSize(MAX_FRANJAS)
   @ValidateNested({ each: true })
