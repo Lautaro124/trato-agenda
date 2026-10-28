@@ -6,7 +6,7 @@ test.describe('login con contraseña (sólo dev)', () => {
   test('/entrar muestra el formulario dev además del botón de Google', async ({ page }) => {
     await page.goto('/entrar');
 
-    await expect(page.getByRole('button', { name: 'Continuar con Google' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Entrar con Google' })).toBeVisible();
     await expect(page.getByRole('form', { name: 'Entrar con contraseña' })).toBeVisible();
   });
 
