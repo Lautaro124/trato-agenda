@@ -58,6 +58,7 @@ export function CompletarFilasModal({ filas, errores, onGuardar, onCerrar }: Pro
 
   return (
     <div
+      role="presentation"
       className="fixed inset-0 z-30 flex items-end justify-center bg-black/35 sm:items-center"
       onClick={(e) => {
         if (e.target === e.currentTarget) onCerrar();

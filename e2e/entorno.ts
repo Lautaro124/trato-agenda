@@ -13,7 +13,7 @@ export const MP_STUB_URL = process.env.E2E_MP_STUB_URL ?? 'http://localhost:4020
  * La tienda falsa de la importación rápida (e2e/importacion-stub) tal como la
  * ve la API, no el navegador: en compose, por el nombre del servicio.
  */
-export const TIENDA_URL = process.env.E2E_TIENDA_URL ?? 'http://importacion-stub:4030';
+export const TIENDA_URL = process.env.E2E_TIENDA_URL ?? 'http://importacion-stub:4030'; // NOSONAR: stub de la red interna de compose
 
 /** La de docker-compose.e2e.yml. Para `e2e:real`, la que tenga api/.env. */
 export const DEV_PASSWORD = process.env.E2E_DEV_PASSWORD ?? 'e2e-password';

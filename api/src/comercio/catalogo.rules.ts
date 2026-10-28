@@ -285,7 +285,7 @@ function parsearEntero(texto: string, maximo: number): number | null | 'invalido
   // "10.0" (Excel) es 10; "1.000" son miles; "1.5" no es un entero y no se adivina.
   let limpio: string;
   if (/^\d+\.0{1,2}$/.test(sinEspacios)) limpio = sinEspacios.replace(/\.0+$/, '');
-  else if (/^\d{1,3}(\.\d{3})+$/.test(sinEspacios)) limpio = sinEspacios.replace(/\./g, '');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(sinEspacios)) limpio = sinEspacios.replaceAll('.', '');
   else limpio = sinEspacios;
   if (!/^\d+$/.test(limpio)) return 'invalido';
   const valor = Number(limpio);

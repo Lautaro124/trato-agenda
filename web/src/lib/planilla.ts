@@ -115,7 +115,7 @@ export function normalizarEncabezado(texto: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9ñ]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+    .replace(/^_|_$/g, "");
 }
 
 /** Lo que tiene la fila en esa columna, sin importar cómo se escribió el encabezado ("Código", "codigo"). */

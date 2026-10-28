@@ -62,8 +62,8 @@ export function Preguntas({ performance }: { performance: Performance }) {
         <>
           {enLaEtapa && (
             <p className="rounded-md border border-line bg-sunken px-3 py-2 text-[13.5px] text-ink">
-              Donde más se quedan los chats (<strong>{enLaEtapa.etapa}</strong>
-              ), preguntan sobre <strong>{enLaEtapa.temas}</strong>.
+              Donde más se quedan los chats (<strong>{enLaEtapa.etapa}</strong>), preguntan sobre{" "}
+              <strong>{enLaEtapa.temas}</strong>.
             </p>
           )}
           <div className="rounded-lg border border-line bg-card p-5">

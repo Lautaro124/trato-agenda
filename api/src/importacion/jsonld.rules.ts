@@ -113,7 +113,7 @@ function ofertasDe(nodo: Nodo): Oferta[] {
 function mejorOferta(ofertas: Oferta[]): Oferta | null {
   const conPrecio = ofertas.filter((oferta) => oferta.precioCentavos !== null);
   if (conPrecio.length === 0) return ofertas[0] ?? null;
-  return conPrecio.reduce((mejor, oferta) => ((oferta.precioCentavos as number) < (mejor.precioCentavos as number) ? oferta : mejor));
+  return conPrecio.reduce((mejor, oferta) => ((oferta.precioCentavos as number) < (mejor.precioCentavos as number) ? oferta : mejor), conPrecio[0]);
 }
 
 /** Una URL de imagen o de producto relativa a la página → absoluta, sólo si se la podría pedir. */

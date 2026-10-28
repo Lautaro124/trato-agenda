@@ -15,36 +15,39 @@ import { isIP } from 'node:net';
 /** Una URL no entra si es más larga que esto. */
 export const LARGO_MAX_URL = 2048;
 
-/** Rangos IPv4 que nunca se piden: privados, loopback, link-local, CGNAT, documentación, multicast, reservados. */
+/**
+ * Rangos IPv4 que nunca se piden: privados, loopback, link-local, CGNAT, documentación, multicast, reservados.
+ * Los NOSONAR son de S1313 (IP escrita en el código): acá las IPs son justamente lo que se bloquea.
+ */
 const RANGOS_IPV4_BLOQUEADOS: ReadonlyArray<readonly [string, number]> = [
   ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
+  ['10.0.0.0', 8], // NOSONAR
+  ['100.64.0.0', 10], // NOSONAR
   ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.0.0.0', 24],
+  ['169.254.0.0', 16], // NOSONAR
+  ['172.16.0.0', 12], // NOSONAR
+  ['192.0.0.0', 24], // NOSONAR
   ['192.0.2.0', 24],
-  ['192.88.99.0', 24],
-  ['192.168.0.0', 16],
-  ['198.18.0.0', 15],
+  ['192.88.99.0', 24], // NOSONAR
+  ['192.168.0.0', 16], // NOSONAR
+  ['198.18.0.0', 15], // NOSONAR
   ['198.51.100.0', 24],
   ['203.0.113.0', 24],
-  ['224.0.0.0', 4],
-  ['240.0.0.0', 4],
+  ['224.0.0.0', 4], // NOSONAR
+  ['240.0.0.0', 4], // NOSONAR
 ];
 
 /** Dentro de 2000::/3 (lo único global), los rangos que igual no son de nadie a quien pedirle una página. */
 const RANGOS_IPV6_BLOQUEADOS: ReadonlyArray<readonly [string, number]> = [
-  ['2001::', 23], // asignaciones de protocolo de la IETF, Teredo incluido
+  ['2001::', 23], // NOSONAR: asignaciones de protocolo de la IETF, Teredo incluido
   ['2001:db8::', 32], // documentación
-  ['3fff::', 20], // documentación
+  ['3fff::', 20], // NOSONAR: documentación
 ];
 
 function bytesIpv4(ip: string): number[] | null {
   const partes = ip.split('.');
   if (partes.length !== 4) return null;
-  const bytes = partes.map((parte) => (/^\d{1,3}$/.test(parte) ? Number(parte) : NaN));
+  const bytes = partes.map((parte) => (/^\d{1,3}$/.test(parte) ? Number(parte) : Number.NaN));
   return bytes.every((byte) => Number.isInteger(byte) && byte <= 255) ? bytes : null;
 }
 
@@ -68,11 +71,11 @@ export function bytesIpv6(ip: string): number[] | null {
   const derecha = mitades.length === 2 ? grupos(mitades[1]) : [];
   const faltan = 8 - izquierda.length - derecha.length;
   if (mitades.length === 2 ? faltan < 1 : faltan !== 0) return null;
-  const todos = [...izquierda, ...Array<string>(mitades.length === 2 ? faltan : 0).fill('0'), ...derecha];
+  const todos = [...izquierda, ...Array.from({ length: mitades.length === 2 ? faltan : 0 }, () => '0'), ...derecha];
   const bytes: number[] = [];
   for (const grupo of todos) {
     if (!/^[0-9a-f]{1,4}$/.test(grupo)) return null;
-    const valor = parseInt(grupo, 16);
+    const valor = Number.parseInt(grupo, 16);
     bytes.push(valor >> 8, valor & 0xff);
   }
   if (colaIpv4.length === 4) bytes.splice(12, 4, ...colaIpv4);
@@ -99,7 +102,7 @@ function ipv4Permitida(bytes: number[]): boolean {
 function ipv4Envuelta(bytes: number[]): number[] | null {
   const ceros = (desde: number, hasta: number) => bytes.slice(desde, hasta).every((byte) => byte === 0);
   if (ceros(0, 10) && bytes[10] === 0xff && bytes[11] === 0xff) return bytes.slice(12, 16);
-  if (enRango(bytes, bytesIpv6('64:ff9b::') as number[], 96)) return bytes.slice(12, 16);
+  if (enRango(bytes, bytesIpv6('64:ff9b::') as number[], 96)) return bytes.slice(12, 16); // NOSONAR: prefijo NAT64
   if (bytes[0] === 0x20 && bytes[1] === 0x02) return bytes.slice(2, 6);
   return null;
 }

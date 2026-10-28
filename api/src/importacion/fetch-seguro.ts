@@ -162,7 +162,7 @@ function pedir(url: URL, direccion: LookupAddress, opciones: OpcionesDescarga, l
             .map((parametro) => parametro.trim().toLowerCase())
             .find((parametro) => parametro.startsWith('charset='))
             ?.slice('charset='.length)
-            .replace(/"/g, '') ?? null;
+            .replaceAll('"', '') ?? null;
         const declarado = Number(respuesta.headers['content-length']);
         if (Number.isFinite(declarado) && declarado > limite) {
           respuesta.destroy();
