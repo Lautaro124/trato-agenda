@@ -217,8 +217,8 @@ export type DatosVentas = {
   horarioAtencion: HorarioAtencionOnboarding;
 } & PayloadDatosCliente;
 
-/** El paso "Cuándo atiende" en los dos bodies: siempre queda activo. */
-export type HorarioAtencionOnboarding = { franjas: FranjaLocal[]; zona: string };
+/** El paso "Cuándo atiende" en los dos bodies. `activo: false` = atiende siempre; las franjas quedan guardadas igual. */
+export type HorarioAtencionOnboarding = { activo: boolean; franjas: FranjaLocal[]; zona: string };
 
 export type Onboarding = ReturnType<typeof useOnboarding>;
 
@@ -474,6 +474,7 @@ export function useOnboarding() {
   // Cuándo atiende por WhatsApp (LAU-29): de la cuenta, igual para los dos asistentes.
   const horarioBot = useSemana(semanaInicial);
   const [zona, setZona] = useState(ZONA_POR_DEFECTO);
+  const [atenderSiempre, setAtenderSiempre] = useState(false);
 
   const elegirTipoUso = useCallback(
     (id: TipoUsoId) => {
@@ -544,9 +545,16 @@ export function useOnboarding() {
     local: local.valido,
     // Opcional: sin tildar nada el asistente sólo pide el nombre.
     datos: true,
-    cuando: horarioBot.valida && diasConAtencion > 0,
+    cuando: atenderSiempre || (horarioBot.valida && diasConAtencion > 0),
     asistente: nombreBot.trim().length >= LARGO_MIN_NOMBRE,
   };
+
+  // Atendiendo siempre, unas franjas a medio cargar no se mandan: la API las rechazaría.
+  const horarioAtencion = (): HorarioAtencionOnboarding => ({
+    activo: !atenderSiempre,
+    franjas: horarioBot.valida ? horarioBot.franjas() : [],
+    zona,
+  });
 
   /** Lo que ya se respondió en cada paso, para el riel. */
   const resumenes: Record<PasoId, string> = {
@@ -559,7 +567,7 @@ export function useOnboarding() {
     horarios: `${horaDesde}–${horaHasta}`,
     local: local.resumen,
     datos: datosCliente.resumen,
-    cuando: `${diasConAtencion} ${diasConAtencion === 1 ? "día" : "días"}`,
+    cuando: atenderSiempre ? "Siempre" : `${diasConAtencion} ${diasConAtencion === 1 ? "día" : "días"}`,
     asistente: nombreBot.trim(),
   };
 
@@ -654,6 +662,8 @@ export function useOnboarding() {
     horarioBot,
     zona,
     setZona,
+    atenderSiempre,
+    setAtenderSiempre,
     puedeAvanzar,
     presentacion,
     saludo,
@@ -665,7 +675,7 @@ export function useOnboarding() {
       nombreBot: nombreBot.trim(),
       local: local.payload(),
       ...datosCliente.payload(),
-      horarioAtencion: { franjas: horarioBot.franjas(), zona },
+      horarioAtencion: horarioAtencion(),
     }),
     /** Body de POST /agents/generate. */
     payload: () => ({
@@ -677,7 +687,7 @@ export function useOnboarding() {
       horaHasta,
       nombreBot: nombreBot.trim(),
       local: lugar.payload(),
-      horarioAtencion: { franjas: horarioBot.franjas(), zona },
+      horarioAtencion: horarioAtencion(),
     }),
   };
 }

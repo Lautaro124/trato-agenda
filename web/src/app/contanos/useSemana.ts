@@ -5,6 +5,7 @@ import {
   DIAS_SEMANA,
   horariosDe,
   problemaDelDia,
+  type DiaEnPantalla,
   type DiaSemana,
   type FranjaLocal,
   type SemanaEnPantalla,
@@ -16,6 +17,21 @@ function laMasTarde(a: string, b: string): string {
 
 function laMasTemprana(a: string, b: string): string {
   return a.localeCompare(b) <= 0 ? a : b;
+}
+
+type Franjas = DiaEnPantalla["franjas"];
+
+/** El corte del mediodía: parte la franja en dos, de mañana y de tarde. */
+export function conCorte([primera]: Franjas): Franjas {
+  // "HH:MM" se ordena bien como texto: la mañana cierra a las 13 y la tarde abre a las 16, dentro de la franja.
+  return [
+    { desde: primera.desde, hasta: laMasTarde(primera.desde, "13:00") },
+    { desde: laMasTemprana(primera.hasta, "16:00"), hasta: primera.hasta },
+  ];
+}
+
+export function sinCorte([primera, segunda]: Franjas): Franjas {
+  return [{ desde: primera.desde, hasta: segunda?.hasta ?? primera.hasta }];
 }
 
 /**
@@ -50,26 +66,21 @@ export function useSemana(inicial: () => SemanaEnPantalla) {
     [editar],
   );
 
-  /** El corte del mediodía: parte la franja en dos, de mañana y de tarde. */
   const agregarCorte = useCallback(
     (dia: DiaSemana) =>
-      editar((previa) => {
-        const [primera] = previa[dia].franjas;
-        // "HH:MM" se ordena bien como texto: la mañana cierra a las 13 y la tarde abre a las 16, dentro de la franja.
-        const manana = { desde: primera.desde, hasta: laMasTarde(primera.desde, "13:00") };
-        const tarde = { desde: laMasTemprana(primera.hasta, "16:00"), hasta: primera.hasta };
-        return { ...previa, [dia]: { ...previa[dia], franjas: [manana, tarde] } };
-      }),
+      editar((previa) => ({ ...previa, [dia]: { ...previa[dia], franjas: conCorte(previa[dia].franjas) } })),
     [editar],
   );
 
   const quitarCorte = useCallback(
     (dia: DiaSemana) =>
-      editar((previa) => {
-        const [primera, segunda] = previa[dia].franjas;
-        const unida = { desde: primera.desde, hasta: segunda?.hasta ?? primera.hasta };
-        return { ...previa, [dia]: { ...previa[dia], franjas: [unida] } };
-      }),
+      editar((previa) => ({ ...previa, [dia]: { ...previa[dia], franjas: sinCorte(previa[dia].franjas) } })),
+    [editar],
+  );
+
+  /** Cambia varios días de una vez: un horario típico o el horario general de la carga rápida. */
+  const fijarDias = useCallback(
+    (cambios: Partial<SemanaEnPantalla>) => editar((previa) => ({ ...previa, ...cambios })),
     [editar],
   );
 
@@ -112,6 +123,7 @@ export function useSemana(inicial: () => SemanaEnPantalla) {
     agregarCorte,
     quitarCorte,
     copiarATodos,
+    fijarDias,
     precargar,
     problemas,
     valida,

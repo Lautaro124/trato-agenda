@@ -39,6 +39,13 @@ export const HORAS_ATENCION = [
   "23:59",
 ];
 
+/** Los horarios típicos que se cargan de un toque en el onboarding. */
+export const HORARIOS_TIPICOS: ReadonlyArray<{ etiqueta: string; dias: readonly DiaSemana[]; desde: string; hasta: string }> = [
+  { etiqueta: "Lunes a viernes", dias: ["lun", "mar", "mie", "jue", "vie"], desde: "09:00", hasta: "18:00" },
+  { etiqueta: "Lunes a sábado", dias: ["lun", "mar", "mie", "jue", "vie", "sab"], desde: "09:00", hasta: "20:00" },
+  { etiqueta: "Todos los días", dias: ["lun", "mar", "mie", "jue", "vie", "sab", "dom"], desde: "09:00", hasta: "21:00" },
+];
+
 /** Lo que devuelven `GET` y `PUT /horario-atencion`. */
 export type HorarioAtencion = {
   /** false = atiende siempre; las franjas quedan guardadas igual. */
