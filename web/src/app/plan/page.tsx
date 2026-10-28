@@ -314,7 +314,7 @@ function OpcionDePlan({
       </div>
       <div className="mt-1 text-[12.5px] leading-[1.5] text-ink-secondary">
         Hasta {formatearChats(plan.chats)} chats por mes
-        {plan.id === "pro" && " · importá productos desde Mercado Libre, Tiendamia o tu web"}
+        {plan.id === "pro" && " · importá productos desde Tiendamia o tu web"}
       </div>
     </button>
   );

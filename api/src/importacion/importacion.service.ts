@@ -94,6 +94,12 @@ function esMuroDeMercadoLibre(url: URL): boolean {
   return url.pathname.includes('/account-verification');
 }
 
+/** Mercado Libre también responde 401/403/429 a sus páginas sin navegador: es el mismo bloqueo que el de la API. */
+function bloqueoDeMercadoLibre(error: unknown, motivo: string | null): unknown {
+  if (!(error instanceof DescargaError) || error.codigo !== 'acceso_denegado') return error;
+  return new ErrorDeImportacion('mercadolibre_no_disponible', `${motivo ?? 'sin_api'}+pagina_denegada`);
+}
+
 /** Cómo conviene cargar lo importado: con precio, de stock; si la página habla de cotizar, a medida; si no, lo elige el dueño. */
 function tipoSugerido(producto: ProductoExtraido): TipoImportado | null {
   if (producto.avisos.includes('parece_a_medida')) return 'a_medida';
@@ -229,7 +235,9 @@ export class ImportacionService {
     }
 
     // Las secciones (y la IA) sólo para una página de otra tienda: Mercado Libre sin API muestra un muro, no productos.
-    const pagina = await this.pagina(url, { secciones: fuente !== 'mercadolibre' });
+    const pagina = await this.pagina(url, { secciones: fuente !== 'mercadolibre' }).catch((error: unknown) => {
+      throw fuente === 'mercadolibre' ? bloqueoDeMercadoLibre(error, motivoMl) : error;
+    });
     if (pagina.tipo === 'producto') {
       return { encontrados: [{ producto: pagina.producto, url: pagina.url, fuente }], errores: [], recortado: false };
     }
@@ -375,6 +383,8 @@ export class ImportacionService {
       tipos: TIPOS_HTML,
       timeoutMs: TIMEOUT_PAGINA_MS,
       hostsDePrueba: this.hosts,
+    }).catch((error: unknown) => {
+      throw bloqueoDeMercadoLibre(error, causa.motivo);
     });
     const pagina = textoDe(descarga);
     const encontrados = idsDePaginaDeTienda(pagina, sitio, MAX_PRODUCTOS_LISTADO_ML);
