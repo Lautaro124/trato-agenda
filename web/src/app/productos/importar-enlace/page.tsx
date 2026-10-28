@@ -54,7 +54,7 @@ function AvisoPlanPro() {
         <p className="font-semibold text-ink">La importación rápida es del plan Pro</p>
       </div>
       <p className="mb-4 text-sm leading-[1.6] text-ink-secondary">
-        Pegás enlaces de Mercado Libre, Tiendamia o de cualquier tienda y traemos nombre, descripción, fotos, precio y
+        Pegás enlaces de Tiendamia o de cualquier tienda online y traemos nombre, descripción, fotos, precio y
         variantes para que los revises antes de cargarlos. Mientras tanto podés cargar tus productos de a uno o con una
         planilla.
       </p>
@@ -315,9 +315,9 @@ function ImportarDesdeEnlaces() {
         Pegá los enlaces
       </label>
       <p className="text-[13.5px] leading-[1.6] text-ink-secondary">
-        Uno por línea, hasta {MAX_URLS_POR_PEDIDO}: una publicación de Mercado Libre, un producto de Tiendamia o de tu
-        tienda online. También un listado (tu tienda de Mercado Libre o una categoría de tu web) para traer varios de una
-        vez. Nada se carga hasta que lo revises.
+        Uno por línea, hasta {MAX_URLS_POR_PEDIDO}: un producto de Tiendamia o de tu tienda online. También un listado
+        (una categoría de tu web) para traer varios de una vez. Nada se carga hasta que lo revises. Mercado Libre no deja
+        leer sus publicaciones desde afuera: esos productos cargalos a mano o con una planilla.
       </p>
       <textarea
         id="enlaces"

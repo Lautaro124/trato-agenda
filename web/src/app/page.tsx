@@ -84,6 +84,8 @@ const INCLUYE_PLAN = [
   "O ventas con catálogo, stock y cobro por Mercado Pago",
 ];
 
+const INCLUYE_PRO = ["Importá productos desde Tiendamia o tu web"];
+
 function Check({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-start gap-2.5">
@@ -283,7 +285,7 @@ export default function Home() {
           <p className="mb-7 text-[16px] leading-[1.6] text-ink-secondary">
             Probás un mes completo gratis. Si te sirve, elegís el plan que te quede cómodo.
           </p>
-          <PlanesPrecio incluye={INCLUYE_PLAN} />
+          <PlanesPrecio incluye={INCLUYE_PLAN} incluyePro={INCLUYE_PRO} />
           <p className="mt-5 text-[13px] leading-[1.6] text-muted">
             No te pedimos tarjeta para la prueba. Te avisamos 7 días antes de que termine. Si te acercás al tope de
             chats te avisamos, pero el asistente no se corta.
