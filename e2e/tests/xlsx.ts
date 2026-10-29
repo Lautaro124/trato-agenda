@@ -59,11 +59,12 @@ function zip(archivos: Array<{ nombre: string; contenido: string }>): Buffer {
   return Buffer.concat([...locales, directorio, fin]);
 }
 
-const escapar = (texto: string) => texto.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapar = (texto: string) =>
+  texto.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
 function columna(indice: number): string {
   let nombre = '';
-  for (let n = indice + 1; n > 0; n = Math.floor((n - 1) / 26)) nombre = String.fromCharCode(65 + ((n - 1) % 26)) + nombre;
+  for (let n = indice + 1; n > 0; n = Math.floor((n - 1) / 26)) nombre = String.fromCodePoint(65 + ((n - 1) % 26)) + nombre;
   return nombre;
 }
 

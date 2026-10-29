@@ -217,7 +217,7 @@ function Fichas({ resumen }: { resumen: ResumenImportacion }) {
   );
 }
 
-function ListaErrores({ resumen, etiquetas }: { resumen: ResumenImportacion; etiquetas: Etiquetas }) {
+function ListaErrores({ resumen, etiquetas }: Readonly<{ resumen: ResumenImportacion; etiquetas: Etiquetas }>) {
   if (resumen.totalErrores === 0) return null;
   // Una línea por fila: "Fila 5 · Precio: Falta el precio".
   const porFila = new Map<number, ErrorDeFila[]>();

@@ -24,7 +24,7 @@ type Props = {
  * campo por cada dato con problema. Los valores se aplican en memoria sobre las
  * filas leídas; el archivo del usuario no se toca.
  */
-export function CompletarFilasModal({ filas, errores, onGuardar, onCerrar, etiquetas = ETIQUETAS_COLUMNA }: Props) {
+export function CompletarFilasModal({ filas, errores, onGuardar, onCerrar, etiquetas = ETIQUETAS_COLUMNA }: Readonly<Props>) {
   const panel = useRef<HTMLDivElement>(null);
   const [valores, setValores] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);

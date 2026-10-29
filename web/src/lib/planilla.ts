@@ -210,7 +210,7 @@ const ID_MERCADOLIBRE = /^M[A-Z]{2}\d{6,}$/;
  */
 export function filasDeMercadoLibre(filas: unknown[][]): FilaPlanilla[] {
   const [codigos, ...datos] = filas;
-  const indice = new Map((codigos ?? []).map((celda, i) => [String(celda ?? "").trim().toUpperCase(), i]));
+  const indice = new Map((codigos ?? []).map((celda, i) => [celdaATexto(celda).toUpperCase(), i]));
   const faltan = [COLUMNAS_MERCADOLIBRE.codigo, COLUMNAS_MERCADOLIBRE.nombre, COLUMNAS_MERCADOLIBRE.precio].filter(
     (codigo) => !indice.has(codigo),
   );
@@ -256,7 +256,7 @@ function hojaDeMercadoLibre(hojas: Array<{ sheet: string; data: unknown[][] }>) 
   return hojas.find(
     (hoja) =>
       normalizarEncabezado(hoja.sheet) === "publicaciones" &&
-      (hoja.data[0] ?? []).some((celda) => String(celda ?? "").trim().toUpperCase() === COLUMNAS_MERCADOLIBRE.codigo),
+      (hoja.data[0] ?? []).some((celda) => celdaATexto(celda).toUpperCase() === COLUMNAS_MERCADOLIBRE.codigo),
   );
 }
 
