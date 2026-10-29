@@ -26,6 +26,7 @@ import {
 import {
   descuentoEfectivo,
   leerCondiciones,
+  maxCuotasSinPlan,
   planesEn,
   problemaDeFormaDePago,
   topeDelPedido,
@@ -257,7 +258,9 @@ export class VentasService {
     }
 
     const items = agruparItems(input.items);
-    const venta = await this.prisma.$transaction((tx) => this.reservar(tx, input, items, nombreCliente, ahora, moneda));
+    const { venta, maxCuotas } = await this.prisma.$transaction((tx) =>
+      this.reservar(tx, input, items, nombreCliente, ahora, moneda),
+    );
 
     if (token) {
       try {
@@ -265,6 +268,7 @@ export class VentasService {
           token.accessToken,
           venta,
           venta.reservaVenceAt ?? vencimientoDeReserva(input.medioPago, ahora),
+          maxCuotas,
         );
         return await this.prisma.venta.update({
           where: { id: venta.id },
@@ -289,9 +293,15 @@ export class VentasService {
   /**
    * El link de Checkout Pro de una venta, con sus renglones y a nombre del
    * comercio. Lo usan los pedidos del catálogo y el cobro de un presupuesto
-   * a medida (pedidos-a-medida.service.ts).
+   * a medida (pedidos-a-medida.service.ts). `maxCuotas` limita las cuotas de
+   * un pedido sin plan elegido (maxCuotasSinPlan).
    */
-  crearPreferencia(accessToken: string, venta: VentaConItems, venceAt: Date): Promise<Preferencia> {
+  crearPreferencia(
+    accessToken: string,
+    venta: VentaConItems,
+    venceAt: Date,
+    maxCuotas: number | null = null,
+  ): Promise<Preferencia> {
     const items = venta.items.map((item) => ({
       id: item.varianteId ?? item.codigo,
       title: `${item.nombreProducto}${item.nombreVariante ? ` - ${item.nombreVariante}` : ''}`.slice(0, 250),
@@ -311,7 +321,11 @@ export class VentasService {
     }
     return this.mp.crearPreferencia(accessToken, {
       items,
-      ...(venta.formaPago === 'cuotas' && venta.cuotas ? { cuotas: venta.cuotas } : {}),
+      ...(venta.formaPago === 'cuotas' && venta.cuotas
+        ? { cuotas: venta.cuotas }
+        : maxCuotas !== null
+          ? { maxCuotas }
+          : {}),
       externalReference: venta.id,
       notificationUrl: `${this.config.get('API_PUBLIC_URL', { infer: true })}/ventas/webhook?venta=${venta.id}`,
       venceAt,
@@ -415,7 +429,7 @@ export class VentasService {
     nombreCliente: string,
     ahora: Date,
     moneda: Moneda,
-  ): Promise<VentaConItems> {
+  ): Promise<{ venta: VentaConItems; maxCuotas: number | null }> {
     // Las condiciones se leen en la misma transacción que los precios: el total
     // es el de las que valían al reservar.
     const condiciones = leerCondiciones(await tx.condicionesPago.findUnique({ where: { userId: input.userId } }));
@@ -520,7 +534,7 @@ export class VentasService {
       // Igual que con los turnos: el nombre se pregunta una vez por conversación.
       await tx.conversation.update({ where: { id: input.conversationId }, data: { nombreCliente } });
     }
-    return venta;
+    return { venta, maxCuotas: maxCuotasSinPlan(condiciones, tope) };
   }
 
   /** Una venta del dueño, o null si no existe o es de otro. */

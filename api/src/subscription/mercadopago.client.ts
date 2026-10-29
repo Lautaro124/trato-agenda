@@ -47,6 +47,12 @@ export type CrearPreferenciaInput = {
    * las cuotas sin interés que el comercio active en su cuenta.
    */
   cuotas?: number;
+  /**
+   * Sin plan elegido: el máximo de cuotas del link (1 = sólo en un pago). Sin
+   * esto, el comprador podría usar las cuotas sin interés de la cuenta del
+   * comercio y saltearse el recargo de los planes o el tope de un producto.
+   */
+  maxCuotas?: number;
   /** Nuestro Venta.id: con esto el pago vuelve a su venta. */
   externalReference: string;
   notificationUrl: string;
@@ -162,7 +168,11 @@ export class MercadoPagoClient {
         binary_mode: true,
         payment_methods: {
           excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }],
-          ...(input.cuotas ? { installments: input.cuotas, default_installments: input.cuotas } : {}),
+          ...(input.cuotas
+            ? { installments: input.cuotas, default_installments: input.cuotas }
+            : input.maxCuotas
+              ? { installments: input.maxCuotas }
+              : {}),
         },
       },
     });

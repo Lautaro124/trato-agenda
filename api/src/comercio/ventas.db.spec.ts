@@ -516,5 +516,22 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(0);
       expect(await pedido(items, { formaPago: 'cuotas', cuotas: 3 })).toMatchObject({ cuotas: 3, recargoCentavos: 0 });
     });
+
+    it('en un pago con link no deja usar las cuotas sin interés de la cuenta de Mercado Pago', async () => {
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+      mp.crearPreferencia.mockResolvedValue({ id: 'pref-1', init_point: 'https://mp/pagar' });
+      // Sin planes ni tope: como antes de LAU-34, el link no limita las cuotas.
+      await pedido([{ varianteId: sinControl, cantidad: 1 }], { medioPago: 'mercadopago' });
+      expect(mp.crearPreferencia.mock.calls[0][1].maxCuotas).toBeUndefined();
+      // Con un producto de hasta 3 cuotas, el link también llega hasta 3.
+      await prisma.producto.updateMany({ where: { variantes: { some: { id: mate } } }, data: { cuotasMax: 3 } });
+      await pedido([{ varianteId: mate, cantidad: 1 }], { medioPago: 'mercadopago' });
+      expect(mp.crearPreferencia.mock.calls[1][1].maxCuotas).toBe(3);
+      // Con planes, las cuotas van por ellos: en un pago es en un pago.
+      await condiciones();
+      await pedido([{ varianteId: sinControl, cantidad: 1 }], { medioPago: 'mercadopago' });
+      expect(mp.crearPreferencia.mock.calls[2][1]).toMatchObject({ maxCuotas: 1 });
+      expect(mp.crearPreferencia.mock.calls[2][1].cuotas).toBeUndefined();
+    });
   });
 });

@@ -108,6 +108,15 @@ export function planesEn(condiciones: CondicionesPago, moneda: string, tope: num
   return condiciones.planesCuotas.filter((plan) => tope === null || plan.cuotas <= tope);
 }
 
+/**
+ * El máximo de cuotas del link de un pedido sin plan elegido, o null si no se
+ * limita. Con planes, las cuotas van sólo por ellos (con su recargo): el link
+ * es en un pago. Sin planes, vale el tope de los productos.
+ */
+export function maxCuotasSinPlan(condiciones: CondicionesPago, tope: number | null): number | null {
+  return condiciones.planesCuotas.length > 0 ? 1 : tope;
+}
+
 /** Lo que se suma al total por pagar en ese plan. */
 export function recargoDe(subtotalCentavos: number, plan: PlanCuotas): number {
   return Math.round((subtotalCentavos * plan.recargoPorcentaje) / 100);

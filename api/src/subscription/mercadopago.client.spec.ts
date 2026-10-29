@@ -144,6 +144,20 @@ describe('MercadoPagoClient', () => {
       });
     });
 
+    it('sin plan elegido limita las cuotas sin preelegir ninguna (LAU-34)', async () => {
+      vi.mocked(fetch).mockResolvedValue(respuesta({ id: 'pref-1', init_point: 'https://mp/pagar' }, 201));
+      await crearCliente().crearPreferencia('TOKEN-COMERCIO', {
+        items: [{ id: 'v-1', title: 'Mate', quantity: 1, unit_price: 100, currency_id: 'ARS' }],
+        maxCuotas: 1,
+        externalReference: 'venta-1',
+        notificationUrl: 'https://api/ventas/webhook?venta=venta-1',
+        venceAt: new Date('2026-09-26T20:30:00Z'),
+      });
+      const metodos = (pedidoEnviado().body as { payment_methods: Record<string, unknown> }).payment_methods;
+      expect(metodos.installments).toBe(1);
+      expect(metodos).not.toHaveProperty('default_installments');
+    });
+
     it('usa MERCADOPAGO_BASE_URL (el Mercado Pago falso de los E2E)', async () => {
       vi.mocked(fetch).mockResolvedValue(respuesta(PAGO));
       await crearCliente('x', { MERCADOPAGO_BASE_URL: 'http://mp-stub:4020' }).obtenerPago('TOKEN', '123');
