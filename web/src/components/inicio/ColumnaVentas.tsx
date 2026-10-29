@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { nombreDePlan, obtenerCondicionesPago, type CondicionesPago } from "@/lib/condiciones-pago";
 import { listarProductos } from "@/lib/productos";
 
 type WhatsappStatus = { linked: boolean };
@@ -18,6 +19,7 @@ export function ColumnaVentas() {
   const [productos, setProductos] = useState<number | null>(null);
   const [whatsapp, setWhatsapp] = useState<boolean | null>(null);
   const [mercadoPago, setMercadoPago] = useState<boolean | null>(null);
+  const [condiciones, setCondiciones] = useState<CondicionesPago | null>(null);
 
   useEffect(() => {
     listarProductos({})
@@ -31,7 +33,19 @@ export function ColumnaVentas() {
       .then((res) => (res.ok ? (res.json() as Promise<{ conectada: boolean }>) : null))
       .then((estado) => setMercadoPago(estado?.conectada ?? false))
       .catch(() => setMercadoPago(null));
+    obtenerCondicionesPago()
+      .then(setCondiciones)
+      .catch(() => setCondiciones(null));
   }, []);
+
+  const formasDePago = condiciones
+    ? [
+        ...condiciones.planesCuotas.map(nombreDePlan),
+        ...(condiciones.descuentoEfectivoPorcentaje === null
+          ? []
+          : [`${condiciones.descuentoEfectivoPorcentaje}% off en efectivo`]),
+      ]
+    : [];
 
   const pasos: Paso[] = [
     {
@@ -52,6 +66,16 @@ export function ColumnaVentas() {
         : "Para que el asistente cobre con link. Sin esto, los pedidos quedan anotados y cobrás vos.",
       href: "/cuenta",
       accion: mercadoPago ? "Ver cuenta" : "Conectar",
+    },
+    {
+      hecho: formasDePago.length > 0,
+      titulo: "Definí cuotas y pago en efectivo",
+      detalle:
+        formasDePago.length > 0
+          ? `Tu asistente ofrece: ${formasDePago.join(", ")}.`
+          : "Los planes de cuotas con su recargo y el descuento por pagar en efectivo. Sin esto, no ofrece ninguno.",
+      href: "/cuenta#formas-de-pago",
+      accion: formasDePago.length > 0 ? "Cambiar" : "Configurar",
     },
     {
       hecho: whatsapp === true,

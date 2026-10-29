@@ -41,6 +41,12 @@ export type ItemPreferencia = {
 
 export type CrearPreferenciaInput = {
   items: ItemPreferencia[];
+  /**
+   * Pago en cuotas (LAU-34): el máximo que se ofrece y el que viene elegido.
+   * Mercado Pago no deja exigir un mínimo; si cobra interés o no depende de
+   * las cuotas sin interés que el comercio active en su cuenta.
+   */
+  cuotas?: number;
   /** Nuestro Venta.id: con esto el pago vuelve a su venta. */
   externalReference: string;
   notificationUrl: string;
@@ -154,7 +160,10 @@ export class MercadoPagoClient {
         expiration_date_from: new Date().toISOString(),
         expiration_date_to: input.venceAt.toISOString(),
         binary_mode: true,
-        payment_methods: { excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }] },
+        payment_methods: {
+          excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }],
+          ...(input.cuotas ? { installments: input.cuotas, default_installments: input.cuotas } : {}),
+        },
       },
     });
     if (!preferencia.id || !preferencia.init_point) {

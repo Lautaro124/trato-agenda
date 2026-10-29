@@ -63,6 +63,7 @@ model User {
   sugerencias     SugerenciaMejora[]
   insumos          Insumo[]
   configCotizacion ConfigCotizacion?
+  condicionesPago  CondicionesPago?
   etapasChat       EtapaChat[]
   interesProductos InteresProducto[]
   preguntasChat    PreguntaChat[]
@@ -443,6 +444,10 @@ model Producto {
   /// lo aprueba) | "automatica" (el asistente cotiza y lo manda).
   politicaCotizacion String @default("manual")
 
+  /// Hasta cuántas cuotas se vende (LAU-34): 1 = sólo en un pago, null = con
+  /// todos los planes del comercio. En un pedido manda el más bajo.
+  cuotasMax Int?
+
   /// Importación rápida (LAU-31): de dónde salió el producto, como clave
   /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
   /// no crea otro producto. Null en los cargados a mano o por planilla.
@@ -608,6 +613,13 @@ model Venta {
   estado    String @default("pendiente_pago")
   /// "mercadopago" | "manual". Null en un a medida que todavía no se cobra.
   medioPago String?
+  /// "efectivo" | "cuotas" (LAU-34); null = contado, como siempre. Reglas en
+  /// comercio/condiciones-pago.rules.ts.
+  formaPago       String?
+  /// Sólo en cuotas: cuántas.
+  cuotas          Int?
+  /// Sólo en cuotas: lo que se sumó al total por el plan (ya incluido en `totalCentavos`).
+  recargoCentavos Int     @default(0)
 
   /// Null en un a medida sin cotizar: nunca un cero inventado.
   totalCentavos Int?
@@ -860,6 +872,21 @@ model ConfigCotizacion {
   vigenciaDias      Int?
   /// "total" | "detallado"
   desgloseAlCliente String  @default("total")
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Cómo puede pagar el cliente de un comercio que vende (LAU-34): planes de
+/// cuotas con su recargo y el descuento por pagar en efectivo. Sin fila, no
+/// ofrece ninguno. Reglas en comercio/condiciones-pago.rules.ts.
+model CondicionesPago {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// [{ cuotas, recargoPorcentaje }]; recargo 0 = sin interés.
+  planesCuotas                Json @default("[]")
+  /// Porcentaje de descuento pagando en efectivo; null = no hay.
+  descuentoEfectivoPorcentaje Int?
 
   updatedAt DateTime @updatedAt
 }

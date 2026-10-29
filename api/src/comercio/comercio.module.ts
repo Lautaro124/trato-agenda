@@ -5,6 +5,8 @@ import { PerformanceModule } from '../performance/performance.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { BusquedaService } from './busqueda.service.js';
 import { ConciliacionService } from './conciliacion.service.js';
+import { CondicionesPagoController } from './condiciones-pago.controller.js';
+import { CondicionesPagoService } from './condiciones-pago.service.js';
 import { CostosController } from './costos.controller.js';
 import { CostosService } from './costos.service.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
@@ -25,14 +27,21 @@ import { VentasService } from './ventas.service.js';
 
 /**
  * Módulo comercio: el catálogo del asistente de ventas y su búsqueda (RAG),
- * los pedidos con su reserva de stock y los cobros con Mercado Pago a nombre
+ * los pedidos con su reserva de stock, las formas de pago (cuotas y efectivo) y los cobros con Mercado Pago a nombre
  * de cada comercio, y las fotos de los productos. Exporta búsqueda y ventas para el grafo de ventas
  * (api/src/conversation).
  */
 @Module({
   // JwtAuthGuard necesita AuthModuleOptions de PassportModule en el árbol de DI.
   imports: [PassportModule.register({ session: false }), SubscriptionModule, NotificacionesModule, PerformanceModule],
-  controllers: [ProductosController, DescuentosController, VentasController, MercadoPagoController, CostosController],
+  controllers: [
+    ProductosController,
+    DescuentosController,
+    VentasController,
+    MercadoPagoController,
+    CostosController,
+    CondicionesPagoController,
+  ],
   providers: [
     ProductosService,
     DescuentosService,
@@ -48,6 +57,7 @@ import { VentasService } from './ventas.service.js';
     ImagenesService,
     PedidosAMedidaService,
     CostosService,
+    CondicionesPagoService,
   ],
   exports: [
     CostosService,

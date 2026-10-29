@@ -63,6 +63,14 @@ export const esquemaCrearPedido = z.object({
       }),
     )
     .describe('Todo lo que el cliente eligió en esta charla.'),
+  formaPago: z
+    .enum(['efectivo', 'cuotas'])
+    .optional()
+    .describe(
+      'Sólo si el cliente eligió una de las formas de pago que devolvió ver_formas_de_pago: "efectivo" (con su ' +
+        'descuento, se coordina por chat) o "cuotas" (con el plan de `cuotas`). Si no eligió ninguna, no la mandes.',
+    ),
+  cuotas: z.number().int().optional().describe('Con formaPago "cuotas": la cantidad de un plan de ver_formas_de_pago.'),
   medioPago: z
     .enum(['mercadopago', 'manual'])
     .optional()
@@ -168,6 +176,18 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
       'categoría y los productos con descuento, con el precio final. Usala cuando el cliente pregunta por ' +
       'descuentos, promos u ofertas, o te dice que sí cuando le ofreciste pasárselos.',
     schema: z.object({}),
+  },
+  ver_formas_de_pago: {
+    name: 'ver_formas_de_pago',
+    description:
+      'Devuelve las formas de pago del negocio (planes de cuotas con su recargo, descuento en efectivo). Con ' +
+      '`items`, además el total del pedido en cada una y el valor de cada cuota. Usala cuando el cliente pregunta ' +
+      'por cuotas, efectivo o cómo puede pagar: nunca calcules vos esos montos.',
+    schema: z.object({
+      items: esquemaCrearPedido.shape.items
+        .optional()
+        .describe('Opcional: lo que el cliente eligió en esta charla, para darle los totales.'),
+    }),
   },
   crear_pedido: {
     name: 'crear_pedido',
@@ -284,7 +304,12 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
 };
 
 /** Acciones que llegaron después de los primeros asistentes y vienen con `buscar_productos`. */
-const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = ['ver_catalogo', 'ver_descuentos', 'enviar_imagen_producto'];
+const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = [
+  'ver_catalogo',
+  'ver_descuentos',
+  'ver_formas_de_pago',
+  'enviar_imagen_producto',
+];
 
 /**
  * Lo que sólo sirve con productos a medida (LAU-24/26/27): anotar la
@@ -301,8 +326,8 @@ const ACCIONES_A_MEDIDA: AccionVentasId[] = [
 ];
 
 /**
- * Las acciones de ventas que tiene un agente. `ver_catalogo`,
- * `ver_descuentos` y `enviar_imagen_producto` llegaron después de que se crearan los primeros
+ * Las acciones de ventas que tiene un agente. `ver_catalogo`, `ver_descuentos`,
+ * `ver_formas_de_pago` y `enviar_imagen_producto` llegaron después de que se crearan los primeros
  * asistentes, y su `allowedActions` está guardado sin ellas: las tiene todo
  * agente que puede buscar en el catálogo, sin migrar ni regenerar nada (lo
  * mismo que los bloques de reglas que viven en código). Una misma cuenta vende

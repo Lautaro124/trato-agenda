@@ -44,6 +44,9 @@ type VentaAvisable = {
   /** Ausente = pesos. */
   moneda?: string;
   medioPago: string | null;
+  /** "efectivo" | "cuotas" (LAU-34); ausente o null = contado. */
+  formaPago?: string | null;
+  cuotas?: number | null;
   reservaVenceAt: Date | null;
   sinStockAlPagar: boolean;
   dePrueba: boolean;
@@ -51,6 +54,12 @@ type VentaAvisable = {
   entrega?: string | null;
   items: RenglonVenta[];
 };
+
+function formaDePago(venta: Pick<VentaAvisable, 'formaPago' | 'cuotas'>): string {
+  if (venta.formaPago === 'efectivo') return ' Paga en efectivo (ya tiene el descuento).';
+  if (venta.formaPago === 'cuotas' && venta.cuotas) return ` Eligió pagar en ${venta.cuotas} cuotas.`;
+  return '';
+}
 
 function entrega(venta: Pick<VentaAvisable, 'entrega'>): string {
   if (venta.entrega === 'envio') return ' Es con envío: los datos están en Ventas.';
@@ -88,7 +97,7 @@ export function avisoPedidoManual(venta: VentaAvisable): Aviso {
     cuerpo:
       `${quien(venta)} pidió ${detalleDeRenglones(venta.items, venta.moneda)}.` +
       (venta.reservaVenceAt ? ` Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}.` : '') +
-      ` Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}`,
+      `${formaDePago(venta)} Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}`,
     enlace: `/ventas?venta=${venta.id}`,
   };
 }

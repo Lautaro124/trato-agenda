@@ -18,6 +18,7 @@ import {
 } from 'class-validator';
 import type { Descuento, Producto, Variante } from '../generated/prisma/client.js';
 import { hashTexto, LARGOS, monedaDe, MONEDAS, type ErrorDeFila, type Moneda, MAX_FILAS_IMPORTACION, MAX_VARIANTES, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
+import { MAX_CUOTAS } from './condiciones-pago.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import { leerPolitica, leerReceta, POLITICAS_COTIZACION, type PoliticaCotizacion, type Receta } from './costos.rules.js';
 import {
@@ -165,6 +166,14 @@ export class GuardarProductoDto {
   @IsOptional()
   @IsIn(MONEDAS)
   moneda?: Moneda;
+
+  /** Hasta cuántas cuotas se vende (1 = sólo en un pago). null = sin tope; ausente no lo toca. */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_CUOTAS)
+  cuotasMax?: number | null;
 
   /** Obligatorias (al menos una) en una cuenta con stock; un producto a medida no lleva. */
   @IsOptional()
@@ -314,6 +323,8 @@ export type ProductoPublico = Pick<
   precioReferenciaCentavos: number | null;
   /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
   materiales: string[];
+  /** Hasta cuántas cuotas se vende (1 = sólo en un pago; null = con todos los planes). */
+  cuotasMax: number | null;
   /** La receta de cotización (null = no tiene: lo cotiza el dueño). */
   receta: Receta | null;
   politicaCotizacion: PoliticaCotizacion;
@@ -352,6 +363,7 @@ export function aProductoPublico(
     solicitud: leerSolicitud(producto.solicitud),
     precioReferenciaCentavos: producto.precioReferenciaCentavos,
     materiales: producto.materiales,
+    cuotasMax: producto.cuotasMax,
     receta: leerReceta(producto.receta, leerSolicitud(producto.solicitud)),
     politicaCotizacion: leerPolitica(producto.politicaCotizacion),
     variantes: producto.variantes

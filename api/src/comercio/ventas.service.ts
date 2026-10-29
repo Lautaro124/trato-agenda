@@ -23,8 +23,19 @@ import {
   type DatoCliente,
   type Entrega,
 } from './datos-cliente.rules.js';
+import {
+  descuentoEfectivo,
+  leerCondiciones,
+  planesEn,
+  problemaDeFormaDePago,
+  topeDelPedido,
+  recargoDe,
+  valorDeCuota,
+  type CondicionesPago,
+  type FormaDePago,
+} from './condiciones-pago.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
-import { mejorDescuento } from './descuentos.rules.js';
+import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { reservadasPorVariante } from './reservas.js';
 import {
@@ -65,6 +76,10 @@ export type CrearPedidoInput = {
   nombreCliente: string;
   items: ItemPedido[];
   medioPago: MedioDePago;
+  /** Efectivo (con su descuento) o cuotas (con su recargo); sin ella, contado. */
+  formaPago?: FormaDePago | null;
+  /** Con `formaPago: "cuotas"`: un plan de las condiciones del comercio. */
+  cuotas?: number | null;
   /** null si el comercio no hace envíos. */
   entrega?: Entrega | null;
   /** Lo que el cliente contestó, ya validado contra lo que pide el comercio. */
@@ -107,7 +122,72 @@ type VarianteBloqueada = {
   moneda: string;
   /** Una versión de un producto a medida: se pide con pedir_variante, no se reserva como stock. */
   aMedida: boolean;
+  /** Hasta cuántas cuotas se vende el producto (null = sin tope). */
+  cuotasMax: number | null;
 };
+
+/** Lo que hace falta de una variante para ponerle precio a un renglón. */
+type VarianteConPrecio = Pick<
+  VarianteBloqueada,
+  'id' | 'codigo' | 'nombre' | 'nombreProducto' | 'productoId' | 'categoria' | 'precioCentavos'
+>;
+
+/** Cuánto sale cada forma de pago de un mismo pedido (ver_formas_de_pago). */
+export type CotizacionFormasDePago = {
+  moneda: Moneda;
+  /** Con las promos vigentes: lo de siempre. */
+  contadoCentavos: number;
+  /** Con el mejor entre las promos y el descuento en efectivo; null si no hay. */
+  efectivoCentavos: number | null;
+  /** El tope de cuotas del pedido (el más bajo de sus productos), o null. */
+  cuotasMax: number | null;
+  planes: Array<{ cuotas: number; recargoPorcentaje: number; totalCentavos: number; cuotaCentavos: number }>;
+};
+
+/**
+ * Los renglones de un pedido con el precio que se cobra: el de lista con el
+ * mejor descuento vigente de `descuentos`. Nunca los manda el modelo.
+ */
+function renglonesConPrecio(
+  items: ItemPedido[],
+  porId: Map<string, VarianteConPrecio>,
+  descuentos: DescuentoParaAplicar[],
+  moneda: Moneda,
+  ahora: Date,
+) {
+  return items.map((item) => {
+    const variante = porId.get(item.varianteId) as VarianteConPrecio;
+    const descuento = mejorDescuento(
+      descuentos,
+      { id: variante.productoId, categoria: variante.categoria, moneda },
+      variante.precioCentavos,
+      ahora,
+    );
+    const unitario = descuento?.precioFinalCentavos ?? variante.precioCentavos;
+    return {
+      varianteId: variante.id,
+      codigo: variante.codigo,
+      nombreProducto: variante.nombreProducto,
+      nombreVariante: variante.nombre,
+      precioUnitarioCentavos: unitario,
+      cantidad: item.cantidad,
+      subtotalCentavos: unitario * item.cantidad,
+      precioListaCentavos: variante.precioCentavos,
+      descuentoCentavos: descuento?.descuentoCentavos ?? 0,
+      descuentoEtiqueta: descuento ? [descuento.etiqueta, descuento.nombre].filter(Boolean).join(' · ') : null,
+    };
+  });
+}
+
+/** Los descuentos de una forma de pago: en efectivo, además el del efectivo. */
+function descuentosDe(descuentos: DescuentoParaAplicar[], condiciones: CondicionesPago, formaPago: FormaDePago | null) {
+  const efectivo = formaPago === 'efectivo' ? descuentoEfectivo(condiciones) : null;
+  return efectivo ? [...descuentos, efectivo] : descuentos;
+}
+
+function sumaDe(renglones: Array<{ subtotalCentavos: number }>): number {
+  return renglones.reduce((suma, renglon) => suma + renglon.subtotalCentavos, 0);
+}
 
 /** Un pedido es de una sola moneda: el link de Mercado Pago y los totales no mezclan. */
 const PEDIDO_CON_DOS_MONEDAS =
@@ -165,7 +245,8 @@ export class VentasService {
     // Mercado Pago cobra en pesos: un pedido en dólares se coordina a mano. La
     // moneda se vuelve a leer, bloqueada, dentro de la reserva.
     const moneda = await this.monedaDelPedido(input.userId, input.items.map((item) => item.varianteId));
-    const medioPago: MedioDePago = moneda === 'USD' ? 'manual' : input.medioPago;
+    // El efectivo se cobra en mano, nunca con el link.
+    const medioPago: MedioDePago = moneda === 'USD' || input.formaPago === 'efectivo' ? 'manual' : input.medioPago;
     input = { ...input, medioPago };
 
     const token = input.medioPago === 'mercadopago' ? await this.cuentas.tokenDe(input.userId) : null;
@@ -211,14 +292,26 @@ export class VentasService {
    * a medida (pedidos-a-medida.service.ts).
    */
   crearPreferencia(accessToken: string, venta: VentaConItems, venceAt: Date): Promise<Preferencia> {
-    return this.mp.crearPreferencia(accessToken, {
-      items: venta.items.map((item) => ({
-        id: item.varianteId ?? item.codigo,
-        title: `${item.nombreProducto}${item.nombreVariante ? ` - ${item.nombreVariante}` : ''}`.slice(0, 250),
-        quantity: item.cantidad,
-        unit_price: item.precioUnitarioCentavos / 100,
+    const items = venta.items.map((item) => ({
+      id: item.varianteId ?? item.codigo,
+      title: `${item.nombreProducto}${item.nombreVariante ? ` - ${item.nombreVariante}` : ''}`.slice(0, 250),
+      quantity: item.cantidad,
+      unit_price: item.precioUnitarioCentavos / 100,
+      currency_id: venta.moneda,
+    }));
+    // El recargo del plan va como un renglón más, así los renglones suman el total.
+    if (venta.recargoCentavos > 0) {
+      items.push({
+        id: 'recargo-cuotas',
+        title: `Recargo por pago en ${venta.cuotas} cuotas`,
+        quantity: 1,
+        unit_price: venta.recargoCentavos / 100,
         currency_id: venta.moneda,
-      })),
+      });
+    }
+    return this.mp.crearPreferencia(accessToken, {
+      items,
+      ...(venta.formaPago === 'cuotas' && venta.cuotas ? { cuotas: venta.cuotas } : {}),
       externalReference: venta.id,
       notificationUrl: `${this.config.get('API_PUBLIC_URL', { infer: true })}/ventas/webhook?venta=${venta.id}`,
       venceAt,
@@ -234,6 +327,74 @@ export class VentasService {
       if (error instanceof MercadoPagoNoAutorizadoError) await this.desconectarPorRevocacion(userId);
       this.logger.warn(`No se pudo vencer el link ${mpPreferenceId}: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Cuánto sale un pedido en cada forma de pago del comercio, sin reservar
+   * nada: lo que el asistente le dice al cliente antes de crear el pedido.
+   * Los precios son los de crearPedido (misma cuenta), pero pueden cambiar
+   * hasta que se reserve.
+   */
+  async cotizarFormasDePago(userId: string, pedido: ItemPedido[], ahora: Date = new Date()): Promise<CotizacionFormasDePago> {
+    const forma = problemaDeForma(pedido);
+    if (forma) throw new PedidoRechazadoError(forma);
+    const items = agruparItems(pedido);
+    const variantes = await this.prisma.variante.findMany({
+      where: { id: { in: items.map((item) => item.varianteId) }, activo: true, producto: { userId, activo: true } },
+      select: {
+        id: true,
+        nombre: true,
+        precioCentavos: true,
+        producto: {
+          select: { id: true, codigo: true, nombre: true, categoria: true, moneda: true, solicitud: true, cuotasMax: true },
+        },
+      },
+    });
+    const porId = new Map<string, VarianteConPrecio>(
+      variantes.map((variante) => [
+        variante.id,
+        {
+          id: variante.id,
+          codigo: variante.producto.codigo,
+          nombre: variante.nombre,
+          nombreProducto: variante.producto.nombre,
+          productoId: variante.producto.id,
+          categoria: variante.producto.categoria,
+          precioCentavos: variante.precioCentavos,
+        },
+      ]),
+    );
+    if (items.some((item) => !porId.has(item.varianteId))) {
+      throw new PedidoRechazadoError('Alguno de los productos ya no está en el catálogo. Volvé a buscarlo.');
+    }
+    if (variantes.some((variante) => variante.producto.solicitud !== null)) {
+      throw new PedidoRechazadoError('Alguno es de un producto a medida: esos se cotizan aparte, no con ver_formas_de_pago.');
+    }
+    const monedas = new Set(variantes.map((variante) => monedaDe(variante.producto.moneda)));
+    if (monedas.size > 1) throw new PedidoRechazadoError(PEDIDO_CON_DOS_MONEDAS);
+    const moneda: Moneda = monedas.has('USD') ? 'USD' : 'ARS';
+
+    const [descuentos, fila] = await Promise.all([
+      descuentosActivos(this.prisma, userId, [...new Set(variantes.map((variante) => variante.producto.id))]),
+      this.prisma.condicionesPago.findUnique({ where: { userId } }),
+    ]);
+    const condiciones = leerCondiciones(fila);
+    const tope = topeDelPedido(variantes.map((variante) => variante.producto.cuotasMax));
+    const contado = sumaDe(renglonesConPrecio(items, porId, descuentos, moneda, ahora));
+    const efectivo =
+      condiciones.descuentoEfectivoPorcentaje === null
+        ? null
+        : sumaDe(renglonesConPrecio(items, porId, descuentosDe(descuentos, condiciones, 'efectivo'), moneda, ahora));
+    return {
+      moneda,
+      contadoCentavos: contado,
+      efectivoCentavos: efectivo,
+      cuotasMax: tope,
+      planes: planesEn(condiciones, moneda, tope).map((plan) => {
+        const total = contado + recargoDe(contado, plan);
+        return { ...plan, totalCentavos: total, cuotaCentavos: valorDeCuota(total, plan.cuotas) };
+      }),
+    };
   }
 
   /** La moneda de las variantes pedidas (sin bloquear); con dos distintas, rechaza. */
@@ -255,12 +416,18 @@ export class VentasService {
     ahora: Date,
     moneda: Moneda,
   ): Promise<VentaConItems> {
+    // Las condiciones se leen en la misma transacción que los precios: el total
+    // es el de las que valían al reservar.
+    const condiciones = leerCondiciones(await tx.condicionesPago.findUnique({ where: { userId: input.userId } }));
+    const formaPago = input.formaPago ?? null;
+    const cuotas = formaPago === 'cuotas' ? (input.cuotas ?? null) : null;
+
     const ids = items.map((item) => item.varianteId).sort();
     // Orden fijo de bloqueo (por id): dos pedidos con las mismas variantes no se traban entre sí.
     const variantes = await tx.$queryRaw<VarianteBloqueada[]>`
       SELECT v."id", v."sku", v."nombre", v."precioCentavos", v."stock", v."disponible", v."activo",
              p."codigo", p."nombre" AS "nombreProducto", p."id" AS "productoId", p."categoria", p."moneda",
-             (p."solicitud" IS NOT NULL) AS "aMedida"
+             (p."solicitud" IS NOT NULL) AS "aMedida", p."cuotasMax"
       FROM "Variante" v JOIN "Producto" p ON p."id" = v."productoId"
       WHERE v."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo" AND v."activo"
       ORDER BY v."id"
@@ -286,6 +453,10 @@ export class VentasService {
         'Alguno es una versión de un producto a medida: esa no se vende con crear_pedido, se pide con pedir_variante.',
       );
     }
+    // El tope de cuotas sale de la misma lectura que los precios, no de la cotización.
+    const tope = topeDelPedido(variantes.map((variante) => variante.cuotasMax));
+    const problemaDePago = problemaDeFormaDePago(condiciones, formaPago, cuotas, moneda, tope);
+    if (problemaDePago) throw new PedidoRechazadoError(problemaDePago);
 
     if (input.conversationId) {
       const pendientes = await tx.venta.count({
@@ -319,28 +490,10 @@ export class VentasService {
       input.userId,
       variantes.map((variante) => variante.productoId),
     );
-    const renglones = items.map((item) => {
-      const variante = porId.get(item.varianteId) as VarianteBloqueada;
-      const descuento = mejorDescuento(
-        descuentos,
-        { id: variante.productoId, categoria: variante.categoria, moneda },
-        variante.precioCentavos,
-        ahora,
-      );
-      const unitario = descuento?.precioFinalCentavos ?? variante.precioCentavos;
-      return {
-        varianteId: variante.id,
-        codigo: variante.codigo,
-        nombreProducto: variante.nombreProducto,
-        nombreVariante: variante.nombre,
-        precioUnitarioCentavos: unitario,
-        cantidad: item.cantidad,
-        subtotalCentavos: unitario * item.cantidad,
-        precioListaCentavos: variante.precioCentavos,
-        descuentoCentavos: descuento?.descuentoCentavos ?? 0,
-        descuentoEtiqueta: descuento ? [descuento.etiqueta, descuento.nombre].filter(Boolean).join(' · ') : null,
-      };
-    });
+    const renglones = renglonesConPrecio(items, porId, descuentosDe(descuentos, condiciones, formaPago), moneda, ahora);
+    const subtotal = sumaDe(renglones);
+    const plan = condiciones.planesCuotas.find((candidato) => candidato.cuotas === cuotas);
+    const recargo = plan ? recargoDe(subtotal, plan) : 0;
 
     const venta = await tx.venta.create({
       data: {
@@ -350,7 +503,10 @@ export class VentasService {
         telefonoCliente: input.remoteJid ? telefonoDeJid(input.remoteJid) : null,
         estado: 'pendiente_pago',
         medioPago: input.medioPago,
-        totalCentavos: renglones.reduce((suma, renglon) => suma + renglon.subtotalCentavos, 0),
+        formaPago,
+        cuotas,
+        recargoCentavos: recargo,
+        totalCentavos: subtotal + recargo,
         moneda,
         reservaVenceAt: vencimientoDeReserva(input.medioPago, ahora),
         dePrueba: input.dePrueba ?? false,

@@ -207,6 +207,19 @@ export function DetalleVenta({
                 ? "A coordinar con vos"
                 : "Todavía no se cobra"}
           </dd>
+          {venta.formaPago && (
+            <>
+              <dt className="text-muted">Forma de pago</dt>
+              <dd className="text-ink">
+                {venta.formaPago === "efectivo"
+                  ? "Efectivo, con descuento"
+                  : `${venta.cuotas} cuotas` +
+                    (venta.recargoCentavos > 0
+                      ? ` (incluye ${formatearMonto(venta.recargoCentavos, venta.moneda)} de recargo)`
+                      : " sin interés")}
+              </dd>
+            </>
+          )}
           {aMedida && venta.totalCentavos !== null && (
             <>
               <dt className="text-muted">Total</dt>
