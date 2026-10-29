@@ -38,9 +38,10 @@ export function sinCorte([primera, segunda]: Franjas): Franjas {
  * Una semana de franjas en pantalla: los horarios del local de un comercio y
  * el horario de atención del asistente (LAU-29) usan los mismos controles
  * (EditorSemana) sobre este estado. `tocada` dice si la persona ya la editó,
- * para no pisarle lo que eligió al precargarla.
+ * para no pisarle lo que eligió al precargarla. Con `nocturnas` (el horario de
+ * atención) una franja puede terminar al día siguiente: de 19:00 a 07:00.
  */
-export function useSemana(inicial: () => SemanaEnPantalla) {
+export function useSemana(inicial: () => SemanaEnPantalla, { nocturnas = false } = {}) {
   const [semana, setSemana] = useState<SemanaEnPantalla>(inicial);
   const [tocada, setTocada] = useState(false);
 
@@ -106,17 +107,23 @@ export function useSemana(inicial: () => SemanaEnPantalla) {
 
   const problemas = useMemo(
     () =>
-      Object.fromEntries(DIAS_SEMANA.map((dia) => [dia, problemaDelDia(semana[dia])])) as Record<
-        DiaSemana,
-        string | null
-      >,
-    [semana],
+      Object.fromEntries(
+        DIAS_SEMANA.map((dia, i) => [
+          dia,
+          problemaDelDia(semana[dia], {
+            nocturnas,
+            anterior: semana[DIAS_SEMANA[(i + DIAS_SEMANA.length - 1) % DIAS_SEMANA.length]],
+          }),
+        ]),
+      ) as Record<DiaSemana, string | null>,
+    [semana, nocturnas],
   );
   const valida = DIAS_SEMANA.every((dia) => !problemas[dia]);
   const franjas = useCallback((): FranjaLocal[] => horariosDe(semana), [semana]);
 
   return {
     semana,
+    nocturnas,
     tocada,
     alternarDia,
     fijarHora,

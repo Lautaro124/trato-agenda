@@ -20,7 +20,7 @@ async function motivoDelError(res: Response): Promise<string | null> {
 }
 
 function EditorHorario({ inicial }: Readonly<{ inicial: HorarioAtencion }>) {
-  const semana = useSemana(() => semanaDesde(inicial.franjas));
+  const semana = useSemana(() => semanaDesde(inicial.franjas), { nocturnas: true });
   const [atenderSiempre, setAtenderSiempre] = useState(!inicial.activo);
   const [zona, setZona] = useState(inicial.zona);
   const [resumen, setResumen] = useState(inicial.resumen);

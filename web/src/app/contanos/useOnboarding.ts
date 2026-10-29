@@ -472,7 +472,7 @@ export function useOnboarding() {
   // Con nombre propio y no esparcido: comparte nombres (`agregarPersonalizado`) con los tipos de evento.
   const datosCliente = useDatosCliente();
   // Cuándo atiende por WhatsApp (LAU-29): de la cuenta, igual para los dos asistentes.
-  const horarioBot = useSemana(semanaInicial);
+  const horarioBot = useSemana(semanaInicial, { nocturnas: true });
   const [zona, setZona] = useState(ZONA_POR_DEFECTO);
   const [atenderSiempre, setAtenderSiempre] = useState(false);
 

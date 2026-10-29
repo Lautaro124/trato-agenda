@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { conCorte, sinCorte, type SemanaState } from "@/app/contanos/useSemana";
 import { HORARIOS_TIPICOS, HORAS_ATENCION } from "@/lib/horario-atencion";
-import { DIAS_SEMANA, NOMBRE_DIA, type DiaEnPantalla, type SemanaEnPantalla } from "@/lib/local";
+import { cruzaMedianoche, DIAS_SEMANA, NOMBRE_DIA, type DiaEnPantalla, type SemanaEnPantalla } from "@/lib/local";
 import { chip, INPUT } from "./controles";
 import { SelectorZona, TEXTOS_ASISTENTE } from "./ControlesHorarioAtencion";
 import { EditorSemana } from "./EditorSemana";
@@ -105,6 +105,8 @@ export function PasoCuandoAtiende({
 
   const conCorteGeneral = general.length > 1;
   const partes = conCorteGeneral ? ["Mañana", "Tarde"] : [""];
+  // De 19:00 a 07:00: atiende de noche y no hay mediodía que cortar.
+  const nocturnaGeneral = !conCorteGeneral && cruzaMedianoche(general[0]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -208,19 +210,26 @@ export function PasoCuandoAtiende({
                 );
               })}
             </div>
+            {nocturnaGeneral && (
+              <p className="mt-2 text-[12.5px] text-ink-secondary">
+                Termina a las {general[0].hasta} del día siguiente: cada día marcado es la noche que empieza ese día.
+              </p>
+            )}
             {problemaGeneral && !verPorDia && (
               <p role="alert" className="mt-2 text-[12.5px] text-danger-text">
                 {problemaGeneral}
               </p>
             )}
             <div className="mt-1 flex flex-wrap gap-x-4">
-              <button
-                type="button"
-                onClick={() => fijarGeneral(conCorteGeneral ? sinCorte(general) : conCorte(general))}
-                className={`${BOTON_TEXTO} text-primary-hover`}
-              >
-                {conCorteGeneral ? "Sin corte" : "Cierra al mediodía"}
-              </button>
+              {!nocturnaGeneral && (
+                <button
+                  type="button"
+                  onClick={() => fijarGeneral(conCorteGeneral ? sinCorte(general) : conCorte(general))}
+                  className={`${BOTON_TEXTO} text-primary-hover`}
+                >
+                  {conCorteGeneral ? "Sin corte" : "Cierra al mediodía"}
+                </button>
+              )}
               <button
                 type="button"
                 aria-expanded={verPorDia}
