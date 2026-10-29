@@ -74,7 +74,8 @@ export function normalizarHorarioAtencion(
 ): { horario: HorarioAtencion } | { error: string } {
   if (!esZonaHoraria(entrada.zona)) return { error: 'Elegí una zona horaria de la lista.' };
   const franjas = ordenar(entrada.franjas);
-  const problema = problemaDeHorarios(franjas);
+  // Atiende de noche: una franja puede terminar al día siguiente (de 19:00 a 07:00).
+  const problema = problemaDeHorarios(franjas, { nocturnas: true });
   if (problema) return { error: problema };
   if (entrada.activo && franjas.length === 0) {
     return { error: 'Marcá al menos un día y horario en el que atienda el asistente.' };

@@ -73,6 +73,25 @@ test.describe('horario de atención del asistente (LAU-29)', () => {
     });
   });
 
+  test('el onboarding acepta un horario nocturno que termina al día siguiente', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await hastaCuandoAtiendeVentas(page);
+
+    await visible(page.getByRole('button', { name: 'Todos los días · 09:00–21:00' })).click();
+    await visible(page.getByLabel('Desde', { exact: true })).selectOption('19:00');
+    await page.getByLabel('Hasta', { exact: true }).selectOption('07:00');
+    await expect(page.getByText('Termina a las 07:00 del día siguiente')).toBeVisible();
+    // Una franja nocturna no tiene mediodía que cortar.
+    await expect(page.getByRole('button', { name: 'Cierra al mediodía' })).toHaveCount(0);
+    await terminarVentas(page);
+
+    expect(await horarioActual(context.request)).toMatchObject({
+      activo: true,
+      franjas: ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'].map((dia) => ({ dia, desde: '19:00', hasta: '07:00' })),
+      resumen: 'lunes a domingo de 19:00 a 07:00',
+    });
+  });
+
   test('con el switch prendido el comercio atiende siempre', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await hastaCuandoAtiendeVentas(page);
@@ -121,8 +140,8 @@ test.describe('horario de atención del asistente (LAU-29)', () => {
     // Arranca de lunes a viernes de 9 a 18; el sábado atiende a la mañana.
     await seccion.getByRole('checkbox', { name: 'Atiende el sábado' }).check();
     await seccion.getByLabel('Sábado: deja de atender').selectOption('13:00');
-    // Un día que termina antes de empezar no se puede guardar.
-    await seccion.getByLabel('Lunes: deja de atender').selectOption('08:00');
+    // Un día que empieza y termina a la misma hora no se puede guardar (09:00 a 08:00 sí: es nocturno).
+    await seccion.getByLabel('Lunes: deja de atender').selectOption('09:00');
     await expect(seccion.getByText('Tiene que cerrar después de abrir.')).toBeVisible();
     await expect(seccion.getByRole('button', { name: 'Guardar horario' })).toBeDisabled();
     await seccion.getByLabel('Lunes: deja de atender').selectOption('18:00');

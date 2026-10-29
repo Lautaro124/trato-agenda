@@ -110,19 +110,45 @@ function problemaDeTextos(direccion: string, enlace: string): string | null {
   return null;
 }
 
-/** Por qué los horarios (ya ordenados) no se pueden guardar, o null. */
-export function problemaDeHorarios(horarios: FranjaLocal[]): string | null {
+/**
+ * Una franja nocturna termina al día siguiente: "lunes de 19:00 a 07:00" va
+ * del lunes a la noche al martes a la mañana. Comparar "HH:MM" como strings
+ * alcanza: mismo largo y campos de ancho fijo.
+ */
+export function cruzaMedianoche(franja: { desde: string; hasta: string }): boolean {
+  return franja.hasta < franja.desde;
+}
+
+/** Si una franja nocturna se pisa con la mañana del día siguiente (del domingo, el lunes). */
+function problemaDeLaNoche(horarios: FranjaLocal[], franja: FranjaLocal): string | null {
+  if (!cruzaMedianoche(franja)) return null;
+  const siguiente = DIAS_SEMANA[(DIAS_SEMANA.indexOf(franja.dia) + 1) % DIAS_SEMANA.length];
+  return franjasDe(horarios, siguiente).some((otra) => otra.desde < franja.hasta)
+    ? `El ${NOMBRE_DIA[siguiente]} empieza antes de que termine el horario de la noche anterior.`
+    : null;
+}
+
+/**
+ * Por qué los horarios (ya ordenados) no se pueden guardar, o null. Con
+ * `nocturnas`, la última franja de cada día puede cruzar la medianoche (sólo
+ * el horario de atención: el local y la agenda cierran el mismo día).
+ */
+export function problemaDeHorarios(horarios: FranjaLocal[], { nocturnas = false } = {}): string | null {
   if (horarios.length > MAX_FRANJAS) return 'Hay demasiados horarios cargados.';
   for (const [indice, franja] of horarios.entries()) {
     if (!esDia(franja.dia) || !HORA_HHMM.test(franja.desde) || !HORA_HHMM.test(franja.hasta)) {
       return 'Hay un horario con un formato inválido.';
     }
-    // Comparar "HH:MM" como strings alcanza: mismo largo y campos de ancho fijo.
-    if (franja.desde >= franja.hasta) return `El ${NOMBRE_DIA[franja.dia]} cierra antes de abrir.`;
+    if (franja.desde === franja.hasta || (cruzaMedianoche(franja) && !nocturnas)) {
+      return `El ${NOMBRE_DIA[franja.dia]} cierra antes de abrir.`;
+    }
+    // Ordenadas por hora, una nocturna que no es la última del día se pisa con la siguiente.
     const anterior = horarios[indice - 1];
-    if (anterior?.dia === franja.dia && anterior.hasta > franja.desde) {
+    if (anterior?.dia === franja.dia && (cruzaMedianoche(anterior) || anterior.hasta > franja.desde)) {
       return `Los horarios del ${NOMBRE_DIA[franja.dia]} se pisan.`;
     }
+    const deLaNoche = problemaDeLaNoche(horarios, franja);
+    if (deLaNoche) return deLaNoche;
   }
   const sobrecargado = DIAS_SEMANA.find(
     (dia) => horarios.filter((franja) => franja.dia === dia).length > MAX_FRANJAS_POR_DIA,
@@ -282,7 +308,12 @@ export type EstadoLocal =
 export function estadoDelLocal(horarios: FranjaLocal[], ahora: Date, zona: string): EstadoLocal {
   const { dia, hora } = diaYHora(ahora, zona);
   const hoy = DIAS_SEMANA.indexOf(dia);
-  const abierta = franjasDe(horarios, dia).find((franja) => franja.desde <= hora && hora < franja.hasta);
+  const ayer = DIAS_SEMANA[(hoy + DIAS_SEMANA.length - 1) % DIAS_SEMANA.length];
+  // Una nocturna sigue abierta desde que empieza hasta la medianoche, y al otro día hasta que termina.
+  const abierta =
+    franjasDe(horarios, dia).find(
+      (franja) => franja.desde <= hora && (hora < franja.hasta || cruzaMedianoche(franja)),
+    ) ?? franjasDe(horarios, ayer).find((franja) => cruzaMedianoche(franja) && hora < franja.hasta);
   if (abierta) return { abierto: true, hasta: abierta.hasta };
 
   // De hoy (lo que falta) a dentro de siete días (el mismo día que viene).

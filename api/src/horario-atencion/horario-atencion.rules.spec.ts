@@ -66,14 +66,7 @@ describe('normalizarHorarioAtencion', () => {
     });
   });
 
-  it('rechaza franjas invertidas o que se pisan', () => {
-    expect(
-      normalizarHorarioAtencion({
-        activo: true,
-        franjas: [{ dia: 'lun', desde: '18:00', hasta: '09:00' }],
-        zona: ZONA_POR_DEFECTO,
-      }),
-    ).toEqual({ error: 'El lunes cierra antes de abrir.' });
+  it('rechaza franjas que se pisan', () => {
     expect(
       normalizarHorarioAtencion({
         activo: true,
@@ -181,5 +174,81 @@ describe('estadoDelAsistente', () => {
     expect(estadoDelAsistente({ ...base, suscripcionActiva: false, ahora: jueves('20:00') }).motivo).toBe(
       'suscripcion_vencida',
     );
+  });
+});
+
+describe('horario nocturno', () => {
+  const NOCHES: FranjaLocal[] = (['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'] as const).map((dia) => ({
+    dia,
+    desde: '19:00',
+    hasta: '07:00',
+  }));
+  // Jueves 8 de octubre: el miércoles a la noche termina el jueves a las 07:00.
+  const soloJueves = horario({ franjas: [{ dia: 'jue', desde: '19:00', hasta: '07:00' }] });
+  const viernes = (hora: string) => new Date(`2026-10-09T${hora}:00-03:00`);
+
+  it('guarda una franja que termina al día siguiente', () => {
+    expect(normalizarHorarioAtencion({ activo: true, franjas: NOCHES, zona: ZONA_POR_DEFECTO })).toEqual({
+      horario: { activo: true, franjas: NOCHES, zona: ZONA_POR_DEFECTO },
+    });
+  });
+
+  it('rechaza una nocturna que se pisa con el mismo día o con la mañana siguiente', () => {
+    const conLaTarde = normalizarHorarioAtencion({
+      activo: true,
+      franjas: [
+        { dia: 'lun', desde: '19:00', hasta: '07:00' },
+        { dia: 'lun', desde: '21:00', hasta: '22:00' },
+      ],
+      zona: ZONA_POR_DEFECTO,
+    });
+    expect(conLaTarde).toEqual({ error: 'Los horarios del lunes se pisan.' });
+
+    const domingoALunes = normalizarHorarioAtencion({
+      activo: true,
+      franjas: [
+        { dia: 'lun', desde: '06:00', hasta: '12:00' },
+        { dia: 'dom', desde: '19:00', hasta: '07:00' },
+      ],
+      zona: ZONA_POR_DEFECTO,
+    });
+    expect(domingoALunes).toEqual({
+      error: 'El lunes empieza antes de que termine el horario de la noche anterior.',
+    });
+  });
+
+  it('desde y hasta iguales sigue sin guardarse', () => {
+    expect(
+      normalizarHorarioAtencion({
+        activo: true,
+        franjas: [{ dia: 'lun', desde: '19:00', hasta: '19:00' }],
+        zona: ZONA_POR_DEFECTO,
+      }),
+    ).toEqual({ error: 'El lunes cierra antes de abrir.' });
+  });
+
+  it('atiende desde que empieza hasta que termina a la mañana siguiente', () => {
+    expect(dentroDelHorario(soloJueves, jueves('18:59'))).toBe(false);
+    expect(dentroDelHorario(soloJueves, jueves('19:00'))).toBe(true);
+    expect(dentroDelHorario(soloJueves, jueves('23:59'))).toBe(true);
+    expect(dentroDelHorario(soloJueves, viernes('00:00'))).toBe(true);
+    expect(dentroDelHorario(soloJueves, viernes('06:59'))).toBe(true);
+    expect(dentroDelHorario(soloJueves, viernes('07:00'))).toBe(false);
+    // La madrugada del jueves es la noche del miércoles, que no atiende.
+    expect(dentroDelHorario(soloJueves, jueves('03:00'))).toBe(false);
+  });
+
+  it('el estado dice hasta cuándo atiende y cuándo vuelve', () => {
+    const estado = (ahora: Date) =>
+      estadoDelAsistente({ vinculado: true, suscripcionActiva: true, horario: soloJueves, ahora });
+    expect(estado(viernes('02:00'))).toMatchObject({ prendido: true, hasta: '07:00' });
+    expect(estado(jueves('10:00'))).toMatchObject({
+      prendido: false,
+      vuelve: { dia: 'jue', desde: '19:00', enDias: 0 },
+    });
+  });
+
+  it('el resumen se lee de corrido', () => {
+    expect(resumenHorarioAtencion(horario({ franjas: NOCHES }))).toBe('lunes a domingo de 19:00 a 07:00');
   });
 });

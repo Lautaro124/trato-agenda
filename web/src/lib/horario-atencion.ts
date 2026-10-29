@@ -29,7 +29,8 @@ export function nombreDeZona(zona: string): string {
 
 /**
  * Cada media hora del día, más 23:59 para poder atender hasta la medianoche
- * (la API no acepta 24:00 y exige que cierre después de abrir).
+ * en una franja de todo el día (la API no acepta 24:00; una que termina antes de
+ * empezar, como 19:00 a 07:00, sigue al día siguiente).
  */
 export const HORAS_ATENCION = [
   ...Array.from({ length: 48 }, (_, i) => {
