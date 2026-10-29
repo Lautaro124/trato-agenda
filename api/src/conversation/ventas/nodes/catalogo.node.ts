@@ -26,6 +26,7 @@ import type { RegistroPerformanceService } from '../../../performance/registro.s
 import type { OperacionPendiente } from '../../graph/state.js';
 import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
+import { esFormaDePago, hayCondiciones } from '../../../comercio/condiciones-pago.rules.js';
 import { hayDescuentosVigentes } from '../../../comercio/descuentos.rules.js';
 import { MAX_PRODUCTOS_LISTADO, type ResultadoCatalogo } from '../../../comercio/sugerencias.rules.js';
 import {
@@ -35,6 +36,7 @@ import {
   formatearSolicitudRegistrada,
   formatearCatalogo,
   formatearDescuentos,
+  formatearFormasDePago,
   formatearListadoVentas,
   totalesDeVentas,
   formatearPedidoCreado,
@@ -50,7 +52,7 @@ import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 export type DepsCatalogo = {
   busqueda: Pick<BusquedaService, 'buscar'>;
   sugerencias: Pick<SugerenciasService, 'verCatalogo' | 'descuentosVigentes'>;
-  ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
+  ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente' | 'cotizarFormasDePago'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
@@ -178,6 +180,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         nombreCliente: String(args.nombreCliente),
         items: args.items as ItemPedido[],
         medioPago,
+        formaPago: esFormaDePago(args.formaPago) ? args.formaPago : null,
+        cuotas: typeof args.cuotas === 'number' ? args.cuotas : null,
         entrega: leerEntrega(args.entrega),
         datosCliente: leerDatosDeVenta(args.datosCliente),
         // El banco de pruebas del Home (quien habla es el dueño): pedido real, fuera del histórico.
@@ -191,6 +195,20 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       return formatearPedidoCreado(agent, venta);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
+      throw error;
+    }
+  }
+
+  async function verFormasDePago(state: EstadoVentasValue, args: Args): Promise<string> {
+    const { condicionesPago, mpConectado } = state.contexto;
+    if (!Array.isArray(args.items) || !hayCondiciones(condicionesPago)) {
+      return formatearFormasDePago(condicionesPago, mpConectado, null);
+    }
+    try {
+      const cotizacion = await deps.ventas.cotizarFormasDePago(state.ownerUserId, args.items as ItemPedido[]);
+      return formatearFormasDePago(condicionesPago, mpConectado, cotizacion);
+    } catch (error) {
+      if (error instanceof PedidoRechazadoError) return `No se pudo cotizar: ${error.message}`;
       throw error;
     }
   }
@@ -427,6 +445,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       }
       case 'ver_descuentos':
         return formatearDescuentos(await deps.sugerencias.descuentosVigentes(state.ownerUserId));
+      case 'ver_formas_de_pago':
+        return verFormasDePago(state, args);
       case 'consultar_stock': {
         const consulta = String(args.consulta);
         return formatearStockDueno(consulta, await deps.busqueda.buscar(state.ownerUserId, consulta));

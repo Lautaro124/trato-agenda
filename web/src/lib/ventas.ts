@@ -40,6 +40,11 @@ export type Venta = {
   solicitud: SolicitudDePedido | null;
   /** null en un pedido a medida que todavía no se cobra. */
   medioPago: "mercadopago" | "manual" | null;
+  /** Cómo eligió pagar el cliente (LAU-34); null = en un pago. */
+  formaPago: "efectivo" | "cuotas" | null;
+  cuotas: number | null;
+  /** Lo que se sumó al total por pagar en cuotas (ya incluido en el total). */
+  recargoCentavos: number;
   nombreCliente: string | null;
   telefonoCliente: string | null;
   /** null mientras un pedido a medida no tiene presupuesto. */

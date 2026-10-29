@@ -10,6 +10,7 @@ import {
   conOfertaDeDescuentos,
   formatearCatalogo,
   formatearDescuentos,
+  formatearFormasDePago,
   formatearPedidoCreado,
   formatearResultados,
   formatearStockDueno,
@@ -20,6 +21,7 @@ import {
   montosEnTexto,
   OFERTA_DE_DESCUENTOS,
   preciosSinRespaldo,
+  reglaDeFormasDePago,
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
   reglasDeVenta,
@@ -305,6 +307,24 @@ describe('formatearPedidoCreado', () => {
       ],
     } as never;
     expect(formatearPedidoCreado(AGENT, venta)).toContain('Total $ 12.800 (ya con los descuentos: ahorra $ 3.200).');
+  });
+
+  it('en cuotas dice el valor de la cuota y el recargo incluido', () => {
+    const venta = {
+      ...(VENTA as object),
+      totalCentavos: 1_840_000,
+      formaPago: 'cuotas',
+      cuotas: 6,
+      recargoCentavos: 240_000,
+    } as never;
+    expect(formatearPedidoCreado(AGENT, venta)).toContain(
+      'Total $ 18.400. Es en 6 cuotas de $ 3.066,67 (el total incluye $ 2.400 de recargo). Las cuotas las elige en el link',
+    );
+  });
+
+  it('en efectivo aclara que ya tiene el descuento', () => {
+    const venta = { ...(VENTA as object), linkPago: null, formaPago: 'efectivo' } as never;
+    expect(formatearPedidoCreado(AGENT, venta)).toContain('Es para pagar en efectivo (con el descuento ya aplicado).');
   });
 
   it('sin link avisa que el pago se coordina por el chat, hablando como el negocio', () => {
@@ -788,5 +808,75 @@ describe('fotos y preguntas sin repetir (chat de prueba de los sillones)', () =>
     expect(REGLA_PREGUNTAS_A_MEDIDA).toContain('lo que dice su nombre (medidas');
     expect(REGLA_PREGUNTAS_A_MEDIDA).toContain('no le repitas lo que te dijo');
     expect(REGLA_PREGUNTAS_A_MEDIDA).toContain('pedíselo junto con la última pregunta');
+  });
+});
+
+describe('formas de pago (LAU-34)', () => {
+  const CONDICIONES = {
+    planesCuotas: [
+      { cuotas: 3, recargoPorcentaje: 0 },
+      { cuotas: 6, recargoPorcentaje: 15 },
+    ],
+    descuentoEfectivoPorcentaje: 10,
+  };
+  const NINGUNA = { planesCuotas: [], descuentoEfectivoPorcentaje: null };
+
+  it('sin condiciones le prohíbe ofrecerlas', () => {
+    expect(reglaDeFormasDePago(NINGUNA, true)).toContain('no ofrece cuotas ni descuento');
+    expect(bloquePedidos({ nombreTitular: 'X' } as Agent, true, [])).toContain('No los ofrezcas');
+    expect(formatearFormasDePago(NINGUNA, true, null)).toContain('no ofrece cuotas');
+  });
+
+  it('enumera los planes y el efectivo, y pide cotizar con la herramienta', () => {
+    const texto = reglaDeFormasDePago(CONDICIONES, true);
+    expect(texto).toContain('3 cuotas sin interés, 6 cuotas con 15% de recargo (con el link de Mercado Pago)');
+    expect(texto).toContain('10% de descuento pagando en efectivo');
+    expect(texto).toContain('nunca hagas la cuenta vos');
+    expect(reglaDeFormasDePago(CONDICIONES, false)).toContain('se coordinan por este chat, sin link');
+  });
+
+  it('con cotización pasa los montos, que preciosSinRespaldo reconoce', () => {
+    const texto = formatearFormasDePago(CONDICIONES, true, {
+      moneda: 'ARS',
+      contadoCentavos: 1_000_000,
+      efectivoCentavos: 900_000,
+      cuotasMax: null,
+      planes: [
+        { cuotas: 3, recargoPorcentaje: 0, totalCentavos: 1_000_000, cuotaCentavos: 333_334 },
+        { cuotas: 6, recargoPorcentaje: 15, totalCentavos: 1_150_000, cuotaCentavos: 191_667 },
+      ],
+    });
+    expect(texto).toContain('- En un pago (link de pago o transferencia): $ 10.000');
+    expect(texto).toContain('- En efectivo: $ 9.000 (10% off; no se suma a otras promos)');
+    expect(texto).toContain('- 3 cuotas sin interés: 3 cuotas de $ 3.333,34 (total $ 10.000)');
+    expect(texto).toContain('- 6 cuotas con 15% de recargo: 6 cuotas de $ 1.916,67 (total $ 11.500)');
+    expect(preciosSinRespaldo('Son 6 cuotas de $ 1.916,67, total $ 11.500', [texto], [])).toEqual([]);
+  });
+
+  it('en dólares avisa que no hay cuotas', () => {
+    const texto = formatearFormasDePago(CONDICIONES, true, {
+      moneda: 'USD',
+      contadoCentavos: 10_000,
+      efectivoCentavos: 9_000,
+      cuotasMax: null,
+      planes: [],
+    });
+    expect(texto).toContain('Es en dólares: no hay cuotas.');
+    expect(texto).toContain('US$ 90');
+  });
+
+  it('con un producto de pocas cuotas avisa el tope', () => {
+    const base = { moneda: 'ARS' as const, contadoCentavos: 1_000_000, efectivoCentavos: 900_000 };
+    const hastaTres = formatearFormasDePago(CONDICIONES, true, {
+      ...base,
+      cuotasMax: 3,
+      planes: [{ cuotas: 3, recargoPorcentaje: 0, totalCentavos: 1_000_000, cuotaCentavos: 333_334 }],
+    });
+    expect(hastaTres).toContain('hasta 3 cuotas: no ofrezcas planes más largos');
+    expect(hastaTres).not.toContain('6 cuotas con 15%');
+    expect(formatearFormasDePago(CONDICIONES, true, { ...base, cuotasMax: 1, planes: [] })).toContain(
+      'Con estos productos no hay cuotas',
+    );
+    expect(reglaDeFormasDePago(CONDICIONES, true)).toContain('confirmarlo con ver_formas_de_pago');
   });
 });

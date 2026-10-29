@@ -74,6 +74,8 @@ type ProductoAGuardar = {
   precioReferenciaCentavos?: number | null;
   /** Los materiales de un producto a medida; undefined (la importación) no los toca. */
   materiales?: string[];
+  /** El tope de cuotas; undefined (la importación) no lo toca. */
+  cuotasMax?: number | null;
   /** La receta de cotización (LAU-26): null la borra, undefined no la toca. Ya validada contra los insumos. */
   receta?: Receta | null;
   politicaCotizacion?: PoliticaCotizacion;
@@ -416,6 +418,7 @@ export class ProductosService {
         solicitud: datos.solicitud === null ? Prisma.DbNull : (datos.solicitud as unknown as Prisma.InputJsonValue),
       }),
       ...(datos.materiales !== undefined && { materiales: datos.materiales }),
+      ...(datos.cuotasMax !== undefined && { cuotasMax: datos.cuotasMax }),
       ...(datos.receta !== undefined && {
         receta: datos.receta === null ? Prisma.DbNull : (datos.receta as unknown as Prisma.InputJsonValue),
       }),
@@ -571,6 +574,7 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
       materiales: [],
       receta: null,
       politicaCotizacion: 'manual',
+      cuotasMax: dto.cuotasMax,
     };
   }
   return {
@@ -583,6 +587,8 @@ export function desdeDto(dto: GuardarProductoDto): ProductoAGuardar {
     precioReferenciaCentavos: dto.precioReferenciaCentavos ?? null,
     // Como el precio "desde": en un producto a medida, no mandarlos es no tener.
     materiales: materialesDesdeDto(dto.materiales ?? []),
+    // Se cotiza aparte: no pasa por los planes de cuotas de crear_pedido.
+    cuotasMax: null,
   };
 }
 

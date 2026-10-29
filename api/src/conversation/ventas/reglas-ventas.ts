@@ -9,7 +9,16 @@
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
+import type { CotizacionFormasDePago } from '../../comercio/ventas.service.js';
 import { formatearCentavos, formatearMonto, monedaDe, type Moneda } from '../../comercio/catalogo.rules.js';
+import {
+  hayCondiciones,
+  planesEn,
+  SIN_CONDICIONES,
+  valorDeCuota,
+  type CondicionesPago,
+  type PlanCuotas,
+} from '../../comercio/condiciones-pago.rules.js';
 import { leerConfigDatosCliente, reglaDeDatosCliente, type EtapaDeCompra } from '../../comercio/datos-cliente.rules.js';
 import {
   detalleParaElModelo,
@@ -481,6 +490,7 @@ export function bloquePedidos(
   ahora: Date = new Date(),
   pedidosAMedida: PedidoAMedidaConPresupuestos[] = [],
   aMedida = false,
+  condiciones: CondicionesPago = SIN_CONDICIONES,
 ): string {
   const titular = agent.nombreTitular || 'el negocio';
   const cobro = mpConectado
@@ -491,7 +501,7 @@ export function bloquePedidos(
       `"manual") y le escribimos por este chat para coordinar el pago y la entrega.`;
   const pendientes = pedidos.filter((pedido) => estadoVisible(pedido, ahora) === 'pendiente_pago');
   const pagados = pedidos.filter((pedido) => pedido.estado === 'pagada');
-  const lineas = [cobro];
+  const lineas = [cobro, reglaDeFormasDePago(condiciones, mpConectado)];
   if (pendientes.length > 0) {
     lineas.push(
       `Pedidos sin pagar de este cliente (como mucho ${MAX_PEDIDOS_PENDIENTES} a la vez; consultá el detalle con ` +
@@ -509,6 +519,106 @@ export function bloquePedidos(
   return lineas.join('\n');
 }
 
+/** "3 cuotas sin interés", "6 cuotas con 15% de recargo". */
+function nombreDePlan(plan: PlanCuotas): string {
+  return `${plan.cuotas} cuotas ${plan.recargoPorcentaje === 0 ? 'sin interés' : `con ${plan.recargoPorcentaje}% de recargo`}`;
+}
+
+/**
+ * Las cuotas y el descuento en efectivo del comercio (LAU-34), sólo números
+ * de la base. Sin condiciones, la regla es no ofrecer ninguna.
+ */
+export function reglaDeFormasDePago(condiciones: CondicionesPago, mpConectado: boolean): string {
+  if (!hayCondiciones(condiciones)) {
+    return 'Formas de pago: el negocio no ofrece cuotas ni descuento por pagar en efectivo. No los ofrezcas ni los prometas.';
+  }
+  const partes: string[] = [];
+  if (condiciones.planesCuotas.length > 0) {
+    partes.push(
+      `en cuotas, sólo en pesos: ${condiciones.planesCuotas.map(nombreDePlan).join(', ')}` +
+        (mpConectado ? ' (con el link de Mercado Pago)' : ' (se coordinan por este chat, sin link)') +
+        '; algunos productos pueden venderse con menos cuotas o en un pago, así que no prometas un plan sin ' +
+        'confirmarlo con ver_formas_de_pago',
+    );
+  }
+  if (condiciones.descuentoEfectivoPorcentaje !== null) {
+    partes.push(
+      `${condiciones.descuentoEfectivoPorcentaje}% de descuento pagando en efectivo (sólo en efectivo: no con ` +
+        'transferencia ni con el link, y no se suma a otras promos: se aplica el que más le conviene)',
+    );
+  }
+  return (
+    `Formas de pago del negocio: ${partes.join('; ')}. No ofrezcas otras. Para cuánto sale un pedido en cada una ` +
+    '(total y valor de la cuota) llamá ver_formas_de_pago con lo que eligió: nunca hagas la cuenta vos. Al crear el ' +
+    'pedido, mandá formaPago ("efectivo" o "cuotas" con `cuotas`) si el cliente eligió una.'
+  );
+}
+
+/** Con qué empieza el resultado de ver_formas_de_pago cuando hay totales. */
+export const ENCABEZADO_FORMAS_DE_PAGO = 'Formas de pago de este pedido';
+
+/**
+ * Resultado de ver_formas_de_pago. Sin cotización, las condiciones; con ella,
+ * los totales escritos para que preciosSinRespaldo los reconozca.
+ */
+export function formatearFormasDePago(
+  condiciones: CondicionesPago,
+  mpConectado: boolean,
+  cotizacion: CotizacionFormasDePago | null,
+): string {
+  if (!hayCondiciones(condiciones)) {
+    return (
+      'El negocio no ofrece cuotas ni descuento por pagar en efectivo. Decíselo al cliente en una frase, sin ' +
+      'inventar ninguno.'
+    );
+  }
+  if (!cotizacion) {
+    return (
+      `${reglaDeFormasDePago(condiciones, mpConectado)}
+Pasale estas condiciones al cliente. Para los montos, ` +
+      'volvé a llamar ver_formas_de_pago con los productos que eligió.'
+    );
+  }
+  const monto = (centavos: number) => formatearMonto(centavos, cotizacion.moneda);
+  const lineas = [`- En un pago${mpConectado ? ' (link de pago o transferencia)' : ''}: ${monto(cotizacion.contadoCentavos)}`];
+  if (cotizacion.efectivoCentavos !== null) {
+    lineas.push(
+      cotizacion.efectivoCentavos < cotizacion.contadoCentavos
+        ? `- En efectivo: ${monto(cotizacion.efectivoCentavos)} (${condiciones.descuentoEfectivoPorcentaje}% off; no se suma a otras promos)`
+        : `- En efectivo: ${monto(cotizacion.efectivoCentavos)} (el descuento en efectivo no mejora la promo que ya tiene)`,
+    );
+  }
+  for (const plan of cotizacion.planes) {
+    lineas.push(`- ${nombreDePlan(plan)}: ${plan.cuotas} cuotas de ${monto(plan.cuotaCentavos)} (total ${monto(plan.totalCentavos)})`);
+  }
+  if (condiciones.planesCuotas.length > 0 && planesEn(condiciones, cotizacion.moneda).length === 0) {
+    lineas.push('- Es en dólares: no hay cuotas.');
+  } else if (planesEn(condiciones, cotizacion.moneda).length > cotizacion.planes.length) {
+    lineas.push(
+      cotizacion.planes.length === 0
+        ? '- Con estos productos no hay cuotas: alguno se vende en un pago o con menos cuotas.'
+        : `- Con estos productos, hasta ${cotizacion.cuotasMax as number} cuotas: no ofrezcas planes más largos.`,
+    );
+  }
+  return `${ENCABEZADO_FORMAS_DE_PAGO} (pasáselas con los montos tal cual):\n${lineas.join('\n')}`;
+}
+
+/** Cómo paga el pedido, para el resultado de crear_pedido. */
+function detalleDeFormaDePago(venta: VentaConItems): string {
+  if (venta.formaPago === 'efectivo') return ' Es para pagar en efectivo (con el descuento ya aplicado).';
+  if (venta.formaPago === 'cuotas' && venta.cuotas) {
+    const total = venta.totalCentavos ?? 0;
+    return (
+      ` Es en ${venta.cuotas} cuotas de ${formatearMonto(valorDeCuota(total, venta.cuotas), venta.moneda)}` +
+      (venta.recargoCentavos > 0
+        ? ` (el total incluye ${formatearMonto(venta.recargoCentavos, venta.moneda)} de recargo).`
+        : ' sin interés.') +
+      (venta.linkPago ? ' Las cuotas las elige en el link de Mercado Pago.' : '')
+    );
+  }
+  return '';
+}
+
 // h23: "17:42" y no "05:42 p. m.", que es lo que da es-AR por defecto.
 const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 /** Lo que vuelve al modelo después de crear un pedido. */
@@ -519,6 +629,7 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
     `Total ${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)}` +
     (ahorro > 0 ? ` (ya con los descuentos: ahorra ${formatearMonto(ahorro, venta.moneda)})` : '') +
     '.' +
+    detalleDeFormaDePago(venta) +
     (venta.entrega === 'envio'
       ? ` Es con envío: el costo y el plazo los coordinamos por este chat.`
       : venta.entrega === 'retiro'

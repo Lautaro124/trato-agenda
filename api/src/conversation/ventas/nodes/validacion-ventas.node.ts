@@ -57,6 +57,17 @@ export type HistorialValidacion = {
   fotosYaMandadas: Set<string>;
 };
 
+/**
+ * El id tiene que haber salido de una búsqueda de esta charla: uno recordado
+ * de antes de la ventana o inventado es un producto que nadie le mostró.
+ */
+function variantesNoVistas(items: ItemPedido[], historial: HistorialValidacion): string | null {
+  return items.some((item) => !historial.variantesVistas.has(item.varianteId))
+    ? 'Hay variantes que no salieron de ninguna búsqueda de esta charla. Buscá cada producto con ' +
+        'buscar_productos y usá los ids de variante que te devuelva.'
+    : null;
+}
+
 /** Cuenta las búsquedas de esta vuelta y junta las variantes que se le mostraron al modelo. */
 export function historialValidacion(state: EstadoVentasValue): HistorialValidacion {
   const textoDe = (mensaje: BaseMessage) =>
@@ -138,6 +149,14 @@ export function validarLlamadaVentas(
 
   if (llamada.nombre === 'ver_descuentos') {
     return { ok: true, operacion: { ...llamada, args: {} } };
+  }
+
+  if (llamada.nombre === 'ver_formas_de_pago') {
+    if (args.items === undefined) return { ok: true, operacion: { ...llamada, args: {} } };
+    const items = args.items as ItemPedido[];
+    const problema = problemaDeForma(items) ?? variantesNoVistas(items, historial);
+    if (problema) return { ok: false, motivo: problema };
+    return { ok: true, operacion: { ...llamada, args: { items: agruparItems(items) } } };
   }
 
   if (llamada.nombre === 'listar_ventas' || llamada.nombre === 'resumen_ventas') {
@@ -298,16 +317,10 @@ export function validarLlamadaVentas(
     const items = (args.items ?? []) as ItemPedido[];
     const problema = problemaDeForma(items);
     if (problema) return { ok: false, motivo: problema };
-    // El id tiene que haber salido de una búsqueda de esta charla: uno recordado
-    // de antes de la ventana o inventado es un producto que nadie le mostró.
-    const noVistas = items.filter((item) => !historial.variantesVistas.has(item.varianteId));
-    if (noVistas.length > 0) {
-      return {
-        ok: false,
-        motivo:
-          'Hay variantes que no salieron de ninguna búsqueda de esta charla. Buscá cada producto con ' +
-          'buscar_productos y usá los ids de variante que te devuelva.',
-      };
+    const noVistas = variantesNoVistas(items, historial);
+    if (noVistas) return { ok: false, motivo: noVistas };
+    if (args.formaPago === 'cuotas' && args.cuotas === undefined) {
+      return { ok: false, motivo: 'Con formaPago "cuotas" mandá también `cuotas`: un plan de ver_formas_de_pago.' };
     }
     const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args);
     if (!datos.ok) return { ok: false, motivo: datos.motivo };
@@ -316,7 +329,14 @@ export function validarLlamadaVentas(
       operacion: {
         ...llamada,
         // Lo que sigue al nodo catalogo es lo ya normalizado, no lo que mandó el modelo.
-        args: { ...args, nombreCliente, items: agruparItems(items), entrega: datos.entrega, datosCliente: datos.datos },
+        args: {
+          ...args,
+          nombreCliente,
+          items: agruparItems(items),
+          cuotas: args.formaPago === 'cuotas' ? args.cuotas : undefined,
+          entrega: datos.entrega,
+          datosCliente: datos.datos,
+        },
       },
     };
   }

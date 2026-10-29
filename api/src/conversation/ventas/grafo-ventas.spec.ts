@@ -64,6 +64,8 @@ function crearPrisma(
     /** Productos a medida activos de la cuenta: con alguno se suman sus reglas y herramientas. */
     productosAMedida?: number;
     agent?: Record<string, unknown>;
+    /** La fila de CondicionesPago (LAU-34); sin ella, el comercio no ofrece cuotas ni efectivo. */
+    condicionesPago?: { planesCuotas: unknown; descuentoEfectivoPorcentaje: number | null };
   } = {},
 ) {
   return {
@@ -76,6 +78,7 @@ function crearPrisma(
       ),
     },
     cuentaMercadoPago: { findUnique: vi.fn().mockResolvedValue(opciones.mpConectado ? { id: 'mp-1' } : null) },
+    condicionesPago: { findUnique: vi.fn().mockResolvedValue(opciones.condicionesPago ?? null) },
     venta: {
       findMany: vi.fn().mockImplementation((args: { where?: { tipo?: string } }) =>
         Promise.resolve(args?.where?.tipo === 'a_medida' ? (opciones.pedidosAMedida ?? []) : (opciones.pedidos ?? [])),
@@ -155,6 +158,7 @@ function crearVentas() {
     crearPedido: vi.fn(),
     pedidosDeConversacion: vi.fn().mockResolvedValue([]),
     cancelarUltimoPendiente: vi.fn().mockResolvedValue(null),
+    cotizarFormasDePago: vi.fn(),
   };
 }
 
@@ -848,6 +852,9 @@ describe('grafo de ventas', () => {
         // Los renglones repetidos llegan juntos.
         items: [{ varianteId: 'v-1', cantidad: 2 }],
         medioPago: 'mercadopago',
+        // Sin forma de pago elegida, es en un pago.
+        formaPago: null,
+        cuotas: null,
         dePrueba: false,
         // El comercio no pide datos: no hay entrega ni datos que guardar.
         entrega: null,
@@ -857,6 +864,49 @@ describe('grafo de ventas', () => {
       expect(tool.content).toContain('Pedido creado para "Juan": 2 × Mate de calabaza ($ 16.000). Total $ 16.000.');
       expect(tool.content).toContain('https://mp/pagar/venta-1');
       expect(sistemaDe(llm)).toContain('Cobro: con link de pago de Mercado Pago');
+    });
+
+    it('cotiza las formas de pago con ver_formas_de_pago y crea el pedido en el plan elegido (LAU-34)', async () => {
+      const ventas = crearVentas();
+      ventas.cotizarFormasDePago.mockResolvedValue({
+        moneda: 'ARS',
+        contadoCentavos: 1_600_000,
+        efectivoCentavos: 1_440_000,
+        planes: [{ cuotas: 6, recargoPorcentaje: 15, totalCentavos: 1_840_000, cuotaCentavos: 306_667 }],
+      });
+      ventas.crearPedido.mockResolvedValue({ ...VENTA, formaPago: 'cuotas', cuotas: 6, recargoCentavos: 240_000 });
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('ver_formas_de_pago', { items: itemsPedido }, 'call-formas'),
+        llamada('crear_pedido', { nombreCliente: 'Juan', items: itemsPedido, formaPago: 'cuotas', cuotas: 6 }),
+        new AIMessage('Listo, te paso el link.'),
+      ]);
+      const prisma = crearPrisma({
+        mpConectado: true,
+        condicionesPago: { planesCuotas: [{ cuotas: 6, recargoPorcentaje: 15 }], descuentoEfectivoPorcentaje: 10 },
+      });
+
+      const resultado = await correr({ prisma, llm, busqueda: buscaMate(), ventas });
+
+      expect(sistemaDe(llm)).toContain('Formas de pago del negocio: en cuotas, sólo en pesos: 6 cuotas con 15% de recargo');
+      expect(ventas.cotizarFormasDePago).toHaveBeenCalledWith('user-1', [{ varianteId: 'v-1', cantidad: 2 }]);
+      expect(resultadoDe(resultado.messages, 'ver_formas_de_pago').content).toContain(
+        '- 6 cuotas con 15% de recargo: 6 cuotas de $ 3.066,67 (total $ 18.400)',
+      );
+      expect(ventas.crearPedido).toHaveBeenCalledWith(
+        expect.objectContaining({ formaPago: 'cuotas', cuotas: 6, medioPago: 'mercadopago' }),
+      );
+    });
+
+    it('sin condiciones no cotiza nada y le dice que no las ofrezca', async () => {
+      const ventas = crearVentas();
+      const llm = crearModelo([llamada('ver_formas_de_pago', {}), new AIMessage('Por ahora sólo en un pago.')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), ventas });
+
+      expect(ventas.cotizarFormasDePago).not.toHaveBeenCalled();
+      expect(resultadoDe(resultado.messages, 'ver_formas_de_pago').content).toContain('no ofrece cuotas');
+      expect(sistemaDe(llm)).toContain('No los ofrezcas ni los prometas.');
     });
 
     describe('datos del cliente', () => {
