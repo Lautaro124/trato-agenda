@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agruparFilasImportacion,
+  esIdMercadoLibre,
   consultaTsquery,
   describirStock,
   formatearCentavos,
@@ -170,6 +171,18 @@ describe('skuPorDefecto', () => {
 });
 
 describe('agruparFilasImportacion', () => {
+  it('sin columna de descripción o categoría no las dice (no se pisan); vacías, sí', () => {
+    const { productos } = agruparFilasImportacion([
+      { codigo: 'MLA1234567890', nombre: 'Sillón esquinero', variante: 'Gris', sku: 'MLA1234567890', precio: '651794.04', stock: '30', moneda: '$' },
+      { codigo: 'MATE', nombre: 'Mate', descripcion: '', categoria: '', precio: '8000' },
+    ]);
+
+    expect(productos[0]).not.toHaveProperty('descripcion');
+    expect(productos[0]).not.toHaveProperty('categoria');
+    expect(productos[0]).toMatchObject({ moneda: 'ARS', variantes: [{ sku: 'MLA1234567890', nombre: 'Gris', precioCentavos: 65_179_404, stock: 30 }] });
+    expect(productos[1]).toMatchObject({ descripcion: '', categoria: null });
+  });
+
   it('agrupa las variantes de un mismo código en un producto', () => {
     const { productos, errores } = agruparFilasImportacion([
       { Código: 'REM-01', Nombre: 'Remera', Categoría: 'Remeras', Variante: 'M', Precio: '15.000', Stock: '4' },
@@ -293,5 +306,15 @@ describe('consultaTsquery', () => {
   it('no deja pasar sintaxis de tsquery', () => {
     expect(consultaTsquery("a & b | !c :* ') (")).toBeNull();
     expect(consultaTsquery('mate&!bombilla')).toBe('matebombilla:*');
+  });
+});
+
+describe('esIdMercadoLibre', () => {
+  it('reconoce el número de publicación de cualquier sitio y nada más', () => {
+    expect(esIdMercadoLibre('MLA2065808232')).toBe(true);
+    expect(esIdMercadoLibre('MCO123456789')).toBe(true);
+    expect(esIdMercadoLibre('MLA-123')).toBe(false);
+    expect(esIdMercadoLibre('REM-01')).toBe(false);
+    expect(esIdMercadoLibre('mla2065808232')).toBe(false);
   });
 });
