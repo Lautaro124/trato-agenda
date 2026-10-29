@@ -3,10 +3,13 @@ import { Prisma, type Producto } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   agruparFilasImportacion,
+  esIdMercadoLibre,
   normalizarTexto,
   skuPorDefecto,
   textoBusquedaDe,
+  type ErrorDeFila,
   type Moneda,
+  type ProductoImportado,
   type VarianteImportada,
 } from './catalogo.rules.js';
 import { finDeVigencia, inicioDeVigencia, problemaDeDescuento, type TipoDescuento } from './descuentos.rules.js';
@@ -250,20 +253,32 @@ export class ProductosService {
     confirmar: boolean,
   ): Promise<ResumenImportacion> {
     const agrupados = agruparFilasImportacion(filas);
+    const reconocidos = await this.reconocerPublicaciones(userId, agrupados.productos);
 
     const encontrados = await this.prisma.producto.findMany({
-      where: { userId, activo: true, codigo: { in: agrupados.productos.map((producto) => producto.codigo) } },
-      select: { codigo: true, solicitud: true },
+      where: { userId, activo: true, codigo: { in: reconocidos.productos.map((producto) => producto.codigo) } },
+      select: { codigo: true, solicitud: true, descripcion: true, categoria: true },
     });
-    const existentes = new Set(encontrados.map((producto) => producto.codigo));
+    const porCodigo = new Map(encontrados.map((producto) => [producto.codigo, producto]));
     // Una planilla es una fila por variante con su precio y su stock: no pisa un producto a medida.
     const aMedida = new Set(
       encontrados.filter((producto) => leerSolicitud(producto.solicitud) !== null).map((producto) => producto.codigo),
     );
-    const productos = agrupados.productos.filter((producto) => !aMedida.has(producto.codigo));
+    // Lo que la planilla no trae (descripción, categoría) queda como estaba; uno nuevo nace vacío.
+    const productos = reconocidos.productos
+      .filter((producto) => !aMedida.has(producto.codigo))
+      .map((producto) => {
+        const existente = porCodigo.get(producto.codigo);
+        return {
+          ...producto,
+          descripcion: producto.descripcion ?? existente?.descripcion ?? '',
+          categoria: producto.categoria !== undefined ? producto.categoria : (existente?.categoria ?? null),
+        };
+      });
     const errores = [
       ...agrupados.errores,
-      ...agrupados.productos
+      ...reconocidos.errores,
+      ...reconocidos.productos
         .filter((producto) => aMedida.has(producto.codigo))
         .map((producto) => ({
           fila: producto.filas[0],
@@ -272,8 +287,8 @@ export class ProductosService {
     ].sort((a, b) => a.fila - b.fila);
 
     const resumen: ResumenImportacion = {
-      nuevos: productos.filter((producto) => !existentes.has(producto.codigo)).length,
-      actualizados: productos.filter((producto) => existentes.has(producto.codigo)).length,
+      nuevos: productos.filter((producto) => !porCodigo.has(producto.codigo)).length,
+      actualizados: productos.filter((producto) => porCodigo.has(producto.codigo)).length,
       variantes: productos.reduce((suma, producto) => suma + producto.variantes.length, 0),
       errores: errores.slice(0, MAX_ERRORES_DEVUELTOS),
       totalErrores: errores.length,
@@ -295,6 +310,78 @@ export class ProductosService {
     }
     this.indexador.programar();
     return { ...resumen, confirmado: true };
+  }
+
+  /**
+   * Las publicaciones del export de Mercado Libre (código "MLA…") que no están
+   * con ese código pueden ser productos que ya existen con otro: uno importado
+   * por enlace como "MLA…-2" (se reconoce por su origen) o uno cargado a mano
+   * con el mismo SKU. Esos pasan a usar el código del existente, así se
+   * actualizan en vez de duplicarse. Dos publicaciones que caen en el mismo
+   * producto no se importan: no se adivina cuál vale.
+   */
+  private async reconocerPublicaciones(
+    userId: string,
+    productos: ProductoImportado[],
+  ): Promise<{ productos: ProductoImportado[]; errores: ErrorDeFila[] }> {
+    const deMercadoLibre = productos.filter((producto) => esIdMercadoLibre(producto.codigo));
+    if (deMercadoLibre.length === 0) return { productos, errores: [] };
+
+    const conSuCodigo = new Set(
+      (
+        await this.prisma.producto.findMany({
+          where: { userId, activo: true, codigo: { in: deMercadoLibre.map((producto) => producto.codigo) } },
+          select: { codigo: true },
+        })
+      ).map((producto) => producto.codigo),
+    );
+    const sinCodigo = deMercadoLibre.filter((producto) => !conSuCodigo.has(producto.codigo));
+    if (sinCodigo.length === 0) return { productos, errores: [] };
+
+    // Los SKU que arma la planilla a partir del código ("MLA1", "MLA1-123") no identifican a otro producto.
+    const skusPropios = (producto: ProductoImportado) =>
+      producto.variantes
+        .map((variante) => variante.sku)
+        .filter((sku) => sku !== producto.codigo && !sku.startsWith(`${producto.codigo}-`));
+    const [porOrigen, porSku] = await Promise.all([
+      this.prisma.producto.findMany({
+        where: { userId, activo: true, origenId: { in: sinCodigo.map((producto) => `ml:${producto.codigo}`) } },
+        select: { codigo: true, origenId: true },
+      }),
+      this.prisma.variante.findMany({
+        where: { activo: true, sku: { in: sinCodigo.flatMap(skusPropios) }, producto: { userId, activo: true } },
+        select: { sku: true, producto: { select: { codigo: true } } },
+      }),
+    ]);
+
+    const reconocidos = productos.map((producto) => {
+      if (!sinCodigo.includes(producto)) return producto;
+      const skus = skusPropios(producto);
+      const codigo =
+        porOrigen.find((existente) => existente.origenId === `ml:${producto.codigo}`)?.codigo ??
+        porSku.find((variante) => skus.includes(variante.sku))?.producto.codigo;
+      return codigo ? { ...producto, codigo } : producto;
+    });
+
+    const errores: ErrorDeFila[] = [];
+    const vistos = new Map<string, ProductoImportado>();
+    const repetidos = new Set<ProductoImportado>();
+    for (const producto of reconocidos) {
+      const anterior = vistos.get(producto.codigo);
+      if (!anterior) {
+        vistos.set(producto.codigo, producto);
+        continue;
+      }
+      repetidos.add(anterior).add(producto);
+    }
+    for (const [indice, producto] of reconocidos.entries()) {
+      if (!repetidos.has(producto)) continue;
+      errores.push({
+        fila: producto.filas[0],
+        mensaje: `la publicación ${productos[indice].codigo} es el mismo producto (${producto.codigo}) que otra fila de la planilla`,
+      });
+    }
+    return { productos: reconocidos.filter((producto) => !repetidos.has(producto)), errores };
   }
 
   /**

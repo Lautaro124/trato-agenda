@@ -172,16 +172,108 @@ function conEncabezadosValidos(filas: unknown[][]): FilaPlanilla[] {
   return filasAObjetos(filas);
 }
 
-/** Lee un .csv o un .xlsx y devuelve sus filas como objetos. */
-export async function leerPlanilla(archivo: File): Promise<FilaPlanilla[]> {
+// --- Export de publicaciones de Mercado Libre ----------------------------------
+
+/** Las columnas del export que usa Trato, por su código en la primera fila de la hoja. */
+const COLUMNAS_MERCADOLIBRE = {
+  codigo: "ITEM_ID",
+  nombre: "TITLE",
+  variante: "VARIATIONS",
+  precio: "PRICE",
+  precioPromocion: "SALE_PRICE",
+  stock: "QUANTITY",
+  moneda: "CURRENCY_ID",
+  idVariante: "VARIATION_ID",
+} as const;
+const SKU_MERCADOLIBRE = ["SELLER_SKU", "SKU"];
+
+/** Cómo se llaman las columnas en el export de Mercado Libre, para los errores. */
+export const ETIQUETAS_MERCADOLIBRE: Record<string, string> = {
+  ...ETIQUETAS_COLUMNA,
+  codigo: "Número de publicación",
+  nombre: "Título",
+  variante: "Variantes",
+  stock: "Stock en tu depósito",
+};
+
+/** Igual que `esIdMercadoLibre` de la API: "MLA123456789", "MCO…". */
+const ID_MERCADOLIBRE = /^M[A-Z]{2}\d{6,}$/;
+
+/**
+ * La hoja "Publicaciones" del export: la primera fila son los códigos de
+ * columna (ITEM_ID, TITLE…) y las siguientes, títulos y ayudas hasta la
+ * primera publicación. Esas filas se mandan vacías (la API las saltea) para
+ * que el número de fila de cada error siga siendo el de la planilla. Cada
+ * publicación (o variante) pasa a una fila de la plantilla: el número de
+ * publicación es el código y el precio, el de promoción si lo tiene.
+ * Descripción y categoría no vienen y no se mandan, así no se pisan.
+ */
+export function filasDeMercadoLibre(filas: unknown[][]): FilaPlanilla[] {
+  const [codigos, ...datos] = filas;
+  const indice = new Map((codigos ?? []).map((celda, i) => [String(celda ?? "").trim().toUpperCase(), i]));
+  const faltan = [COLUMNAS_MERCADOLIBRE.codigo, COLUMNAS_MERCADOLIBRE.nombre, COLUMNAS_MERCADOLIBRE.precio].filter(
+    (codigo) => !indice.has(codigo),
+  );
+  if (faltan.length > 0) throw new Error(`columnas:${faltan.join(",")}`);
+
+  const valor = (fila: unknown[], codigo: string) => {
+    const i = indice.get(codigo);
+    return i === undefined ? "" : celdaATexto(fila[i]);
+  };
+  const columnaSku = SKU_MERCADOLIBRE.find((codigo) => indice.has(codigo));
+  const primera = datos.findIndex((fila) => ID_MERCADOLIBRE.test(valor(fila, COLUMNAS_MERCADOLIBRE.codigo)));
+  if (primera === -1) return [];
+
+  const convertidas = datos.map((fila, i): FilaPlanilla => {
+    if (i < primera) return {};
+    const codigo = valor(fila, COLUMNAS_MERCADOLIBRE.codigo);
+    const idVariante = valor(fila, COLUMNAS_MERCADOLIBRE.idVariante);
+    // El SKU del vendedor si lo cargó; si no, uno estable que sale de la publicación y la variante.
+    const sku = (columnaSku && valor(fila, columnaSku)) || (idVariante ? `${codigo}-${idVariante}` : codigo);
+    return {
+      codigo,
+      nombre: valor(fila, COLUMNAS_MERCADOLIBRE.nombre),
+      variante: valor(fila, COLUMNAS_MERCADOLIBRE.variante),
+      sku: codigo ? sku : "",
+      precio: valor(fila, COLUMNAS_MERCADOLIBRE.precioPromocion) || valor(fila, COLUMNAS_MERCADOLIBRE.precio),
+      stock: valor(fila, COLUMNAS_MERCADOLIBRE.stock),
+      moneda: valor(fila, COLUMNAS_MERCADOLIBRE.moneda),
+    };
+  });
+  let fin = convertidas.length;
+  while (fin > 0 && Object.values(convertidas[fin - 1]).every((celda) => celda === "")) fin--;
+  return convertidas.slice(0, fin);
+}
+
+export type Planilla = {
+  filas: FilaPlanilla[];
+  /** Los nombres de columna que conoce el usuario, para hablarle de sus errores. */
+  etiquetas: Record<string, string>;
+};
+
+/** El export de Mercado Libre trae la hoja "Publicaciones" con ITEM_ID en la primera fila. */
+function hojaDeMercadoLibre(hojas: Array<{ sheet: string; data: unknown[][] }>) {
+  return hojas.find(
+    (hoja) =>
+      normalizarEncabezado(hoja.sheet) === "publicaciones" &&
+      (hoja.data[0] ?? []).some((celda) => String(celda ?? "").trim().toUpperCase() === COLUMNAS_MERCADOLIBRE.codigo),
+  );
+}
+
+/** Lee un .csv o un .xlsx (la plantilla o el export de Mercado Libre) y devuelve sus filas como objetos. */
+export async function leerPlanilla(archivo: File): Promise<Planilla> {
   const nombre = archivo.name.toLowerCase();
   if (nombre.endsWith(".xlsx")) {
     // Import dinámico: el lector de Excel sólo se descarga si hace falta.
-    const { readSheet } = await import("read-excel-file/browser");
-    return conEncabezadosValidos(await readSheet(archivo));
+    const { default: leerHojas } = await import("read-excel-file/browser");
+    const hojas = await leerHojas(archivo);
+    // La hoja de Ayuda y las ocultas del export no son productos: sólo se lee la de publicaciones.
+    const mercadoLibre = hojaDeMercadoLibre(hojas);
+    if (mercadoLibre) return { filas: filasDeMercadoLibre(mercadoLibre.data), etiquetas: ETIQUETAS_MERCADOLIBRE };
+    return { filas: conEncabezadosValidos(hojas[0]?.data ?? []), etiquetas: ETIQUETAS_COLUMNA };
   }
   if (nombre.endsWith(".csv") || nombre.endsWith(".txt")) {
-    return conEncabezadosValidos(parsearCsv(await textoDeCsv(archivo)));
+    return { filas: conEncabezadosValidos(parsearCsv(await textoDeCsv(archivo))), etiquetas: ETIQUETAS_COLUMNA };
   }
   throw new Error("formato");
 }

@@ -2,17 +2,18 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { leerPlanilla, MAX_FILAS, plantillaCsv, type FilaPlanilla } from "@/lib/planilla";
-import { conValor, ETIQUETAS_COLUMNA } from "@/lib/planilla";
+import { conValor, leerPlanilla, MAX_FILAS, plantillaCsv, type FilaPlanilla } from "@/lib/planilla";
 import { ErrorDeApi, importarProductos, type ErrorDeFila, type ResumenImportacion } from "@/lib/productos";
 import { CompletarFilasModal, type Cambios } from "./CompletarFilasModal";
 
 type Paso =
   | { tipo: "elegir" }
   | { tipo: "leyendo" }
-  | { tipo: "vista-previa"; archivo: string; filas: FilaPlanilla[]; resumen: ResumenImportacion }
+  | { tipo: "vista-previa"; archivo: string; filas: FilaPlanilla[]; etiquetas: Etiquetas; resumen: ResumenImportacion }
   | { tipo: "importando"; archivo: string }
-  | { tipo: "listo"; resumen: ResumenImportacion };
+  | { tipo: "listo"; resumen: ResumenImportacion; etiquetas: Etiquetas };
+
+type Etiquetas = Record<string, string>;
 
 function cantidad(n: number, singular: string, plural: string): string {
   return `${n.toLocaleString("es-AR")} ${n === 1 ? singular : plural}`;
@@ -42,11 +43,11 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
     setError(null);
     setPaso({ tipo: "leyendo" });
     leerPlanilla(archivo)
-      .then((filas) => {
+      .then(({ filas, etiquetas }) => {
         if (filas.length === 0) throw new Error("vacia");
         if (filas.length > MAX_FILAS) throw new Error("larga");
         return importarProductos(filas, false).then((resumen) => {
-          setPaso({ tipo: "vista-previa", archivo: archivo.name, filas, resumen });
+          setPaso({ tipo: "vista-previa", archivo: archivo.name, filas, etiquetas, resumen });
         });
       })
       .catch((err: unknown) => {
@@ -56,7 +57,7 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
             : err instanceof Error && err.message === "formato"
               ? "Subí un archivo .csv o .xlsx."
               : err instanceof Error && err.message.startsWith("columnas:")
-                ? `A la planilla le falta la columna ${err.message.slice("columnas:".length).split(",").join(", ")}. Usá la fila de encabezados de la plantilla.`
+                ? `A la planilla le falta la columna ${err.message.slice("columnas:".length).split(",").join(", ")}. Usá la fila de encabezados de la plantilla o el archivo tal como lo exporta Mercado Libre.`
               : err instanceof Error && err.message === "vacia"
                 ? "La planilla no tiene filas con productos."
                 : err instanceof Error && err.message === "larga"
@@ -74,7 +75,7 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
     for (const { fila, columna, valor } of cambios) filas[fila - 1] = conValor(filas[fila - 1], columna, valor);
     try {
       const resumen = await importarProductos(filas, false);
-      setPaso({ tipo: "vista-previa", archivo: paso.archivo, filas, resumen });
+      setPaso({ ...paso, filas, resumen });
       if (!resumen.errores.some((e) => e.columna)) setCompletando(false);
       return null;
     } catch (err) {
@@ -84,10 +85,11 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
 
   const confirmar = () => {
     if (paso.tipo !== "vista-previa") return;
+    const { etiquetas } = paso;
     setPaso({ tipo: "importando", archivo: paso.archivo });
     importarProductos(paso.filas, true)
       .then((resumen) => {
-        setPaso({ tipo: "listo", resumen });
+        setPaso({ tipo: "listo", resumen, etiquetas });
         onImportado();
       })
       .catch((err: unknown) => {
@@ -103,7 +105,8 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
           <h2 className="font-display text-[18px] font-bold text-ink">Importar desde una planilla</h2>
           <p className="text-[13px] text-ink-secondary">
             Una fila por variante (talle, color…). Las filas con el mismo código son el mismo producto. Si el código ya
-            existe, se actualiza; lo que no está en la planilla no se toca.
+            existe, se actualiza; lo que no está en la planilla no se toca. También podés subir el archivo de
+            publicaciones que exportás de Mercado Libre, tal como viene.
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={onCerrar}>
@@ -139,11 +142,12 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
             <strong>{paso.archivo}</strong>
           </p>
           <Fichas resumen={paso.resumen} />
-          <ListaErrores resumen={paso.resumen} />
+          <ListaErrores resumen={paso.resumen} etiquetas={paso.etiquetas} />
           {completando && (
             <CompletarFilasModal
               filas={paso.filas}
               errores={paso.resumen.errores}
+              etiquetas={paso.etiquetas}
               onGuardar={completar}
               onCerrar={() => setCompletando(false)}
             />
@@ -178,7 +182,7 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
             {cantidad(paso.resumen.actualizados, "actualizado", "actualizados")}. El asistente los encuentra por nombre
             desde ya, y por significado en unos minutos.
           </p>
-          <ListaErrores resumen={paso.resumen} />
+          <ListaErrores resumen={paso.resumen} etiquetas={paso.etiquetas} />
         </div>
       )}
 
@@ -213,7 +217,7 @@ function Fichas({ resumen }: { resumen: ResumenImportacion }) {
   );
 }
 
-function ListaErrores({ resumen }: { resumen: ResumenImportacion }) {
+function ListaErrores({ resumen, etiquetas }: { resumen: ResumenImportacion; etiquetas: Etiquetas }) {
   if (resumen.totalErrores === 0) return null;
   // Una línea por fila: "Fila 5 · Precio: Falta el precio".
   const porFila = new Map<number, ErrorDeFila[]>();
@@ -229,7 +233,7 @@ function ListaErrores({ resumen }: { resumen: ResumenImportacion }) {
             <span className="flex-none rounded-sm bg-card px-1.5 font-semibold">Fila {fila + 1}</span>
             <span>
               {errores
-                .map((e) => (e.columna ? `${ETIQUETAS_COLUMNA[e.columna] ?? e.columna}: ${e.mensaje}` : e.mensaje))
+                .map((e) => (e.columna ? `${etiquetas[e.columna] ?? e.columna}: ${e.mensaje}` : e.mensaje))
                 .join(" · ")}
             </span>
           </li>

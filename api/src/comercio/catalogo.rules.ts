@@ -246,8 +246,9 @@ export type VarianteImportada = {
 export type ProductoImportado = {
   codigo: string;
   nombre: string;
-  descripcion: string;
-  categoria: string | null;
+  /** Sólo si la planilla tiene la columna; si no, no se toca (el export de Mercado Libre no la trae). */
+  descripcion?: string;
+  categoria?: string | null;
   /** Sólo si la planilla la dice (columna o "US$" en el precio); si no, no se toca. */
   moneda?: Moneda;
   variantes: VarianteImportada[];
@@ -314,6 +315,11 @@ function parsearBooleano(texto: string): boolean | 'invalido' {
   return 'invalido';
 }
 
+/** "MLA123456789" (o MLB, MCO…): el número de una publicación de Mercado Libre. */
+export function esIdMercadoLibre(codigo: string): boolean {
+  return /^M[A-Z]{2}\d{6,}$/.test(codigo);
+}
+
 /** SKU por defecto: el código si es la variante única, o código + variante. */
 export function skuPorDefecto(codigo: string, variante: string): string {
   if (!variante) return codigo;
@@ -325,8 +331,8 @@ type FilaParseada = {
   fila: number;
   codigo: string;
   nombre: string;
-  descripcion: string;
-  categoria: string | null;
+  descripcion: string | undefined;
+  categoria: string | null | undefined;
   moneda: Moneda | undefined;
   variante: VarianteImportada;
 };
@@ -375,8 +381,8 @@ function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParsea
     fila: numero,
     codigo,
     nombre,
-    descripcion,
-    categoria: categoria || null,
+    descripcion: 'descripcion' in fila ? descripcion : undefined,
+    categoria: 'categoria' in fila ? categoria || null : undefined,
     moneda,
     variante: {
       sku,
@@ -420,8 +426,8 @@ export function agruparFilasImportacion(filas: Array<Record<string, unknown>>): 
       porCodigo.set(parseada.codigo, {
         codigo: parseada.codigo,
         nombre: parseada.nombre,
-        descripcion: parseada.descripcion,
-        categoria: parseada.categoria,
+        ...(parseada.descripcion !== undefined && { descripcion: parseada.descripcion }),
+        ...(parseada.categoria !== undefined && { categoria: parseada.categoria }),
         ...(parseada.moneda !== undefined && { moneda: parseada.moneda }),
         variantes: [parseada.variante],
         filas: [numero],
