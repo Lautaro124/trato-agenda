@@ -260,6 +260,13 @@ describe('WhatsappService — mensajes de clientes', () => {
     });
   }
 
+  /** El mensaje no se atendió: ni grafo, ni leído, ni "escribiendo…". */
+  function esperarSinAtencion(sock: ReturnType<typeof socketDeChat>, responder: unknown) {
+    expect(responder).not.toHaveBeenCalled();
+    expect(sock.readMessages).not.toHaveBeenCalled();
+    expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
+  }
+
   it('con la prueba vigente contesta como siempre', async () => {
     const { service, conversationService } = crearServicio();
     vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
@@ -466,10 +473,8 @@ describe('WhatsappService — mensajes de clientes', () => {
     await recibirMensaje(service, sock);
     await vi.runAllTimersAsync();
 
-    expect(conversationService.responder).not.toHaveBeenCalled();
     expect(sock.sendMessage).not.toHaveBeenCalled();
-    expect(sock.readMessages).not.toHaveBeenCalled();
-    expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
+    esperarSinAtencion(sock, conversationService.responder);
   });
 
   it('fuera del horario de atención: silencio, sin grafo ni leído ni "escribiendo…"', async () => {
@@ -481,10 +486,8 @@ describe('WhatsappService — mensajes de clientes', () => {
     await vi.runAllTimersAsync();
 
     expect(horarioAtencion.atencion).toHaveBeenCalledWith('user-1', JID, expect.any(Date));
-    expect(conversationService.responder).not.toHaveBeenCalled();
     expect(sock.sendMessage).not.toHaveBeenCalled();
-    expect(sock.readMessages).not.toHaveBeenCalled();
-    expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
+    esperarSinAtencion(sock, conversationService.responder);
   });
 
   it('fuera del horario de atención, un chat ya iniciado recibe el aviso y nada más', async () => {
@@ -497,9 +500,7 @@ describe('WhatsappService — mensajes de clientes', () => {
 
     expect(sock.sendMessage).toHaveBeenCalledTimes(1);
     expect(sock.sendMessage).toHaveBeenCalledWith(JID, { text: AVISO_FUERA_DE_HORARIO });
-    expect(conversationService.responder).not.toHaveBeenCalled();
-    expect(sock.readMessages).not.toHaveBeenCalled();
-    expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
+    esperarSinAtencion(sock, conversationService.responder);
   });
 
   it('si el aviso no sale, no rompe la recepción', async () => {
