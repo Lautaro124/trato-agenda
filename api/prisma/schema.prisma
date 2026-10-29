@@ -225,6 +225,10 @@ model Conversation {
   etapaChat        EtapaChat?
   interesProductos InteresProducto[]
 
+  /// Cuándo se le avisó a este cliente que el vendedor no está disponible
+  /// (LAU-37). Fuera del horario de atención se avisa una vez por cierre.
+  avisoFueraDeHorarioAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
