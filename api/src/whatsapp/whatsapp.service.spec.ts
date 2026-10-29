@@ -11,6 +11,7 @@ import type { SubscriptionService } from '../subscription/subscription.service.j
 import { MAX_RECONEXIONES_SIN_VINCULAR, MINIMO_TRAS_REEMPLAZO_MS, MINUTOS_CAIDO_PARA_AVISAR } from './reconexion.js';
 import { ESPERA_RAFAGA_MS } from './ritmo-humano.js';
 import {
+  AVISO_FUERA_DE_HORARIO,
   MAX_CODIGOS_POR_CUENTA,
   MAX_CODIGOS_POR_NUMERO_HORA,
   NAVEGADOR_WHATSAPP,
@@ -65,7 +66,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     enAtencionHumana: vi.fn().mockResolvedValue(false),
     guardarMensajeEnPausa: vi.fn().mockResolvedValue(undefined),
   };
-  const horarioAtencion = { debeAtender: vi.fn().mockResolvedValue(true) };
+  const horarioAtencion = { atencion: vi.fn().mockResolvedValue('atender') };
   const service = new WhatsappService(
     prisma,
     config,
@@ -473,17 +474,44 @@ describe('WhatsappService — mensajes de clientes', () => {
 
   it('fuera del horario de atención: silencio, sin grafo ni leído ni "escribiendo…"', async () => {
     const { service, conversationService, horarioAtencion } = crearServicio();
-    horarioAtencion.debeAtender.mockResolvedValue(false);
+    horarioAtencion.atencion.mockResolvedValue('ignorar');
     const sock = socketDeChat();
 
     await recibirMensaje(service, sock);
     await vi.runAllTimersAsync();
 
-    expect(horarioAtencion.debeAtender).toHaveBeenCalledWith('user-1', JID, expect.any(Date));
+    expect(horarioAtencion.atencion).toHaveBeenCalledWith('user-1', JID, expect.any(Date));
     expect(conversationService.responder).not.toHaveBeenCalled();
     expect(sock.sendMessage).not.toHaveBeenCalled();
     expect(sock.readMessages).not.toHaveBeenCalled();
     expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
+  });
+
+  it('fuera del horario de atención, un chat ya iniciado recibe el aviso y nada más', async () => {
+    const { service, conversationService, horarioAtencion } = crearServicio();
+    horarioAtencion.atencion.mockResolvedValue('avisar');
+    const sock = socketDeChat();
+
+    await recibirMensaje(service, sock);
+    await vi.runAllTimersAsync();
+
+    expect(sock.sendMessage).toHaveBeenCalledTimes(1);
+    expect(sock.sendMessage).toHaveBeenCalledWith(JID, { text: AVISO_FUERA_DE_HORARIO });
+    expect(conversationService.responder).not.toHaveBeenCalled();
+    expect(sock.readMessages).not.toHaveBeenCalled();
+    expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
+  });
+
+  it('si el aviso no sale, no rompe la recepción', async () => {
+    const { service, conversationService, horarioAtencion } = crearServicio();
+    horarioAtencion.atencion.mockResolvedValue('avisar');
+    const sock = socketDeChat();
+    sock.sendMessage.mockRejectedValue(new Error('socket caído'));
+
+    await expect(recibirMensaje(service, sock)).resolves.not.toThrow();
+    await vi.runAllTimersAsync();
+
+    expect(conversationService.responder).not.toHaveBeenCalled();
   });
 
   it('vencida: ni siquiera consulta el horario', async () => {
@@ -493,7 +521,7 @@ describe('WhatsappService — mensajes de clientes', () => {
     await recibirMensaje(service, socketDeChat());
     await vi.runAllTimersAsync();
 
-    expect(horarioAtencion.debeAtender).not.toHaveBeenCalled();
+    expect(horarioAtencion.atencion).not.toHaveBeenCalled();
   });
 });
 

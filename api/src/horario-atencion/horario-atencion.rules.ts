@@ -136,6 +136,32 @@ export function dentroDelHorario(horario: HorarioAtencion, ahora: Date): boolean
   return !horario.activo || estadoDelLocal(horario.franjas, ahora, horario.zona).abierto;
 }
 
+/**
+ * Si los dos instantes caen en el mismo cierre: ninguno está dentro del
+ * horario y los dos esperan la misma apertura, como "AAAA-MM-DD HH:MM" local.
+ * Con eso el aviso de fuera de horario (LAU-37) sale una vez por cierre.
+ */
+export function mismoCierre(horario: HorarioAtencion, antes: Date, ahora: Date): boolean {
+  const apertura = (instante: Date): string | null => {
+    if (dentroDelHorario(horario, instante)) return null;
+    const estado = estadoDelLocal(horario.franjas, instante, horario.zona);
+    if (estado.abierto || !estado.abre) return 'nunca';
+    const [anio, mes, dia] = new Intl.DateTimeFormat('en-CA', {
+      timeZone: horario.zona,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .format(instante)
+      .split('-')
+      .map(Number);
+    const fecha = new Date(Date.UTC(anio, mes - 1, dia + estado.abre.enDias)).toISOString().slice(0, 10);
+    return `${fecha} ${estado.abre.desde}`;
+  };
+  const primera = apertura(antes);
+  return primera !== null && primera === apertura(ahora);
+}
+
 /** El horario en una línea, para la pantalla: "lunes a viernes de 09:00 a 18:00". */
 export function resumenHorarioAtencion(horario: HorarioAtencion): string {
   return horario.activo ? resumenHorarios(horario.franjas) : 'Atiende siempre';

@@ -4,6 +4,7 @@ import {
   dentroDelHorario,
   estadoDelAsistente,
   leerHorarioAtencion,
+  mismoCierre,
   normalizarHorarioAtencion,
   resumenHorarioAtencion,
   ZONA_POR_DEFECTO,
@@ -250,5 +251,49 @@ describe('horario nocturno', () => {
 
   it('el resumen se lee de corrido', () => {
     expect(resumenHorarioAtencion(horario({ franjas: NOCHES }))).toBe('lunes a domingo de 19:00 a 07:00');
+  });
+});
+
+describe('mismoCierre', () => {
+  const semana = horario();
+  const viernes = (hora: string) => new Date(`2026-10-09T${hora}:00-03:00`);
+  const sabado = (hora: string) => new Date(`2026-10-10T${hora}:00-03:00`);
+
+  it('del cierre a la madrugada siguiente es el mismo cierre', () => {
+    expect(mismoCierre(semana, jueves('18:00'), jueves('23:59'))).toBe(true);
+    expect(mismoCierre(semana, jueves('18:00'), viernes('08:59'))).toBe(true);
+  });
+
+  it('al abrir, el cierre siguiente es otro', () => {
+    expect(mismoCierre(semana, jueves('18:00'), viernes('09:00'))).toBe(false);
+    expect(mismoCierre(semana, jueves('18:00'), viernes('18:00'))).toBe(false);
+  });
+
+  it('un fin de semana es un solo cierre', () => {
+    expect(mismoCierre(semana, viernes('18:00'), sabado('12:00'))).toBe(true);
+  });
+
+  it('dentro del horario no hay cierre', () => {
+    expect(mismoCierre(semana, jueves('10:00'), jueves('11:00'))).toBe(false);
+    expect(mismoCierre(semana, jueves('08:00'), jueves('10:00'))).toBe(false);
+  });
+
+  it('con una sola franja semanal, la semana siguiente es otro cierre', () => {
+    const soloJueves = horario({ franjas: [{ dia: 'jue', desde: '09:00', hasta: '18:00' }] });
+    expect(mismoCierre(soloJueves, jueves('08:59'), jueves('18:00'))).toBe(false);
+    expect(mismoCierre(soloJueves, jueves('18:00'), new Date('2026-10-15T08:59:00-03:00'))).toBe(true);
+  });
+
+  it('una nocturna abre a la noche y cierra a la mañana siguiente', () => {
+    const noches = horario({ franjas: [{ dia: 'jue', desde: '19:00', hasta: '07:00' }] });
+    expect(mismoCierre(noches, jueves('08:00'), jueves('18:59'))).toBe(true);
+    expect(mismoCierre(noches, jueves('08:00'), viernes('07:00'))).toBe(false);
+  });
+
+  it('usa la fecha de la zona del horario, no la de UTC', () => {
+    // 22:00 en Buenos Aires ya es el viernes en UTC; sigue esperando la apertura del viernes.
+    expect(mismoCierre(semana, jueves('18:00'), jueves('22:00'))).toBe(true);
+    const madrid = horario({ zona: 'Europe/Madrid' });
+    expect(mismoCierre(madrid, new Date('2026-10-08T18:30:00+02:00'), new Date('2026-10-09T08:00:00+02:00'))).toBe(true);
   });
 });

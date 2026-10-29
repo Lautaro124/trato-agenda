@@ -55,7 +55,7 @@ Configuración, variables y despliegue: [README.md](README.md). La API requiere 
 
 - Producción en Railway: `main` despliega API y web por separado. API con una sola réplica y sin suspensión: dos procesos compiten por las sesiones Baileys.
 - Mantener agrupación y serialización por chat, límites de ráfaga y cancelación antes de efectos; después de comprometer una acción no repetirla.
-- Horario de atención (LAU-29): es de la cuenta y se chequea al recibir, después de la suscripción y antes de las ráfagas. Fuera de horario, silencio salvo conversación en curso; su zona horaria no cambia la de agenda/ventas.
+- Horario de atención (LAU-29): es de la cuenta y se chequea al recibir, después de la suscripción y antes de las ráfagas. Fuera de horario, silencio salvo conversación en curso; un chat ya iniciado recibe el aviso de vendedor no disponible una vez por cierre (LAU-37), fuera del historial; su zona horaria no cambia la de agenda/ventas.
 - Vinculación por QR o código con SSE. `creds.me` no demuestra vinculación: verificar registro. No reconectar códigos pendientes ni renombrar `Browsers.ubuntu('Chrome')`, necesario para el pairing.
 - Conservar historial desactivado y `markOnlineOnConnect: false`, reintentos, cifrado de claves y espera de guardados antes de transferir una sesión. Métricas sólo con ids y números.
 - Variables `NEXT_PUBLIC_*` se incorporan en build; pasarlas al build de Docker. Prisma CLI debe seguir disponible en la imagen de producción para migrar.
