@@ -119,6 +119,15 @@ export function cruzaMedianoche(franja: { desde: string; hasta: string }): boole
   return franja.hasta < franja.desde;
 }
 
+/** Si una franja nocturna se pisa con la mañana del día siguiente (del domingo, el lunes). */
+function problemaDeLaNoche(horarios: FranjaLocal[], franja: FranjaLocal): string | null {
+  if (!cruzaMedianoche(franja)) return null;
+  const siguiente = DIAS_SEMANA[(DIAS_SEMANA.indexOf(franja.dia) + 1) % DIAS_SEMANA.length];
+  return franjasDe(horarios, siguiente).some((otra) => otra.desde < franja.hasta)
+    ? `El ${NOMBRE_DIA[siguiente]} empieza antes de que termine el horario de la noche anterior.`
+    : null;
+}
+
 /**
  * Por qué los horarios (ya ordenados) no se pueden guardar, o null. Con
  * `nocturnas`, la última franja de cada día puede cruzar la medianoche (sólo
@@ -138,12 +147,8 @@ export function problemaDeHorarios(horarios: FranjaLocal[], { nocturnas = false 
     if (anterior?.dia === franja.dia && (cruzaMedianoche(anterior) || anterior.hasta > franja.desde)) {
       return `Los horarios del ${NOMBRE_DIA[franja.dia]} se pisan.`;
     }
-    if (cruzaMedianoche(franja)) {
-      const siguiente = DIAS_SEMANA[(DIAS_SEMANA.indexOf(franja.dia) + 1) % DIAS_SEMANA.length];
-      if (franjasDe(horarios, siguiente).some((otra) => otra.desde < franja.hasta)) {
-        return `El ${NOMBRE_DIA[siguiente]} empieza antes de que termine el horario de la noche anterior.`;
-      }
-    }
+    const deLaNoche = problemaDeLaNoche(horarios, franja);
+    if (deLaNoche) return deLaNoche;
   }
   const sobrecargado = DIAS_SEMANA.find(
     (dia) => horarios.filter((franja) => franja.dia === dia).length > MAX_FRANJAS_POR_DIA,

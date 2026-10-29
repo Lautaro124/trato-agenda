@@ -140,8 +140,8 @@ test.describe('horario de atención del asistente (LAU-29)', () => {
     // Arranca de lunes a viernes de 9 a 18; el sábado atiende a la mañana.
     await seccion.getByRole('checkbox', { name: 'Atiende el sábado' }).check();
     await seccion.getByLabel('Sábado: deja de atender').selectOption('13:00');
-    // Un día que termina antes de empezar no se puede guardar.
-    await seccion.getByLabel('Lunes: deja de atender').selectOption('08:00');
+    // Un día que empieza y termina a la misma hora no se puede guardar (09:00 a 08:00 sí: es nocturno).
+    await seccion.getByLabel('Lunes: deja de atender').selectOption('09:00');
     await expect(seccion.getByText('Tiene que cerrar después de abrir.')).toBeVisible();
     await expect(seccion.getByRole('button', { name: 'Guardar horario' })).toBeDisabled();
     await seccion.getByLabel('Lunes: deja de atender').selectOption('18:00');
