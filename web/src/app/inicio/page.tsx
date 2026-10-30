@@ -10,6 +10,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { TestChat } from "@/components/TestChat";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 
 type EventoListado = { id: string; resumen: string; inicio: string | null; fin: string | null };
 type ResumenAgenda = { hoy: EventoListado[]; semanaCount: number };
@@ -57,6 +58,7 @@ export default function InicioPage() {
   }, [status, router]);
 
   const esVentas = user?.tipoAsistente === "ventas";
+  useTutorial("inicio", tieneAgente === true);
 
   useEffect(() => {
     // Una cuenta de ventas no tiene agenda que resumir.
@@ -106,7 +108,7 @@ export default function InicioPage() {
             <ColumnaVentas />
           ) : (
             <>
-              <div className="flex gap-3">
+              <div data-tutorial="resumen" className="flex gap-3">
                 <div className="flex-1 rounded-lg border border-line bg-card p-4">
                   <div className="font-display text-2xl font-bold text-ink">{resumen?.hoy.length ?? "–"}</div>
                   <div className="text-[12.5px] text-ink-secondary">Hoy</div>

@@ -47,6 +47,10 @@ model User {
   /// Sólo para el horario de atención: la agenda y las ventas siguen en Buenos Aires.
   zonaHoraria           String  @default("America/Argentina/Buenos_Aires")
 
+  /// Recorridos guiados que la cuenta ya vio (o salteó), por pantalla. El
+  /// catálogo de claves vive en src/auth/tutoriales.ts.
+  tutorialesVistos String[] @default([])
+
   whatsappSession WhatsappSession?
   agent           Agent?
   conversaciones  Conversation[]

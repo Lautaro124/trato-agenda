@@ -8,12 +8,14 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { TestChat } from "@/components/TestChat";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 
 /** Chat de prueba a pantalla completa (variante 5b del canvas): destino móvil, TestChat vive también inline en /inicio en escritorio. */
 export default function ChatPage() {
   const router = useRouter();
   const { user, status } = useRequireSession();
   const [tieneAgente, setTieneAgente] = useState<boolean | null>(null);
+  useTutorial("chat", tieneAgente === true);
 
   useEffect(() => {
     if (status !== "authenticated") return;

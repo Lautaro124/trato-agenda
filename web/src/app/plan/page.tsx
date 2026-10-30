@@ -7,6 +7,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 import {
   formatearChats,
   formatearFechaCorta,
@@ -64,6 +65,8 @@ function PlanContenido() {
   const volviendo = useSearchParams().has("volviendo");
   const [vista, setVista] = useState<Vista>(volviendo ? "confirmando" : "plan");
   const [enviando, setEnviando] = useState(false);
+  // Ni mientras confirma un pago ni en la pantalla de éxito.
+  useTutorial("plan", status === "authenticated" && vista === "plan");
   const [error, setError] = useState<string | null>(null);
 
   // El webhook puede llegar después que el browser: reintentamos unas veces
