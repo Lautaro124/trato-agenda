@@ -10,7 +10,7 @@ import type { ImagenesService } from '../../comercio/imagenes.service.js';
 import type { DescuentoAplicado, DescuentosVigentes } from '../../comercio/descuentos.rules.js';
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
-import { MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
+import { MENSAJE_CUAL_TE_INTERESA, MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
 import { conMarcaDeLlegada } from '../graph/ventana-historial.js';
 import { LIMITE_RECURSION_VENTAS, construirGrafoVentas } from './grafo-ventas.factory.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../comercio/imagenes.rules.js';
@@ -562,6 +562,48 @@ describe('grafo de ventas', () => {
       expect(contenido).not.toContain('mostrale la lista entera');
     });
 
+    it('si repite en el texto los productos que ya le llegaron en foto, se descarta y el modelo la corrige', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }, PRODUCTOS[1]];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 0 });
+      const llm = crearModelo([
+        llamada('ver_catalogo', {}),
+        new AIMessage('Tenemos:\n* *Mate de calabaza* · $ 8.000\n* *Termo 1 L* · desde $ 45.000\n¿Cuál te gusta?'),
+        new AIMessage('También tenemos el Termo 1 L, desde $ 45.000. ¿Cuál te gusta?'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(resultado.messages.at(-1)?.content).toBe('También tenemos el Termo 1 L, desde $ 45.000. ¿Cuál te gusta?');
+      expect(resultado.messages.some((mensaje) => String(mensaje.content).includes('* *Mate de calabaza*'))).toBe(false);
+      const [tercera] = llm.invoke.mock.calls[2] as unknown as [BaseMessage[]];
+      expect(String(tercera[0].content)).toContain('Corrección: tu respuesta anterior repetía productos con su precio');
+      // Las fotos se mandan igual.
+      expect(imagenesDeLaVuelta(resultado.messages)).toHaveLength(1);
+    });
+
+    it('si insiste en repetirlos, se quitan esas líneas', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }, PRODUCTOS[1]];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 0 });
+      const repetida = 'Tenemos:\n* *Mate de calabaza* · $ 8.000\n* *Termo 1 L* · desde $ 45.000\n¿Cuál te gusta?';
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage(repetida), new AIMessage(repetida)]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(resultado.messages.at(-1)?.content).toBe('Tenemos:\n* *Termo 1 L* · desde $ 45.000\n¿Cuál te gusta?');
+      expect(llm.invoke).toHaveBeenCalledTimes(3);
+    });
+
+    it('si después de quitarlas no queda nada, pregunta cuál le interesa', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 0 });
+      const repetida = '* *Mate de calabaza* · $ 8.000';
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage(repetida), new AIMessage(repetida)]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(resultado.messages.at(-1)?.content).toBe(MENSAJE_CUAL_TE_INTERESA);
+    });
+
     it('sin la lista entera no manda fotos solas', async () => {
       const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }];
       const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 5 });
@@ -650,6 +692,7 @@ describe('grafo de ventas', () => {
       const sistema = sistemaDe(llm);
       expect(sistema).toContain('llamá ver_catalogo en vez de preguntarle qué busca');
       expect(sistema).toContain('Las únicas excepciones son lo que devuelven ver_catalogo y ver_descuentos');
+      expect(sistema).toContain('Los productos que ver_catalogo marca "ya le llegó en foto" no van en la lista');
       expect(sistema).not.toContain('preguntá qué busca antes de listar');
     });
   });

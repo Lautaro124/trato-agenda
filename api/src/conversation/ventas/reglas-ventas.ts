@@ -133,6 +133,64 @@ export function correccionDePrecios(montos: Monto[]): string {
   );
 }
 
+/** Para comparar nombres: sin mayúsculas, tildes, asteriscos de negrita ni espacios de más. */
+function normalizarNombre(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\*/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Una foto que salió con su nombre y precio al pie (las del listado de ver_catalogo). */
+export type FotoConLeyenda = { nombre: string; leyenda: string };
+
+/**
+ * Las líneas de la respuesta que repiten un producto que ya le llegó en foto
+ * con su nombre y precio al pie: nombran el producto y llevan el mismo precio
+ * que su leyenda. Pedir las dos cosas evita confundir "Mate" (en foto) con
+ * "Mate de calabaza" (otro precio, sin foto).
+ */
+export function lineasQueRepitenFotos(respuesta: string, fotos: FotoConLeyenda[]): string[] {
+  const conPrecio = fotos.map((foto) => ({
+    nombre: normalizarNombre(foto.nombre),
+    precios: new Set(montosEnTexto(foto.leyenda).map(claveDeMonto)),
+  }));
+  return respuesta.split('\n').filter((linea) => {
+    const normalizada = normalizarNombre(linea);
+    const montos = montosEnTexto(linea).map(claveDeMonto);
+    return conPrecio.some(
+      (foto) => foto.nombre !== '' && normalizada.includes(foto.nombre) && montos.some((monto) => foto.precios.has(monto)),
+    );
+  });
+}
+
+/** La nota que vuelve al modelo cuando repitió en el texto los productos que ya le llegaron en foto. */
+export function correccionDeListaRepetida(): string {
+  return (
+    'Corrección: tu respuesta anterior repetía productos con su precio, y esos ya le llegaron al cliente en foto ' +
+    'con el nombre y el precio al pie. No los vuelvas a listar: nombrale sólo los que no le llegaron en foto, si ' +
+    'hay, y preguntale en una frase cuál le interesa. Escribí la respuesta de nuevo.'
+  );
+}
+
+/**
+ * La respuesta sin esas líneas, para cuando el modelo insiste en repetirlas.
+ * `null` si no queda nada que decir.
+ */
+export function sinLineasRepetidas(respuesta: string, repetidas: string[]): string | null {
+  const quitar = new Set(repetidas);
+  const texto = respuesta
+    .split('\n')
+    .filter((linea) => !quitar.has(linea))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return texto === '' ? null : texto;
+}
+
 /**
  * Los ids de variante que aparecieron en resultados de búsqueda: sólo los de
  * los renglones de variante de formatearResultados ("   - … [variante id]: $ …"),
@@ -738,7 +796,8 @@ export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
     'devuelva más: elegí los que mejor encajan con lo que pidió.\n' +
     '- Las únicas excepciones son lo que devuelven ver_catalogo y ver_descuentos: ahí sí mostrá la lista entera ' +
     'que te dan, una línea por producto, categoría o descuento empezando con "* ", sin numerar, y una frase corta ' +
-    'antes y otra después.\n' +
+    'antes y otra después. Los productos que ver_catalogo marca "ya le llegó en foto" no van en la lista: el ' +
+    'cliente ya los recibió con su nombre y precio al pie.\n' +
     '- Emojis: como mucho uno por mensaje, que venga al caso, nunca al principio de una línea ni en cada producto.\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
     (agent ? reglaDeMensajesPropios(agent) : '')

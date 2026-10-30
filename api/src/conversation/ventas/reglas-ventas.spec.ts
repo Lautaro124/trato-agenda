@@ -15,6 +15,7 @@ import {
   formatearResultados,
   formatearStockDueno,
   leyendaDeProducto,
+  lineasQueRepitenFotos,
   MARCA_A_MEDIDA,
   MAX_CATEGORIAS_EN_PROMPT,
   MAX_PRODUCTOS_POR_MENSAJE,
@@ -25,6 +26,7 @@ import {
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
   reglasDeVenta,
+  sinLineasRepetidas,
   REGLA_FOTOS_A_MEDIDA,
   REGLA_FOTOS_PEDIDAS,
   REGLA_PREGUNTAS_A_MEDIDA,
@@ -639,6 +641,35 @@ describe('resultados que sólo se parecen por significado', () => {
     expect(texto).toContain('decile primero que eso no lo tenés');
     expect(texto).toContain('Si describió lo que necesita');
     expect(texto).toContain('1. "Buzo"');
+  });
+});
+
+describe('productos que ya le llegaron en foto', () => {
+  const fotos = [
+    { nombre: 'Mate Imperial', leyenda: 'Mate Imperial\n$ 8.000' },
+    { nombre: 'Termo 1 L', leyenda: 'Termo 1 L\nDesde $ 45.000' },
+  ];
+
+  it('marca las líneas que repiten nombre y precio de una foto, aunque cambien negritas, tildes o mayúsculas', () => {
+    const respuesta = 'Estos son:\n* *Mate imperial* · $ 8.000\n* *Termo 1 L* desde $45.000\n* *Bombilla* · $ 3.500\n¿Cuál te gusta?';
+
+    expect(lineasQueRepitenFotos(respuesta, fotos)).toEqual(['* *Mate imperial* · $ 8.000', '* *Termo 1 L* desde $45.000']);
+  });
+
+  it('no marca nombrarlos sin precio ni un producto parecido con otro precio', () => {
+    expect(lineasQueRepitenFotos('¿Te gustó el Mate Imperial o el Termo 1 L?', fotos)).toEqual([]);
+    expect(lineasQueRepitenFotos('* *Mate Imperial de lujo* · $ 12.000', fotos)).toEqual([]);
+  });
+
+  it('sin fotos con leyenda no marca nada', () => {
+    expect(lineasQueRepitenFotos('* *Mate Imperial* · $ 8.000', [])).toEqual([]);
+  });
+
+  it('quita las líneas repetidas y deja el resto; si no queda nada, null', () => {
+    const respuesta = 'Mirá:\n* *Mate Imperial* · $ 8.000\n\n¿Cuál te gusta?';
+
+    expect(sinLineasRepetidas(respuesta, ['* *Mate Imperial* · $ 8.000'])).toBe('Mirá:\n\n¿Cuál te gusta?');
+    expect(sinLineasRepetidas('* *Mate Imperial* · $ 8.000', ['* *Mate Imperial* · $ 8.000'])).toBeNull();
   });
 });
 

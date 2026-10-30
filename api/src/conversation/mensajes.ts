@@ -15,6 +15,9 @@ export const MENSAJE_CALENDAR_CAIDO =
 export const MENSAJE_SUSCRIPCION_VENCIDA =
   'Se terminó tu mes de prueba, así que el asistente dejó de responder por WhatsApp. Activá el plan y vuelve a andar al toque.';
 
+/** Cuando al asistente de ventas sólo le quedaba repetir los productos que ya le llegaron en foto. */
+export const MENSAJE_CUAL_TE_INTERESA = '¿Cuál te interesa?';
+
 /** Cuando el asistente de ventas insiste con un precio que no sale del catálogo: mejor preguntar que inventar. */
 export const MENSAJE_PRECIO_SIN_VERIFICAR =
   'No quiero pasarte un dato equivocado. ¿Me decís de nuevo qué producto buscás así lo reviso en el catálogo?';
