@@ -5,9 +5,10 @@ import { VentasService } from './ventas.service.js';
 const CADA_MS = 5 * 60 * 1000;
 
 /**
- * Barrido periódico de las ventas: marca como vencidas las reservas pasadas de
- * hora (sólo para mostrarlas bien) y concilia con Mercado Pago los pagos de
- * los links, por si algún webhook no llegó. `setInterval` y réplica única,
+ * Barrido periódico de las ventas: concilia con Mercado Pago los pagos de los
+ * links, por si algún webhook no llegó; le recuerda al cliente el link cuya
+ * reserva está por vencer, y marca como vencidas las reservas pasadas de hora
+ * (sólo para mostrarlas bien). `setInterval` y réplica única,
  * igual que RetentionService.
  */
 @Injectable()
@@ -32,9 +33,13 @@ export class ConciliacionService implements OnModuleInit, OnModuleDestroy {
     this.corriendo = true;
     try {
       const cobradas = await this.ventas.conciliar();
+      // Después de conciliar: una venta que ya se cobró no recibe el recordatorio.
+      const recordados = await this.ventas.recordarPagos();
       const vencidas = await this.ventas.vencerReservas();
-      if (cobradas.length > 0 || vencidas > 0) {
-        this.logger.log(`Ventas: ${cobradas.length} pagos conciliados, ${vencidas} reservas vencidas.`);
+      if (cobradas.length > 0 || recordados > 0 || vencidas > 0) {
+        this.logger.log(
+          `Ventas: ${cobradas.length} pagos conciliados, ${recordados} recordatorios de pago, ${vencidas} reservas vencidas.`,
+        );
       }
     } catch (error) {
       this.logger.error(`Falló la conciliación de ventas: ${(error as Error).message}`);

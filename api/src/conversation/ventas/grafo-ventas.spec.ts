@@ -10,7 +10,7 @@ import type { ImagenesService } from '../../comercio/imagenes.service.js';
 import type { DescuentoAplicado, DescuentosVigentes } from '../../comercio/descuentos.rules.js';
 import type { SugerenciasService } from '../../comercio/sugerencias.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
-import { MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
+import { MENSAJE_CUAL_TE_INTERESA, MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensajes.js';
 import { conMarcaDeLlegada } from '../graph/ventana-historial.js';
 import { LIMITE_RECURSION_VENTAS, construirGrafoVentas } from './grafo-ventas.factory.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../comercio/imagenes.rules.js';
@@ -562,6 +562,48 @@ describe('grafo de ventas', () => {
       expect(contenido).not.toContain('mostrale la lista entera');
     });
 
+    it('si repite en el texto los productos que ya le llegaron en foto, se descarta y el modelo la corrige', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }, PRODUCTOS[1]];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 0 });
+      const llm = crearModelo([
+        llamada('ver_catalogo', {}),
+        new AIMessage('Tenemos:\n* *Mate de calabaza* · $ 8.000\n* *Termo 1 L* · desde $ 45.000\n¿Cuál te gusta?'),
+        new AIMessage('También tenemos el Termo 1 L, desde $ 45.000. ¿Cuál te gusta?'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(resultado.messages.at(-1)?.content).toBe('También tenemos el Termo 1 L, desde $ 45.000. ¿Cuál te gusta?');
+      expect(resultado.messages.some((mensaje) => String(mensaje.content).includes('* *Mate de calabaza*'))).toBe(false);
+      const [tercera] = llm.invoke.mock.calls[2] as unknown as [BaseMessage[]];
+      expect(String(tercera[0].content)).toContain('Corrección: tu respuesta anterior repetía productos con su precio');
+      // Las fotos se mandan igual.
+      expect(imagenesDeLaVuelta(resultado.messages)).toHaveLength(1);
+    });
+
+    it('si insiste en repetirlos, se quitan esas líneas', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }, PRODUCTOS[1]];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 0 });
+      const repetida = 'Tenemos:\n* *Mate de calabaza* · $ 8.000\n* *Termo 1 L* · desde $ 45.000\n¿Cuál te gusta?';
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage(repetida), new AIMessage(repetida)]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(resultado.messages.at(-1)?.content).toBe('Tenemos:\n* *Termo 1 L* · desde $ 45.000\n¿Cuál te gusta?');
+      expect(llm.invoke).toHaveBeenCalledTimes(3);
+    });
+
+    it('si después de quitarlas no queda nada, pregunta cuál le interesa', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 0 });
+      const repetida = '* *Mate de calabaza* · $ 8.000';
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage(repetida), new AIMessage(repetida)]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(resultado.messages.at(-1)?.content).toBe(MENSAJE_CUAL_TE_INTERESA);
+    });
+
     it('sin la lista entera no manda fotos solas', async () => {
       const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }];
       const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 5 });
@@ -650,6 +692,7 @@ describe('grafo de ventas', () => {
       const sistema = sistemaDe(llm);
       expect(sistema).toContain('llamá ver_catalogo en vez de preguntarle qué busca');
       expect(sistema).toContain('Las únicas excepciones son lo que devuelven ver_catalogo y ver_descuentos');
+      expect(sistema).toContain('Los productos que ver_catalogo marca "ya le llegó en foto" no van en la lista');
       expect(sistema).not.toContain('preguntá qué busca antes de listar');
     });
   });
@@ -783,14 +826,7 @@ describe('grafo de ventas', () => {
       ]);
     });
 
-    it('el tope es por mensaje del cliente: en el siguiente puede mandar otra', async () => {
-      const imagenes = conFoto();
-      const llm = crearModelo([
-        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f1'),
-        new AIMessage('Ahí va.'),
-        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f2'),
-        new AIMessage('Ahí va de nuevo.'),
-      ]);
+    function grafoConDosMensajes(imagenes: Pick<ImagenesService, 'estadoDeFoto'>, llm: BaseChatModel) {
       const grafo = construirGrafoVentas({
         prisma: crearPrisma(),
         llm,
@@ -799,6 +835,7 @@ describe('grafo de ventas', () => {
         ventas: crearVentas(),
         notificaciones: crearNotificaciones(),
         historico: crearHistorico(),
+        pedidos: crearPedidosAMedida(),
         imagenes,
         openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
         checkpointer: new MemorySaver(),
@@ -810,12 +847,40 @@ describe('grafo de ventas', () => {
         remoteJid: CONVERSATION.remoteJid,
         esPropietario: false,
       });
+      return async (primero: string, segundo: string) => {
+        await grafo.invoke(entrada(primero), config);
+        return grafo.invoke(entrada(segundo), config);
+      };
+    }
 
-      await grafo.invoke(entrada('mandame la foto'), config);
-      const segunda = await grafo.invoke(entrada('otra vez'), config);
+    it('el tope es por mensaje del cliente: en el siguiente puede mandar otra', async () => {
+      const imagenes = conFoto();
+      const llm = crearModelo([
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f1'),
+        new AIMessage('Ahí va.'),
+        llamada('enviar_imagen_producto', { productoId: 'p-2' }, 'f2'),
+        new AIMessage('Y esta es la otra.'),
+      ]);
 
-      // Lo del mensaje anterior no cuenta: la foto vuelve a salir.
-      expect(imagenesDeLaVuelta(segunda.messages)).toEqual([{ productoId: 'p-1', nombre: 'Mate de calabaza' }]);
+      const segunda = await grafoConDosMensajes(imagenes, llm)('mandame la foto', 'y la del otro?');
+
+      // Lo del mensaje anterior no cuenta para el tope.
+      expect(imagenesDeLaVuelta(segunda.messages)).toEqual([{ productoId: 'p-2', nombre: 'Mate de calabaza' }]);
+    });
+
+    it('no repite una foto que ya le llegó en la charla, aunque no haya productos a medida', async () => {
+      const imagenes = conFoto();
+      const llm = crearModelo([
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f1'),
+        new AIMessage('Ahí va.'),
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f2'),
+        new AIMessage('Es ese mismo.'),
+      ]);
+
+      const segunda = await grafoConDosMensajes(imagenes, llm)('mandame la foto', '¿y el mate?');
+
+      expect(resultadoDe(segunda.messages, 'enviar_imagen_producto').content).toContain('ya se la mandaste en esta charla');
+      expect(imagenesDeLaVuelta(segunda.messages)).toEqual([]);
     });
 
     it('un agente creado antes de las fotos tiene la herramienta igual, sin regenerarlo', async () => {

@@ -10,6 +10,8 @@ import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { NotificacionesService } from '../notificaciones/notificaciones.service.js';
+import type { SubscriptionService } from '../subscription/subscription.service.js';
+import type { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import {
   MercadoPagoError,
   MercadoPagoNoAutorizadoError,
@@ -39,6 +41,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   };
   const cuentas = { tokenDe: vi.fn(), desconectar: vi.fn() };
   const notificaciones = { avisar: vi.fn(), avisarAlCliente: vi.fn() };
+  const suscripcion = { asistenteActivo: vi.fn() };
+  const horario = { puedeEscribir: vi.fn() };
   const avisosDeTipo = (tipo: string) =>
     notificaciones.avisar.mock.calls.filter(([, aviso]) => (aviso as { tipo: string }).tipo === tipo);
   let ventas: VentasService;
@@ -67,6 +71,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       config,
       notificaciones as unknown as NotificacionesService,
       new RegistroPerformanceService(prisma),
+      suscripcion as unknown as SubscriptionService,
+      horario as unknown as HorarioAtencionService,
     );
     dueno = await crearUsuarioDePrueba(prisma);
     const crear = (codigo: string, precioCentavos: number, stock: number | null, stockMinimo: number | null = null) =>
@@ -401,6 +407,94 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       const venta = await pedidoMp();
       mp.obtenerPago.mockResolvedValue(pagoDe(venta.id, 903));
       expect(await ventas.procesarPago('903', venta.id)).toMatchObject({ nueva: true, venta: { estado: 'pagada' } });
+    });
+  });
+
+  describe('recordatorio de pago al cliente', () => {
+    const JID = '5491122334455@s.whatsapp.net';
+    const T = new Date();
+    const enMinutos = (n: number) => new Date(T.getTime() + n * 60_000);
+    const pedidoMp = async (extra: Record<string, unknown> = {}) => {
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+      mp.crearPreferencia.mockResolvedValue({ id: 'pref-recordatorio', init_point: 'https://mp/pagar' });
+      return pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago', conversationId, ahora: T, ...extra });
+    };
+
+    beforeEach(() => {
+      // El barrido es global: sólo el dueño de este spec tiene el asistente activo, así no le escribe a otros.
+      suscripcion.asistenteActivo.mockImplementation(async (userId: string) => userId === dueno.id);
+      notificaciones.avisarAlCliente.mockResolvedValue(true);
+      horario.puedeEscribir.mockResolvedValue(true);
+    });
+
+    it('cuando faltan 10 minutos le recuerda una sola vez, en el chat del pedido, sin link', async () => {
+      const venta = await pedidoMp();
+
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(1);
+      expect(await ventas.recordarPagos(enMinutos(27))).toBe(0);
+
+      expect(notificaciones.avisarAlCliente).toHaveBeenCalledTimes(1);
+      const [userId, jid, texto] = notificaciones.avisarAlCliente.mock.calls[0] as [string, string, string];
+      expect([userId, jid]).toEqual([dueno.id, JID]);
+      expect(texto).toMatch(/^¡Hola, Juan! Te recordamos que tu pedido de \$ 45\.000,50 te lo guardamos hasta las \d{2}:\d{2}\./);
+      expect(texto).not.toContain('https://');
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).recordatorioPagoAt).toEqual(enMinutos(25));
+    });
+
+    it('no le escribe antes de tiempo ni con la reserva ya vencida', async () => {
+      await pedidoMp();
+      expect(await ventas.recordarPagos(enMinutos(10))).toBe(0);
+      expect(await ventas.recordarPagos(enMinutos(31))).toBe(0);
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+    });
+
+    it('nunca a un pedido pagado, a coordinar, de prueba o sin chat', async () => {
+      const pagada = await pedidoMp();
+      await ventas.marcarPagada(pagada.id);
+      notificaciones.avisarAlCliente.mockClear();
+      await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, ahora: new Date(T.getTime() - 24 * 60 * 60_000 + 30 * 60_000) });
+      await pedidoMp({ dePrueba: true });
+      await pedidoMp({ conversationId: null });
+
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+    });
+
+    it('no le recuerda un pedido viejo si después pidió otro en el mismo chat', async () => {
+      const vieja = await pedidoMp();
+      await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, ahora: enMinutos(5) });
+
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: vieja.id } })).recordatorioPagoAt).toBeNull();
+    });
+
+    it('se calla con el chat en atención humana o con el asistente suspendido', async () => {
+      const venta = await pedidoMp();
+      await prisma.venta.update({ where: { id: venta.id }, data: { atencion: 'humana', derivadaAt: T } });
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+
+      await prisma.venta.update({ where: { id: venta.id }, data: { atencion: 'asistente' } });
+      suscripcion.asistenteActivo.mockResolvedValue(false);
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+    });
+
+    it('fuera del horario de atención, sin conversación en curso, no le escribe', async () => {
+      const venta = await pedidoMp();
+      horario.puedeEscribir.mockResolvedValue(false);
+
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect(horario.puedeEscribir).toHaveBeenCalledWith(dueno.id, conversationId, enMinutos(25));
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).recordatorioPagoAt).toBeNull();
+    });
+
+    it('si el envío falla no lo reintenta', async () => {
+      notificaciones.avisarAlCliente.mockResolvedValue(false);
+      await pedidoMp();
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect(await ventas.recordarPagos(enMinutos(26))).toBe(0);
+      expect(notificaciones.avisarAlCliente).toHaveBeenCalledTimes(1);
     });
   });
 

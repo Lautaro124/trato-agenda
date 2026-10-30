@@ -45,6 +45,21 @@ export class HorarioAtencionService {
   }
 
   /**
+   * Si el negocio puede escribirle por su cuenta a este chat ahora (un
+   * recordatorio, no una respuesta): con la misma regla que `atencion`, dentro
+   * del horario o, fuera, sólo con la conversación en curso. Nunca avisa nada.
+   */
+  async puedeEscribir(userId: string, conversationId: string, ahora: Date): Promise<boolean> {
+    if (dentroDelHorario(await this.leer(userId), ahora)) return true;
+    const ultimo = await this.prisma.message.findFirst({
+      where: { conversationId, conversation: { userId } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    return ultimo !== null && ahora.getTime() - ultimo.createdAt.getTime() < GRACIA_EN_CURSO_MS;
+  }
+
+  /**
    * Qué hacer con un mensaje de este chat ahora. Dentro del horario (o sin
    * restricción), atenderlo. Fuera, se atiende sólo si la conversación está en
    * curso: tuvo un mensaje hace menos de GRACIA_EN_CURSO_MS. Así una atención

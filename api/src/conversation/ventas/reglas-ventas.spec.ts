@@ -15,6 +15,7 @@ import {
   formatearResultados,
   formatearStockDueno,
   leyendaDeProducto,
+  lineasQueRepitenFotos,
   MARCA_A_MEDIDA,
   MAX_CATEGORIAS_EN_PROMPT,
   MAX_PRODUCTOS_POR_MENSAJE,
@@ -25,8 +26,10 @@ import {
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
   reglasDeVenta,
+  sinLineasRepetidas,
   REGLA_FOTOS_A_MEDIDA,
   REGLA_FOTOS_PEDIDAS,
+  REGLA_FOTOS_SOLAS,
   REGLA_PREGUNTAS_A_MEDIDA,
   variantesMostradas,
   yaSeHablaronDescuentos,
@@ -475,7 +478,9 @@ describe('reglas de venta con productos a medida', () => {
     expect(sinMp).toContain('si las reglas de arriba los piden) y pasale lo que te devuelva');
   });
 
-  it('las fotos de los a medida van solas; las de stock, sólo si las pide', () => {
+  it('las fotos de lo que muestra van solas, de stock o a medida; las de versiones, sólo con a medida', () => {
+    expect(reglasDeVenta(agente, true, null, true)).toContain(REGLA_FOTOS_SOLAS);
+    expect(reglasDeVenta(agente, true)).toContain(REGLA_FOTOS_SOLAS);
     expect(reglasDeVenta(agente, true, null, true)).toContain(REGLA_FOTOS_A_MEDIDA);
     expect(reglasDeVenta(agente, true)).not.toContain(REGLA_FOTOS_A_MEDIDA);
   });
@@ -642,6 +647,35 @@ describe('resultados que sólo se parecen por significado', () => {
   });
 });
 
+describe('productos que ya le llegaron en foto', () => {
+  const fotos = [
+    { nombre: 'Mate Imperial', leyenda: 'Mate Imperial\n$ 8.000' },
+    { nombre: 'Termo 1 L', leyenda: 'Termo 1 L\nDesde $ 45.000' },
+  ];
+
+  it('marca las líneas que repiten nombre y precio de una foto, aunque cambien negritas, tildes o mayúsculas', () => {
+    const respuesta = 'Estos son:\n* *Mate imperial* · $ 8.000\n* *Termo 1 L* desde $45.000\n* *Bombilla* · $ 3.500\n¿Cuál te gusta?';
+
+    expect(lineasQueRepitenFotos(respuesta, fotos)).toEqual(['* *Mate imperial* · $ 8.000', '* *Termo 1 L* desde $45.000']);
+  });
+
+  it('no marca nombrarlos sin precio ni un producto parecido con otro precio', () => {
+    expect(lineasQueRepitenFotos('¿Te gustó el Mate Imperial o el Termo 1 L?', fotos)).toEqual([]);
+    expect(lineasQueRepitenFotos('* *Mate Imperial de lujo* · $ 12.000', fotos)).toEqual([]);
+  });
+
+  it('sin fotos con leyenda no marca nada', () => {
+    expect(lineasQueRepitenFotos('* *Mate Imperial* · $ 8.000', [])).toEqual([]);
+  });
+
+  it('quita las líneas repetidas y deja el resto; si no queda nada, null', () => {
+    const respuesta = 'Mirá:\n* *Mate Imperial* · $ 8.000\n\n¿Cuál te gusta?';
+
+    expect(sinLineasRepetidas(respuesta, ['* *Mate Imperial* · $ 8.000'])).toBe('Mirá:\n\n¿Cuál te gusta?');
+    expect(sinLineasRepetidas('* *Mate Imperial* · $ 8.000', ['* *Mate Imperial* · $ 8.000'])).toBeNull();
+  });
+});
+
 describe('montos y su respaldo', () => {
   it('lee los montos como los escribe formatearCentavos y como los escribe la gente', () => {
     expect(montosEnTexto('Sale $ 8.000, o $15.000,50 la grande. Envío $0.')).toEqual([pesos(800_000), pesos(1_500_050), pesos(0)]);
@@ -796,7 +830,7 @@ describe('leyendaDeProducto', () => {
 describe('fotos y preguntas sin repetir (chat de prueba de los sillones)', () => {
   it('una versión con foto propia lo dice, distinta de la del producto', () => {
     expect(REGLA_FOTOS_A_MEDIDA).toContain('es otra foto, distinta de la del producto');
-    expect(REGLA_FOTOS_A_MEDIDA).toContain('Las del listado de ver_catalogo ya le llegaron solas');
+    expect(REGLA_FOTOS_SOLAS).toContain('Las del listado de ver_catalogo ya le llegaron solas');
     expect(REGLA_FOTOS_PEDIDAS).toContain('Nunca le digas que no hay foto de algo que la búsqueda marca con foto');
     expect(reglasDeVenta({ nombreTitular: 'X', nombreBot: 'Y', haceEnvios: false, datosCliente: null } as unknown as Agent, false)).toContain(
       REGLA_FOTOS_PEDIDAS,

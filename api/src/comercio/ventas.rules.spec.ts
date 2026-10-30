@@ -7,6 +7,7 @@ import {
   MAX_CANTIDAD_POR_ITEM,
   MAX_ITEMS_POR_PEDIDO,
   mensajePagoAprobado,
+  mensajeRecordatorioPago,
   MINUTOS_RESERVA_MP,
   pagoSaldaVenta,
   problemaDeForma,
@@ -111,6 +112,21 @@ describe('fechaYHora', () => {
   it('escribe día, fecha y hora de 24 horas en la zona del negocio', () => {
     expect(fechaYHora(new Date('2026-09-26T20:42:00Z'))).toBe('sábado 26/9 a las 17:42');
     expect(fechaYHora(new Date('2026-12-01T03:05:00Z'))).toBe('martes 1/12 a las 00:05');
+  });
+});
+
+describe('mensajeRecordatorioPago', () => {
+  it('le recuerda, por su nombre de pila, el monto y hasta qué hora le guardamos el pedido, sin link', () => {
+    expect(
+      mensajeRecordatorioPago({ nombreCliente: ' Juan Pérez ', totalCentavos: 1_600_000, reservaVenceAt: minutos(30) }),
+    ).toBe(
+      '¡Hola, Juan! Te recordamos que tu pedido de $ 16.000 te lo guardamos hasta las 15:30. ' +
+        'Si tuviste algún problema con el pago, escribinos por acá.',
+    );
+  });
+
+  it('sin nombre saluda igual', () => {
+    expect(mensajeRecordatorioPago({ nombreCliente: null, totalCentavos: 1_000, reservaVenceAt: minutos(30) })).toMatch(/^¡Hola! /);
   });
 });
 
