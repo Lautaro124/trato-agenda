@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { API_URL, apiFetch } from "./api";
+import type { ClaveTutorial } from "./tutoriales";
 
 /**
  * Espejo de `UsuarioPublico` en la API: nunca incluye el refresh token de Google.
@@ -30,6 +31,8 @@ export type Usuario = {
   debePonerPassword: boolean;
   /** Qué hace su asistente: define la navegación. null antes del onboarding. */
   tipoAsistente: "agenda" | "ventas" | null;
+  /** Recorridos guiados que ya vio o salteó: no se vuelven a abrir solos. */
+  tutorialesVistos: ClaveTutorial[];
 };
 
 /**

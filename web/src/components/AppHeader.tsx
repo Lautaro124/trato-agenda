@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
 import { identificador, iniciales, useSession, type Usuario } from "@/lib/session";
+import { useAbrirTutorial } from "@/lib/tutorial";
 
 type Tab =
   | "inicio"
@@ -88,6 +89,7 @@ function FlechaMenu({ abierto, size }: { abierto: boolean; size: number }) {
 /** Nav superior compartida por /inicio y /vincular (variantes 1e/3a del canvas). */
 export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
   const { signOut } = useSession();
+  const abrirTutorial = useAbrirTutorial(active);
   const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(null);
   const estadoAsistente = useEstadoAsistente();
   // Con el estado del asistente a la vista, "WhatsApp conectado" sobra en el celular, donde no entran los dos.
@@ -157,7 +159,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
         <Wordmark size={23} />
       </Link>
 
-      <nav className="ml-4 hidden gap-0.5 md:flex">
+      <nav data-tutorial="navegacion" className="ml-4 hidden gap-0.5 md:flex">
         {pestanasDe(user).map((pestana) => (
           <Link
             key={pestana.tab}
@@ -171,8 +173,14 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
 
       <div className="ml-auto flex items-center gap-3 sm:gap-4">
         <BotonSugerirMejora abierto={sugerenciaAbierta} onAbrir={abrirSugerencia} />
-        <CampanaNotificaciones />
-        {estadoAsistente && <BadgeEstadoAsistente estado={estadoAsistente} />}
+        <span data-tutorial="notificaciones" className="inline-flex">
+          <CampanaNotificaciones />
+        </span>
+        {estadoAsistente && (
+          <span data-tutorial="estado-asistente" className="inline-flex">
+            <BadgeEstadoAsistente estado={estadoAsistente} />
+          </span>
+        )}
         {whatsapp && (
           <span className={`whitespace-nowrap ${conEstado && whatsapp.linked ? "hidden md:inline" : ""}`}>
             <Badge tone={whatsapp.linked ? "success" : "warning"}>
@@ -181,7 +189,7 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
           </span>
         )}
 
-        <div ref={menuRef} className="relative">
+        <div ref={menuRef} data-tutorial="menu-usuario" className="relative">
           <button
             ref={menuBoton}
             type="button"
@@ -275,6 +283,20 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
                 <Lamparita size={15} />
                 Sugerir mejora
               </button>
+              {/* Sólo en las pantallas que tienen recorrido guiado. */}
+              {abrirTutorial && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuAbierto(false);
+                    abrirTutorial();
+                  }}
+                  className="block w-full px-4 py-2 text-left text-[13.5px] text-ink-secondary hover:bg-sunken"
+                >
+                  Ver tutorial
+                </button>
+              )}
               <button
                 type="button"
                 role="menuitem"

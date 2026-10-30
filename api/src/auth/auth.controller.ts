@@ -17,6 +17,7 @@ import { LoginWhatsappService } from './login-whatsapp.service.js';
 import { PASSWORD_MAX } from './password.js';
 import { destinoTrasLogin, ponerCookieDeSesion } from './sesion.js';
 import { ReglasDePassword } from './password.dto.js';
+import { MarcarTutorialesDto } from './tutoriales.js';
 import type { User } from '../generated/prisma/client.js';
 import type { Env } from '../config/env.js';
 
@@ -99,6 +100,21 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   cambiarPassword(@CurrentUser() user: User, @Body() dto: CambiarPasswordDto): Promise<void> {
     return this.logins.cambiarPassword(user, dto.nueva, dto.actual);
+  }
+
+  /**
+   * Marca recorridos guiados como vistos (al terminarlos o saltearlos). Suma
+   * sin duplicar en un solo UPDATE: dos pestañas que cierran a la vez no se
+   * pisan la lista.
+   */
+  @Post('tutoriales')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async marcarTutoriales(@CurrentUser() user: User, @Body() dto: MarcarTutorialesDto): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE "User"
+      SET "tutorialesVistos" = ARRAY(SELECT DISTINCT unnest("tutorialesVistos" || ${dto.claves}::text[]))
+      WHERE id = ${user.id}`;
   }
 
   @Post('logout')

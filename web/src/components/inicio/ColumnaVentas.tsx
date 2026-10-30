@@ -87,7 +87,7 @@ export function ColumnaVentas() {
   ];
 
   return (
-    <section aria-label="Tu tienda" className="rounded-lg border border-line bg-card">
+    <section data-tutorial="resumen" aria-label="Tu tienda" className="rounded-lg border border-line bg-card">
       <div className="border-b border-line px-5 py-4">
         <h2 className="font-display text-[15px] font-bold text-ink">Tu tienda</h2>
       </div>

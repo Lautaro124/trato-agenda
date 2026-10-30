@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { cn } from "@/lib/cn";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
@@ -27,6 +27,7 @@ type ButtonProps = {
   size?: Size;
   fullWidth?: boolean;
   icon?: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
 } & ButtonHTMLAttributes<HTMLButtonElement>;
 
 /** Trato Button — coral primario, radio generoso, sombra suave. */
