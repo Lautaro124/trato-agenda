@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { columna, LineasEje, maximoRedondo, ZonaGrafico } from "@/components/ui/GraficoColumnas";
 import { cn } from "@/lib/cn";
 import { rangoLegible, variacionPorcentual, type DiaPerformance, type Performance } from "@/lib/performance";
 import { formatearMonto } from "@/lib/productos";
@@ -35,21 +36,6 @@ type Franja = {
   actual: number | null;
   anterior: number | null;
 };
-
-/** Máximo "redondo" del eje: 1, 2, 2,5 o 5 por una potencia de 10. */
-function maximoRedondo(valor: number): number {
-  if (valor <= 0) return 1;
-  const potencia = 10 ** Math.floor(Math.log10(valor));
-  const paso = [1, 2, 2.5, 5, 10].find((multiplo) => multiplo * potencia >= valor) ?? 10;
-  return paso * potencia;
-}
-
-/** Columna con la punta redondeada y la base recta, apoyada en el eje. */
-function columna(x: number, y: number, ancho: number, alto: number): string {
-  const r = Math.min(RADIO, ancho / 2, alto);
-  const base = y + alto;
-  return `M${x},${base} V${y + r} Q${x},${y} ${x + r},${y} H${x + ancho - r} Q${x + ancho},${y} ${x + ancho},${y + r} V${base} Z`;
-}
 
 /**
  * Junta los días de a uno o de a 7 (períodos largos). El día i del período
@@ -131,15 +117,6 @@ export function GraficoComparado({ performance }: { performance: Performance }) 
   const cadaCuantos = Math.max(1, Math.ceil(lista.length / Math.max(1, Math.floor(anchoPlot / 56))));
   const elegido = activo !== null ? lista[activo] : null;
 
-  const alTeclado = (e: React.KeyboardEvent) => {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    e.preventDefault();
-    setActivo((actual) => {
-      const desde = actual ?? lista.length - 1;
-      return Math.min(lista.length - 1, Math.max(0, desde + (e.key === "ArrowRight" ? 1 : -1)));
-    });
-  };
-
   return (
     <section aria-labelledby="titulo-dia-a-dia" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2.5">
@@ -218,43 +195,15 @@ export function GraficoComparado({ performance }: { performance: Performance }) 
             </table>
           </div>
         ) : (
-          <div
+          <ZonaGrafico
             ref={contenedor}
-            role="group"
-            aria-label={`${nombreMetrica} ${semanal ? "por semana" : "por día"}: ${formato(total)} este período, ${totalAnterior === null ? "sin datos" : formato(totalAnterior)} el anterior. Usá las flechas para recorrer ${semanal ? "las semanas" : "los días"}.`}
-            tabIndex={0}
-            onKeyDown={alTeclado}
-            onBlur={() => setActivo(null)}
-            onPointerLeave={() => setActivo(null)}
-            className="relative outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-[var(--color-semantic-border-focus)]"
+            etiqueta={`${nombreMetrica} ${semanal ? "por semana" : "por día"}: ${formato(total)} este período, ${totalAnterior === null ? "sin datos" : formato(totalAnterior)} el anterior. Usá las flechas para recorrer ${semanal ? "las semanas" : "los días"}.`}
+            cantidad={lista.length}
+            setActivo={setActivo}
           >
             {ancho > 0 && (
               <svg width={ancho} height={MARGEN.arriba + ALTO + MARGEN.abajo} aria-hidden="true" className="block">
-                {Array.from({ length: TICKS + 1 }, (_, i) => {
-                  const valor = (maximo / TICKS) * i;
-                  return (
-                    <g key={i}>
-                      <line
-                        x1={MARGEN.izquierda}
-                        x2={ancho - MARGEN.derecha}
-                        y1={y(valor)}
-                        y2={y(valor)}
-                        stroke={i === 0 ? "var(--color-primitive-neutral-300)" : "var(--color-primitive-neutral-200)"}
-                        strokeWidth={1}
-                        shapeRendering="crispEdges"
-                      />
-                      <text
-                        x={MARGEN.izquierda - 8}
-                        y={y(valor)}
-                        textAnchor="end"
-                        dominantBaseline="middle"
-                        className="fill-ink-secondary text-[11px] tabular-nums"
-                      >
-                        {formatoEje(valor)}
-                      </text>
-                    </g>
-                  );
-                })}
+                <LineasEje desde={MARGEN.izquierda} hasta={ancho - MARGEN.derecha} maximo={maximo} marcas={TICKS} y={y} formato={formatoEje} />
 
                 {lista.map((fila, i) => {
                   const x0 = MARGEN.izquierda + i * franja;
@@ -272,7 +221,7 @@ export function GraficoComparado({ performance }: { performance: Performance }) 
                         strokeDasharray="2 2"
                       />
                     ) : (
-                      valor > 0 && <path d={columna(x, y(valor), anchoColumna, (valor / maximo) * ALTO)} fill={relleno} opacity={tenue ? 0.45 : 1} />
+                      valor > 0 && <path d={columna(x, y(valor), anchoColumna, (valor / maximo) * ALTO, RADIO)} fill={relleno} opacity={tenue ? 0.45 : 1} />
                     );
                   return (
                     <g key={fila.detalle}>
@@ -320,7 +269,7 @@ export function GraficoComparado({ performance }: { performance: Performance }) 
                 )}
               </div>
             )}
-          </div>
+          </ZonaGrafico>
         )}
       </div>
     </section>
