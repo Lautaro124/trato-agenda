@@ -143,3 +143,32 @@ describe('HorarioAtencionService.actualizar', () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 });
+
+describe('HorarioAtencionService.puedeEscribir', () => {
+  const conUltimo = (user: unknown, ultimo: Date | null) => {
+    const { service, prisma } = crearServicio(user);
+    const findFirst = vi.fn().mockResolvedValue(ultimo && { createdAt: ultimo });
+    (prisma as unknown as { message: { findFirst: typeof findFirst } }).message = { findFirst };
+    return { service, findFirst };
+  };
+
+  it('dentro del horario, o sin restricción, puede sin mirar el chat', async () => {
+    const dentro = conUltimo(conHorario, null);
+    await expect(dentro.service.puedeEscribir('user-1', 'conv-1', new Date('2026-10-08T12:00:00-03:00'))).resolves.toBe(true);
+    expect(dentro.findFirst).not.toHaveBeenCalled();
+
+    const sinRestriccion = conUltimo({ ...conHorario, horarioAtencionActivo: false }, null);
+    await expect(sinRestriccion.service.puedeEscribir('user-1', 'conv-1', AHORA)).resolves.toBe(true);
+  });
+
+  it('fuera de horario, sólo con la conversación en curso, y busca sólo en los chats del dueño', async () => {
+    const enCurso = conUltimo(conHorario, new Date(AHORA.getTime() - GRACIA_EN_CURSO_MS + 60_000));
+    await expect(enCurso.service.puedeEscribir('user-1', 'conv-1', AHORA)).resolves.toBe(true);
+    expect(enCurso.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { conversationId: 'conv-1', conversation: { userId: 'user-1' } } }),
+    );
+
+    await expect(conUltimo(conHorario, VIEJO).service.puedeEscribir('user-1', 'conv-1', AHORA)).resolves.toBe(false);
+    await expect(conUltimo(conHorario, null).service.puedeEscribir('user-1', 'conv-1', AHORA)).resolves.toBe(false);
+  });
+});

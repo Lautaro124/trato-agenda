@@ -36,6 +36,9 @@ import {
   type FormaDePago,
 } from './condiciones-pago.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
+import { enAtencionHumana } from './pedido-a-medida.rules.js';
+import { SubscriptionService } from '../subscription/subscription.service.js';
+import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { reservadasPorVariante } from './reservas.js';
@@ -44,6 +47,8 @@ import {
   detalleDeRenglones,
   MAX_PEDIDOS_PENDIENTES,
   mensajePagoAprobado,
+  mensajeRecordatorioPago,
+  MINUTOS_RECORDATORIO_PAGO,
   pagoSaldaVenta,
   problemaDeForma,
   telefonoDeJid,
@@ -220,6 +225,8 @@ export class VentasService {
     private readonly config: ConfigService<Env, true>,
     private readonly notificaciones: NotificacionesService,
     private readonly registro: RegistroPerformanceService,
+    private readonly suscripcion: SubscriptionService,
+    private readonly horarioAtencion: HorarioAtencionService,
   ) {}
 
   /** Unidades retenidas por pedidos pendientes y sin vencer, por variante (ver reservas.ts). */
@@ -802,6 +809,73 @@ export class VentasService {
       }
     }
     return cobradas;
+  }
+
+  /**
+   * Le recuerda al cliente, una sola vez, que la reserva de su link de Mercado
+   * Pago está por vencer y todavía no pagó. Nunca en pedidos de prueba, con el
+   * chat en atención humana, con el asistente suspendido ni fuera del horario
+   * de atención (salvo conversación en curso, LAU-29). Devuelve cuántos
+   * recordatorios salieron.
+   */
+  async recordarPagos(ahora: Date = new Date()): Promise<number> {
+    const ventas = await this.prisma.venta.findMany({
+      where: {
+        estado: 'pendiente_pago',
+        medioPago: 'mercadopago',
+        dePrueba: false,
+        conversationId: { not: null },
+        recordatorioPagoAt: null,
+        reservaVenceAt: { gt: ahora, lte: new Date(ahora.getTime() + MINUTOS_RECORDATORIO_PAGO * 60 * 1000) },
+      },
+      orderBy: { reservaVenceAt: 'asc' },
+      take: 100,
+    });
+
+    let enviados = 0;
+    for (const venta of ventas) {
+      try {
+        if (await this.recordarPago(venta, ahora)) enviados++;
+      } catch (error) {
+        this.logger.error(`No se pudo recordar el pago de la venta ${venta.id}: ${(error as Error).message}`);
+      }
+    }
+    return enviados;
+  }
+
+  private async recordarPago(venta: Venta, ahora: Date): Promise<boolean> {
+    if (!venta.conversationId || !venta.reservaVenceAt) return false;
+    const [posteriores, humanas] = await Promise.all([
+      // Si después pidió otra cosa en el mismo chat, recordarle el pedido viejo confunde.
+      this.prisma.venta.count({ where: { conversationId: venta.conversationId, createdAt: { gt: venta.createdAt } } }),
+      this.prisma.venta.findMany({
+        where: { conversationId: venta.conversationId, atencion: 'humana' },
+        select: { atencion: true, estado: true },
+      }),
+    ]);
+    if (posteriores > 0 || humanas.some(enAtencionHumana)) return false;
+    if (!(await this.suscripcion.asistenteActivo(venta.userId))) return false;
+    if (!(await this.horarioAtencion.puedeEscribir(venta.userId, venta.conversationId, ahora))) return false;
+
+    // Se marca antes de mandarlo: con dos barridos a la vez, o si el envío falla, sale una vez como mucho.
+    const { count } = await this.prisma.venta.updateMany({
+      where: { id: venta.id, estado: 'pendiente_pago', recordatorioPagoAt: null },
+      data: { recordatorioPagoAt: ahora },
+    });
+    if (count === 0) return false;
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: venta.conversationId, userId: venta.userId },
+      select: { remoteJid: true },
+    });
+    if (!conversation) return false;
+    const enviado = await this.notificaciones.avisarAlCliente(
+      venta.userId,
+      conversation.remoteJid,
+      mensajeRecordatorioPago({ ...venta, reservaVenceAt: venta.reservaVenceAt }),
+    );
+    if (!enviado) this.logger.warn(`No se le pudo recordar al cliente el pago de la venta ${venta.id}.`);
+    return enviado;
   }
 
   /** Marca como vencidas las pendientes pasadas de hora. Es sólo para mostrar: la reserva ya no cuenta igual. */

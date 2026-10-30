@@ -656,6 +656,10 @@ model Venta {
   pagadaAt    DateTime?
   canceladaAt DateTime?
 
+  /// Cuándo se le recordó al cliente que la reserva del link está por
+  /// vencer (conciliacion.service.ts). Se marca antes de mandarlo: una sola vez.
+  recordatorioPagoAt DateTime?
+
   /// Se pagó cuando ya no había stock para cubrirla (la reserva venció y
   /// otro compró lo último): el dueño tiene que devolver o reponer.
   sinStockAlPagar Boolean @default(false)
