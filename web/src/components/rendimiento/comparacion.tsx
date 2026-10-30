@@ -26,17 +26,15 @@ const TONO: Record<Variacion["tono"], string> = {
 /**
  * "▲ 6 pts", "Nuevo · antes 0" o "Sin comparación" si el anterior no tiene
  * datos. Con el anterior a medias, en ámbar: la variación se puede leer, pero
- * no es pareja.
+ * no es pareja. Sin texto visible extra para que no desborde la card; el aviso
+ * de los períodos lo explica.
  */
 export function EtiquetaVariacion({ variacion, aMedias = false }: { variacion: Variacion | null; aMedias?: boolean }) {
   const base = "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[12.5px] font-bold whitespace-nowrap";
   if (!variacion) return <span className={cn(base, "bg-sunken font-semibold text-ink-secondary")}>Sin comparación</span>;
   return (
     <span className={cn(base, aMedias ? "bg-warning-subtle text-warning-text" : TONO[variacion.tono])}>
-      <span aria-hidden="true">
-        {variacion.texto}
-        {aMedias && " · a medias"}
-      </span>
+      <span aria-hidden="true">{variacion.texto}</span>
       <span className="sr-only">
         {variacion.descripcion}
         {aMedias && ", con el período anterior medido a medias"}
