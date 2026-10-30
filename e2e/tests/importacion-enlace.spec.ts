@@ -1,36 +1,21 @@
-import { API_URL, TIENDA_URL } from '../entorno';
+import { TIENDA_URL } from '../entorno';
 import { expect, test } from './fixtures';
-import { crearAgenteVentasPorApi, pasarAPro } from './ventas';
+import { crearAgenteVentasPorApi } from './ventas';
 
 /** La tienda y el Mercado Libre falsos (e2e/importacion-stub), como los ve la API dentro de compose. */
 const TIENDA = `${TIENDA_URL}/tienda`;
 const PUBLICACION_ML = 'https://articulo.mercadolibre.com.ar/MLA-1234567890-termo-de-acero-1-litro-_JM';
 
-test.describe('importación rápida de productos (plan Pro)', () => {
-  test('sin el plan Pro se ve el aviso, y la API tampoco deja', async ({ page, context, usuarioDev }) => {
-    expect(usuarioDev.email).toBeTruthy();
-    await crearAgenteVentasPorApi(context.request);
-
-    await page.goto('/productos');
-    await page.getByRole('link', { name: /Importar desde un enlace/ }).click();
-    await expect(page.getByText('La importación rápida es del plan Pro')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Ver el plan Pro' })).toHaveAttribute('href', '/plan');
-
-    const res = await context.request.post(`${API_URL}/importacion/extraer`, { data: { urls: [`${TIENDA}/mate`] } });
-    expect(res.status()).toBe(403);
-    expect(await res.json()).toMatchObject({ motivo: 'plan_pro_requerido' });
-  });
-
-  test('con el Pro lee una tienda, un listado y Mercado Libre, se revisa y se importa sin duplicar', async ({
+test.describe('importación rápida de productos', () => {
+  test('en el mes de prueba lee una tienda, un listado y Mercado Libre, se revisa y se importa sin duplicar', async ({
     page,
     context,
     usuarioDev,
   }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
-    await pasarAPro(page);
-
-    await page.goto('/productos/importar-enlace');
+    await page.goto('/productos');
+    await page.getByRole('link', { name: 'Importar desde un enlace' }).click();
     await page
       .getByRole('textbox', { name: 'Pegá los enlaces' })
       .fill([`${TIENDA}/mate`, `${TIENDA}/categoria`, PUBLICACION_ML, `${TIENDA}/sin-precio`, `${TIENDA}/a-la-metadata`].join('\n'));
@@ -81,7 +66,6 @@ test.describe('importación rápida de productos (plan Pro)', () => {
   }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
-    await pasarAPro(page);
 
     await page.goto('/productos/importar-enlace');
     await page.getByRole('textbox', { name: 'Pegá los enlaces' }).fill(`${TIENDA}/landing`);

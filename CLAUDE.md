@@ -48,7 +48,7 @@ Configuración, variables y despliegue: [README.md](README.md). La API requiere 
 - Agenda individual: días hábiles, franja, margen, nombre y ausencia de solapamientos. Clases grupales: horario fijo y cupo; no aplicarles la franja individual. Mantener la comprobación final y los controles de concurrencia al reservar.
 - Ventas: precios y totales salen del código/DB, nunca del modelo. Preservar reservas transaccionales, snapshots del pedido, estados de presupuestos y procesamiento idempotente de pagos. Stock y productos a medida conviven por producto (`Producto.solicitud`).
 - Un pedido tiene una moneda; USD se cobra manualmente. Productos a medida, presupuestos, costos y suscripciones usan ARS. No inventar conversiones ni acumular descuentos.
-- Suscripciones: precios y funciones vienen de la API. El cupo de chats es informativo; al vencer sin pago se suspende el asistente, no el acceso a las pantallas. Importación rápida requiere Pro pago, no prueba gratuita. Un cambio de plan sólo se adopta tras autorización de Mercado Pago.
+- Suscripciones: precios y funciones vienen de la API. El cupo de chats es informativo; al vencer sin pago se suspende el asistente, no el acceso a las pantallas. La importación rápida está en la prueba y en ambos planes. Un cambio de plan sólo se adopta tras autorización de Mercado Pago.
 - Webhooks de Mercado Pago: verificar HMAC y releer el recurso desde MP; no confiar en el payload ni duplicar efectos.
 
 ### WhatsApp y despliegue

@@ -210,8 +210,8 @@ pasa por `fetch-seguro.ts`:
   `ImagenesService.guardar` (firma de bytes, recompresión sin metadatos, tope
   de 100 por cuenta). En la vista previa el navegador muestra las de la página
   de origen con `referrerPolicy="no-referrer"`.
-- **Acceso**: cuenta de ventas (409) con el plan Pro pagando (403,
-  `motivo: plan_pro_requerido`), chequeado en la API en cada pedido.
+- **Acceso**: cuenta de ventas (409), chequeado en la API en cada pedido.
+  Está en la prueba y en ambos planes.
 - **Logs**: sólo el código de error (y, para Mercado Libre, un subcódigo
   como `sin_credenciales+muro`); nunca el host, la ruta, la query, el contenido
   de una página ni la respuesta de la IA.

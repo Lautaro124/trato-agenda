@@ -102,16 +102,6 @@ export function planVigente(estado: Pick<EstadoSuscripcion, 'estado'>, plan: str
   return esPlanId(plan) ? plan : 'basico';
 }
 
-/**
- * Lo que cada plan habilita además del tope de chats. La importación rápida
- * de productos (LAU-31) es sólo del Pro pagando: el mes de prueba no la trae.
- */
-export type FuncionesDelPlan = { importacionRapida: boolean };
-
-export function funcionesDelPlan(plan: PlanId | null): FuncionesDelPlan {
-  return { importacionRapida: plan === 'pro' };
-}
-
 export type EstadoDeCupo = {
   usados: number;
   limite: number;
