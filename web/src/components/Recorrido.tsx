@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import type { Paso } from "@/lib/tutoriales";
 
@@ -60,13 +60,15 @@ function posicionBurbuja(caja: Caja | null, alto: number): React.CSSProperties {
  * Recorrido paso a paso: oscurece la pantalla, deja a la vista el elemento de
  * cada paso y explica qué es en una burbuja. Los pasos cuyo elemento no se ve
  * (otra disposición en el celular, una sección vacía) se saltean al abrir.
- * Escape o «Saltar» lo cierran, igual que terminarlo.
+ * Escape o «Saltar» lo cierran, igual que terminarlo. El paso que tiene el
+ * foco es el botón principal; el resto de la página queda inerte.
  */
 export function Recorrido({ pasos, onCerrar }: Readonly<{ pasos: Paso[]; onCerrar: () => void }>) {
   const [visibles] = useState(() => pasos.filter((p) => !p.objetivo || buscarObjetivo(p.objetivo)));
   const [indice, setIndice] = useState(0);
   const [caja, setCaja] = useState<Caja | null>(null);
   const [altoBurbuja, setAltoBurbuja] = useState(0);
+  const dialogo = useRef<HTMLDialogElement>(null);
   const burbuja = useRef<HTMLDivElement>(null);
   const principal = useRef<HTMLButtonElement>(null);
   const titulo = useId();
@@ -82,6 +84,7 @@ export function Recorrido({ pasos, onCerrar }: Readonly<{ pasos: Paso[]; onCerra
   // El foco vuelve a donde estaba al cerrar.
   useEffect(() => {
     const previo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogo.current?.showModal();
     return () => previo?.focus();
   }, []);
 
@@ -121,28 +124,22 @@ export function Recorrido({ pasos, onCerrar }: Readonly<{ pasos: Paso[]; onCerra
 
   if (!paso) return null;
 
-  const alTeclado = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      onCerrar();
-      return;
-    }
-    if (e.key !== "Tab" || !burbuja.current) return;
-    // El foco no sale de la burbuja mientras está abierta.
-    const botones = burbuja.current.querySelectorAll<HTMLElement>("button");
-    const primero = botones[0];
-    const ultimoBoton = botones[botones.length - 1];
-    if (e.shiftKey && document.activeElement === primero) {
-      e.preventDefault();
-      ultimoBoton.focus();
-    } else if (!e.shiftKey && document.activeElement === ultimoBoton) {
-      e.preventDefault();
-      primero.focus();
-    }
+  // Escape cierra el recorrido igual que «Saltar»; el <dialog> no se cierra solo.
+  const alCancelar = (e: SyntheticEvent) => {
+    e.preventDefault();
+    onCerrar();
   };
 
   return (
-    <div className="fixed inset-0 z-50" onKeyDown={alTeclado}>
+    // Modal nativo a pantalla completa y transparente: deja inerte el resto de
+    // la página (foco y lectores de pantalla) y adentro dibuja el hueco y la burbuja.
+    <dialog
+      ref={dialogo}
+      aria-labelledby={titulo}
+      aria-describedby={texto}
+      onCancel={alCancelar}
+      className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none overflow-hidden border-0 bg-transparent p-0 backdrop:bg-transparent"
+    >
       {caja ? (
         // El hueco es una caja con una sombra enorme: oscurece todo menos el elemento.
         <div
@@ -156,10 +153,6 @@ export function Recorrido({ pasos, onCerrar }: Readonly<{ pasos: Paso[]; onCerra
 
       <div
         ref={burbuja}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titulo}
-        aria-describedby={texto}
         className="fixed flex flex-col gap-3 rounded-lg border border-line bg-card p-5 shadow-lg"
         style={posicionBurbuja(caja, altoBurbuja)}
       >
@@ -192,6 +185,6 @@ export function Recorrido({ pasos, onCerrar }: Readonly<{ pasos: Paso[]; onCerra
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

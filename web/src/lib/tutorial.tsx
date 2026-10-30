@@ -25,7 +25,7 @@ const ESPERA_MS = 400;
  * solo si la cuenta todavía no lo vio. Que lo vio (terminó o salteó) se guarda
  * en la API, así no reaparece en otro dispositivo.
  */
-export function TutorialProvider({ children }: { children: React.ReactNode }) {
+export function TutorialProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, refrescar } = useSession();
   const [abierto, setAbierto] = useState<ClaveTutorial | null>(null);
   // Hasta que vuelve /auth/me, `tutorialesVistos` todavía no lo incluye: sin

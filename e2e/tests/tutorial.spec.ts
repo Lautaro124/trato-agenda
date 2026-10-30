@@ -39,9 +39,11 @@ test.describe('recorrido guiado', () => {
     expect(await recorrerHastaElFinal(page)).toBeGreaterThan(2);
     await expect.poll(() => tutorialesVistos(page)).toEqual(['inicio']);
 
+    // El reloj falso deja pasar la espera antes de abrir sin dormir el test.
+    await page.clock.install();
     await page.reload();
     await expect(page.getByRole('heading', { name: /^Hola/ })).toBeVisible();
-    await page.waitForTimeout(1_000);
+    await page.clock.runFor(2_000);
     await expect(page.getByRole('dialog')).toBeHidden();
   });
 
