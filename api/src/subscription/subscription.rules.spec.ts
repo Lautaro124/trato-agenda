@@ -5,7 +5,6 @@ import {
   estadoDeCupo,
   estadoDeSuscripcion,
   finDePrueba,
-  funcionesDelPlan,
   limiteDeChats,
   planVigente,
   rangoDelMes,
@@ -91,17 +90,12 @@ describe('planes y cupo de chats', () => {
     expect(limiteDeChats('desconocido')).toBe(1500);
   });
 
-  it('sólo una suscripción activa tiene plan, y la importación rápida es del Pro', () => {
+  it('sólo una suscripción activa tiene plan', () => {
     expect(planVigente({ estado: 'activa' }, 'pro')).toBe('pro');
     expect(planVigente({ estado: 'activa' }, 'raro')).toBe('basico');
     expect(planVigente({ estado: 'prueba' }, 'pro')).toBeNull();
     expect(planVigente({ estado: 'vencida' }, 'pro')).toBeNull();
     expect(planVigente({ estado: 'activa' }, null)).toBeNull();
-
-    expect(funcionesDelPlan('pro')).toEqual({ importacionRapida: true });
-    expect(funcionesDelPlan('basico')).toEqual({ importacionRapida: false });
-    // El mes de prueba incluye todo menos lo que es sólo del Pro pagando.
-    expect(funcionesDelPlan(null)).toEqual({ importacionRapida: false });
   });
 
   it('avisa desde el 80 % y marca superado al llegar al tope', () => {

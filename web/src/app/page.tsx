@@ -82,9 +82,8 @@ const INCLUYE_PLAN = [
   "Tu número de WhatsApp con el asistente respondiendo",
   "Turnos ilimitados, en Google Calendar o en la agenda de Trato",
   "O ventas con catálogo, stock y cobro por Mercado Pago",
+  "Importá productos desde Tiendamia o tu web",
 ];
-
-const INCLUYE_PRO = ["Importá productos desde Tiendamia o tu web"];
 
 function Check({ children }: { children: ReactNode }) {
   return (
@@ -285,7 +284,7 @@ export default function Home() {
           <p className="mb-7 text-[16px] leading-[1.6] text-ink-secondary">
             Probás un mes completo gratis. Si te sirve, elegís el plan que te quede cómodo.
           </p>
-          <PlanesPrecio incluye={INCLUYE_PLAN} incluyePro={INCLUYE_PRO} />
+          <PlanesPrecio incluye={INCLUYE_PLAN} />
           <p className="mt-5 text-[13px] leading-[1.6] text-muted">
             No te pedimos tarjeta para la prueba. Te avisamos 7 días antes de que termine. Si te acercás al tope de
             chats te avisamos, pero el asistente no se corta.

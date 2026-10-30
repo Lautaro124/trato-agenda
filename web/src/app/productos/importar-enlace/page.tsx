@@ -16,13 +16,11 @@ import {
   MAX_PRODUCTOS_POR_CONFIRMACION,
   MAX_URLS_POR_PEDIDO,
   problemaDelProducto,
-  SinPlanProError,
   type ProductoEnRevision,
   type ResultadoConfirmacion,
   type ResultadoExtraccion,
 } from "@/lib/importacion";
 import { ErrorDeApi } from "@/lib/productos";
-import { useSuscripcion } from "@/lib/suscripcion";
 
 type Paso =
   | { tipo: "enlaces" }
@@ -45,47 +43,14 @@ const FOTO: Record<ResultadoConfirmacion["resultados"][number]["foto"], string |
   limite: "sin foto: llegaste al tope de fotos de la cuenta",
 };
 
-/** Lo que se le cuenta a quien no tiene el Pro: qué hace y dónde se consigue. */
-function AvisoPlanPro() {
-  return (
-    <div className="rounded-lg border border-line bg-card p-5">
-      <div className="mb-2 flex items-center gap-2">
-        <Badge tone="primary">Pro</Badge>
-        <p className="font-semibold text-ink">La importación rápida es del plan Pro</p>
-      </div>
-      <p className="mb-4 text-sm leading-[1.6] text-ink-secondary">
-        Pegás enlaces de Tiendamia o de cualquier tienda online y traemos nombre, descripción, fotos, precio y
-        variantes para que los revises antes de cargarlos. Mientras tanto podés cargar tus productos de a uno o con una
-        planilla.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Link
-          href="/plan"
-          className="inline-flex items-center justify-center rounded-md border border-transparent bg-primary px-4 py-2 font-body text-[15px] leading-none font-semibold text-primary-on shadow-sm hover:bg-primary-hover"
-        >
-          Ver el plan Pro
-        </Link>
-        <Link
-          href="/productos"
-          className="inline-flex items-center justify-center rounded-md border border-line-strong bg-card px-4 py-2 font-body text-[15px] leading-none font-semibold text-ink shadow-sm hover:bg-sunken"
-        >
-          Volver a mis productos
-        </Link>
-      </div>
-    </div>
-  );
-}
-
 function ImportarDesdeEnlaces() {
   const router = useRouter();
-  const { suscripcion } = useSuscripcion();
   const [texto, setTexto] = useState("");
   const [paso, setPaso] = useState<Paso>({ tipo: "enlaces" });
   const [productos, setProductos] = useState<ProductoEnRevision[]>([]);
   const [errores, setErrores] = useState<ResultadoExtraccion["errores"]>([]);
   const [recortado, setRecortado] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sinPro, setSinPro] = useState(false);
 
   const enlaces = enlacesDe(texto);
   const elegidos = productos.filter((producto) => producto.elegido);
@@ -100,11 +65,7 @@ function ImportarDesdeEnlaces() {
     return () => window.removeEventListener("beforeunload", alSalir);
   }, [paso.tipo, elegidos.length]);
 
-  if (suscripcion === null) return <p className="py-10 text-center text-sm text-muted">Cargando…</p>;
-  if (sinPro || !suscripcion.funciones?.importacionRapida) return <AvisoPlanPro />;
-
   const fallar = (err: unknown, porDefecto: string) => {
-    if (err instanceof SinPlanProError) setSinPro(true);
     setError(err instanceof ErrorDeApi ? err.message : porDefecto);
   };
 
@@ -132,7 +93,7 @@ function ImportarDesdeEnlaces() {
         alguno ||= resultado.recortado;
       } catch (err) {
         fallar(err, "No pudimos leer los enlaces. Probá de nuevo.");
-        if (err instanceof SinPlanProError || !(err instanceof ErrorDeApi)) {
+        if (!(err instanceof ErrorDeApi)) {
           setPaso({ tipo: "enlaces" });
           return;
         }
@@ -349,7 +310,7 @@ function ImportarDesdeEnlaces() {
   );
 }
 
-/** Importación rápida (LAU-31): de enlaces de otros sitios a productos del catálogo, revisados antes. Plan Pro. */
+/** Importación rápida (LAU-31): de enlaces de otros sitios a productos del catálogo, revisados antes. */
 export default function ImportarDesdeEnlacePage() {
   return (
     <MarcoDeProducto>
@@ -367,12 +328,9 @@ export default function ImportarDesdeEnlacePage() {
                 <li aria-current="page">Importar desde un enlace</li>
               </ol>
             </nav>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">
-                Importar desde un enlace
-              </h1>
-              <Badge tone="primary">Pro</Badge>
-            </div>
+            <h1 className="font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">
+              Importar desde un enlace
+            </h1>
           </div>
           <ImportarDesdeEnlaces />
         </div>

@@ -230,14 +230,10 @@ export function itemParaConfirmar(producto: ProductoEnRevision) {
   };
 }
 
-/** Un 403 de la API con este motivo: la cuenta no tiene el Pro. */
-export class SinPlanProError extends ErrorDeApi {}
-
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const cuerpo = (await res.json().catch(() => null)) as { message?: string | string[]; motivo?: string } | null;
+    const cuerpo = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
     const mensaje = Array.isArray(cuerpo?.message) ? cuerpo.message[0] : cuerpo?.message;
-    if (res.status === 403 && cuerpo?.motivo === "plan_pro_requerido") throw new SinPlanProError(mensaje ?? "Es del plan Pro.");
     throw new ErrorDeApi(res.status < 500 && mensaje ? mensaje : "No pudimos completar la operación.");
   }
   return (await res.json()) as T;

@@ -15,7 +15,6 @@ import { ProductosService } from '../comercio/productos.service.js';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { SubscriptionService } from '../subscription/subscription.service.js';
 import type { ExtraccionIaService } from './extraccion-ia.js';
 import { ImportacionService } from './importacion.service.js';
 import type { ItemConfirmadoDto } from './importacion.types.js';
@@ -35,7 +34,6 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
   let dueno: User;
   let otroDueno: User;
   let foto: Buffer;
-  const plan = vi.fn();
   const extraccionIa = vi.fn();
   let importacion: ImportacionService;
 
@@ -143,7 +141,6 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
       prisma,
       new ProductosService(prisma, indexador),
       new ImagenesService(prisma),
-      { planVigente: plan } as unknown as SubscriptionService,
       new MercadoLibreClient(config),
       { productos: extraccionIa } as unknown as ExtraccionIaService,
       config,
@@ -157,7 +154,6 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
   });
 
   beforeEach(async () => {
-    plan.mockReset().mockResolvedValue('pro');
     extraccionIa.mockReset().mockResolvedValue([]);
     await prisma.producto.deleteMany({ where: { userId: dueno.id } });
   });
@@ -188,12 +184,8 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
       ...extra,
     }) as ItemConfirmadoDto;
 
-  it('es sólo para cuentas de ventas con el Pro pagando', async () => {
+  it('es sólo para cuentas de ventas', async () => {
     await expect(importacion.extraer(otroDueno.id, [`${base}/mate`])).rejects.toMatchObject({ status: 409 });
-    plan.mockResolvedValue('basico');
-    await expect(importacion.extraer(dueno.id, [`${base}/mate`])).rejects.toMatchObject({ status: 403 });
-    plan.mockResolvedValue(null);
-    await expect(importacion.extraer(dueno.id, [`${base}/mate`])).rejects.toMatchObject({ status: 403 });
   });
 
   it('lee productos de una tienda, de un listado y de Mercado Libre, y explica lo que no pudo', async () => {

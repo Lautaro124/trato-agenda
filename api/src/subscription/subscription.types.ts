@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsEmail, IsIn, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import type { Subscription } from '../generated/prisma/client.js';
-import { funcionesDelPlan, IDS_DE_PLAN, planVigente, type EstadoSuscripcion, type FuncionesDelPlan, type PlanId } from './subscription.rules.js';
+import { IDS_DE_PLAN, planVigente, type EstadoSuscripcion, type PlanId } from './subscription.rules.js';
 
 /** Lo único que el frontend ve de la suscripción. */
 export type SuscripcionPublica = {
@@ -16,8 +16,6 @@ export type SuscripcionPublica = {
   moneda: string;
   /** Chats (clientes distintos) del mes en curso contra el tope del plan. */
   uso: { chats: number; limite: number };
-  /** Lo que habilita el plan vigente (la web no copia la regla). */
-  funciones: FuncionesDelPlan;
 };
 
 export type PlanPublico = { id: PlanId; nombre: string; chats: number; monto: number };
@@ -48,7 +46,6 @@ export function aSuscripcionPublica(
     monto: pagando ? suscripcion.montoCentavos / 100 : montoPorDefecto,
     moneda: pagando ? suscripcion.moneda : 'ARS',
     uso,
-    funciones: funcionesDelPlan(plan),
   };
 }
 

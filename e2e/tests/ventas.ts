@@ -111,17 +111,3 @@ export async function llamadasDeMercadoPago(request: APIRequestContext): Promise
   expect(res.ok()).toBe(true);
   return res.json() as Promise<LlamadaMp[]>;
 }
-
-/**
- * Pasa la cuenta al plan Pro por la pantalla de verdad: /plan → el Mercado
- * Pago falso (preapproval) → "Autorizar", que avisa al webhook firmado y
- * vuelve a /plan?volviendo=1 hasta que la API la ve activa.
- */
-export async function pasarAPro(page: Page): Promise<void> {
-  await page.goto('/plan');
-  await page.getByRole('radio', { name: 'Plan Pro' }).click();
-  await page.getByRole('button', { name: 'Suscribirme' }).click();
-  await page.waitForURL(/\/preapproval\/preapp-[\w-]+\/autorizar$/);
-  await page.getByRole('button', { name: 'Autorizar' }).click();
-  await expect(page.getByRole('heading', { name: 'Listo, tu plan queda activo' })).toBeVisible();
-}

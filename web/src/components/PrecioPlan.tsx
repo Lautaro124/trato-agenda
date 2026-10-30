@@ -11,7 +11,7 @@ import { formatearChats, formatearMonto, usePrecioPlan } from "@/lib/suscripcion
  * ocupan el mismo alto sin mostrar un número, así nunca aparece un precio que
  * no es el de env.
  */
-export function PlanesPrecio({ incluye, incluyePro }: { incluye: readonly string[]; incluyePro: readonly string[] }) {
+export function PlanesPrecio({ incluye }: { incluye: readonly string[] }) {
   const precio = usePrecioPlan();
   const planes = precio?.planes ?? [];
 
@@ -42,7 +42,7 @@ export function PlanesPrecio({ incluye, incluyePro }: { incluye: readonly string
             </div>
           )}
           <div className="mt-6 flex flex-1 flex-col gap-2.5 border-t border-line pt-6">
-            {[...incluye, ...(plan?.id === "pro" ? incluyePro : [])].map((texto) => (
+            {incluye.map((texto) => (
               <div key={texto} className="flex items-start gap-2.5 text-[15px] leading-[1.5] text-ink-secondary">
                 <span className="mt-px grid size-5 flex-none place-items-center rounded-full bg-accent-subtle text-xs text-accent">
                   ✓

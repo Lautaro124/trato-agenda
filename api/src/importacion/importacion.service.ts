@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -14,8 +13,6 @@ import { ProductosService } from '../comercio/productos.service.js';
 import type { Env } from '../config/env.js';
 import { resumenDeError } from '../agents/openrouter.client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { SubscriptionService } from '../subscription/subscription.service.js';
-import { funcionesDelPlan } from '../subscription/subscription.rules.js';
 import { ExtraccionIaService } from './extraccion-ia.js';
 import { descargar, DescargaError, textoDe } from './fetch-seguro.js';
 import { firmaValida, firmarBorrador } from './firma.js';
@@ -138,7 +135,6 @@ export class ImportacionService {
     private readonly prisma: PrismaService,
     private readonly productos: ProductosService,
     private readonly imagenes: ImagenesService,
-    private readonly suscripciones: SubscriptionService,
     private readonly mercadoLibre: MercadoLibreClient,
     private readonly extraccionIa: ExtraccionIaService,
     private readonly config: ConfigService<Env, true>,
@@ -148,19 +144,11 @@ export class ImportacionService {
     return hostsDePrueba(this.config.get('IMPORTACION_HOSTS_DE_PRUEBA', { infer: true }));
   }
 
-  /** Cuenta de ventas (409 si no) con el Pro pagando (403 si no): en ese orden, como /costos. */
+  /** Cuenta de ventas (409 si no). Va en todos los planes y en la prueba, como el resto. */
   async exigirAcceso(userId: string): Promise<void> {
     const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
     if (!agent || agent.tipoAsistente !== 'ventas') {
       throw new ConflictException('La importación de productos es para las cuentas que venden.');
-    }
-    const plan = await this.suscripciones.planVigente(userId);
-    if (!funcionesDelPlan(plan).importacionRapida) {
-      throw new ForbiddenException({
-        statusCode: 403,
-        motivo: 'plan_pro_requerido',
-        message: 'La importación rápida de productos es del plan Pro.',
-      });
     }
   }
 
