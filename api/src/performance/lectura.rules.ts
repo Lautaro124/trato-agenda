@@ -1,8 +1,8 @@
 /**
  * Reglas de lectura del módulo de performance (LAU-30), como funciones puras:
  * tasas que distinguen "sin datos" de 0 %, el estado de un chat abierto, el
- * período anterior para comparar y qué tan cubierto está un período por el
- * registro. Definiciones en docs/performance.md.
+ * período anterior para comparar, los conteos día por día y qué tan cubierto
+ * está un período por el registro. Definiciones en docs/performance.md.
  *
  * La base son los chats nuevos del período (`EtapaChat.createdAt`): no
  * depende de los mensajes, que se borran a los 90 días.
@@ -10,6 +10,7 @@
 import { diasEntre, type Rango } from '../comercio/historico.rules.js';
 import { claveDia, fechaEnDia } from '../conversation/graph/agenda-rules.js';
 import { ETAPAS, type Etapa } from './etapas.rules.js';
+import type { ConteosConversion, DiaPerformance } from './performance.types.js';
 
 /** Sin mensajes hace esto o más: estancado. */
 export const HORAS_ESTANCADO = 48;
@@ -49,6 +50,27 @@ export function rangoAnterior(rango: Rango): Rango {
   return { primerDia, ultimoDia, desde: fechaEnDia(primerDia, '00:00'), hasta: rango.desde };
 }
 
+const SIN_CONTEOS: ConteosConversion = { chats: 0, conPedido: 0, pedidos: 0, pagados: 0, conPago: 0, cobradoCentavos: 0 };
+
+/**
+ * Un día por cada día del rango, en orden. Junta las filas parciales de un
+ * mismo día (chats por un lado, pedidos por otro); lo que falta va en cero.
+ */
+export function completarDias(rango: Rango, filas: Array<Partial<ConteosConversion> & { dia: string }>): DiaPerformance[] {
+  const porDia = new Map<string, DiaPerformance>();
+  for (const fila of filas) porDia.set(fila.dia, { ...SIN_CONTEOS, ...porDia.get(fila.dia), ...fila });
+  return diasEntre(rango.primerDia, rango.ultimoDia).map((dia) => porDia.get(dia) ?? { ...SIN_CONTEOS, dia });
+}
+
+/** Los conteos del período: la suma de sus días, así el total y el gráfico nunca difieren. */
+export function sumarDias(dias: DiaPerformance[]): ConteosConversion {
+  const total = { ...SIN_CONTEOS };
+  for (const dia of dias) {
+    for (const clave of Object.keys(total) as Array<keyof ConteosConversion>) total[clave] += dia[clave];
+  }
+  return total;
+}
+
 export type Cobertura = 'completos' | 'parciales' | 'sin_datos';
 
 /**
@@ -83,6 +105,9 @@ export const DEFINICIONES = {
   chatAPago: 'De los chats nuevos del período, cuántos terminaron en un pago.',
   estancado: `Un chat sin pagar está estancado si no escribe hace ${HORAS_ESTANCADO} horas o más.`,
   abandonado: `Un chat sin pagar está abandonado si no escribe hace más de ${DIAS_ABANDONADO} días.`,
+  cobrado: 'Lo cobrado de los pedidos pagados de esos chats, en la moneda elegida.',
+  porDia: 'Cada día cuenta los chats que escribieron por primera vez ese día, con sus pedidos y pagos aunque lleguen después.',
+  comparacion: 'Se compara con el período anterior del mismo largo, con los mismos filtros y las mismas definiciones.',
   sinDatos: 'Sin datos: no hubo chats para calcularlo, o el período es anterior al registro. No es lo mismo que 0 %.',
   preguntas:
     'Las preguntas las agrupa automáticamente la inteligencia artificial cuando el chat queda quieto 48 horas o paga: es una estimación, no lo que se registró palabra por palabra.',
