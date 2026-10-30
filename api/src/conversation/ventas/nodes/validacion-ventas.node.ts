@@ -53,7 +53,7 @@ export type HistorialValidacion = {
    * para esas. Las del listado de ver_catalogo salen solas y no lo gastan.
    */
   fotosPedidas: number;
-  /** Con productos a medida: fotos (claveDeFoto) que ya le llegaron al cliente en la parte de la charla que ve el modelo. */
+  /** Fotos (claveDeFoto) que ya le llegaron al cliente en la parte de la charla que ve el modelo. */
   fotosYaMandadas: Set<string>;
 };
 
@@ -88,10 +88,8 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
         .slice(state.indiceDesde ?? 0)
         .filter((mensaje) => mensaje.getType() === 'tool' && (mensaje as ToolMessage).name === HERRAMIENTA_IMAGEN),
     ).size,
-    // Con productos a medida el asistente las manda solo: ahí se corta repetir una. Si no, sólo salen cuando las piden.
-    fotosYaMandadas: state.contexto.tieneAMedida
-      ? fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0))
-      : new Set(),
+    // El asistente las manda solo cuando muestra productos: se corta repetir una.
+    fotosYaMandadas: fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)),
   };
 }
 

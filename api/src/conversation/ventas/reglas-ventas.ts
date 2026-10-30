@@ -273,6 +273,7 @@ export function reglasDeVenta(
     `equipo con derivar_consulta y decile que en un rato le escribimos por este chat.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
     `${REGLA_FOTOS_PEDIDAS}\n` +
+    `${REGLA_FOTOS_SOLAS}\n` +
     `- Para vender${aMedida ? ' un producto con stock' : ''}: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, variante, ` +
     `cantidad y precio) y preguntale "${cierre}". No le pidas que confirme el pedido ni le repitas el resumen ` +
     `para que diga que sí.\n` +
@@ -311,17 +312,20 @@ export const REGLA_A_MEDIDA =
   'cómo se fabrican: la descripción y los materiales son para que vos sepas. Si pregunta, contestá con eso.';
 
 /**
- * Un producto a medida se elige mirando: sus fotos van solas, sin que las
- * pida (las de stock, sólo si las pide). El tope por mensaje y las repetidas
+ * Un producto se elige mirando: las fotos de lo que se le muestra van solas,
+ * sin que las pida, de stock o a medida. El tope por mensaje y las repetidas
  * las corta la validación.
  */
+export const REGLA_FOTOS_SOLAS =
+  '- Las fotos mandalas sin esperar a que te las pidan: cuando le muestres productos de una búsqueda que dicen ' +
+  '"tiene foto", mandale con enviar_imagen_producto la de cada uno que le nombrás (hasta 3), salvo las que ya le ' +
+  'llegaron en esta charla. Las del listado de ver_catalogo ya le llegaron solas. No las describas: seguí la charla.';
+
+/** Las versiones de un producto a medida pueden tener foto propia, distinta de la del producto. */
 export const REGLA_FOTOS_A_MEDIDA =
-  '- Las fotos de los productos a medida mandalas sin esperar a que te las pidan: cuando le muestres productos ' +
-  'a medida de una búsqueda que dicen "tiene foto", mandale con enviar_imagen_producto la de cada uno que le ' +
-  'nombrás (hasta 3). Las del listado de ver_catalogo ya le llegaron solas. Cuando elija una versión o te pida ' +
-  'verla, si dice "tiene foto propia" mandale esa (con productoId y su varianteId): es otra foto, distinta de la ' +
-  'del producto, aunque la del producto ya se la hayas mandado. Si la versión no tiene foto propia, mandale la del ' +
-  'producto, salvo que ya le haya llegado. No las describas: seguí la charla.';
+  '- Cuando elija una versión de un producto a medida o te pida verla, si dice "tiene foto propia" mandale esa ' +
+  '(con productoId y su varianteId): es otra foto, distinta de la del producto, aunque la del producto ya se la ' +
+  'hayas mandado. Si la versión no tiene foto propia, mandale la del producto, salvo que ya le haya llegado.';
 
 /**
  * Pedir una foto y que conteste "no hay" cuando la búsqueda decía que sí

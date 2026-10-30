@@ -29,6 +29,7 @@ import {
   sinLineasRepetidas,
   REGLA_FOTOS_A_MEDIDA,
   REGLA_FOTOS_PEDIDAS,
+  REGLA_FOTOS_SOLAS,
   REGLA_PREGUNTAS_A_MEDIDA,
   variantesMostradas,
   yaSeHablaronDescuentos,
@@ -477,7 +478,9 @@ describe('reglas de venta con productos a medida', () => {
     expect(sinMp).toContain('si las reglas de arriba los piden) y pasale lo que te devuelva');
   });
 
-  it('las fotos de los a medida van solas; las de stock, sólo si las pide', () => {
+  it('las fotos de lo que muestra van solas, de stock o a medida; las de versiones, sólo con a medida', () => {
+    expect(reglasDeVenta(agente, true, null, true)).toContain(REGLA_FOTOS_SOLAS);
+    expect(reglasDeVenta(agente, true)).toContain(REGLA_FOTOS_SOLAS);
     expect(reglasDeVenta(agente, true, null, true)).toContain(REGLA_FOTOS_A_MEDIDA);
     expect(reglasDeVenta(agente, true)).not.toContain(REGLA_FOTOS_A_MEDIDA);
   });
@@ -827,7 +830,7 @@ describe('leyendaDeProducto', () => {
 describe('fotos y preguntas sin repetir (chat de prueba de los sillones)', () => {
   it('una versión con foto propia lo dice, distinta de la del producto', () => {
     expect(REGLA_FOTOS_A_MEDIDA).toContain('es otra foto, distinta de la del producto');
-    expect(REGLA_FOTOS_A_MEDIDA).toContain('Las del listado de ver_catalogo ya le llegaron solas');
+    expect(REGLA_FOTOS_SOLAS).toContain('Las del listado de ver_catalogo ya le llegaron solas');
     expect(REGLA_FOTOS_PEDIDAS).toContain('Nunca le digas que no hay foto de algo que la búsqueda marca con foto');
     expect(reglasDeVenta({ nombreTitular: 'X', nombreBot: 'Y', haceEnvios: false, datosCliente: null } as unknown as Agent, false)).toContain(
       REGLA_FOTOS_PEDIDAS,

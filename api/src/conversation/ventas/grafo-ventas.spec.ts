@@ -826,14 +826,7 @@ describe('grafo de ventas', () => {
       ]);
     });
 
-    it('el tope es por mensaje del cliente: en el siguiente puede mandar otra', async () => {
-      const imagenes = conFoto();
-      const llm = crearModelo([
-        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f1'),
-        new AIMessage('Ahí va.'),
-        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f2'),
-        new AIMessage('Ahí va de nuevo.'),
-      ]);
+    function grafoConDosMensajes(imagenes: Pick<ImagenesService, 'estadoDeFoto'>, llm: BaseChatModel) {
       const grafo = construirGrafoVentas({
         prisma: crearPrisma(),
         llm,
@@ -842,6 +835,7 @@ describe('grafo de ventas', () => {
         ventas: crearVentas(),
         notificaciones: crearNotificaciones(),
         historico: crearHistorico(),
+        pedidos: crearPedidosAMedida(),
         imagenes,
         openRouter: { chat: vi.fn() } as unknown as OpenRouterClient,
         checkpointer: new MemorySaver(),
@@ -853,12 +847,40 @@ describe('grafo de ventas', () => {
         remoteJid: CONVERSATION.remoteJid,
         esPropietario: false,
       });
+      return async (primero: string, segundo: string) => {
+        await grafo.invoke(entrada(primero), config);
+        return grafo.invoke(entrada(segundo), config);
+      };
+    }
 
-      await grafo.invoke(entrada('mandame la foto'), config);
-      const segunda = await grafo.invoke(entrada('otra vez'), config);
+    it('el tope es por mensaje del cliente: en el siguiente puede mandar otra', async () => {
+      const imagenes = conFoto();
+      const llm = crearModelo([
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f1'),
+        new AIMessage('Ahí va.'),
+        llamada('enviar_imagen_producto', { productoId: 'p-2' }, 'f2'),
+        new AIMessage('Y esta es la otra.'),
+      ]);
 
-      // Lo del mensaje anterior no cuenta: la foto vuelve a salir.
-      expect(imagenesDeLaVuelta(segunda.messages)).toEqual([{ productoId: 'p-1', nombre: 'Mate de calabaza' }]);
+      const segunda = await grafoConDosMensajes(imagenes, llm)('mandame la foto', 'y la del otro?');
+
+      // Lo del mensaje anterior no cuenta para el tope.
+      expect(imagenesDeLaVuelta(segunda.messages)).toEqual([{ productoId: 'p-2', nombre: 'Mate de calabaza' }]);
+    });
+
+    it('no repite una foto que ya le llegó en la charla, aunque no haya productos a medida', async () => {
+      const imagenes = conFoto();
+      const llm = crearModelo([
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f1'),
+        new AIMessage('Ahí va.'),
+        llamada('enviar_imagen_producto', { productoId: 'p-1' }, 'f2'),
+        new AIMessage('Es ese mismo.'),
+      ]);
+
+      const segunda = await grafoConDosMensajes(imagenes, llm)('mandame la foto', '¿y el mate?');
+
+      expect(resultadoDe(segunda.messages, 'enviar_imagen_producto').content).toContain('ya se la mandaste en esta charla');
+      expect(imagenesDeLaVuelta(segunda.messages)).toEqual([]);
     });
 
     it('un agente creado antes de las fotos tiene la herramienta igual, sin regenerarlo', async () => {
