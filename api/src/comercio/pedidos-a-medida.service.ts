@@ -14,6 +14,7 @@ import { MercadoPagoNoAutorizadoError } from '../subscription/mercadopago.client
 import { CostosService } from './costos.service.js';
 import { leerPolitica, leerReceta, recetaConContenido, type PoliticaCotizacion } from './costos.rules.js';
 import { cotizar, type Cotizacion, type CotizacionFallida } from './cotizacion.rules.js';
+import { leerCondiciones } from './condiciones-pago.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import {
   armarSolicitudDeVenta,
@@ -24,6 +25,7 @@ import {
   LARGO_MAX_NOTA,
   leerSolicitudDeVenta,
   MAX_A_MEDIDA_ABIERTOS,
+  pausaPorCobroManual,
   itemDeCobro,
   renglonDeVariante,
   resumenDeVariante,
@@ -914,6 +916,18 @@ export class PedidosAMedidaService {
       await tx.eventoVenta.create({
         data: { ventaId, tipo: 'estado', de: bloqueada.estado, a: 'pendiente_pago', motivo: medio, autor: opciones.autor },
       });
+      // Cobro sin link pedido por el asistente con el cobro manual configurado:
+      // le manda los datos de pago y el chat queda para el negocio.
+      const pausa =
+        medio === 'manual' &&
+        opciones.autor === 'asistente' &&
+        bloqueada.conversationId !== null &&
+        leerCondiciones(await tx.condicionesPago.findUnique({ where: { userId } })).cobroManual !== null;
+      if (pausa) {
+        await tx.eventoVenta.create({
+          data: { ventaId, tipo: 'derivacion', de: bloqueada.atencion, a: 'humana', motivo: 'cobro_manual', autor: 'sistema' },
+        });
+      }
       return tx.venta.update({
         where: { id: ventaId },
         data: {
@@ -924,6 +938,7 @@ export class PedidosAMedidaService {
           mpPreferenceId: null,
           ...(opciones.entrega ? { entrega: opciones.entrega } : {}),
           ...datosParaGuardar(opciones.datosCliente),
+          ...(pausa ? pausaPorCobroManual(ahora) : {}),
         },
         include: { items: true },
       });
@@ -960,6 +975,7 @@ export class PedidosAMedidaService {
           ...this.avisable(actual, solicitud),
           totalCentavos: vigente.totalCentavos,
           entrega: venta.entrega,
+          atencion: venta.atencion,
         }),
       );
     }

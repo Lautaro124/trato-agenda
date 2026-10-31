@@ -192,7 +192,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         await deps.registro?.registrarPedidoDeVariantes(state.ownerUserId, conversation.id, varianteIds);
       }
       await registrar.zona(state, venta.datosCliente);
-      return formatearPedidoCreado(agent, venta);
+      return formatearPedidoCreado(agent, venta, state.contexto.condicionesPago);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
       throw error;
@@ -313,7 +313,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       const productoId = leerSolicitudDeVenta(venta.solicitud)?.productoId;
       if (productoId) await registrar.pedidos(state, [productoId]);
       await registrar.zona(state, venta.datosCliente);
-      return formatearCobroAMedida(state.contexto.agent, venta, true);
+      return formatearCobroAMedida(state.contexto.agent, venta, true, state.contexto.condicionesPago);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo anotar el pedido: ${error.message}`;
       throw error;
@@ -329,7 +329,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         datosCliente: leerDatosDeVenta(args.datosCliente),
       });
       await registrar.zona(state, venta.datosCliente);
-      return formatearCobroAMedida(state.contexto.agent, venta);
+      return formatearCobroAMedida(state.contexto.agent, venta, false, state.contexto.condicionesPago);
     } catch (error) {
       if (error instanceof PedidoRechazadoError) return `No se pudo generar el cobro: ${error.message}`;
       throw error;

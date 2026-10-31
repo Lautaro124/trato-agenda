@@ -36,7 +36,7 @@ import {
   type FormaDePago,
 } from './condiciones-pago.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
-import { enAtencionHumana } from './pedido-a-medida.rules.js';
+import { enAtencionHumana, pausaPorCobroManual } from './pedido-a-medida.rules.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
@@ -516,6 +516,7 @@ export class VentasService {
     const plan = condiciones.planesCuotas.find((candidato) => candidato.cuotas === cuotas);
     const recargo = plan ? recargoDe(subtotal, plan) : 0;
 
+    const pausa = input.medioPago === 'manual' && condiciones.cobroManual !== null && input.conversationId !== null;
     const venta = await tx.venta.create({
       data: {
         userId: input.userId,
@@ -534,6 +535,16 @@ export class VentasService {
         entrega: leerEntrega(input.entrega),
         ...datosParaGuardar(input.datosCliente),
         items: { create: renglones },
+        // Con el cobro manual configurado, el asistente manda los datos de pago y
+        // el chat queda para el negocio hasta que el pedido se pague o se cancele.
+        ...(pausa
+          ? {
+              ...pausaPorCobroManual(ahora),
+              eventos: {
+                create: { tipo: 'derivacion', de: 'asistente', a: 'humana', motivo: 'cobro_manual', autor: 'sistema' },
+              },
+            }
+          : {}),
       },
       include: { items: true },
     });

@@ -209,6 +209,7 @@ export const ETIQUETA_MOTIVO: Record<string, string> = {
   excepcion: "Pide algo fuera de lo habitual",
   pide_persona: "Quiere hablar con una persona",
   sin_reglas: "No hay cómo cotizarlo automáticamente",
+  cobro_manual: "Espera que le cobres a mano: se libera solo cuando lo marcás pagado o lo cancelás",
   dueno: "Lo tomaste vos",
   otro: "Otro motivo",
 };

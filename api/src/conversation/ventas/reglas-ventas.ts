@@ -43,6 +43,7 @@ import {
   instruccionMandarTalCual,
   mensajePropio,
   neutralizarMarcador,
+  REGLA_MENSAJE_TAL_CUAL,
   reglaDeMensajesPropios,
 } from '../../agents/mensajes.rules.js';
 import { estadoDelLocal, leerLocal, NOMBRE_DIA, resumenHorarios, type DiaSemana } from '../../agents/local.js';
@@ -517,19 +518,80 @@ export function lineaDePedidoAMedida(
 
 type PedidoAMedidaConPresupuestos = VentaConItems & { presupuestos: Presupuesto[] };
 
+/**
+ * Con el cobro manual configurado, anotar un pedido sin link deja el chat en
+ * manos del negocio: todo lo que haga falta se pregunta antes.
+ */
+const ANTES_DEL_COBRO_MANUAL =
+  'Mandáselo tal cual y no sigas: desde ahí el chat lo sigue el negocio, que valida el pago. Por eso, antes de ' +
+  'anotarlo confirmá todo lo que haga falta (productos, entrega, datos y si quiere algo más).';
+
+const CIERRE_COBRO_MANUAL =
+  'Es tu último mensaje en este chat: después lo sigue el negocio. No le hagas preguntas ni le ofrezcas nada más.';
+
+type VentaCobrable = Pick<Venta, 'totalCentavos' | 'moneda' | 'formaPago' | 'nombreCliente'> & { items: ItemVenta[] };
+
+/**
+ * Lo que se le manda al cliente al anotar un pedido sin link cuando el
+ * comercio configuró el cobro manual, o null si no lo configuró. Los datos del
+ * dueño entran por completarPlantilla: una línea, acotados y sin el marcador.
+ * Un pedido en dólares o en efectivo no va al alias (está en pesos y es para
+ * transferir): ahí el negocio escribe para coordinar.
+ */
+export function mensajeDeCobroManual(agent: Agent, condiciones: CondicionesPago, venta: VentaCobrable): string | null {
+  const cobro = condiciones.cobroManual;
+  if (!cobro) return null;
+  const datos = {
+    nombre: primerNombre(venta.nombreCliente),
+    total: formatearMonto(venta.totalCentavos ?? 0, venta.moneda),
+    detalle: detalleDeRenglones(venta.items, venta.moneda),
+    negocio: agent.nombreTitular || 'El negocio',
+  };
+  if (cobro.modo === 'otro_canal') return completarPlantilla(cobro.mensaje, datos);
+  if (monedaDe(venta.moneda) !== 'ARS' || venta.formaPago === 'efectivo') {
+    return completarPlantilla(
+      `¡Listo, quedó anotado! {negocio} te escribe por acá para coordinar el pago${venta.formaPago === 'efectivo' ? ' en efectivo' : ''}.`,
+      datos,
+    );
+  }
+  return completarPlantilla(
+    `Para confirmar tu pedido, transferí {total} al ${/^\d{22}$/.test(cobro.alias) ? 'CBU/CVU' : 'alias'} {alias} ` +
+      `(a nombre de {titular}) y mandá el comprobante por acá. {negocio} lo revisa y te confirma.`,
+    { ...datos, alias: cobro.alias, titular: cobro.titular },
+  );
+}
+
+/**
+ * Si el pedido dejó el chat para el negocio por el cobro manual, lo que el
+ * modelo tiene que mandar (tal cual) y cortar; si no, null.
+ */
+function cobroManualParaElModelo(
+  agent: Agent,
+  condiciones: CondicionesPago,
+  venta: VentaCobrable & Pick<Venta, 'atencion' | 'motivoDerivacion'>,
+): string | null {
+  if (venta.atencion !== 'humana' || venta.motivoDerivacion !== 'cobro_manual') return null;
+  const mensaje = mensajeDeCobroManual(agent, condiciones, venta);
+  return mensaje ? `${instruccionMandarTalCual(mensaje)} ${CIERRE_COBRO_MANUAL}` : null;
+}
+
 /** Cómo se cobra un presupuesto aceptado y los pedidos a medida de esta conversación. */
 function bloquePedidosAMedida(
   agent: Agent,
   mpConectado: boolean,
   pedidos: PedidoAMedidaConPresupuestos[],
   ahora: Date,
+  condiciones: CondicionesPago,
 ): string[] {
   const titular = agent.nombreTitular || 'el negocio';
   const cobro = mpConectado
     ? `Cobro de los productos a medida: cuando el cliente acepta un presupuesto, aceptar_presupuesto genera el ` +
       `link de pago de Mercado Pago a nombre de ${titular}.`
-    : `Cobro de los productos a medida: cuando el cliente acepta un presupuesto, aceptar_presupuesto lo deja ` +
-      `anotado y le escribimos por este chat para coordinar el pago.`;
+    : condiciones.cobroManual
+      ? `Cobro de los productos a medida: cuando el cliente acepta un presupuesto, aceptar_presupuesto lo deja ` +
+        `anotado y te devuelve el mensaje con cómo pagar. ${ANTES_DEL_COBRO_MANUAL}`
+      : `Cobro de los productos a medida: cuando el cliente acepta un presupuesto, aceptar_presupuesto lo deja ` +
+        `anotado y le escribimos por este chat para coordinar el pago.`;
   const lineas = [cobro];
   if (pedidos.length > 0) {
     lineas.push(
@@ -555,12 +617,19 @@ export function bloquePedidos(
   condiciones: CondicionesPago = SIN_CONDICIONES,
 ): string {
   const titular = agent.nombreTitular || 'el negocio';
+  const manual = condiciones.cobroManual;
+  const sinLink = manual
+    ? `crear_pedido te devuelve el mensaje con cómo pagar${manual.modo === 'transferencia' ? ' (los datos para transferir)' : ''}. ` +
+      ANTES_DEL_COBRO_MANUAL
+    : '';
   const cobro = mpConectado
     ? `Cobro: con link de pago de Mercado Pago (crear_pedido lo genera y vale 30 minutos). Si el cliente ` +
-      `prefiere transferencia o efectivo, creá el pedido con medioPago "manual" y decile que le escribimos por ` +
-      `acá para coordinar el pago.`
+      `prefiere transferencia o efectivo, creá el pedido con medioPago "manual" y ` +
+      (manual ? sinLink : `decile que le escribimos por acá para coordinar el pago.`)
     : `Cobro: ${titular} no cobra con link por ahora. Los pedidos quedan anotados (crear_pedido con medioPago ` +
-      `"manual") y le escribimos por este chat para coordinar el pago y la entrega.`;
+      `"manual") ` +
+      (manual ? `y ${sinLink}` : `y le escribimos por este chat para coordinar el pago y la entrega.`) +
+      (manual ? REGLA_MENSAJE_TAL_CUAL : '');
   const pendientes = pedidos.filter((pedido) => estadoVisible(pedido, ahora) === 'pendiente_pago');
   const pagados = pedidos.filter((pedido) => pedido.estado === 'pagada');
   const lineas = [cobro, reglaDeFormasDePago(condiciones, mpConectado)];
@@ -577,7 +646,7 @@ export function bloquePedidos(
         `${pagados.map((pedido) => detalleDeRenglones(pedido.items, pedido.moneda)).join(' | ')}.`,
     );
   }
-  if (aMedida || pedidosAMedida.length > 0) lineas.push(...bloquePedidosAMedida(agent, mpConectado, pedidosAMedida, ahora));
+  if (aMedida || pedidosAMedida.length > 0) lineas.push(...bloquePedidosAMedida(agent, mpConectado, pedidosAMedida, ahora, condiciones));
   return lineas.join('\n');
 }
 
@@ -684,7 +753,11 @@ function detalleDeFormaDePago(venta: VentaConItems): string {
 // h23: "17:42" y no "05:42 p. m.", que es lo que da es-AR por defecto.
 const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 /** Lo que vuelve al modelo después de crear un pedido. */
-export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
+export function formatearPedidoCreado(
+  agent: Agent,
+  venta: VentaConItems,
+  condiciones: CondicionesPago = SIN_CONDICIONES,
+): string {
   const ahorro = venta.items.reduce((suma, item) => suma + item.descuentoCentavos * item.cantidad, 0);
   const base =
     `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items, venta.moneda)}. ` +
@@ -717,6 +790,8 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
         : '')
     );
   }
+  const manual = cobroManualParaElModelo(agent, condiciones, venta);
+  if (manual) return `${base} ${manual}`;
   return (
     `${base}${venta.reservaVenceAt ? ` Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}.` : ''} ` +
     (monedaDe(venta.moneda) === 'USD'
@@ -1360,7 +1435,12 @@ export function formatearSolicitudRegistrada(
  * Lo que vuelve al modelo después de aceptar_presupuesto o de pedir_variante
  * (una versión de precio fijo pedida tal cual: no hubo presupuesto que aceptar).
  */
-export function formatearCobroAMedida(agent: Agent, venta: VentaConItems, deVariante = false): string {
+export function formatearCobroAMedida(
+  agent: Agent,
+  venta: VentaConItems,
+  deVariante = false,
+  condiciones: CondicionesPago = SIN_CONDICIONES,
+): string {
   const total = formatearCentavos(venta.totalCentavos ?? 0);
   const base = deVariante
     ? `Pedido anotado [pedido ${venta.id}] ${nombreDePedido(venta)}: total ${total}, el precio fijo de esa versión.`
@@ -1382,6 +1462,8 @@ export function formatearCobroAMedida(agent: Agent, venta: VentaConItems, deVari
       (venta.reservaVenceAt ? ` — vale hasta el ${fechaYHora(venta.reservaVenceAt)}.` : '.')
     );
   }
+  const manual = cobroManualParaElModelo(agent, condiciones, venta);
+  if (manual) return `${base} ${manual}`;
   return `${base} Queda anotado: decile al cliente que le escribimos por este chat para coordinar el pago.`;
 }
 

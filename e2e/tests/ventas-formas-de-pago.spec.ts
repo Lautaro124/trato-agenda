@@ -39,6 +39,7 @@ test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
         { cuotas: 6, recargoPorcentaje: 15 },
       ],
       descuentoEfectivoPorcentaje: 10,
+      cobroManual: null,
     });
 
     // Al volver, la sección muestra lo guardado, ordenado por cuotas.
@@ -53,6 +54,46 @@ test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
     await expect(
       tienda.getByText('Tu asistente ofrece: 3 cuotas sin interés, 6 cuotas con 15% de recargo, 10% off en efectivo.'),
     ).toBeVisible();
+  });
+
+  test('el cobro sin link se configura con un alias o con un mensaje propio', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    await page.goto('/cuenta#formas-de-pago');
+    const seccion = page.getByRole('region', { name: 'Formas de pago' });
+    await expect(seccion.getByRole('radio', { name: /Coordinar por el chat/ })).toBeChecked();
+
+    await seccion.getByRole('radio', { name: /Transferencia/ }).check();
+    await seccion.getByLabel('Alias o CBU/CVU').fill('abc');
+    await seccion.getByLabel('A nombre de').fill('Ana Pérez');
+    await expect(seccion.getByRole('alert')).toContainText('El alias tiene que tener de 6 a 20');
+    await seccion.getByLabel('Alias o CBU/CVU').fill('Mates.Sur');
+    await expect(seccion.getByText(/tu asistente deja de contestar en ese chat/)).toBeVisible();
+    await seccion.getByRole('button', { name: 'Guardar formas de pago' }).click();
+    await expect(seccion.getByRole('status')).toHaveText('Listo: tu asistente ya ofrece estas formas de pago.');
+
+    let res = await context.request.get(`${API_URL}/condiciones-pago`);
+    expect((await res.json()).cobroManual).toEqual({ modo: 'transferencia', alias: 'mates.sur', titular: 'Ana Pérez' });
+
+    await page.reload();
+    await expect(seccion.getByRole('radio', { name: /Transferencia/ })).toBeChecked();
+    await expect(seccion.getByLabel('Alias o CBU/CVU')).toHaveValue('mates.sur');
+
+    await seccion.getByRole('radio', { name: /Otro canal/ }).check();
+    await seccion.getByLabel('Mensaje para el cliente').fill('Te cobramos {total} desde el 11-5555-0000, {nombre}.');
+    await seccion.getByRole('button', { name: 'Guardar formas de pago' }).click();
+    await expect(seccion.getByRole('status')).toHaveText('Listo: tu asistente ya ofrece estas formas de pago.');
+    res = await context.request.get(`${API_URL}/condiciones-pago`);
+    expect((await res.json()).cobroManual).toEqual({
+      modo: 'otro_canal',
+      mensaje: 'Te cobramos {total} desde el 11-5555-0000, {nombre}.',
+    });
+
+    // Un dato que no se completa solo lo rechaza también la API.
+    const rechazo = await context.request.put(`${API_URL}/condiciones-pago`, {
+      data: { planesCuotas: [], descuentoEfectivoPorcentaje: null, cobroManual: { modo: 'otro_canal', mensaje: 'Pagá en {link}' } },
+    });
+    expect(rechazo.status()).toBe(400);
   });
 
   test('un producto se limita a menos cuotas desde su editor', async ({ page, context, usuarioDev }) => {

@@ -896,6 +896,15 @@ model CondicionesPago {
   /// Porcentaje de descuento pagando en efectivo; null = no hay.
   descuentoEfectivoPorcentaje Int?
 
+  /// Cómo se cobra un pedido sin link: "transferencia" (alias + titular) u
+  /// "otro_canal" (mensaje del dueño). Con cualquiera, el asistente se lo
+  /// manda al cliente y el chat pasa al negocio hasta que el pedido se pague o
+  /// se cancele. null = se coordina por el chat y el asistente sigue.
+  cobroManual          String?
+  aliasTransferencia   String?
+  titularTransferencia String?
+  mensajeCobroManual   String?
+
   updatedAt DateTime @updatedAt
 }
 
