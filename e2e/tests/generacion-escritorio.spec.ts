@@ -26,6 +26,9 @@ test.describe('generación de agente: wizard de escritorio', () => {
     );
     expect(agente).not.toHaveProperty('systemPrompt');
 
+    // Vincular se puede dejar para después: el atajo lleva al inicio, no a los planes.
+    await expect(page.getByRole('link', { name: 'Ir al inicio' })).toHaveAttribute('href', '/inicio');
+
     await page.getByRole('button', { name: 'Vincular WhatsApp y empezar' }).click();
     await esperarRuta(page, '/vincular');
   });
