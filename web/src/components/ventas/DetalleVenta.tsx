@@ -20,7 +20,7 @@ import {
   type DetalleVenta as Detalle,
 } from "@/lib/ventas";
 import { loAtendesVos, TONO_ESTADO, totalDeVenta } from "./ListaVentas";
-import { PedidoAMedida, type AccionesPedido } from "./PedidoAMedida";
+import { Atencion, PedidoAMedida, type AccionesPedido } from "./PedidoAMedida";
 
 /** El detalle de un pedido, con las acciones del dueño si todavía no se pagó. */
 export function DetalleVenta({
@@ -167,6 +167,13 @@ export function DetalleVenta({
         )}
 
         {aMedida && <PedidoAMedida venta={venta} acciones={acciones} />}
+
+        {/* Un pedido de stock sólo pasa a vos por el cobro manual: se ve y se puede devolver. */}
+        {!aMedida && loAtendesVos(venta) && (
+          <div className="mb-4">
+            <Atencion venta={venta} acciones={acciones} />
+          </div>
+        )}
 
         {!aMedida && (
         <table className="mb-4 w-full text-[13.5px]">

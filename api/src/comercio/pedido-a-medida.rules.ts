@@ -17,10 +17,20 @@ export type Atencion = (typeof ATENCIONES)[number];
 
 /**
  * Por qué un pedido pasó a una persona. `sin_reglas` lo pone el código (no
- * hay con qué cotizarlo solo) y `dueno` es el dueño tomándolo desde el panel;
- * el resto los elige el asistente con derivar_a_persona.
+ * hay con qué cotizarlo solo), `cobro_manual` también (un pedido sin link con
+ * el cobro manual configurado: el negocio lo cobra) y `dueno` es el dueño
+ * tomándolo desde el panel; el resto los elige el asistente con
+ * derivar_a_persona.
  */
-export const MOTIVOS_DERIVACION = ['falta_info', 'excepcion', 'pide_persona', 'sin_reglas', 'dueno', 'otro'] as const;
+export const MOTIVOS_DERIVACION = [
+  'falta_info',
+  'excepcion',
+  'pide_persona',
+  'sin_reglas',
+  'cobro_manual',
+  'dueno',
+  'otro',
+] as const;
 export type MotivoDerivacion = (typeof MOTIVOS_DERIVACION)[number];
 
 export const MOTIVOS_DEL_ASISTENTE = ['falta_info', 'excepcion', 'pide_persona', 'otro'] as const;
@@ -31,6 +41,7 @@ export const ETIQUETA_MOTIVO: Record<MotivoDerivacion, string> = {
   excepcion: 'pide algo fuera de lo habitual',
   pide_persona: 'quiere hablar con una persona',
   sin_reglas: 'no hay cómo cotizarlo automáticamente',
+  cobro_manual: 'espera que le cobres a mano',
   dueno: 'lo tomaste vos',
   otro: 'otro motivo',
 };
@@ -68,6 +79,23 @@ export function estaAbierto(estado: string): boolean {
  */
 export function enAtencionHumana(venta: { atencion: string; estado: string }): boolean {
   return venta.atencion === 'humana' && estaAbierto(venta.estado);
+}
+
+/**
+ * Lo que se le escribe a un pedido sin link cuando el comercio configuró el
+ * cobro manual (condiciones-pago.rules.ts): el asistente manda los datos de
+ * pago y el chat queda en atención humana hasta que el pedido se pague o se
+ * cancele. Va en la misma escritura que lo deja pendiente de pago.
+ */
+export function pausaPorCobroManual(ahora: Date) {
+  return {
+    atencion: 'humana',
+    derivadaAt: ahora,
+    motivoDerivacion: 'cobro_manual',
+    detalleDerivacion: null,
+    devueltaAt: null,
+    notaDevolucion: null,
+  } as const;
 }
 
 /**

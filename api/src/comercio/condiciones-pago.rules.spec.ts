@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   descuentoEfectivo,
+  filaDeCobroManual,
+  normalizarCobroManual,
   hayCondiciones,
   leerCondiciones,
   MAX_PLANES_CUOTAS,
@@ -21,6 +23,7 @@ const CONDICIONES: CondicionesPago = {
     { cuotas: 6, recargoPorcentaje: 15 },
   ],
   descuentoEfectivoPorcentaje: 10,
+  cobroManual: null,
 };
 
 describe('normalizarCondiciones', () => {
@@ -39,6 +42,7 @@ describe('normalizarCondiciones', () => {
           { cuotas: 12, recargoPorcentaje: 30 },
         ],
         descuentoEfectivoPorcentaje: null,
+        cobroManual: null,
       },
     });
   });
@@ -71,6 +75,61 @@ describe('leerCondiciones', () => {
     expect(leerCondiciones({ planesCuotas: [{ cuotas: 'x' }], descuentoEfectivoPorcentaje: 10 })).toEqual(SIN_CONDICIONES);
     expect(hayCondiciones(SIN_CONDICIONES)).toBe(false);
     expect(hayCondiciones(CONDICIONES)).toBe(true);
+  });
+});
+
+describe('cobro manual', () => {
+  it('normaliza el alias y el titular de una transferencia', () => {
+    expect(normalizarCobroManual({ modo: 'transferencia', alias: ' Mi.Tienda.MP ', titular: ' Ana   Pérez ', mensaje: 'x' })).toEqual({
+      cobroManual: { modo: 'transferencia', alias: 'mi.tienda.mp', titular: 'Ana Pérez' },
+    });
+    expect(normalizarCobroManual({ modo: 'transferencia', alias: '0'.repeat(22), titular: 'Ana' })).toEqual({
+      cobroManual: { modo: 'transferencia', alias: '0'.repeat(22), titular: 'Ana' },
+    });
+  });
+
+  it('acepta un mensaje de otro canal con sus variables', () => {
+    expect(normalizarCobroManual({ modo: 'otro_canal', mensaje: '  Hola {nombre}, te cobramos {total} desde el 11-5555  ' })).toEqual({
+      cobroManual: { modo: 'otro_canal', mensaje: 'Hola {nombre}, te cobramos {total} desde el 11-5555' },
+    });
+  });
+
+  it('null o ausente es coordinar por el chat', () => {
+    expect(normalizarCobroManual(null)).toEqual({ cobroManual: null });
+    expect(normalizarCobroManual(undefined)).toEqual({ cobroManual: null });
+  });
+
+  it.each([
+    [{ modo: 'otro' }, 'no es válida'],
+    [{ modo: 'transferencia', alias: 'abc', titular: 'Ana' }, 'alias'],
+    [{ modo: 'transferencia', alias: 'alias con espacio!', titular: 'Ana' }, 'alias'],
+    [{ modo: 'transferencia', alias: 'mi.alias', titular: '  ' }, 'nombre de quién'],
+    [{ modo: 'transferencia', alias: 'mi.alias', titular: 'a'.repeat(81) }, 'titular'],
+    [{ modo: 'otro_canal', mensaje: '' }, 'Escribí el mensaje'],
+    [{ modo: 'otro_canal', mensaje: 'a'.repeat(401) }, 'como mucho'],
+    [{ modo: 'otro_canal', mensaje: 'Pagá a {link}' }, '{link}'],
+  ])('rechaza %j', (entrada, motivo) => {
+    const resultado = normalizarCobroManual(entrada);
+    expect('error' in resultado && resultado.error).toContain(motivo);
+  });
+
+  it('se guarda plano y se vuelve a leer igual', () => {
+    const cobro = { modo: 'transferencia' as const, alias: 'mi.alias', titular: 'Ana' };
+    const fila = { planesCuotas: [], descuentoEfectivoPorcentaje: null, ...filaDeCobroManual(cobro) };
+    expect(fila.mensajeCobroManual).toBeNull();
+    expect(leerCondiciones(fila).cobroManual).toEqual(cobro);
+  });
+
+  it('uno roto queda como coordinar por el chat sin llevarse las cuotas', () => {
+    const fila = {
+      planesCuotas: [{ cuotas: 3, recargoPorcentaje: 0 }],
+      descuentoEfectivoPorcentaje: null,
+      cobroManual: 'transferencia',
+      aliasTransferencia: null,
+      titularTransferencia: null,
+      mensajeCobroManual: null,
+    };
+    expect(leerCondiciones(fila)).toEqual({ ...SIN_CONDICIONES, planesCuotas: [{ cuotas: 3, recargoPorcentaje: 0 }] });
   });
 });
 
