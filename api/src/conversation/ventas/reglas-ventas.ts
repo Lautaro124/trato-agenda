@@ -9,7 +9,16 @@
 import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
+import type { CotizacionFormasDePago } from '../../comercio/ventas.service.js';
 import { formatearCentavos, formatearMonto, monedaDe, type Moneda } from '../../comercio/catalogo.rules.js';
+import {
+  hayCondiciones,
+  planesEn,
+  SIN_CONDICIONES,
+  valorDeCuota,
+  type CondicionesPago,
+  type PlanCuotas,
+} from '../../comercio/condiciones-pago.rules.js';
 import { leerConfigDatosCliente, reglaDeDatosCliente, type EtapaDeCompra } from '../../comercio/datos-cliente.rules.js';
 import {
   detalleParaElModelo,
@@ -34,6 +43,7 @@ import {
   instruccionMandarTalCual,
   mensajePropio,
   neutralizarMarcador,
+  REGLA_MENSAJE_TAL_CUAL,
   reglaDeMensajesPropios,
 } from '../../agents/mensajes.rules.js';
 import { estadoDelLocal, leerLocal, NOMBRE_DIA, resumenHorarios, type DiaSemana } from '../../agents/local.js';
@@ -124,6 +134,64 @@ export function correccionDePrecios(montos: Monto[]): string {
   );
 }
 
+/** Para comparar nombres: sin mayúsculas, tildes, asteriscos de negrita ni espacios de más. */
+function normalizarNombre(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\*/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Una foto que salió con su nombre y precio al pie (las del listado de ver_catalogo). */
+export type FotoConLeyenda = { nombre: string; leyenda: string };
+
+/**
+ * Las líneas de la respuesta que repiten un producto que ya le llegó en foto
+ * con su nombre y precio al pie: nombran el producto y llevan el mismo precio
+ * que su leyenda. Pedir las dos cosas evita confundir "Mate" (en foto) con
+ * "Mate de calabaza" (otro precio, sin foto).
+ */
+export function lineasQueRepitenFotos(respuesta: string, fotos: FotoConLeyenda[]): string[] {
+  const conPrecio = fotos.map((foto) => ({
+    nombre: normalizarNombre(foto.nombre),
+    precios: new Set(montosEnTexto(foto.leyenda).map(claveDeMonto)),
+  }));
+  return respuesta.split('\n').filter((linea) => {
+    const normalizada = normalizarNombre(linea);
+    const montos = montosEnTexto(linea).map(claveDeMonto);
+    return conPrecio.some(
+      (foto) => foto.nombre !== '' && normalizada.includes(foto.nombre) && montos.some((monto) => foto.precios.has(monto)),
+    );
+  });
+}
+
+/** La nota que vuelve al modelo cuando repitió en el texto los productos que ya le llegaron en foto. */
+export function correccionDeListaRepetida(): string {
+  return (
+    'Corrección: tu respuesta anterior repetía productos con su precio, y esos ya le llegaron al cliente en foto ' +
+    'con el nombre y el precio al pie. No los vuelvas a listar: nombrale sólo los que no le llegaron en foto, si ' +
+    'hay, y preguntale en una frase cuál le interesa. Escribí la respuesta de nuevo.'
+  );
+}
+
+/**
+ * La respuesta sin esas líneas, para cuando el modelo insiste en repetirlas.
+ * `null` si no queda nada que decir.
+ */
+export function sinLineasRepetidas(respuesta: string, repetidas: string[]): string | null {
+  const quitar = new Set(repetidas);
+  const texto = respuesta
+    .split('\n')
+    .filter((linea) => !quitar.has(linea))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return texto === '' ? null : texto;
+}
+
 /**
  * Los ids de variante que aparecieron en resultados de búsqueda: sólo los de
  * los renglones de variante de formatearResultados ("   - … [variante id]: $ …"),
@@ -206,6 +274,7 @@ export function reglasDeVenta(
     `equipo con derivar_consulta y decile que en un rato le escribimos por este chat.\n` +
     `- Los ids de variante son internos: nunca se los muestres al cliente.\n` +
     `${REGLA_FOTOS_PEDIDAS}\n` +
+    `${REGLA_FOTOS_SOLAS}\n` +
     `- Para vender${aMedida ? ' un producto con stock' : ''}: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, variante, ` +
     `cantidad y precio) y preguntale "${cierre}". No le pidas que confirme el pedido ni le repitas el resumen ` +
     `para que diga que sí.\n` +
@@ -244,17 +313,20 @@ export const REGLA_A_MEDIDA =
   'cómo se fabrican: la descripción y los materiales son para que vos sepas. Si pregunta, contestá con eso.';
 
 /**
- * Un producto a medida se elige mirando: sus fotos van solas, sin que las
- * pida (las de stock, sólo si las pide). El tope por mensaje y las repetidas
+ * Un producto se elige mirando: las fotos de lo que se le muestra van solas,
+ * sin que las pida, de stock o a medida. El tope por mensaje y las repetidas
  * las corta la validación.
  */
+export const REGLA_FOTOS_SOLAS =
+  '- Las fotos mandalas sin esperar a que te las pidan: cuando le muestres productos de una búsqueda que dicen ' +
+  '"tiene foto", mandale con enviar_imagen_producto la de cada uno que le nombrás (hasta 3), salvo las que ya le ' +
+  'llegaron en esta charla. Las del listado de ver_catalogo ya le llegaron solas. No las describas: seguí la charla.';
+
+/** Las versiones de un producto a medida pueden tener foto propia, distinta de la del producto. */
 export const REGLA_FOTOS_A_MEDIDA =
-  '- Las fotos de los productos a medida mandalas sin esperar a que te las pidan: cuando le muestres productos ' +
-  'a medida de una búsqueda que dicen "tiene foto", mandale con enviar_imagen_producto la de cada uno que le ' +
-  'nombrás (hasta 3). Las del listado de ver_catalogo ya le llegaron solas. Cuando elija una versión o te pida ' +
-  'verla, si dice "tiene foto propia" mandale esa (con productoId y su varianteId): es otra foto, distinta de la ' +
-  'del producto, aunque la del producto ya se la hayas mandado. Si la versión no tiene foto propia, mandale la del ' +
-  'producto, salvo que ya le haya llegado. No las describas: seguí la charla.';
+  '- Cuando elija una versión de un producto a medida o te pida verla, si dice "tiene foto propia" mandale esa ' +
+  '(con productoId y su varianteId): es otra foto, distinta de la del producto, aunque la del producto ya se la ' +
+  'hayas mandado. Si la versión no tiene foto propia, mandale la del producto, salvo que ya le haya llegado.';
 
 /**
  * Pedir una foto y que conteste "no hay" cuando la búsqueda decía que sí
@@ -446,19 +518,80 @@ export function lineaDePedidoAMedida(
 
 type PedidoAMedidaConPresupuestos = VentaConItems & { presupuestos: Presupuesto[] };
 
+/**
+ * Con el cobro manual configurado, anotar un pedido sin link deja el chat en
+ * manos del negocio: todo lo que haga falta se pregunta antes.
+ */
+const ANTES_DEL_COBRO_MANUAL =
+  'Mandáselo tal cual y no sigas: desde ahí el chat lo sigue el negocio, que valida el pago. Por eso, antes de ' +
+  'anotarlo confirmá todo lo que haga falta (productos, entrega, datos y si quiere algo más).';
+
+const CIERRE_COBRO_MANUAL =
+  'Es tu último mensaje en este chat: después lo sigue el negocio. No le hagas preguntas ni le ofrezcas nada más.';
+
+type VentaCobrable = Pick<Venta, 'totalCentavos' | 'moneda' | 'formaPago' | 'nombreCliente'> & { items: ItemVenta[] };
+
+/**
+ * Lo que se le manda al cliente al anotar un pedido sin link cuando el
+ * comercio configuró el cobro manual, o null si no lo configuró. Los datos del
+ * dueño entran por completarPlantilla: una línea, acotados y sin el marcador.
+ * Un pedido en dólares o en efectivo no va al alias (está en pesos y es para
+ * transferir): ahí el negocio escribe para coordinar.
+ */
+export function mensajeDeCobroManual(agent: Agent, condiciones: CondicionesPago, venta: VentaCobrable): string | null {
+  const cobro = condiciones.cobroManual;
+  if (!cobro) return null;
+  const datos = {
+    nombre: primerNombre(venta.nombreCliente),
+    total: formatearMonto(venta.totalCentavos ?? 0, venta.moneda),
+    detalle: detalleDeRenglones(venta.items, venta.moneda),
+    negocio: agent.nombreTitular || 'El negocio',
+  };
+  if (cobro.modo === 'otro_canal') return completarPlantilla(cobro.mensaje, datos);
+  if (monedaDe(venta.moneda) !== 'ARS' || venta.formaPago === 'efectivo') {
+    return completarPlantilla(
+      `¡Listo, quedó anotado! {negocio} te escribe por acá para coordinar el pago${venta.formaPago === 'efectivo' ? ' en efectivo' : ''}.`,
+      datos,
+    );
+  }
+  return completarPlantilla(
+    `Para confirmar tu pedido, transferí {total} al ${/^\d{22}$/.test(cobro.alias) ? 'CBU/CVU' : 'alias'} {alias} ` +
+      `(a nombre de {titular}) y mandá el comprobante por acá. {negocio} lo revisa y te confirma.`,
+    { ...datos, alias: cobro.alias, titular: cobro.titular },
+  );
+}
+
+/**
+ * Si el pedido dejó el chat para el negocio por el cobro manual, lo que el
+ * modelo tiene que mandar (tal cual) y cortar; si no, null.
+ */
+function cobroManualParaElModelo(
+  agent: Agent,
+  condiciones: CondicionesPago,
+  venta: VentaCobrable & Pick<Venta, 'atencion' | 'motivoDerivacion'>,
+): string | null {
+  if (venta.atencion !== 'humana' || venta.motivoDerivacion !== 'cobro_manual') return null;
+  const mensaje = mensajeDeCobroManual(agent, condiciones, venta);
+  return mensaje ? `${instruccionMandarTalCual(mensaje)} ${CIERRE_COBRO_MANUAL}` : null;
+}
+
 /** Cómo se cobra un presupuesto aceptado y los pedidos a medida de esta conversación. */
 function bloquePedidosAMedida(
   agent: Agent,
   mpConectado: boolean,
   pedidos: PedidoAMedidaConPresupuestos[],
   ahora: Date,
+  condiciones: CondicionesPago,
 ): string[] {
   const titular = agent.nombreTitular || 'el negocio';
   const cobro = mpConectado
     ? `Cobro de los productos a medida: cuando el cliente acepta un presupuesto, aceptar_presupuesto genera el ` +
       `link de pago de Mercado Pago a nombre de ${titular}.`
-    : `Cobro de los productos a medida: cuando el cliente acepta un presupuesto, aceptar_presupuesto lo deja ` +
-      `anotado y le escribimos por este chat para coordinar el pago.`;
+    : condiciones.cobroManual
+      ? `Cobro de los productos a medida: cuando el cliente acepta un presupuesto, aceptar_presupuesto lo deja ` +
+        `anotado y te devuelve el mensaje con cómo pagar. ${ANTES_DEL_COBRO_MANUAL}`
+      : `Cobro de los productos a medida: cuando el cliente acepta un presupuesto, aceptar_presupuesto lo deja ` +
+        `anotado y le escribimos por este chat para coordinar el pago.`;
   const lineas = [cobro];
   if (pedidos.length > 0) {
     lineas.push(
@@ -481,17 +614,25 @@ export function bloquePedidos(
   ahora: Date = new Date(),
   pedidosAMedida: PedidoAMedidaConPresupuestos[] = [],
   aMedida = false,
+  condiciones: CondicionesPago = SIN_CONDICIONES,
 ): string {
   const titular = agent.nombreTitular || 'el negocio';
+  const manual = condiciones.cobroManual;
+  const sinLink = manual
+    ? `crear_pedido te devuelve el mensaje con cómo pagar${manual.modo === 'transferencia' ? ' (los datos para transferir)' : ''}. ` +
+      ANTES_DEL_COBRO_MANUAL
+    : '';
   const cobro = mpConectado
     ? `Cobro: con link de pago de Mercado Pago (crear_pedido lo genera y vale 30 minutos). Si el cliente ` +
-      `prefiere transferencia o efectivo, creá el pedido con medioPago "manual" y decile que le escribimos por ` +
-      `acá para coordinar el pago.`
+      `prefiere transferencia o efectivo, creá el pedido con medioPago "manual" y ` +
+      (manual ? sinLink : `decile que le escribimos por acá para coordinar el pago.`)
     : `Cobro: ${titular} no cobra con link por ahora. Los pedidos quedan anotados (crear_pedido con medioPago ` +
-      `"manual") y le escribimos por este chat para coordinar el pago y la entrega.`;
+      `"manual") ` +
+      (manual ? `y ${sinLink}` : `y le escribimos por este chat para coordinar el pago y la entrega.`) +
+      (manual ? REGLA_MENSAJE_TAL_CUAL : '');
   const pendientes = pedidos.filter((pedido) => estadoVisible(pedido, ahora) === 'pendiente_pago');
   const pagados = pedidos.filter((pedido) => pedido.estado === 'pagada');
-  const lineas = [cobro];
+  const lineas = [cobro, reglaDeFormasDePago(condiciones, mpConectado)];
   if (pendientes.length > 0) {
     lineas.push(
       `Pedidos sin pagar de este cliente (como mucho ${MAX_PEDIDOS_PENDIENTES} a la vez; consultá el detalle con ` +
@@ -505,20 +646,125 @@ export function bloquePedidos(
         `${pagados.map((pedido) => detalleDeRenglones(pedido.items, pedido.moneda)).join(' | ')}.`,
     );
   }
-  if (aMedida || pedidosAMedida.length > 0) lineas.push(...bloquePedidosAMedida(agent, mpConectado, pedidosAMedida, ahora));
+  if (aMedida || pedidosAMedida.length > 0) lineas.push(...bloquePedidosAMedida(agent, mpConectado, pedidosAMedida, ahora, condiciones));
   return lineas.join('\n');
+}
+
+/** "3 cuotas sin interés", "6 cuotas con 15% de recargo". */
+function nombreDePlan(plan: PlanCuotas): string {
+  return `${plan.cuotas} cuotas ${plan.recargoPorcentaje === 0 ? 'sin interés' : `con ${plan.recargoPorcentaje}% de recargo`}`;
+}
+
+/**
+ * Las cuotas y el descuento en efectivo del comercio (LAU-34), sólo números
+ * de la base. Sin condiciones, la regla es no ofrecer ninguna.
+ */
+export function reglaDeFormasDePago(condiciones: CondicionesPago, mpConectado: boolean): string {
+  if (!hayCondiciones(condiciones)) {
+    return 'Formas de pago: el negocio no ofrece cuotas ni descuento por pagar en efectivo. No los ofrezcas ni los prometas.';
+  }
+  const partes: string[] = [];
+  if (condiciones.planesCuotas.length > 0) {
+    partes.push(
+      `en cuotas, sólo en pesos: ${condiciones.planesCuotas.map(nombreDePlan).join(', ')}` +
+        (mpConectado ? ' (con el link de Mercado Pago)' : ' (se coordinan por este chat, sin link)') +
+        '; algunos productos pueden venderse con menos cuotas o en un pago, así que no prometas un plan sin ' +
+        'confirmarlo con ver_formas_de_pago',
+    );
+  }
+  if (condiciones.descuentoEfectivoPorcentaje !== null) {
+    partes.push(
+      `${condiciones.descuentoEfectivoPorcentaje}% de descuento pagando en efectivo (sólo en efectivo: no con ` +
+        'transferencia ni con el link, y no se suma a otras promos: se aplica el que más le conviene)',
+    );
+  }
+  return (
+    `Formas de pago del negocio: ${partes.join('; ')}. No ofrezcas otras. Para cuánto sale un pedido en cada una ` +
+    '(total y valor de la cuota) llamá ver_formas_de_pago con lo que eligió: nunca hagas la cuenta vos. Al crear el ' +
+    'pedido, mandá formaPago ("efectivo" o "cuotas" con `cuotas`) si el cliente eligió una.'
+  );
+}
+
+/** Con qué empieza el resultado de ver_formas_de_pago cuando hay totales. */
+export const ENCABEZADO_FORMAS_DE_PAGO = 'Formas de pago de este pedido';
+
+/**
+ * Resultado de ver_formas_de_pago. Sin cotización, las condiciones; con ella,
+ * los totales escritos para que preciosSinRespaldo los reconozca.
+ */
+export function formatearFormasDePago(
+  condiciones: CondicionesPago,
+  mpConectado: boolean,
+  cotizacion: CotizacionFormasDePago | null,
+): string {
+  if (!hayCondiciones(condiciones)) {
+    return (
+      'El negocio no ofrece cuotas ni descuento por pagar en efectivo. Decíselo al cliente en una frase, sin ' +
+      'inventar ninguno.'
+    );
+  }
+  if (!cotizacion) {
+    return (
+      `${reglaDeFormasDePago(condiciones, mpConectado)}
+Pasale estas condiciones al cliente. Para los montos, ` +
+      'volvé a llamar ver_formas_de_pago con los productos que eligió.'
+    );
+  }
+  const monto = (centavos: number) => formatearMonto(centavos, cotizacion.moneda);
+  const lineas = [`- En un pago${mpConectado ? ' (link de pago o transferencia)' : ''}: ${monto(cotizacion.contadoCentavos)}`];
+  if (cotizacion.efectivoCentavos !== null) {
+    lineas.push(
+      cotizacion.efectivoCentavos < cotizacion.contadoCentavos
+        ? `- En efectivo: ${monto(cotizacion.efectivoCentavos)} (${condiciones.descuentoEfectivoPorcentaje}% off; no se suma a otras promos)`
+        : `- En efectivo: ${monto(cotizacion.efectivoCentavos)} (el descuento en efectivo no mejora la promo que ya tiene)`,
+    );
+  }
+  for (const plan of cotizacion.planes) {
+    lineas.push(`- ${nombreDePlan(plan)}: ${plan.cuotas} cuotas de ${monto(plan.cuotaCentavos)} (total ${monto(plan.totalCentavos)})`);
+  }
+  if (condiciones.planesCuotas.length > 0 && planesEn(condiciones, cotizacion.moneda).length === 0) {
+    lineas.push('- Es en dólares: no hay cuotas.');
+  } else if (planesEn(condiciones, cotizacion.moneda).length > cotizacion.planes.length) {
+    lineas.push(
+      cotizacion.planes.length === 0
+        ? '- Con estos productos no hay cuotas: alguno se vende en un pago o con menos cuotas.'
+        : `- Con estos productos, hasta ${cotizacion.cuotasMax as number} cuotas: no ofrezcas planes más largos.`,
+    );
+  }
+  return `${ENCABEZADO_FORMAS_DE_PAGO} (pasáselas con los montos tal cual):\n${lineas.join('\n')}`;
+}
+
+/** Cómo paga el pedido, para el resultado de crear_pedido. */
+function detalleDeFormaDePago(venta: VentaConItems): string {
+  if (venta.formaPago === 'efectivo') return ' Es para pagar en efectivo (con el descuento ya aplicado).';
+  if (venta.formaPago === 'cuotas' && venta.cuotas) {
+    const total = venta.totalCentavos ?? 0;
+    return (
+      ` Es en ${venta.cuotas} cuotas de ${formatearMonto(valorDeCuota(total, venta.cuotas), venta.moneda)}` +
+      (venta.recargoCentavos > 0
+        ? ` (el total incluye ${formatearMonto(venta.recargoCentavos, venta.moneda)} de recargo).`
+        : ' sin interés.') +
+      (venta.linkPago ? ' Las cuotas las elige en el link de Mercado Pago.' : '')
+    );
+  }
+  return '';
 }
 
 // h23: "17:42" y no "05:42 p. m.", que es lo que da es-AR por defecto.
 const HORA = new Intl.DateTimeFormat('es-AR', { timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 /** Lo que vuelve al modelo después de crear un pedido. */
-export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): string {
+export function formatearPedidoCreado(
+  agent: Agent,
+  venta: VentaConItems,
+  condiciones: CondicionesPago = SIN_CONDICIONES,
+): string {
   const ahorro = venta.items.reduce((suma, item) => suma + item.descuentoCentavos * item.cantidad, 0);
   const base =
     `Pedido creado para ${JSON.stringify(neutralizarMarcador(venta.nombreCliente ?? ''))}: ${detalleDeRenglones(venta.items, venta.moneda)}. ` +
     `Total ${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)}` +
     (ahorro > 0 ? ` (ya con los descuentos: ahorra ${formatearMonto(ahorro, venta.moneda)})` : '') +
     '.' +
+    detalleDeFormaDePago(venta) +
     (venta.entrega === 'envio'
       ? ` Es con envío: el costo y el plazo los coordinamos por este chat.`
       : venta.entrega === 'retiro'
@@ -544,6 +790,8 @@ export function formatearPedidoCreado(agent: Agent, venta: VentaConItems): strin
         : '')
     );
   }
+  const manual = cobroManualParaElModelo(agent, condiciones, venta);
+  if (manual) return `${base} ${manual}`;
   return (
     `${base}${venta.reservaVenceAt ? ` Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}.` : ''} ` +
     (monedaDe(venta.moneda) === 'USD'
@@ -627,7 +875,8 @@ export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
     'devuelva más: elegí los que mejor encajan con lo que pidió.\n' +
     '- Las únicas excepciones son lo que devuelven ver_catalogo y ver_descuentos: ahí sí mostrá la lista entera ' +
     'que te dan, una línea por producto, categoría o descuento empezando con "* ", sin numerar, y una frase corta ' +
-    'antes y otra después.\n' +
+    'antes y otra después. Los productos que ver_catalogo marca "ya le llegó en foto" no van en la lista: el ' +
+    'cliente ya los recibió con su nombre y precio al pie.\n' +
     '- Emojis: como mucho uno por mensaje, que venga al caso, nunca al principio de una línea ni en cada producto.\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
     (agent ? reglaDeMensajesPropios(agent) : '')
@@ -1186,7 +1435,12 @@ export function formatearSolicitudRegistrada(
  * Lo que vuelve al modelo después de aceptar_presupuesto o de pedir_variante
  * (una versión de precio fijo pedida tal cual: no hubo presupuesto que aceptar).
  */
-export function formatearCobroAMedida(agent: Agent, venta: VentaConItems, deVariante = false): string {
+export function formatearCobroAMedida(
+  agent: Agent,
+  venta: VentaConItems,
+  deVariante = false,
+  condiciones: CondicionesPago = SIN_CONDICIONES,
+): string {
   const total = formatearCentavos(venta.totalCentavos ?? 0);
   const base = deVariante
     ? `Pedido anotado [pedido ${venta.id}] ${nombreDePedido(venta)}: total ${total}, el precio fijo de esa versión.`
@@ -1208,6 +1462,8 @@ export function formatearCobroAMedida(agent: Agent, venta: VentaConItems, deVari
       (venta.reservaVenceAt ? ` — vale hasta el ${fechaYHora(venta.reservaVenceAt)}.` : '.')
     );
   }
+  const manual = cobroManualParaElModelo(agent, condiciones, venta);
+  if (manual) return `${base} ${manual}`;
   return `${base} Queda anotado: decile al cliente que le escribimos por este chat para coordinar el pago.`;
 }
 

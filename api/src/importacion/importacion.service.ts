@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -14,8 +13,6 @@ import { ProductosService } from '../comercio/productos.service.js';
 import type { Env } from '../config/env.js';
 import { resumenDeError } from '../agents/openrouter.client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { SubscriptionService } from '../subscription/subscription.service.js';
-import { funcionesDelPlan } from '../subscription/subscription.rules.js';
 import { ExtraccionIaService } from './extraccion-ia.js';
 import { descargar, DescargaError, textoDe } from './fetch-seguro.js';
 import { firmaValida, firmarBorrador } from './firma.js';
@@ -94,6 +91,12 @@ function esMuroDeMercadoLibre(url: URL): boolean {
   return url.pathname.includes('/account-verification');
 }
 
+/** Mercado Libre también responde 401/403/429 a sus páginas sin navegador: es el mismo bloqueo que el de la API. */
+function bloqueoDeMercadoLibre(error: unknown, motivo: string | null): unknown {
+  if (!(error instanceof DescargaError) || error.codigo !== 'acceso_denegado') return error;
+  return new ErrorDeImportacion('mercadolibre_no_disponible', `${motivo ?? 'sin_api'}+pagina_denegada`);
+}
+
 /** Cómo conviene cargar lo importado: con precio, de stock; si la página habla de cotizar, a medida; si no, lo elige el dueño. */
 function tipoSugerido(producto: ProductoExtraido): TipoImportado | null {
   if (producto.avisos.includes('parece_a_medida')) return 'a_medida';
@@ -132,7 +135,6 @@ export class ImportacionService {
     private readonly prisma: PrismaService,
     private readonly productos: ProductosService,
     private readonly imagenes: ImagenesService,
-    private readonly suscripciones: SubscriptionService,
     private readonly mercadoLibre: MercadoLibreClient,
     private readonly extraccionIa: ExtraccionIaService,
     private readonly config: ConfigService<Env, true>,
@@ -142,19 +144,11 @@ export class ImportacionService {
     return hostsDePrueba(this.config.get('IMPORTACION_HOSTS_DE_PRUEBA', { infer: true }));
   }
 
-  /** Cuenta de ventas (409 si no) con el Pro pagando (403 si no): en ese orden, como /costos. */
+  /** Cuenta de ventas (409 si no). Va en todos los planes y en la prueba, como el resto. */
   async exigirAcceso(userId: string): Promise<void> {
     const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
     if (!agent || agent.tipoAsistente !== 'ventas') {
       throw new ConflictException('La importación de productos es para las cuentas que venden.');
-    }
-    const plan = await this.suscripciones.planVigente(userId);
-    if (!funcionesDelPlan(plan).importacionRapida) {
-      throw new ForbiddenException({
-        statusCode: 403,
-        motivo: 'plan_pro_requerido',
-        message: 'La importación rápida de productos es del plan Pro.',
-      });
     }
   }
 
@@ -229,7 +223,9 @@ export class ImportacionService {
     }
 
     // Las secciones (y la IA) sólo para una página de otra tienda: Mercado Libre sin API muestra un muro, no productos.
-    const pagina = await this.pagina(url, { secciones: fuente !== 'mercadolibre' });
+    const pagina = await this.pagina(url, { secciones: fuente !== 'mercadolibre' }).catch((error: unknown) => {
+      throw fuente === 'mercadolibre' ? bloqueoDeMercadoLibre(error, motivoMl) : error;
+    });
     if (pagina.tipo === 'producto') {
       return { encontrados: [{ producto: pagina.producto, url: pagina.url, fuente }], errores: [], recortado: false };
     }
@@ -375,6 +371,8 @@ export class ImportacionService {
       tipos: TIPOS_HTML,
       timeoutMs: TIMEOUT_PAGINA_MS,
       hostsDePrueba: this.hosts,
+    }).catch((error: unknown) => {
+      throw bloqueoDeMercadoLibre(error, causa.motivo);
     });
     const pagina = textoDe(descarga);
     const encontrados = idsDePaginaDeTienda(pagina, sitio, MAX_PRODUCTOS_LISTADO_ML);

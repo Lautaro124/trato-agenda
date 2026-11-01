@@ -15,7 +15,6 @@ import {
   estadoDeSuscripcion,
   limiteDeChats,
   rangoDelMes,
-  planVigente,
   type EstadoSuscripcion,
   type PlanId,
 } from './subscription.rules.js';
@@ -129,12 +128,6 @@ export class SubscriptionService {
     }
     await this.prisma.user.update({ where: { id: user.id }, data: { email } });
     return email;
-  }
-
-  /** El plan que paga hoy (null en la prueba o sin suscripción activa): lo que decide qué funciones tiene. */
-  async planVigente(userId: string): Promise<PlanId | null> {
-    const { estado, suscripcion } = await this.resolver(userId);
-    return planVigente(estado, suscripcion?.plan);
   }
 
   async asistenteActivo(userId: string): Promise<boolean> {

@@ -45,6 +45,9 @@ export type VentaPublica = Pick<
   Venta,
   | 'id'
   | 'medioPago'
+  | 'formaPago'
+  | 'cuotas'
+  | 'recargoCentavos'
   | 'nombreCliente'
   | 'telefonoCliente'
   | 'totalCentavos'
@@ -102,6 +105,9 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
     devueltaAt: venta.devueltaAt,
     solicitud: venta.tipo === 'a_medida' ? leerSolicitudDeVenta(venta.solicitud) : null,
     medioPago: venta.medioPago,
+    formaPago: venta.formaPago,
+    cuotas: venta.cuotas,
+    recargoCentavos: venta.recargoCentavos,
     nombreCliente: venta.nombreCliente,
     telefonoCliente: venta.telefonoCliente,
     totalCentavos: venta.totalCentavos,

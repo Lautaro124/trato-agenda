@@ -82,6 +82,9 @@
     "mysql2": "^3.24.4",
     "deepmerge-ts": "^8.0.2",
     "tmp": "^0.2.6",
-    "multer": "^2.5.0"
+    "multer": "^2.5.0",
+    "@sentry/bundler-plugins": {
+      "glob": "^14.0.2"
+    }
   }
 }

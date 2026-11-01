@@ -5,6 +5,7 @@
  */
 import { apiFetch } from "@/lib/api";
 import { ErrorDeApi, type Moneda } from "@/lib/productos";
+import { diaCorto } from "@/lib/ventas";
 
 export const ETAPAS = ["consulta", "vio_productos", "eligiendo", "lista", "pedido", "cotizado", "pagado"] as const;
 export type Etapa = (typeof ETAPAS)[number];
@@ -81,10 +82,21 @@ export type ConteosConversion = {
   pedidos: number;
   pagados: number;
   conPago: number;
+  cobradoCentavos: number;
+};
+
+export type ConversionPerformance = ConteosConversion & {
   chatAPedido: Tasa;
   pedidoAPago: Tasa;
   chatAPago: Tasa;
 };
+
+/** Los chats que escribieron por primera vez ese día, con sus pedidos y pagos. */
+export type DiaPerformance = ConteosConversion & { dia: string };
+
+export type Cobertura = "completos" | "parciales" | "sin_datos";
+
+export type Rango = { primerDia: string; ultimoDia: string };
 
 type Conteo<K extends string> = Record<K, number>;
 type Tasas<K extends string> = Record<K, Tasa>;
@@ -107,8 +119,8 @@ export type ZonaPerformance = Conteo<"chats" | "inferidas" | "conPedido" | "conP
 export type Performance = {
   moneda: Moneda;
   zona: FiltroZona | null;
-  rango: { primerDia: string; ultimoDia: string };
-  datos: "completos" | "parciales" | "sin_datos";
+  rango: Rango;
+  datos: Cobertura;
   registroDesde: string | null;
   definiciones: {
     base: string;
@@ -120,8 +132,20 @@ export type Performance = {
     sinDatos: string;
     preguntas: string;
     zona: string;
+    cobrado: string;
+    porDia: string;
+    comparacion: string;
   };
-  conversion: ConteosConversion & { anterior: ConteosConversion | null };
+  conversion: ConversionPerformance;
+  /** Un elemento por día del período; suman `conversion`. */
+  porDia: DiaPerformance[];
+  /** El período anterior de igual largo: sin conteos si es previo al registro. */
+  anterior: {
+    rango: Rango;
+    datos: Cobertura;
+    conversion: ConversionPerformance | null;
+    porDia: DiaPerformance[] | null;
+  };
   etapas: EtapaPerformance[];
   productos: ProductoPerformance[];
   zonas: ZonaPerformance[];
@@ -154,14 +178,50 @@ export function porcentaje(tasa: Tasa): string {
 }
 
 /**
- * La diferencia con el período anterior en puntos: "+5 pts", "−3 pts", "igual",
- * o null si alguno de los dos no tiene datos.
+ * Cómo cambió una métrica contra el período anterior: `texto` es la etiqueta
+ * corta y `descripcion`, lo que se lee en voz alta.
  */
-export function diferenciaEnPuntos(actual: Tasa, anterior: Tasa | undefined): string | null {
+export type Variacion = { tono: "sube" | "baja" | "igual" | "nuevo"; texto: string; descripcion: string };
+
+/** La diferencia entre dos tasas, en puntos; null si alguna no tiene datos (no hay nada que comparar). */
+export function diferenciaEnPuntos(actual: Tasa, anterior: Tasa | undefined): Variacion | null {
   if (actual.valor === null || !anterior || anterior.valor === null) return null;
   const puntos = Math.round((actual.valor - anterior.valor) * 100);
-  if (puntos === 0) return "igual que el período anterior";
-  return `${puntos > 0 ? "+" : "−"}${Math.abs(puntos)} pts vs. el período anterior`;
+  if (puntos === 0) return { tono: "igual", texto: "igual", descripcion: "igual que el período anterior" };
+  const sube = puntos > 0;
+  const n = Math.abs(puntos);
+  return {
+    tono: sube ? "sube" : "baja",
+    texto: `${sube ? "▲" : "▼"} ${n} pts`,
+    descripcion: `${n} ${n === 1 ? "punto" : "puntos"} ${sube ? "más" : "menos"} que el período anterior`,
+  };
+}
+
+/**
+ * El cambio de una cantidad, en porcentaje. Contra 0 no hay porcentaje que
+ * sirva (sería infinito): se dice "nuevo".
+ */
+export function variacionPorcentual(actual: number, anterior: number): Variacion {
+  if (actual === anterior) return { tono: "igual", texto: "igual", descripcion: "igual que el período anterior" };
+  if (anterior === 0) return { tono: "nuevo", texto: "Nuevo · antes 0", descripcion: "en el período anterior fue 0" };
+  const cambio = Math.round(((actual - anterior) / anterior) * 100);
+  if (cambio === 0) return { tono: "igual", texto: "≈ igual", descripcion: "casi igual que el período anterior" };
+  const sube = cambio > 0;
+  return {
+    tono: sube ? "sube" : "baja",
+    texto: `${sube ? "▲" : "▼"} ${Math.abs(cambio)} %`,
+    descripcion: `${Math.abs(cambio)} % ${sube ? "más" : "menos"} que el período anterior`,
+  };
+}
+
+/** "30/9–29/10" para las etiquetas cortas de cada barra. */
+export function rangoCorto(rango: Rango): string {
+  return rango.primerDia === rango.ultimoDia ? diaCorto(rango.primerDia) : `${diaCorto(rango.primerDia)}–${diaCorto(rango.ultimoDia)}`;
+}
+
+/** "30/9 al 29/10", o "29/10" si es un solo día. */
+export function rangoLegible(rango: Rango): string {
+  return rango.primerDia === rango.ultimoDia ? diaCorto(rango.primerDia) : `${diaCorto(rango.primerDia)} al ${diaCorto(rango.ultimoDia)}`;
 }
 
 /** "22/10/2026" a partir de "2026-10-22". */

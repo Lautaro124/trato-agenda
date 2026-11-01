@@ -43,14 +43,26 @@ export type ConteosConversion = {
   pagados: number;
   /** Chats nuevos que terminaron en un pago. */
   conPago: number;
+  /** Lo cobrado de esos pedidos pagados, en la moneda pedida. */
+  cobradoCentavos: number;
 };
 
 export type Conversion = ConteosConversion & {
   chatAPedido: Tasa;
   pedidoAPago: Tasa;
   chatAPago: Tasa;
-  /** El período anterior de igual largo; null si no tiene datos. */
-  anterior: (ConteosConversion & { chatAPedido: Tasa; pedidoAPago: Tasa; chatAPago: Tasa }) | null;
+};
+
+/** Los chats que escribieron por primera vez ese día ("YYYY-MM-DD" del negocio), con sus pedidos y pagos. */
+export type DiaPerformance = ConteosConversion & { dia: string };
+
+/** El período anterior de igual largo, con los mismos filtros. */
+export type PeriodoAnterior = {
+  rango: { primerDia: string; ultimoDia: string };
+  datos: Cobertura;
+  /** null si el período no tiene datos (es anterior al registro). */
+  conversion: Conversion | null;
+  porDia: DiaPerformance[] | null;
 };
 
 export type EtapaPublica = {
@@ -113,6 +125,9 @@ export type PerformancePublica = {
   registroDesde: string | null;
   definiciones: typeof DEFINICIONES;
   conversion: Conversion;
+  /** Un elemento por día del período; suman `conversion`. */
+  porDia: DiaPerformance[];
+  anterior: PeriodoAnterior;
   etapas: EtapaPublica[];
   productos: ProductoPerformance[];
   /** Los chats nuevos del período por zona (siempre todas, aunque se filtre por una). */

@@ -165,7 +165,9 @@ Columnas que existen pero todavía nadie escribe: `provincia` y `origenZona` (pa
 Qué devuelve:
 - **`datos`**: `completos`, `parciales` o `sin_datos`, según el primer chat registrado de la cuenta (`registroDesde`).
 - **`definiciones`**: los textos que se muestran tal cual al lado de cada métrica.
-- **`conversion`**: conteos y tasas. Una tasa con `valor: null` significa "sin datos" y no es 0 %. Incluye `anterior`, el período anterior de igual largo, o `null` si ese período no tiene datos.
+- **`conversion`**: conteos, tasas y lo cobrado. Una tasa con `valor: null` significa "sin datos" y no es 0 %.
+- **`porDia`**: los mismos conteos, uno por día del período, según el día (en `TIMEZONE`) en que cada chat escribió por primera vez. `conversion` es su suma, así que el total y el gráfico nunca difieren.
+- **`anterior`** (LAU-36): el período anterior de igual largo, con los mismos filtros (moneda y zona) y las mismas definiciones. Trae su `rango`, su cobertura (`datos`), su `conversion` y su `porDia`; los dos últimos son `null` si el período es previo al registro.
 - **`etapas`**: cada etapa con su total, cuántos chats están activos, estancados o abandonados, y cuántos se derivaron.
 - **`productos`** (hasta 50, los de más interés primero):
   - cuántos chats lo vieron, lo pidieron y lo pagaron, y las tasas entre esos pasos;
@@ -182,8 +184,12 @@ Cómo se cuentan los productos:
 
 Arriba se elige el período (hoy, 7 o 30 días, este mes o fechas) y la moneda. Un período que llega hasta hoy está **en vivo**: se vuelve a pedir cada 30 segundos y al volver a la pestaña, sólo con la pestaña a la vista, y muestra la hora de la última actualización. Un refresco que falla deja los datos anteriores. Después muestra:
 - un aviso cuando el período tiene datos a medias o ninguno;
-- las tres tasas, cada una con su definición y su diferencia con el período anterior;
-- el embudo, en cantidades;
+- la comparación con el período anterior (LAU-36), siempre en gráficos con el período actual en coral y el anterior en gris:
+  - las fechas de los dos períodos y un aviso si el anterior no tiene datos o los tiene a medias (sus barras van rayadas);
+  - las tres tasas, en la misma escala de 0 a 100 %, con la diferencia en puntos;
+  - chats nuevos, pedidos, pagos y cobrado, con la variación en porcentaje. Contra 0 se muestra "Nuevo · antes 0", nunca un porcentaje; sin datos del anterior, "Sin comparación";
+  - el día a día en barras verticales (semana a semana en períodos de más de 62 días), con selector de métrica, tooltip y vista de tabla. Los días previos al registro se marcan como sin datos;
+- el embudo de los dos períodos, en cantidades;
 - dónde están los chats, con la etapa en la que más se quedan;
 - la tabla de productos, que se puede ordenar por más vistos, más pedidos o más pagados.
 

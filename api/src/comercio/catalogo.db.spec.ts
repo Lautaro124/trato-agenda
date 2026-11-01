@@ -186,6 +186,64 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(editado.variantes.find((variante) => variante.id === talleM.id)?.stock).toBe(5);
       await productos.actualizarVariante(dueno.id, talleM.id, { stock: 4 });
     });
+
+    it('el export de Mercado Libre reconoce lo que ya está por número de publicación, origen o SKU, sin duplicar', async () => {
+      const vendedor = await crearUsuarioDePrueba(prisma);
+      const deMl = (codigo: string, extra: Record<string, string> = {}) => ({
+        codigo,
+        nombre: `Sillón ${codigo}`,
+        variante: 'Gris',
+        sku: codigo,
+        precio: '651794.04',
+        stock: '30',
+        moneda: '$',
+        ...extra,
+      });
+      await productos.crear(vendedor.id, {
+        codigo: 'MLA1000000001',
+        nombre: 'Sillón por código',
+        descripcion: 'Chenille antidesgarro',
+        categoria: 'Sillones',
+        variantes: [{ precioCentavos: 100 }],
+      });
+      // Importado por enlace con el código ya usado: quedó "-2" y lo identifica su origen.
+      const porEnlace = await productos.crear(vendedor.id, { codigo: 'MLA1000000002-2', nombre: 'Sillón por enlace', variantes: [{ precioCentavos: 100 }] });
+      await prisma.producto.update({ where: { id: porEnlace.id }, data: { origenId: 'ml:MLA1000000002' } });
+      await productos.crear(vendedor.id, { codigo: 'SILLON-MANO', nombre: 'Sillón a mano', variantes: [{ sku: 'SKU-PROPIO', precioCentavos: 100 }] });
+
+      const filas = [
+        {},
+        deMl('MLA1000000001'),
+        deMl('MLA1000000002'),
+        deMl('MLA1000000003', { sku: 'SKU-PROPIO' }),
+        deMl('MLA1000000004'),
+      ];
+      const vista = await productos.importar(vendedor.id, filas, false);
+      expect(vista).toMatchObject({ nuevos: 1, actualizados: 3, totalErrores: 0 });
+
+      await productos.importar(vendedor.id, filas, true);
+      // Volver a subir el mismo archivo no crea nada.
+      expect(await productos.importar(vendedor.id, filas, false)).toMatchObject({ nuevos: 0, actualizados: 4 });
+
+      const guardados = await prisma.producto.findMany({ where: { userId: vendedor.id, activo: true }, orderBy: { codigo: 'asc' } });
+      expect(guardados.map((producto) => producto.codigo)).toEqual(['MLA1000000001', 'MLA1000000002-2', 'MLA1000000004', 'SILLON-MANO']);
+      // Lo que el export no trae queda como estaba.
+      expect(guardados[0]).toMatchObject({ nombre: 'Sillón MLA1000000001', descripcion: 'Chenille antidesgarro', categoria: 'Sillones' });
+    });
+
+    it('dos publicaciones que caen en el mismo producto no se importan', async () => {
+      const vendedor = await crearUsuarioDePrueba(prisma);
+      await productos.crear(vendedor.id, { codigo: 'MLA2000000001', nombre: 'Sofá', variantes: [{ sku: 'SOFA', precioCentavos: 100 }] });
+      const resumen = await productos.importar(
+        vendedor.id,
+        [
+          { codigo: 'MLA2000000001', nombre: 'Sofá', sku: 'MLA2000000001', precio: '10' },
+          { codigo: 'MLA2000000002', nombre: 'Sofá', sku: 'SOFA', precio: '10' },
+        ],
+        false,
+      );
+      expect(resumen).toMatchObject({ nuevos: 0, actualizados: 0, totalErrores: 2 });
+    });
   });
 
   describe('indexador', () => {

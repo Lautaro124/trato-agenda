@@ -178,3 +178,26 @@ export function mensajePagoAprobado(
     'Te escribimos por acá para coordinar la entrega.'
   );
 }
+
+/** Cuántos minutos antes de que venza la reserva de un link se le recuerda al cliente que está por vencer. */
+export const MINUTOS_RECORDATORIO_PAGO = 10;
+
+/**
+ * Lo que recibe el cliente cuando la reserva de su link está por vencer y
+ * todavía no pagó. Sale del código, como mensajePagoAprobado: monto y hora
+ * son los de la base. No repite el link: sólo avisa.
+ */
+export function mensajeRecordatorioPago(venta: {
+  nombreCliente: string | null;
+  totalCentavos: number | null;
+  moneda?: string;
+  reservaVenceAt: Date;
+}): string {
+  const nombre = venta.nombreCliente?.trim().split(/\s+/)[0];
+  const partes = Object.fromEntries(PARTES_FECHA.formatToParts(venta.reservaVenceAt).map((parte) => [parte.type, parte.value]));
+  return (
+    `¡Hola${nombre ? `, ${nombre}` : ''}! Te recordamos que tu pedido de ` +
+    `${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)} te lo guardamos hasta las ${partes.hour}:${partes.minute}. ` +
+    'Si tuviste algún problema con el pago, escribinos por acá.'
+  );
+}

@@ -81,14 +81,33 @@ export function horariosDe(semana: SemanaEnPantalla): FranjaLocal[] {
   );
 }
 
-/** Por qué un día no se puede guardar, o null. Mismo criterio que normalizarLocal en la API. */
-export function problemaDelDia(dia: DiaEnPantalla): string | null {
+/** Una franja nocturna termina al día siguiente: de 19:00 a 07:00. Mismo criterio que la API. */
+export function cruzaMedianoche(franja: { desde: string; hasta: string }): boolean {
+  return franja.hasta < franja.desde;
+}
+
+/**
+ * Por qué un día no se puede guardar, o null. Mismo criterio que
+ * problemaDeHorarios en la API. Con `nocturnas` (sólo el horario de atención)
+ * la última franja puede terminar al día siguiente, y `anterior`, el día de
+ * antes, es para que su noche no se pise con la mañana de este.
+ */
+export function problemaDelDia(
+  dia: DiaEnPantalla,
+  { nocturnas = false, anterior }: { nocturnas?: boolean; anterior?: DiaEnPantalla } = {},
+): string | null {
   if (!dia.abierto) return null;
   const [primera, segunda] = dia.franjas;
-  if (primera.desde >= primera.hasta || (segunda && segunda.desde >= segunda.hasta)) {
+  const invertida = (franja: { desde: string; hasta: string }, puedeCruzar: boolean) =>
+    franja.desde === franja.hasta || (cruzaMedianoche(franja) && !puedeCruzar);
+  if (invertida(primera, nocturnas && !segunda) || (segunda && invertida(segunda, nocturnas))) {
     return "Tiene que cerrar después de abrir.";
   }
   if (segunda && segunda.desde < primera.hasta) return "La segunda franja tiene que empezar después de la primera.";
+  const deLaNoche = nocturnas && anterior?.abierto ? anterior.franjas.at(-1) : undefined;
+  if (deLaNoche && cruzaMedianoche(deLaNoche) && primera.desde < deLaNoche.hasta) {
+    return "Empieza antes de que termine el horario de la noche anterior.";
+  }
   return null;
 }
 

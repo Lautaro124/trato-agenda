@@ -9,6 +9,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { Env } from '../config/env.js';
 import { Prisma, type User } from '../generated/prisma/client.js';
 import type { NotificacionesService } from '../notificaciones/notificaciones.service.js';
+import type { SubscriptionService } from '../subscription/subscription.service.js';
+import type { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { MercadoPagoClient } from '../subscription/mercadopago.client.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
@@ -36,6 +38,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
   const mp = { crearPreferencia: vi.fn(), vencerPreferencia: vi.fn(), buscarPagos: vi.fn(), obtenerPago: vi.fn() };
   const cuentas = { tokenDe: vi.fn(), desconectar: vi.fn() };
   const notificaciones = { avisar: vi.fn(), avisarAlCliente: vi.fn() };
+  const suscripcion = { asistenteActivo: vi.fn() };
+  const horario = { puedeEscribir: vi.fn() };
   let ventas: VentasService;
   let pedidos: PedidosAMedidaService;
   let costos: CostosService;
@@ -68,6 +72,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
       config,
       notificaciones as unknown as NotificacionesService,
       new RegistroPerformanceService(prisma),
+      suscripcion as unknown as SubscriptionService,
+      horario as unknown as HorarioAtencionService,
     );
     costos = new CostosService(prisma);
     pedidos = new PedidosAMedidaService(

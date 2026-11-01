@@ -10,6 +10,8 @@ import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { NotificacionesService } from '../notificaciones/notificaciones.service.js';
+import type { SubscriptionService } from '../subscription/subscription.service.js';
+import type { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import {
   MercadoPagoError,
   MercadoPagoNoAutorizadoError,
@@ -17,6 +19,7 @@ import {
 } from '../subscription/mercadopago.client.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
 import type { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
+import { enAtencionHumana } from './pedido-a-medida.rules.js';
 import { MAX_PEDIDOS_PENDIENTES } from './ventas.rules.js';
 import { PedidoRechazadoError, VentasService } from './ventas.service.js';
 
@@ -39,6 +42,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   };
   const cuentas = { tokenDe: vi.fn(), desconectar: vi.fn() };
   const notificaciones = { avisar: vi.fn(), avisarAlCliente: vi.fn() };
+  const suscripcion = { asistenteActivo: vi.fn() };
+  const horario = { puedeEscribir: vi.fn() };
   const avisosDeTipo = (tipo: string) =>
     notificaciones.avisar.mock.calls.filter(([, aviso]) => (aviso as { tipo: string }).tipo === tipo);
   let ventas: VentasService;
@@ -67,6 +72,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       config,
       notificaciones as unknown as NotificacionesService,
       new RegistroPerformanceService(prisma),
+      suscripcion as unknown as SubscriptionService,
+      horario as unknown as HorarioAtencionService,
     );
     dueno = await crearUsuarioDePrueba(prisma);
     const crear = (codigo: string, precioCentavos: number, stock: number | null, stockMinimo: number | null = null) =>
@@ -94,6 +101,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     vi.resetAllMocks();
     await prisma.venta.deleteMany({ where: { userId: dueno.id } });
     await prisma.descuento.deleteMany({ where: { userId: dueno.id } });
+    await prisma.condicionesPago.deleteMany({ where: { userId: dueno.id } });
+    await prisma.producto.updateMany({ where: { userId: dueno.id }, data: { cuotasMax: null } });
     await prisma.variante.update({ where: { id: mate }, data: { stock: 1 } });
     await prisma.variante.update({ where: { id: termo }, data: { stock: 5 } });
   });
@@ -326,6 +335,52 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     expect(await ventas.marcarPagadaPorElDueno('otro', venta.id)).toBeNull();
   });
 
+  describe('cobro manual configurado: el chat pasa al negocio', () => {
+    const configurar = (cobroManual: string | null) =>
+      prisma.condicionesPago.create({
+        data: {
+          userId: dueno.id,
+          cobroManual,
+          aliasTransferencia: cobroManual === 'transferencia' ? 'mates.sur' : null,
+          titularTransferencia: cobroManual === 'transferencia' ? 'Ana' : null,
+        },
+      });
+    const pausado = async (ventaId: string) => enAtencionHumana(await prisma.venta.findUniqueOrThrow({ where: { id: ventaId } }));
+
+    it('un pedido manual deja el chat en atención humana hasta que se paga, aunque venza la reserva', async () => {
+      await configurar('transferencia');
+      const venta = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      expect(venta).toMatchObject({ atencion: 'humana', motivoDerivacion: 'cobro_manual' });
+      expect(await prisma.eventoVenta.count({ where: { ventaId: venta.id, tipo: 'derivacion', motivo: 'cobro_manual' } })).toBe(1);
+      expect(avisosDeTipo('pedido_manual')[0][1]).toMatchObject({ cuerpo: expect.stringContaining('no contesta en ese chat') });
+
+      // Vencida sin que el dueño haga nada: sigue pausado.
+      await prisma.venta.update({ where: { id: venta.id }, data: { reservaVenceAt: new Date(Date.now() - 60_000) } });
+      expect(await pausado(venta.id)).toBe(true);
+
+      await ventas.marcarPagadaPorElDueno(dueno.id, venta.id);
+      expect(await pausado(venta.id)).toBe(false);
+    });
+
+    it('cancelarlo también le devuelve el chat al asistente', async () => {
+      await configurar('transferencia');
+      const venta = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      await prisma.venta.update({ where: { id: venta.id }, data: { estado: 'cancelada', canceladaAt: new Date() } });
+      expect(await pausado(venta.id)).toBe(false);
+    });
+
+    it('sin cobro manual configurado, o con link de Mercado Pago, el asistente sigue', async () => {
+      const sinConfigurar = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      expect(sinConfigurar.atencion).toBe('asistente');
+
+      await configurar('transferencia');
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'tok', mpUserId: '1' });
+      mp.crearPreferencia.mockResolvedValue({ id: 'pref', init_point: 'https://mp/pagar' });
+      const conLink = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, medioPago: 'mercadopago' });
+      expect(conLink.atencion).toBe('asistente');
+    });
+  });
+
   it('la conciliación encuentra el pago aunque el webhook no haya llegado', async () => {
     cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
     mp.crearPreferencia.mockResolvedValue({ id: 'pref-3', init_point: 'https://mp/pagar' });
@@ -402,6 +457,94 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     });
   });
 
+  describe('recordatorio de pago al cliente', () => {
+    const JID = '5491122334455@s.whatsapp.net';
+    const T = new Date();
+    const enMinutos = (n: number) => new Date(T.getTime() + n * 60_000);
+    const pedidoMp = async (extra: Record<string, unknown> = {}) => {
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+      mp.crearPreferencia.mockResolvedValue({ id: 'pref-recordatorio', init_point: 'https://mp/pagar' });
+      return pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago', conversationId, ahora: T, ...extra });
+    };
+
+    beforeEach(() => {
+      // El barrido es global: sólo el dueño de este spec tiene el asistente activo, así no le escribe a otros.
+      suscripcion.asistenteActivo.mockImplementation(async (userId: string) => userId === dueno.id);
+      notificaciones.avisarAlCliente.mockResolvedValue(true);
+      horario.puedeEscribir.mockResolvedValue(true);
+    });
+
+    it('cuando faltan 10 minutos le recuerda una sola vez, en el chat del pedido, sin link', async () => {
+      const venta = await pedidoMp();
+
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(1);
+      expect(await ventas.recordarPagos(enMinutos(27))).toBe(0);
+
+      expect(notificaciones.avisarAlCliente).toHaveBeenCalledTimes(1);
+      const [userId, jid, texto] = notificaciones.avisarAlCliente.mock.calls[0] as [string, string, string];
+      expect([userId, jid]).toEqual([dueno.id, JID]);
+      expect(texto).toMatch(/^¡Hola, Juan! Te recordamos que tu pedido de \$ 45\.000,50 te lo guardamos hasta las \d{2}:\d{2}\./);
+      expect(texto).not.toContain('https://');
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).recordatorioPagoAt).toEqual(enMinutos(25));
+    });
+
+    it('no le escribe antes de tiempo ni con la reserva ya vencida', async () => {
+      await pedidoMp();
+      expect(await ventas.recordarPagos(enMinutos(10))).toBe(0);
+      expect(await ventas.recordarPagos(enMinutos(31))).toBe(0);
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+    });
+
+    it('nunca a un pedido pagado, a coordinar, de prueba o sin chat', async () => {
+      const pagada = await pedidoMp();
+      await ventas.marcarPagada(pagada.id);
+      notificaciones.avisarAlCliente.mockClear();
+      await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, ahora: new Date(T.getTime() - 24 * 60 * 60_000 + 30 * 60_000) });
+      await pedidoMp({ dePrueba: true });
+      await pedidoMp({ conversationId: null });
+
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+    });
+
+    it('no le recuerda un pedido viejo si después pidió otro en el mismo chat', async () => {
+      const vieja = await pedidoMp();
+      await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, ahora: enMinutos(5) });
+
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: vieja.id } })).recordatorioPagoAt).toBeNull();
+    });
+
+    it('se calla con el chat en atención humana o con el asistente suspendido', async () => {
+      const venta = await pedidoMp();
+      await prisma.venta.update({ where: { id: venta.id }, data: { atencion: 'humana', derivadaAt: T } });
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+
+      await prisma.venta.update({ where: { id: venta.id }, data: { atencion: 'asistente' } });
+      suscripcion.asistenteActivo.mockResolvedValue(false);
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+    });
+
+    it('fuera del horario de atención, sin conversación en curso, no le escribe', async () => {
+      const venta = await pedidoMp();
+      horario.puedeEscribir.mockResolvedValue(false);
+
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect(horario.puedeEscribir).toHaveBeenCalledWith(dueno.id, conversationId, enMinutos(25));
+      expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).recordatorioPagoAt).toBeNull();
+    });
+
+    it('si el envío falla no lo reintenta', async () => {
+      notificaciones.avisarAlCliente.mockResolvedValue(false);
+      await pedidoMp();
+      expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
+      expect(await ventas.recordarPagos(enMinutos(26))).toBe(0);
+      expect(notificaciones.avisarAlCliente).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('vence las reservas pasadas de hora y cancela sólo lo que está sin pagar', async () => {
     const vieja = await pedido([{ varianteId: sinControl, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
     // El barrido es global: en la base compartida puede vencer también reservas de otros specs.
@@ -412,5 +555,124 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     await ventas.marcarPagada(pagada.id);
     expect(await ventas.cancelar(dueno.id, pagada.id)).toBeNull();
     expect(await ventas.cancelar(dueno.id, vieja.id)).toMatchObject({ estado: 'cancelada' });
+  });
+
+  describe('formas de pago (LAU-34)', () => {
+    const condiciones = () =>
+      prisma.condicionesPago.create({
+        data: {
+          userId: dueno.id,
+          planesCuotas: [
+            { cuotas: 3, recargoPorcentaje: 0 },
+            { cuotas: 6, recargoPorcentaje: 15 },
+          ],
+          descuentoEfectivoPorcentaje: 10,
+        },
+      });
+
+    it('en efectivo aplica el descuento, lo deja a cobrar a mano y no lo suma a una promo mejor', async () => {
+      await condiciones();
+      await prisma.descuento.create({
+        data: { userId: dueno.id, nombre: 'Termos', tipo: 'porcentaje', valor: 20, productoId: null, categoria: null },
+      });
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+      const venta = await pedido(
+        [
+          { varianteId: mate, cantidad: 1 },
+          { varianteId: sinControl, cantidad: 1 },
+        ],
+        { medioPago: 'mercadopago', formaPago: 'efectivo' },
+      );
+      // La promo de catálogo (20%) gana al 10% del efectivo: no se suman.
+      expect(venta).toMatchObject({ medioPago: 'manual', formaPago: 'efectivo', recargoCentavos: 0, totalCentavos: 640_000 + 280_000 });
+      expect(mp.crearPreferencia).not.toHaveBeenCalled();
+    });
+
+    it('el descuento en efectivo no se aplica con otro medio', async () => {
+      await condiciones();
+      const venta = await pedido([{ varianteId: sinControl, cantidad: 2 }]);
+      expect(venta).toMatchObject({ formaPago: null, totalCentavos: 700_000 });
+      expect(venta.items[0].descuentoCentavos).toBe(0);
+      const enEfectivo = await pedido([{ varianteId: sinControl, cantidad: 2 }], { formaPago: 'efectivo' });
+      expect(enEfectivo.totalCentavos).toBe(630_000);
+    });
+
+    it('en cuotas suma el recargo al total y al link, con el tope de cuotas', async () => {
+      await condiciones();
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+      mp.crearPreferencia.mockResolvedValue({ id: 'pref-1', init_point: 'https://mp/pagar' });
+      const venta = await pedido([{ varianteId: sinControl, cantidad: 2 }], {
+        medioPago: 'mercadopago',
+        formaPago: 'cuotas',
+        cuotas: 6,
+      });
+      expect(venta).toMatchObject({ formaPago: 'cuotas', cuotas: 6, recargoCentavos: 105_000, totalCentavos: 805_000 });
+      const [, preferencia] = mp.crearPreferencia.mock.calls[0];
+      expect(preferencia.cuotas).toBe(6);
+      const suma = preferencia.items.reduce(
+        (total: number, item: { quantity: number; unit_price: number }) => total + Math.round(item.quantity * item.unit_price * 100),
+        0,
+      );
+      expect(suma).toBe(805_000);
+    });
+
+    it('sin plan configurado o en dólares rechaza el pedido en cuotas', async () => {
+      await expect(pedido([{ varianteId: sinControl, cantidad: 1 }], { formaPago: 'cuotas', cuotas: 3 })).rejects.toThrow(
+        PedidoRechazadoError,
+      );
+      await condiciones();
+      await expect(pedido([{ varianteId: sinControl, cantidad: 1 }], { formaPago: 'cuotas', cuotas: 12 })).rejects.toThrow(
+        'Ese plan de cuotas no existe',
+      );
+      expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(0);
+    });
+
+    it('cotiza cada forma de pago sin reservar nada', async () => {
+      await condiciones();
+      const cotizacion = await ventas.cotizarFormasDePago(dueno.id, [{ varianteId: sinControl, cantidad: 2 }]);
+      expect(cotizacion).toEqual({
+        moneda: 'ARS',
+        contadoCentavos: 700_000,
+        efectivoCentavos: 630_000,
+        cuotasMax: null,
+        planes: [
+          { cuotas: 3, recargoPorcentaje: 0, totalCentavos: 700_000, cuotaCentavos: 233_334 },
+          { cuotas: 6, recargoPorcentaje: 15, totalCentavos: 805_000, cuotaCentavos: 134_167 },
+        ],
+      });
+      expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(0);
+    });
+
+    it('con un producto de pocas cuotas manda su tope en la cotización y al reservar', async () => {
+      await condiciones();
+      await prisma.producto.updateMany({ where: { variantes: { some: { id: mate } } }, data: { cuotasMax: 3 } });
+      const items = [
+        { varianteId: mate, cantidad: 1 },
+        { varianteId: sinControl, cantidad: 1 },
+      ];
+      const cotizacion = await ventas.cotizarFormasDePago(dueno.id, items);
+      expect(cotizacion.cuotasMax).toBe(3);
+      expect(cotizacion.planes.map((plan) => plan.cuotas)).toEqual([3]);
+      await expect(pedido(items, { formaPago: 'cuotas', cuotas: 6 })).rejects.toThrow('el máximo es 3 cuotas');
+      expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(0);
+      expect(await pedido(items, { formaPago: 'cuotas', cuotas: 3 })).toMatchObject({ cuotas: 3, recargoCentavos: 0 });
+    });
+
+    it('en un pago con link no deja usar las cuotas sin interés de la cuenta de Mercado Pago', async () => {
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
+      mp.crearPreferencia.mockResolvedValue({ id: 'pref-1', init_point: 'https://mp/pagar' });
+      // Sin planes ni tope: como antes de LAU-34, el link no limita las cuotas.
+      await pedido([{ varianteId: sinControl, cantidad: 1 }], { medioPago: 'mercadopago' });
+      expect(mp.crearPreferencia.mock.calls[0][1].maxCuotas).toBeUndefined();
+      // Con un producto de hasta 3 cuotas, el link también llega hasta 3.
+      await prisma.producto.updateMany({ where: { variantes: { some: { id: mate } } }, data: { cuotasMax: 3 } });
+      await pedido([{ varianteId: mate, cantidad: 1 }], { medioPago: 'mercadopago' });
+      expect(mp.crearPreferencia.mock.calls[1][1].maxCuotas).toBe(3);
+      // Con planes, las cuotas van por ellos: en un pago es en un pago.
+      await condiciones();
+      await pedido([{ varianteId: sinControl, cantidad: 1 }], { medioPago: 'mercadopago' });
+      expect(mp.crearPreferencia.mock.calls[2][1]).toMatchObject({ maxCuotas: 1 });
+      expect(mp.crearPreferencia.mock.calls[2][1].cuotas).toBeUndefined();
+    });
   });
 });

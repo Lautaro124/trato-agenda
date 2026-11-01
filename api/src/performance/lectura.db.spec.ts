@@ -181,9 +181,51 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
       chatAPedido: { valor: 0.6 },
       pedidoAPago: { valor: 0.6667 },
       chatAPago: { valor: 0.4 },
+      cobradoCentavos: 7_000_000,
     });
+  });
+
+  it('compara con el período anterior de igual largo, que arranca antes del registro', async () => {
+    const { anterior } = await lectura.leer(dueno.id, OCTUBRE, AHORA);
+
+    expect(anterior.rango).toEqual({ primerDia: '2026-08-31', ultimoDia: '2026-09-30' });
+    expect(anterior.datos).toBe('parciales');
     // Septiembre: un chat que no pidió nada. 0 %, que no es "sin datos".
-    expect(conversion.anterior).toMatchObject({ chats: 1, conPedido: 0, chatAPedido: { valor: 0 }, pedidoAPago: { valor: null } });
+    expect(anterior.conversion).toMatchObject({ chats: 1, conPedido: 0, chatAPedido: { valor: 0 }, pedidoAPago: { valor: null } });
+    expect(anterior.porDia).toHaveLength(31);
+    expect(anterior.porDia?.find((fila) => fila.chats > 0)?.dia).toBe('2026-09-20');
+  });
+
+  it('cuenta día por día según el día en que escribió cada chat, en la hora del negocio', async () => {
+    const { porDia, conversion } = await lectura.leer(dueno.id, OCTUBRE, AHORA);
+
+    expect(porDia).toHaveLength(31);
+    expect(porDia.filter((fila) => fila.chats > 0).map((fila) => fila.dia)).toEqual([
+      '2026-10-02',
+      '2026-10-05',
+      '2026-10-06',
+      '2026-10-10',
+      '2026-10-31',
+    ]);
+    expect(porDia[1]).toEqual({ dia: '2026-10-02', chats: 1, conPedido: 1, pedidos: 1, pagados: 1, conPago: 1, cobradoCentavos: 2_000_000 });
+    expect(porDia.reduce((suma, fila) => suma + fila.chats, 0)).toBe(conversion.chats);
+  });
+
+  it('el día de un chat es el del negocio: las 23:30 del 30/9 ya son 1/10 en UTC', async () => {
+    const deNoche = await prisma.conversation.create({ data: { userId: otro.id, remoteJid: '5491199999999@s.whatsapp.net' } });
+    await prisma.etapaChat.create({
+      data: { userId: otro.id, conversationId: deNoche.id, etapa: 'consulta', createdAt: new Date('2026-09-30T23:30:00-03:00') },
+    });
+    try {
+      const delOtro = await lectura.leer(otro.id, { desde: '2026-09-30', hasta: '2026-10-01' }, AHORA);
+      expect(delOtro.porDia.map((fila) => [fila.dia, fila.chats])).toEqual([
+        ['2026-09-30', 1],
+        ['2026-10-01', 0],
+      ]);
+    } finally {
+      await prisma.etapaChat.delete({ where: { conversationId: deNoche.id } });
+      await prisma.conversation.delete({ where: { id: deNoche.id } });
+    }
   });
 
   it('reparte los chats por etapa y estado', async () => {
@@ -291,7 +333,7 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     const lectura2026 = await lectura.leer(dueno.id, { desde: '2026-08-01', hasta: '2026-08-31' }, AHORA);
     expect(lectura2026.datos).toBe('sin_datos');
     expect(lectura2026.conversion.chatAPedido).toEqual({ valor: null });
-    expect(lectura2026.conversion.anterior).toBeNull();
+    expect(lectura2026.anterior).toMatchObject({ datos: 'sin_datos', conversion: null, porDia: null });
     expect(lectura2026.productos).toEqual([]);
   });
 

@@ -28,6 +28,7 @@ import {
 } from "@/lib/costos";
 import { centavosParaInput, ErrorDeApi, leerCentavos } from "@/lib/productos";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 
 function mensajeDe(err: unknown, porDefecto: string): string {
   return err instanceof ErrorDeApi ? err.message : porDefecto;
@@ -434,6 +435,7 @@ function SeccionConfig({ inicial }: { inicial: ConfigCotizacion }) {
 function Costos() {
   const [datos, setDatos] = useState<CostosDelComercio | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useTutorial("costos", datos !== null);
 
   useEffect(() => {
     const ctrl = { cancelado: false };
@@ -464,7 +466,7 @@ function Costos() {
           !error && <p className="py-10 text-center text-sm text-muted">Cargando tus costos…</p>
         ) : (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
-            <div className="flex flex-col gap-4">
+            <div data-tutorial="insumos" className="flex flex-col gap-4">
               {TIPOS_INSUMO.map((tipo) => (
                 <SeccionInsumos
                   key={tipo}
@@ -474,7 +476,7 @@ function Costos() {
                 />
               ))}
             </div>
-            <div className="lg:sticky lg:top-4">
+            <div data-tutorial="config-cotizacion" className="lg:sticky lg:top-4">
               <SeccionConfig inicial={datos.config} />
             </div>
           </div>

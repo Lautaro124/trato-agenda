@@ -2,6 +2,7 @@ import { API_URL } from '../entorno';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { crearAgenteVentasPorApi, type ProductoE2E } from './ventas';
+import { crearXlsx } from './xlsx';
 
 /** Sube una planilla desde el input del panel de importación. */
 async function subirPlanilla(page: Page, name: string, buffer: Buffer) {
@@ -18,6 +19,62 @@ const PLANILLA = [
 ].join('\n');
 
 test.describe('catálogo de un comercio', () => {
+  test('importa el export de publicaciones de Mercado Libre sin duplicar al volver a subirlo', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    await page.goto('/productos');
+    await page.getByRole('button', { name: 'Importar planilla' }).first().click();
+    const importar = page.getByRole('region', { name: 'Importar productos' });
+
+    // Como el archivo real: Ayuda primero, hojas auxiliares, y en Publicaciones códigos de columna, títulos y ayudas antes de los datos.
+    const codigos = ['FAMILY_ID', 'ITEM_ID', 'VARIATION_ID', 'TITLE', 'VARIATIONS', 'QUANTITY', 'PRICE', 'SALE_PRICE', 'CURRENCY_ID', 'STATUS'];
+    const titulos = ['Agrupador de variantes', 'Número de publicación', 'Número de variante', 'Título', 'Variantes', 'Stock en tu depósito', 'Precio', 'Precio en promoción', 'Moneda', 'Estado'];
+    const buffer = crearXlsx([
+      { nombre: 'Ayuda', filas: [[null, 'Modifica tus publicaciones'], [null, 'Publicaciones', null, '¿Ya completaste los datos?']] },
+      { nombre: 'dropdown_options_hidden', filas: [['Exento'], ['21 %']] },
+      {
+        nombre: 'Publicaciones',
+        filas: [
+          codigos,
+          ['Publicaciones', null, null, null, null, 'Información del producto'],
+          titulos,
+          titulos,
+          [null, null, null, null, null, 'Obligatorio', 'Obligatorio', null, 'Obligatorio'],
+          [null, null, null, null, null, null, null, 'Los precios en promoción son los precios de venta'],
+          ['111', 'MLA1111111111', null, 'Sillón esquinero chenille', 'Gris Liso', 30, 1046354.8, 651794.04, '$', 'Activa'],
+          ['222', 'MLA2222222222', null, 'Sofá retro 3 cuerpos', 'Negro', 12, 944818.3, null, '$', 'Activa'],
+          ['333', 'MLA3333333333', null, 'Rinconero sin precio', 'Beige', 5, null, null, '$', 'Activa'],
+        ],
+      },
+    ]);
+    const subir = () =>
+      page.getByLabel('Planilla de productos').setInputFiles({
+        name: 'Publicaciones-2026_10_28-13_41.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer,
+      });
+
+    await subir();
+    const resumen = importar.getByRole('list', { name: 'Resumen de la planilla' });
+    await expect(resumen).toContainText('2nuevos');
+    await expect(resumen).toContainText('1con error');
+    // El error dice la fila del Excel y la columna con el nombre que usa Mercado Libre.
+    await expect(importar).toContainText('Fila 9');
+    await expect(importar).toContainText('Precio: Falta el precio');
+    await importar.getByRole('button', { name: 'Importar sólo los válidos (2 productos)' }).click();
+    await expect(importar.getByRole('status')).toContainText('Listo: 2 nuevos');
+    const lista = page.getByRole('list', { name: 'Productos' });
+    await expect(lista).toContainText('Sillón esquinero chenille');
+    await expect(lista).toContainText('Sofá retro 3 cuerpos');
+
+    // El mismo archivo otra vez: se reconocen por número de publicación y se actualizan, no se duplican.
+    await importar.getByRole('button', { name: 'Cerrar' }).click();
+    await page.getByRole('button', { name: 'Importar planilla' }).first().click();
+    await subir();
+    await expect(resumen).toContainText('0nuevos');
+    await expect(resumen).toContainText('2actualizados');
+  });
+
   test('completa a mano en un modal lo que le falta a la planilla', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);

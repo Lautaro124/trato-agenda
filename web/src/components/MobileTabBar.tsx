@@ -98,6 +98,7 @@ export function MobileTabBar({ active }: { active: Tab }) {
   const items = [inicio, ...(user?.tipoAsistente === "ventas" ? ITEMS_VENTAS : ITEMS_AGENDA), chat];
   return (
     <nav
+      data-tutorial="navegacion"
       className="fixed inset-x-0 bottom-0 z-10 grid border-t border-line bg-card md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)", gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
     >

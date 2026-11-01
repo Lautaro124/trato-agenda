@@ -20,6 +20,7 @@ import {
   type TipoAsistente,
 } from "@/lib/mensajes";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 
 type AgentGuardado = {
   tipoAsistente?: TipoAsistente;
@@ -78,6 +79,7 @@ function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (ag
   const [seleccion, setSeleccion] = useState<ClaveMensaje>(definiciones[0].clave);
   // En el celular se ve la lista o un mensaje, nunca los dos.
   const [abiertoEnMovil, setAbiertoEnMovil] = useState(false);
+  useTutorial("asistente");
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ texto: string; tono: "ok" | "error" } | null>(null);
 
@@ -183,7 +185,7 @@ function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (ag
             className={cn("w-full md:w-[280px] md:flex-none", abiertoEnMovil && "hidden md:flex")}
           />
 
-          <div className={cn("min-w-0 flex-[999_1_440px] flex-col gap-4", abiertoEnMovil ? "flex" : "hidden md:flex")}>
+          <div data-tutorial="editor-mensaje" className={cn("min-w-0 flex-[999_1_440px] flex-col gap-4", abiertoEnMovil ? "flex" : "hidden md:flex")}>
             <button
               type="button"
               onClick={() => setAbiertoEnMovil(false)}
@@ -216,7 +218,7 @@ function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (ag
             </details>
           </div>
 
-          <aside aria-label="Vista previa" className="hidden w-[340px] flex-none flex-col gap-2.5 lg:flex">
+          <aside data-tutorial="vista-previa-mensaje" aria-label="Vista previa" className="hidden w-[340px] flex-none flex-col gap-2.5 lg:flex">
             <h2 className="text-sm font-bold text-ink-secondary">Vista previa</h2>
             <VistaPreviaMensaje
               definicion={actual.definicion}

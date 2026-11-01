@@ -5,6 +5,7 @@ import {
   DIAS_SEMANA,
   horariosDe,
   problemaDelDia,
+  type DiaEnPantalla,
   type DiaSemana,
   type FranjaLocal,
   type SemanaEnPantalla,
@@ -18,13 +19,29 @@ function laMasTemprana(a: string, b: string): string {
   return a.localeCompare(b) <= 0 ? a : b;
 }
 
+type Franjas = DiaEnPantalla["franjas"];
+
+/** El corte del mediodía: parte la franja en dos, de mañana y de tarde. */
+export function conCorte([primera]: Franjas): Franjas {
+  // "HH:MM" se ordena bien como texto: la mañana cierra a las 13 y la tarde abre a las 16, dentro de la franja.
+  return [
+    { desde: primera.desde, hasta: laMasTarde(primera.desde, "13:00") },
+    { desde: laMasTemprana(primera.hasta, "16:00"), hasta: primera.hasta },
+  ];
+}
+
+export function sinCorte([primera, segunda]: Franjas): Franjas {
+  return [{ desde: primera.desde, hasta: segunda?.hasta ?? primera.hasta }];
+}
+
 /**
  * Una semana de franjas en pantalla: los horarios del local de un comercio y
  * el horario de atención del asistente (LAU-29) usan los mismos controles
  * (EditorSemana) sobre este estado. `tocada` dice si la persona ya la editó,
- * para no pisarle lo que eligió al precargarla.
+ * para no pisarle lo que eligió al precargarla. Con `nocturnas` (el horario de
+ * atención) una franja puede terminar al día siguiente: de 19:00 a 07:00.
  */
-export function useSemana(inicial: () => SemanaEnPantalla) {
+export function useSemana(inicial: () => SemanaEnPantalla, { nocturnas = false } = {}) {
   const [semana, setSemana] = useState<SemanaEnPantalla>(inicial);
   const [tocada, setTocada] = useState(false);
 
@@ -50,26 +67,21 @@ export function useSemana(inicial: () => SemanaEnPantalla) {
     [editar],
   );
 
-  /** El corte del mediodía: parte la franja en dos, de mañana y de tarde. */
   const agregarCorte = useCallback(
     (dia: DiaSemana) =>
-      editar((previa) => {
-        const [primera] = previa[dia].franjas;
-        // "HH:MM" se ordena bien como texto: la mañana cierra a las 13 y la tarde abre a las 16, dentro de la franja.
-        const manana = { desde: primera.desde, hasta: laMasTarde(primera.desde, "13:00") };
-        const tarde = { desde: laMasTemprana(primera.hasta, "16:00"), hasta: primera.hasta };
-        return { ...previa, [dia]: { ...previa[dia], franjas: [manana, tarde] } };
-      }),
+      editar((previa) => ({ ...previa, [dia]: { ...previa[dia], franjas: conCorte(previa[dia].franjas) } })),
     [editar],
   );
 
   const quitarCorte = useCallback(
     (dia: DiaSemana) =>
-      editar((previa) => {
-        const [primera, segunda] = previa[dia].franjas;
-        const unida = { desde: primera.desde, hasta: segunda?.hasta ?? primera.hasta };
-        return { ...previa, [dia]: { ...previa[dia], franjas: [unida] } };
-      }),
+      editar((previa) => ({ ...previa, [dia]: { ...previa[dia], franjas: sinCorte(previa[dia].franjas) } })),
+    [editar],
+  );
+
+  /** Cambia varios días de una vez: un horario típico o el horario general de la carga rápida. */
+  const fijarDias = useCallback(
+    (cambios: Partial<SemanaEnPantalla>) => editar((previa) => ({ ...previa, ...cambios })),
     [editar],
   );
 
@@ -95,23 +107,30 @@ export function useSemana(inicial: () => SemanaEnPantalla) {
 
   const problemas = useMemo(
     () =>
-      Object.fromEntries(DIAS_SEMANA.map((dia) => [dia, problemaDelDia(semana[dia])])) as Record<
-        DiaSemana,
-        string | null
-      >,
-    [semana],
+      Object.fromEntries(
+        DIAS_SEMANA.map((dia, i) => [
+          dia,
+          problemaDelDia(semana[dia], {
+            nocturnas,
+            anterior: semana[DIAS_SEMANA[(i + DIAS_SEMANA.length - 1) % DIAS_SEMANA.length]],
+          }),
+        ]),
+      ) as Record<DiaSemana, string | null>,
+    [semana, nocturnas],
   );
   const valida = DIAS_SEMANA.every((dia) => !problemas[dia]);
   const franjas = useCallback((): FranjaLocal[] => horariosDe(semana), [semana]);
 
   return {
     semana,
+    nocturnas,
     tocada,
     alternarDia,
     fijarHora,
     agregarCorte,
     quitarCorte,
     copiarATodos,
+    fijarDias,
     precargar,
     problemas,
     valida,

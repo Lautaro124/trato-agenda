@@ -7,6 +7,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 import {
   formatearChats,
   formatearFechaCorta,
@@ -64,6 +65,8 @@ function PlanContenido() {
   const volviendo = useSearchParams().has("volviendo");
   const [vista, setVista] = useState<Vista>(volviendo ? "confirmando" : "plan");
   const [enviando, setEnviando] = useState(false);
+  // Ni mientras confirma un pago ni en la pantalla de éxito.
+  useTutorial("plan", status === "authenticated" && vista === "plan");
   const [error, setError] = useState<string | null>(null);
 
   // El webhook puede llegar después que el browser: reintentamos unas veces
@@ -314,7 +317,6 @@ function OpcionDePlan({
       </div>
       <div className="mt-1 text-[12.5px] leading-[1.5] text-ink-secondary">
         Hasta {formatearChats(plan.chats)} chats por mes
-        {plan.id === "pro" && " · importá productos desde Mercado Libre, Tiendamia o tu web"}
       </div>
     </button>
   );
@@ -427,8 +429,7 @@ function PlanVigente({
         <div className="mb-4 rounded-md border border-line bg-card p-4">
           <p className="mb-3 text-[13.5px] leading-[1.55] text-ink-secondary">
             Plan Pro: hasta {formatearChats(pro.chats)} chats por mes por{" "}
-            {formatearMonto(pro.monto, precios?.moneda)} al mes, y la importación rápida de productos desde Mercado
-            Libre, Tiendamia o cualquier tienda. Pasás a Mercado Pago a autorizar el nuevo débito y
+            {formatearMonto(pro.monto, precios?.moneda)} al mes. Pasás a Mercado Pago a autorizar el nuevo débito y
             cancelamos el actual.
           </p>
           <Button disabled={enviando} onClick={() => onCambiar("pro")}>

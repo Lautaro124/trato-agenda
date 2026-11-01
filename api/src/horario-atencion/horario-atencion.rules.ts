@@ -74,7 +74,8 @@ export function normalizarHorarioAtencion(
 ): { horario: HorarioAtencion } | { error: string } {
   if (!esZonaHoraria(entrada.zona)) return { error: 'Elegí una zona horaria de la lista.' };
   const franjas = ordenar(entrada.franjas);
-  const problema = problemaDeHorarios(franjas);
+  // Atiende de noche: una franja puede terminar al día siguiente (de 19:00 a 07:00).
+  const problema = problemaDeHorarios(franjas, { nocturnas: true });
   if (problema) return { error: problema };
   if (entrada.activo && franjas.length === 0) {
     return { error: 'Marcá al menos un día y horario en el que atienda el asistente.' };
@@ -133,6 +134,32 @@ export function datosDelHorario(horario: HorarioAtencion): {
 /** Si a esta hora el horario deja atender chats nuevos. Sin restricción, siempre. */
 export function dentroDelHorario(horario: HorarioAtencion, ahora: Date): boolean {
   return !horario.activo || estadoDelLocal(horario.franjas, ahora, horario.zona).abierto;
+}
+
+/**
+ * Si los dos instantes caen en el mismo cierre: ninguno está dentro del
+ * horario y los dos esperan la misma apertura, como "AAAA-MM-DD HH:MM" local.
+ * Con eso el aviso de fuera de horario (LAU-37) sale una vez por cierre.
+ */
+export function mismoCierre(horario: HorarioAtencion, antes: Date, ahora: Date): boolean {
+  const apertura = (instante: Date): string | null => {
+    if (dentroDelHorario(horario, instante)) return null;
+    const estado = estadoDelLocal(horario.franjas, instante, horario.zona);
+    if (estado.abierto || !estado.abre) return 'nunca';
+    const [anio, mes, dia] = new Intl.DateTimeFormat('en-CA', {
+      timeZone: horario.zona,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .format(instante)
+      .split('-')
+      .map(Number);
+    const fecha = new Date(Date.UTC(anio, mes - 1, dia + estado.abre.enDias)).toISOString().slice(0, 10);
+    return `${fecha} ${estado.abre.desde}`;
+  };
+  const primera = apertura(antes);
+  return primera !== null && primera === apertura(ahora);
 }
 
 /** El horario en una línea, para la pantalla: "lunes a viernes de 09:00 a 18:00". */

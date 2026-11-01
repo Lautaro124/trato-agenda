@@ -29,7 +29,8 @@ export function nombreDeZona(zona: string): string {
 
 /**
  * Cada media hora del día, más 23:59 para poder atender hasta la medianoche
- * (la API no acepta 24:00 y exige que cierre después de abrir).
+ * en una franja de todo el día (la API no acepta 24:00; una que termina antes de
+ * empezar, como 19:00 a 07:00, sigue al día siguiente).
  */
 export const HORAS_ATENCION = [
   ...Array.from({ length: 48 }, (_, i) => {
@@ -37,6 +38,13 @@ export const HORAS_ATENCION = [
     return `${String(Math.floor(minutos / 60)).padStart(2, "0")}:${String(minutos % 60).padStart(2, "0")}`;
   }),
   "23:59",
+];
+
+/** Los horarios típicos que se cargan de un toque en el onboarding. */
+export const HORARIOS_TIPICOS: ReadonlyArray<{ etiqueta: string; dias: readonly DiaSemana[]; desde: string; hasta: string }> = [
+  { etiqueta: "Lunes a viernes", dias: ["lun", "mar", "mie", "jue", "vie"], desde: "09:00", hasta: "18:00" },
+  { etiqueta: "Lunes a sábado", dias: ["lun", "mar", "mie", "jue", "vie", "sab"], desde: "09:00", hasta: "20:00" },
+  { etiqueta: "Todos los días", dias: ["lun", "mar", "mie", "jue", "vie", "sab", "dom"], desde: "09:00", hasta: "21:00" },
 ];
 
 /** Lo que devuelven `GET` y `PUT /horario-atencion`. */

@@ -24,6 +24,7 @@ import {
 } from "@/lib/performance";
 import { ErrorDeApi, MONEDAS, type Moneda } from "@/lib/productos";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 import { claveDia, rangoDePeriodo, type Periodo } from "@/lib/ventas";
 
 const PERIODOS: Array<{ valor: Periodo; etiqueta: string }> = [
@@ -89,6 +90,7 @@ function AvisoDeDatos({ performance }: { performance: Performance }) {
 }
 
 function Rendimiento() {
+  useTutorial("rendimiento");
   const [hoy] = useState(() => claveDia(new Date()));
   const [periodo, setPeriodo] = useState<Periodo>("30");
   const [fechas, setFechas] = useState({ desde: "", hasta: "" });
@@ -186,7 +188,7 @@ function Rendimiento() {
           )}
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div data-tutorial="filtros-rendimiento" className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <div
               role="group"

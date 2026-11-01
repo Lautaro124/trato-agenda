@@ -13,6 +13,7 @@ import {
   type DescuentoAGuardar,
   type TipoDescuento,
 } from "@/lib/descuentos";
+import { MAX_CUOTAS } from "@/lib/condiciones-pago";
 import {
   centavosParaInput,
   ErrorDeApi,
@@ -146,6 +147,7 @@ export function EditorProducto({
   const [categoria, setCategoria] = useState(productoInicial?.categoria ?? "");
   const [descripcion, setDescripcion] = useState(productoInicial?.descripcion ?? "");
   const [moneda, setMoneda] = useState<Moneda>(productoInicial?.moneda ?? "ARS");
+  const [cuotasMax, setCuotasMax] = useState<number | null>(productoInicial?.cuotasMax ?? null);
   const [variantes, setVariantes] = useState<VarianteEnEdicion[]>(
     productoInicial ? desdeProducto(productoInicial) : [nuevaVariante()],
   );
@@ -161,6 +163,7 @@ export function EditorProducto({
       categoria,
       descripcion,
       moneda,
+      cuotasMax,
       variantes.map((v) => [v.sku, v.nombre, v.precio, v.stock, v.stockMinimo, v.disponible]),
       descuento,
       foto?.name ?? null,
@@ -186,6 +189,7 @@ export function EditorProducto({
       categoria: categoria.trim() || null,
       descripcion: descripcion.trim(),
       moneda,
+      cuotasMax,
     };
     const armadas: ProductoDeStockAGuardar["variantes"] = [];
     for (const [indice, variante] of variantes.entries()) {
@@ -356,6 +360,30 @@ export function EditorProducto({
               </p>
             )}
           </div>
+          {moneda === "ARS" && (
+            <div>
+              <label htmlFor={`${idCampos}-cuotas`} className={LABEL}>
+                Cuotas
+              </label>
+              <select
+                id={`${idCampos}-cuotas`}
+                value={cuotasMax ?? ""}
+                onChange={(e) => setCuotasMax(e.target.value === "" ? null : Number(e.target.value))}
+                className={INPUT}
+              >
+                <option value="">Con todos tus planes de cuotas</option>
+                <option value="1">Sólo en un pago</option>
+                {Array.from({ length: MAX_CUOTAS - 1 }, (_, i) => i + 2).map((n) => (
+                  <option key={n} value={n}>
+                    Hasta {n} cuotas
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-[12.5px] text-muted">
+                Los planes se arman en Cuenta → Formas de pago. En un pedido con varios productos vale el tope más bajo.
+              </p>
+            </div>
+          )}
           {variantes.map((variante, indice) => {
             const id = (campo: string) => `${idCampos}-${variante.clave}-${campo}`;
             return (

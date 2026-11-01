@@ -5,6 +5,7 @@ import {
   dentroDelHorario,
   GRACIA_EN_CURSO_MS,
   leerHorarioAtencion,
+  mismoCierre,
   normalizarHorarioAtencion,
   resumenHorarioAtencion,
   ZONA_POR_DEFECTO,
@@ -13,7 +14,10 @@ import {
 } from './horario-atencion.rules.js';
 import type { HorarioAtencionPublico } from './horario-atencion.types.js';
 
-const COLUMNAS = { horarioAtencionActivo: true, horarioAtencion: true, zonaHoraria: true } as const;
+/** `avisar`: mandar el aviso de vendedor no disponible y no correr el asistente. */
+export type Atencion = 'atender' | 'avisar' | 'ignorar';
+
+const COLUMNAS ={ horarioAtencionActivo: true, horarioAtencion: true, zonaHoraria: true } as const;
 
 function aPublico(horario: HorarioAtencion): HorarioAtencionPublico {
   return { ...horario, resumen: resumenHorarioAtencion(horario) };
@@ -41,18 +45,50 @@ export class HorarioAtencionService {
   }
 
   /**
-   * Si el asistente puede contestarle a este chat ahora. Dentro del horario (o
-   * sin restricción), sí. Fuera, sólo si la conversación está en curso: tuvo un
-   * mensaje hace menos de GRACIA_EN_CURSO_MS. Así una atención que empezó antes
-   * del cierre se termina, y un chat nuevo espera al horario siguiente.
+   * Si el negocio puede escribirle por su cuenta a este chat ahora (un
+   * recordatorio, no una respuesta): con la misma regla que `atencion`, dentro
+   * del horario o, fuera, sólo con la conversación en curso. Nunca avisa nada.
    */
-  async debeAtender(userId: string, remoteJid: string, ahora: Date): Promise<boolean> {
+  async puedeEscribir(userId: string, conversationId: string, ahora: Date): Promise<boolean> {
     if (dentroDelHorario(await this.leer(userId), ahora)) return true;
     const ultimo = await this.prisma.message.findFirst({
-      where: { conversation: { userId, remoteJid } },
+      where: { conversationId, conversation: { userId } },
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
     });
     return ultimo !== null && ahora.getTime() - ultimo.createdAt.getTime() < GRACIA_EN_CURSO_MS;
+  }
+
+  /**
+   * Qué hacer con un mensaje de este chat ahora. Dentro del horario (o sin
+   * restricción), atenderlo. Fuera, se atiende sólo si la conversación está en
+   * curso: tuvo un mensaje hace menos de GRACIA_EN_CURSO_MS. Así una atención
+   * que empezó antes del cierre se termina, y un chat nuevo espera al horario
+   * siguiente en silencio. Un chat ya iniciado recibe el aviso de vendedor no
+   * disponible una vez por cierre (LAU-37).
+   */
+  async atencion(userId: string, remoteJid: string, ahora: Date): Promise<Atencion> {
+    const horario = await this.leer(userId);
+    if (dentroDelHorario(horario, ahora)) return 'atender';
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { userId_remoteJid: { userId, remoteJid } },
+      select: {
+        id: true,
+        avisoFueraDeHorarioAt: true,
+        messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
+      },
+    });
+    const ultimo = conversation?.messages[0];
+    if (!conversation || !ultimo) return 'ignorar';
+    if (ahora.getTime() - ultimo.createdAt.getTime() < GRACIA_EN_CURSO_MS) return 'atender';
+
+    const avisado = conversation.avisoFueraDeHorarioAt;
+    if (avisado && mismoCierre(horario, avisado, ahora)) return 'ignorar';
+    // Se reclama contra el valor leído: de dos mensajes a la vez, avisa uno solo.
+    const { count } = await this.prisma.conversation.updateMany({
+      where: { id: conversation.id, avisoFueraDeHorarioAt: avisado },
+      data: { avisoFueraDeHorarioAt: ahora },
+    });
+    return count === 1 ? 'avisar' : 'ignorar';
   }
 }

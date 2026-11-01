@@ -8,6 +8,7 @@ import { AgregarEvento, ListaEventos, PrecioParaTodos } from "@/components/onboa
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 import { ordenarHorarios } from "@/lib/turnos-grupales";
 import {
   CATALOGO_EVENTOS,
@@ -91,6 +92,7 @@ function Editor({
   const tipos = useTiposEvento(tipoUso, agent.tiposEvento);
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ texto: string; tono: "ok" | "error" } | null>(null);
+  useTutorial("reuniones");
 
   const hayCambios = firma(tipos.seleccionados) !== firma(agent.tiposEvento);
   const puedeGuardar = hayCambios && tipos.seleccionados.length > 0 && tipos.gruposValidos && !guardando;
@@ -129,7 +131,7 @@ function Editor({
           </p>
         </div>
 
-        <div className="rounded-lg border border-line bg-card p-5">
+        <div data-tutorial="tipos-reunion" className="rounded-lg border border-line bg-card p-5">
           <PrecioParaTodos ob={tipos} />
           <ListaEventos ob={tipos} />
           <div className="mt-4">
@@ -138,7 +140,7 @@ function Editor({
         </div>
 
         <div className="flex items-center gap-3">
-          <Button onClick={guardar} disabled={!puedeGuardar}>
+          <Button data-tutorial="guardar-reuniones" onClick={guardar} disabled={!puedeGuardar}>
             {guardando ? "Guardando…" : "Guardar cambios"}
           </Button>
           {tipos.seleccionados.length === 0 && (

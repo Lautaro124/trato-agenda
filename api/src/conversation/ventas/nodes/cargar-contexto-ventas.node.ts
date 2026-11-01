@@ -5,6 +5,7 @@
  */
 import { Logger } from '@nestjs/common';
 import type { BaseMessage } from '@langchain/core/messages';
+import { leerCondiciones } from '../../../comercio/condiciones-pago.rules.js';
 import type { DecisionesClient } from '../../../comercio/decisiones.client.js';
 import { leerConfigDatosCliente, pideDatos, type EtapaDeCompra } from '../../../comercio/datos-cliente.rules.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
@@ -165,7 +166,8 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
     const ventanaMs = deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS;
-    const [grupos, totalProductos, productosAMedida, cuentaMp, pedidos, etapa, pedidosAMedida, devolucion] = await Promise.all([
+    const [grupos, totalProductos, productosAMedida, cuentaMp, pedidos, etapa, pedidosAMedida, devolucion, filaCondiciones] =
+      await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
         where: { userId: state.ownerUserId, activo: true, categoria: { not: null } },
@@ -192,8 +194,10 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
         take: PEDIDOS_A_MEDIDA_EN_CONTEXTO,
       }) as Promise<PedidoAMedida[]>,
       ultimaDevolucion(deps.prisma, conversation.id, new Date(Date.now() - ventanaMs)),
+      deps.prisma.condicionesPago.findUnique({ where: { userId: state.ownerUserId } }),
     ]);
     const mpConectado = cuentaMp !== null;
+    const condicionesPago = leerCondiciones(filaCondiciones);
     // El banco de pruebas del Home no cuenta para el módulo de performance.
     if (!state.esPropietario) await deps.registro?.tocarChat(state.ownerUserId, conversation.id, { etapaJev: etapa });
     // Un pedido a medida en curso también cuenta: aunque el producto ya no esté, se puede aceptar o derivar.
@@ -205,6 +209,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       agent,
       conversation,
       mpConectado,
+      condicionesPago,
       pedidosAMedida,
       tieneAMedida,
       bloqueSistema:
@@ -216,7 +221,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
           aMedida: tieneAMedida,
         })}\n\n` +
         `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n` +
-        `${bloquePedidos(agent, mpConectado, pedidos, new Date(), pedidosAMedida, tieneAMedida)}` +
+        `${bloquePedidos(agent, mpConectado, pedidos, new Date(), pedidosAMedida, tieneAMedida, condicionesPago)}` +
         (atencionHumana ? `\n\n${atencionHumana}` : ''),
     };
 

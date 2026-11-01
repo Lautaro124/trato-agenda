@@ -56,12 +56,35 @@ export async function loginDev(
   request: APIRequestContext,
   email: string,
   telefono?: string,
+  { conTutoriales = false }: { conTutoriales?: boolean } = {},
 ): Promise<{ destino: string }> {
   const res = await request.post(`${API_URL}/auth/dev/login`, {
     data: { password: DEV_PASSWORD, email, ...(telefono ? { telefono } : {}) },
   });
   expect(res.status(), await res.text()).toBe(200);
-  return res.json() as Promise<{ destino: string }>;
+  const cuerpo = (await res.json()) as { destino: string };
+  // El recorrido guiado tapa la pantalla la primera vez: sólo lo ven los tests que lo prueban.
+  if (!conTutoriales) await marcarTutorialesVistos(request);
+  return cuerpo;
+}
+
+/** Copia de TUTORIALES en api/src/auth/tutoriales.ts: mantenerlas sincronizadas. */
+export const TUTORIALES = [
+  'inicio',
+  'calendario',
+  'reuniones',
+  'chat',
+  'productos',
+  'costos',
+  'ventas',
+  'rendimiento',
+  'asistente',
+  'plan',
+] as const;
+
+export async function marcarTutorialesVistos(request: APIRequestContext): Promise<void> {
+  const res = await request.post(`${API_URL}/auth/tutoriales`, { data: { claves: TUTORIALES } });
+  expect(res.status(), await res.text()).toBe(204);
 }
 
 /** Pone la contraseña de la cuenta logueada (la que se elige después del QR). */

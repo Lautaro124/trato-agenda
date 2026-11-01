@@ -10,7 +10,6 @@ import { ImportarProductos } from "@/components/productos/ImportarProductos";
 import { ProbarBusqueda } from "@/components/productos/ProbarBusqueda";
 import { Promociones } from "@/components/productos/Promociones";
 import { useAvisos } from "@/components/ui/Avisos";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -22,6 +21,7 @@ import {
   type Producto,
 } from "@/lib/productos";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 
 /** Cuánto espera la búsqueda del panel a que se deje de tipear. */
 const ESPERA_BUSQUEDA_MS = 300;
@@ -62,6 +62,7 @@ function Catalogo() {
   const [categoria, setCategoria] = useState("");
   const [pagina, setPagina] = useState(1);
   const [listado, setListado] = useState<ListadoProductos | null>(null);
+  useTutorial("productos", listado !== null);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [error, setError] = useState(false);
   const [recargas, setRecargas] = useState(0);
@@ -136,12 +137,12 @@ function Catalogo() {
               medida, con lo que le pregunta al cliente para que lo presupuestes. Los cambios valen desde el próximo mensaje.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div data-tutorial="cargar-productos" className="flex flex-wrap gap-2">
             <Link
               href="/productos/importar-enlace"
               className="inline-flex items-center justify-center gap-2 rounded-md border border-line-strong bg-card px-4 py-2 font-body text-[15px] leading-none font-semibold whitespace-nowrap text-ink shadow-sm hover:bg-sunken"
             >
-              Importar desde un enlace <Badge tone="primary">Pro</Badge>
+              Importar desde un enlace
             </Link>
             <Button variant="secondary" onClick={() => setImportando(true)}>
               Importar planilla
@@ -176,7 +177,7 @@ function Catalogo() {
               </div>
             ) : (
               <>
-                <div className="flex flex-col gap-2 sm:flex-row">
+                <div data-tutorial="buscar-productos" className="flex flex-col gap-2 sm:flex-row">
                   <input
                     type="search"
                     value={consulta}
@@ -250,7 +251,7 @@ function Catalogo() {
           </div>
 
           {!catalogoVacio && (
-            <aside aria-label="Herramientas del catálogo" className="flex flex-col gap-4 lg:sticky lg:top-5">
+            <aside data-tutorial="herramientas-catalogo" aria-label="Herramientas del catálogo" className="flex flex-col gap-4 lg:sticky lg:top-5">
               <ProbarBusqueda />
               <Promociones categorias={categorias} onCambio={recargar} />
             </aside>

@@ -47,6 +47,10 @@ model User {
   /// Sólo para el horario de atención: la agenda y las ventas siguen en Buenos Aires.
   zonaHoraria           String  @default("America/Argentina/Buenos_Aires")
 
+  /// Recorridos guiados que la cuenta ya vio (o salteó), por pantalla. El
+  /// catálogo de claves vive en src/auth/tutoriales.ts.
+  tutorialesVistos String[] @default([])
+
   whatsappSession WhatsappSession?
   agent           Agent?
   conversaciones  Conversation[]
@@ -63,6 +67,7 @@ model User {
   sugerencias     SugerenciaMejora[]
   insumos          Insumo[]
   configCotizacion ConfigCotizacion?
+  condicionesPago  CondicionesPago?
   etapasChat       EtapaChat[]
   interesProductos InteresProducto[]
   preguntasChat    PreguntaChat[]
@@ -224,6 +229,10 @@ model Conversation {
 
   etapaChat        EtapaChat?
   interesProductos InteresProducto[]
+
+  /// Cuándo se le avisó a este cliente que el vendedor no está disponible
+  /// (LAU-37). Fuera del horario de atención se avisa una vez por cierre.
+  avisoFueraDeHorarioAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -439,6 +448,10 @@ model Producto {
   /// lo aprueba) | "automatica" (el asistente cotiza y lo manda).
   politicaCotizacion String @default("manual")
 
+  /// Hasta cuántas cuotas se vende (LAU-34): 1 = sólo en un pago, null = con
+  /// todos los planes del comercio. En un pedido manda el más bajo.
+  cuotasMax Int?
+
   /// Importación rápida (LAU-31): de dónde salió el producto, como clave
   /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
   /// no crea otro producto. Null en los cargados a mano o por planilla.
@@ -604,6 +617,13 @@ model Venta {
   estado    String @default("pendiente_pago")
   /// "mercadopago" | "manual". Null en un a medida que todavía no se cobra.
   medioPago String?
+  /// "efectivo" | "cuotas" (LAU-34); null = contado, como siempre. Reglas en
+  /// comercio/condiciones-pago.rules.ts.
+  formaPago       String?
+  /// Sólo en cuotas: cuántas.
+  cuotas          Int?
+  /// Sólo en cuotas: lo que se sumó al total por el plan (ya incluido en `totalCentavos`).
+  recargoCentavos Int     @default(0)
 
   /// Null en un a medida sin cotizar: nunca un cero inventado.
   totalCentavos Int?
@@ -639,6 +659,10 @@ model Venta {
 
   pagadaAt    DateTime?
   canceladaAt DateTime?
+
+  /// Cuándo se le recordó al cliente que la reserva del link está por
+  /// vencer (conciliacion.service.ts). Se marca antes de mandarlo: una sola vez.
+  recordatorioPagoAt DateTime?
 
   /// Se pagó cuando ya no había stock para cubrirla (la reserva venció y
   /// otro compró lo último): el dueño tiene que devolver o reponer.
@@ -856,6 +880,30 @@ model ConfigCotizacion {
   vigenciaDias      Int?
   /// "total" | "detallado"
   desgloseAlCliente String  @default("total")
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Cómo puede pagar el cliente de un comercio que vende (LAU-34): planes de
+/// cuotas con su recargo y el descuento por pagar en efectivo. Sin fila, no
+/// ofrece ninguno. Reglas en comercio/condiciones-pago.rules.ts.
+model CondicionesPago {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// [{ cuotas, recargoPorcentaje }]; recargo 0 = sin interés.
+  planesCuotas                Json @default("[]")
+  /// Porcentaje de descuento pagando en efectivo; null = no hay.
+  descuentoEfectivoPorcentaje Int?
+
+  /// Cómo se cobra un pedido sin link: "transferencia" (alias + titular) u
+  /// "otro_canal" (mensaje del dueño). Con cualquiera, el asistente se lo
+  /// manda al cliente y el chat pasa al negocio hasta que el pedido se pague o
+  /// se cancele. null = se coordina por el chat y el asistente sigue.
+  cobroManual          String?
+  aliasTransferencia   String?
+  titularTransferencia String?
+  mensajeCobroManual   String?
 
   updatedAt DateTime @updatedAt
 }

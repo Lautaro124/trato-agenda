@@ -230,14 +230,10 @@ export function itemParaConfirmar(producto: ProductoEnRevision) {
   };
 }
 
-/** Un 403 de la API con este motivo: la cuenta no tiene el Pro. */
-export class SinPlanProError extends ErrorDeApi {}
-
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const cuerpo = (await res.json().catch(() => null)) as { message?: string | string[]; motivo?: string } | null;
+    const cuerpo = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
     const mensaje = Array.isArray(cuerpo?.message) ? cuerpo.message[0] : cuerpo?.message;
-    if (res.status === 403 && cuerpo?.motivo === "plan_pro_requerido") throw new SinPlanProError(mensaje ?? "Es del plan Pro.");
     throw new ErrorDeApi(res.status < 500 && mensaje ? mensaje : "No pudimos completar la operación.");
   }
   return (await res.json()) as T;
@@ -285,7 +281,7 @@ export const EXPLICACION_ERROR: Record<CodigoErrorImportacion, string> = {
   pagina_no_soportada: "Ese tipo de página no se puede importar.",
   sin_datos_de_producto: "La página no dice qué producto es ni su precio. Cargalo a mano o probá con otro enlace.",
   mercadolibre_no_disponible:
-    "Mercado Libre no nos dejó leer ese enlace ahora. Probá pegando los enlaces de cada publicación, o de nuevo más tarde.",
+    "Mercado Libre no deja leer sus tiendas ni sus publicaciones desde afuera. Esos productos cargalos a mano o con una planilla.",
   listado_no_soportado: "No pudimos leer los productos de ese listado. Pegá los enlaces de los productos de a uno.",
 };
 

@@ -94,6 +94,9 @@ const VIGENCIA_VERSION_WA_MS = 12 * UNA_HORA_MS;
 const ESPERA_VERSION_WA_MS = 5_000;
 const REINTENTO_VERSION_WA_MS = 10 * 60 * 1000;
 
+/** Lo que recibe un chat ya iniciado que escribe fuera del horario de atención (LAU-37). */
+export const AVISO_FUERA_DE_HORARIO = 'El vendedor que te atendió no está disponible.';
+
 /**
  * Cómo se presenta el socket ante WhatsApp. Tiene que ser un navegador que
  * WhatsApp conozca y con versión fija: con un nombre propio
@@ -566,8 +569,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     // Fuera del horario de atención (LAU-29) un chat nuevo no se atiende:
     // silencio igual que con la suscripción vencida, y el dueño lo ve en su
-    // teléfono. Una conversación en curso se termina de atender.
-    if (!(await this.horarioAtencion.debeAtender(userId, remoteJid, new Date()))) {
+    // teléfono. Una conversación en curso se termina de atender, y a un chat
+    // ya iniciado se le avisa una vez por cierre (LAU-37). El aviso no va al
+    // historial: reiniciaría la gracia de la conversación en curso.
+    const atencion = await this.horarioAtencion.atencion(userId, remoteJid, new Date());
+    if (atencion !== 'atender') {
+      if (atencion === 'avisar') {
+        await this.enviar(userId, sock, remoteJid, { text: AVISO_FUERA_DE_HORARIO }).catch((error: unknown) =>
+          this.logger.error(`No se pudo mandar el aviso de fuera de horario de ${userId}: ${(error as Error).message}`),
+        );
+      }
       this.logger.debug(`Mensaje ignorado: ${userId} está fuera de su horario de atención.`);
       return;
     }

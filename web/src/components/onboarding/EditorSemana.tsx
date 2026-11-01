@@ -2,7 +2,7 @@
 
 import type { SemanaState } from "@/app/contanos/useSemana";
 import { cn } from "@/lib/cn";
-import { DIAS_SEMANA, NOMBRE_DIA, type DiaSemana } from "@/lib/local";
+import { cruzaMedianoche, DIAS_SEMANA, NOMBRE_DIA, type DiaSemana } from "@/lib/local";
 
 /**
  * Una semana de franjas: cada día abre o no, con una franja o dos (el corte
@@ -82,6 +82,7 @@ function FilaDia({
           {franjas.map((franja, indice) => {
             const parte = partes[indice];
             const cual = franjas.length > 1 ? ` (${parte})` : "";
+            const nocturna = semana.nocturnas && cruzaMedianoche(franja);
             return (
               <div key={parte} className="flex flex-wrap items-center gap-2">
                 <SelectorHora
@@ -97,7 +98,9 @@ function FilaDia({
                   horas={horas}
                   onChange={(hora) => semana.fijarHora(dia, indice, "hasta", hora)}
                 />
-                {indice === franjas.length - 1 && (
+                {nocturna && <span className="text-[13px] text-muted">del día siguiente</span>}
+                {/* Una franja nocturna no tiene mediodía que cortar. */}
+                {indice === franjas.length - 1 && !(franjas.length === 1 && nocturna) && (
                   <button
                     type="button"
                     onClick={() => (franjas.length > 1 ? semana.quitarCorte(dia) : semana.agregarCorte(dia))}

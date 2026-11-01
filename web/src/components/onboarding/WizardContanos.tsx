@@ -18,7 +18,7 @@ import {
   textoFinal,
 } from "./controles";
 import { EditorDatosCliente } from "./DatosCliente";
-import { ControlesHorarioAtencion } from "./ControlesHorarioAtencion";
+import { PasoCuandoAtiende } from "./PasoCuandoAtiende";
 import { ControlesLocal } from "./ControlesLocal";
 import { ControlesLugar } from "./ControlesLugar";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
@@ -361,7 +361,13 @@ function ContenidoDelPaso({
             bajada="En estos días y horarios el asistente contesta los chats nuevos por WhatsApp. Fuera de ellos no empieza ninguna conversación: los mensajes te quedan a vos. Si un chat ya venía en curso, lo termina de atender."
           />
           <div className="max-w-[600px]">
-            <ControlesHorarioAtencion semana={ob.horarioBot} zona={ob.zona} onZona={ob.setZona} />
+            <PasoCuandoAtiende
+              semana={ob.horarioBot}
+              zona={ob.zona}
+              onZona={ob.setZona}
+              siempre={ob.atenderSiempre}
+              onSiempre={ob.setAtenderSiempre}
+            />
           </div>
         </>
       );

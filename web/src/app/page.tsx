@@ -82,6 +82,7 @@ const INCLUYE_PLAN = [
   "Tu número de WhatsApp con el asistente respondiendo",
   "Turnos ilimitados, en Google Calendar o en la agenda de Trato",
   "O ventas con catálogo, stock y cobro por Mercado Pago",
+  "Importá productos desde Tiendamia o tu web",
 ];
 
 function Check({ children }: { children: ReactNode }) {

@@ -14,6 +14,7 @@ import { MasVendidos } from "@/components/ventas/MasVendidos";
 import { cn } from "@/lib/cn";
 import { ErrorDeApi, MONEDAS, type Moneda } from "@/lib/productos";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 import {
   claveDia,
   descargarCsv,
@@ -84,7 +85,7 @@ function VentasContenido() {
 function TeEsperan({ ventas, onElegir }: { ventas: Venta[]; onElegir: (venta: Venta) => void }) {
   if (ventas.length === 0) return null;
   return (
-    <section aria-labelledby="titulo-te-esperan" className="rounded-lg border border-[var(--color-primitive-coral-200)] bg-primary-subtle p-4">
+    <section data-tutorial="te-esperan" aria-labelledby="titulo-te-esperan" className="rounded-lg border border-[var(--color-primitive-coral-200)] bg-primary-subtle p-4">
       <h2 id="titulo-te-esperan" className="font-display text-[16px] font-bold text-ink">
         {ventas.length === 1 ? "Te espera 1 cliente" : `Te esperan ${ventas.length} clientes`}
       </h2>
@@ -129,6 +130,7 @@ function Historico() {
   const [abierta, setAbierta] = useState<Detalle | null>(null);
   const [enAtencion, setEnAtencion] = useState<Venta[]>([]);
   const [exportando, setExportando] = useState(false);
+  useTutorial("ventas", listado !== null);
 
   const recargar = useCallback(() => setRecargas((n) => n + 1), []);
 
@@ -261,14 +263,16 @@ function Historico() {
               Lo que vendió tu asistente: lo cobrado, lo que espera pago y lo que más sale.
             </p>
           </div>
-          <Button variant="secondary" disabled={exportando || !!problemaDeRango || !datos} onClick={exportar}>
+          <Button data-tutorial="exportar-ventas" variant="secondary" disabled={exportando || !!problemaDeRango || !datos} onClick={exportar}>
             {exportando ? "Exportando…" : "Exportar CSV"}
           </Button>
         </div>
 
         <TeEsperan ventas={enAtencion} onElegir={abrir} />
 
-        <FiltrosVentas filtros={periodos} hoy={hoy} onCambio={cambiarPeriodos} />
+        <div data-tutorial="filtros-ventas">
+          <FiltrosVentas filtros={periodos} hoy={hoy} onCambio={cambiarPeriodos} />
+        </div>
 
         {problemaDeRango && <p className="text-sm text-ink-secondary">{problemaDeRango}</p>}
         {error && (

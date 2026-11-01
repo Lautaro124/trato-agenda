@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { columna, LineasEje, maximoRedondo, ZonaGrafico } from "@/components/ui/GraficoColumnas";
 import { formatearMonto } from "@/lib/productos";
 import { diaConSemana, diaCorto, pesosCompactos, type ResumenVentas } from "@/lib/ventas";
 
@@ -11,21 +12,6 @@ const MARGEN = { arriba: 22, derecha: 8, abajo: 26, izquierda: 64 };
 const ANCHO_MAX = 24;
 const RADIO = 4;
 const TICKS = 4;
-
-/** Máximo "redondo" del eje: 1, 2, 2,5 o 5 por una potencia de 10. */
-function maximoRedondo(valor: number): number {
-  if (valor <= 0) return 1;
-  const potencia = 10 ** Math.floor(Math.log10(valor));
-  const paso = [1, 2, 2.5, 5, 10].find((multiplo) => multiplo * potencia >= valor) ?? 10;
-  return paso * potencia;
-}
-
-/** Columna con la punta redondeada (4px) y la base recta, apoyada en el eje. */
-function columna(x: number, y: number, ancho: number, alto: number): string {
-  const r = Math.min(RADIO, ancho / 2, alto);
-  const base = y + alto;
-  return `M${x},${base} V${y + r} Q${x},${y} ${x + r},${y} H${x + ancho - r} Q${x + ancho},${y} ${x + ancho},${y + r} V${base} Z`;
-}
 
 /**
  * Cobrado por día: una sola serie (no lleva leyenda, el título la nombra), en el
@@ -56,15 +42,6 @@ export function GraficoPorDia({ porDia, moneda = "ARS" }: { porDia: ResumenVenta
   const cadaCuantos = Math.max(1, Math.ceil(porDia.length / Math.max(1, Math.floor(anchoPlot / 56))));
   const indiceMaximo = porDia.reduce((mejor, dia, i) => (dia.cobradoCentavos > porDia[mejor].cobradoCentavos ? i : mejor), 0);
   const dia = activo !== null ? porDia[activo] : null;
-
-  const alTeclado = (e: React.KeyboardEvent) => {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    e.preventDefault();
-    setActivo((actual) => {
-      const desde = actual ?? porDia.length - 1;
-      return Math.min(porDia.length - 1, Math.max(0, desde + (e.key === "ArrowRight" ? 1 : -1)));
-    });
-  };
 
   return (
     <section aria-labelledby="titulo-por-dia" className="rounded-lg border border-line bg-card p-5">
@@ -103,43 +80,23 @@ export function GraficoPorDia({ porDia, moneda = "ARS" }: { porDia: ResumenVenta
           </table>
         </div>
       ) : (
-        <div
+        <ZonaGrafico
           ref={contenedor}
-          role="group"
-          aria-label="Cobrado por día. Usá las flechas para recorrer los días."
-          tabIndex={0}
-          onKeyDown={alTeclado}
-          onBlur={() => setActivo(null)}
-          onPointerLeave={() => setActivo(null)}
-          className="relative outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-[var(--color-semantic-border-focus)]"
+          etiqueta="Cobrado por día. Usá las flechas para recorrer los días."
+          cantidad={porDia.length}
+          setActivo={setActivo}
         >
           {ancho > 0 && (
             <svg width={ancho} height={MARGEN.arriba + ALTO + MARGEN.abajo} aria-hidden="true" className="block">
-              {Array.from({ length: TICKS + 1 }, (_, i) => {
-                const valor = (maximo / TICKS) * i;
-                return (
-                  <g key={i}>
-                    <line
-                      x1={MARGEN.izquierda}
-                      x2={ancho - MARGEN.derecha}
-                      y1={y(valor)}
-                      y2={y(valor)}
-                      stroke="var(--color-primitive-neutral-200)"
-                      strokeWidth={1}
-                      shapeRendering="crispEdges"
-                    />
-                    <text
-                      x={MARGEN.izquierda - 8}
-                      y={y(valor)}
-                      textAnchor="end"
-                      dominantBaseline="middle"
-                      className="fill-muted text-[11px] tabular-nums"
-                    >
-                      {pesosCompactos(valor, moneda)}
-                    </text>
-                  </g>
-                );
-              })}
+              <LineasEje
+                desde={MARGEN.izquierda}
+                hasta={ancho - MARGEN.derecha}
+                maximo={maximo}
+                marcas={TICKS}
+                y={y}
+                formato={(valor) => pesosCompactos(valor, moneda)}
+                claseTexto="fill-muted"
+              />
 
               {porDia.map((fila, i) => {
                 const x0 = MARGEN.izquierda + i * franja;
@@ -157,7 +114,7 @@ export function GraficoPorDia({ porDia, moneda = "ARS" }: { porDia: ResumenVenta
                     />
                     {alto > 0 && (
                       <path
-                        d={columna(x0 + (franja - anchoColumna) / 2, y(fila.cobradoCentavos), anchoColumna, alto)}
+                        d={columna(x0 + (franja - anchoColumna) / 2, y(fila.cobradoCentavos), anchoColumna, alto, RADIO)}
                         fill="var(--color-semantic-primary-default)"
                         opacity={activo === null || activo === i ? 1 : 0.55}
                         pointerEvents="none"
@@ -201,7 +158,7 @@ export function GraficoPorDia({ porDia, moneda = "ARS" }: { porDia: ResumenVenta
               </span>
             </div>
           )}
-        </div>
+        </ZonaGrafico>
       )}
     </section>
   );

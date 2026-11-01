@@ -48,14 +48,14 @@ Configuración, variables y despliegue: [README.md](README.md). La API requiere 
 - Agenda individual: días hábiles, franja, margen, nombre y ausencia de solapamientos. Clases grupales: horario fijo y cupo; no aplicarles la franja individual. Mantener la comprobación final y los controles de concurrencia al reservar.
 - Ventas: precios y totales salen del código/DB, nunca del modelo. Preservar reservas transaccionales, snapshots del pedido, estados de presupuestos y procesamiento idempotente de pagos. Stock y productos a medida conviven por producto (`Producto.solicitud`).
 - Un pedido tiene una moneda; USD se cobra manualmente. Productos a medida, presupuestos, costos y suscripciones usan ARS. No inventar conversiones ni acumular descuentos.
-- Suscripciones: precios y funciones vienen de la API. El cupo de chats es informativo; al vencer sin pago se suspende el asistente, no el acceso a las pantallas. Importación rápida requiere Pro pago, no prueba gratuita. Un cambio de plan sólo se adopta tras autorización de Mercado Pago.
+- Suscripciones: precios y funciones vienen de la API. El cupo de chats es informativo; al vencer sin pago se suspende el asistente, no el acceso a las pantallas. La importación rápida está en la prueba y en ambos planes. Un cambio de plan sólo se adopta tras autorización de Mercado Pago.
 - Webhooks de Mercado Pago: verificar HMAC y releer el recurso desde MP; no confiar en el payload ni duplicar efectos.
 
 ### WhatsApp y despliegue
 
 - Producción en Railway: `main` despliega API y web por separado. API con una sola réplica y sin suspensión: dos procesos compiten por las sesiones Baileys.
 - Mantener agrupación y serialización por chat, límites de ráfaga y cancelación antes de efectos; después de comprometer una acción no repetirla.
-- Horario de atención (LAU-29): es de la cuenta y se chequea al recibir, después de la suscripción y antes de las ráfagas. Fuera de horario, silencio salvo conversación en curso; su zona horaria no cambia la de agenda/ventas.
+- Horario de atención (LAU-29): es de la cuenta y se chequea al recibir, después de la suscripción y antes de las ráfagas. Fuera de horario, silencio salvo conversación en curso; un chat ya iniciado recibe el aviso de vendedor no disponible una vez por cierre (LAU-37), fuera del historial; su zona horaria no cambia la de agenda/ventas.
 - Vinculación por QR o código con SSE. `creds.me` no demuestra vinculación: verificar registro. No reconectar códigos pendientes ni renombrar `Browsers.ubuntu('Chrome')`, necesario para el pairing.
 - Conservar historial desactivado y `markOnlineOnConnect: false`, reintentos, cifrado de claves y espera de guardados antes de transferir una sesión. Métricas sólo con ids y números.
 - Variables `NEXT_PUBLIC_*` se incorporan en build; pasarlas al build de Docker. Prisma CLI debe seguir disponible en la imagen de producción para migrar.

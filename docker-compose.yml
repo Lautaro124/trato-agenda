@@ -46,7 +46,8 @@ services:
       # Volumen anónimo para que el node_modules del host no pise el de la imagen.
       - /app/node_modules
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      # La imagen de Node no trae curl: se chequea con el fetch de Node.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 10

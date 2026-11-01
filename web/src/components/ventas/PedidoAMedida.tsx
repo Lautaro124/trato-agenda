@@ -83,7 +83,7 @@ function LoQuePidio({ venta }: { venta: DetalleVenta }) {
 }
 
 /** Quién atiende: el asistente o vos (y entonces el asistente no contesta en ese chat). */
-function Atencion({ venta, acciones }: { venta: DetalleVenta; acciones: AccionesPedido }) {
+export function Atencion({ venta, acciones }: { venta: DetalleVenta; acciones: AccionesPedido }) {
   const [nota, setNota] = useState("");
   const cerrado = venta.estado === "pagada" || venta.estado === "cancelada";
   if (loAtendesVos(venta)) {

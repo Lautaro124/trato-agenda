@@ -168,7 +168,11 @@ export class AgentsService {
   }
 
   private validarHorarioAtencion(dto: HorarioAtencionOnboardingDto): HorarioAtencion {
-    const resultado = normalizarHorarioAtencion({ activo: true, franjas: dto.franjas, zona: dto.zona });
+    const resultado = normalizarHorarioAtencion({
+      activo: dto.activo ?? true,
+      franjas: dto.franjas,
+      zona: dto.zona,
+    });
     if ('error' in resultado) throw new BadRequestException(resultado.error);
     return resultado.horario;
   }

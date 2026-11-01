@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
  * en /entrar: es la pantalla que dispara el consentimiento de Google, y quien
  * revisa la verificación OAuth busca ahí el link a la política de privacidad.
  */
-export function FooterLegal({ className }: { className?: string }) {
+export function FooterLegal({ className, conEmail = true }: { className?: string; conEmail?: boolean }) {
   return (
     <footer
       className={cn(
@@ -21,9 +21,11 @@ export function FooterLegal({ className }: { className?: string }) {
       <Link href="/terminos" className="text-muted">
         Términos
       </Link>
-      <a href={`mailto:${EMAIL_SOPORTE}`} className="text-muted">
-        {EMAIL_SOPORTE}
-      </a>
+      {conEmail && (
+        <a href={`mailto:${EMAIL_SOPORTE}`} className="text-muted">
+          {EMAIL_SOPORTE}
+        </a>
+      )}
     </footer>
   );
 }

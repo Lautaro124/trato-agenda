@@ -626,6 +626,19 @@ describe('horario de atención del onboarding (LAU-29)', () => {
     });
   });
 
+  it('con "atender siempre" lo guarda inactivo, aunque no traiga franjas', async () => {
+    const { service, userUpdate } = conTransaccion();
+    await service.generarVentas('user-1', {
+      nombreTitular: 'Tienda',
+      nombreBot: 'Tati',
+      horarioAtencion: { activo: false, franjas: [], zona: 'America/Lima' },
+    });
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { horarioAtencionActivo: false, horarioAtencion: [], zonaHoraria: 'America/Lima' },
+    });
+  });
+
   it('el de turnos también lo guarda', async () => {
     const { service, userUpdate } = conTransaccion();
     await service.generate('user-1', { ...dto, horarioAtencion });

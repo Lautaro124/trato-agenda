@@ -23,6 +23,7 @@ import {
 } from "@/lib/calendarWeek";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
+import { useTutorial } from "@/lib/tutorial";
 
 type EventosAgenda = { eventos: EventoSemana[] };
 type Vista = "dia" | "semana" | "mes";
@@ -46,6 +47,7 @@ export default function CalendarioPage() {
   const [error, setError] = useState(false);
   const [eventoSeleccionado, setEventoSeleccionado] = useState<EventoSemana | null>(null);
   const [creando, setCreando] = useState(false);
+  useTutorial("calendario", status === "authenticated" && eventos !== null);
 
   const cargarEventos = useCallback(() => {
     if (status !== "authenticated") return;
@@ -106,7 +108,7 @@ export default function CalendarioPage() {
                 {vista === "semana" ? formatWeekLabel(mondayOf(fecha)) : vista === "dia" ? formatDayLabel(fecha) : ""}
               </p>
             </div>
-            <div className="ml-auto flex items-center gap-2">
+            <div data-tutorial="controles-agenda" className="ml-auto flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => avanzar(-1)}
@@ -154,7 +156,7 @@ export default function CalendarioPage() {
           ) : (
             <>
               {/* Móvil: solo tira de días + agenda del día elegido (5c del canvas) */}
-              <div className="flex min-h-0 flex-1 flex-col gap-3 md:hidden">
+              <div data-tutorial="agenda" className="flex min-h-0 flex-1 flex-col gap-3 md:hidden">
                 <WeekStrip
                   weekStart={mondayOf(fecha)}
                   eventos={eventos ?? []}
@@ -165,7 +167,7 @@ export default function CalendarioPage() {
               </div>
 
               {/* Escritorio: selector Día/Semana/Mes */}
-              <div className="hidden min-h-0 flex-1 md:flex md:flex-col">
+              <div data-tutorial="agenda" className="hidden min-h-0 flex-1 md:flex md:flex-col">
                 {vista === "dia" ? (
                   <DayGrid fecha={fecha} eventos={eventos ?? []} onSelectEvento={setEventoSeleccionado} />
                 ) : vista === "mes" ? (

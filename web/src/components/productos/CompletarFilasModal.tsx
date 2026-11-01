@@ -15,6 +15,8 @@ type Props = {
   /** Guarda los valores, vuelve a revisar la planilla y devuelve el mensaje si algo falló. */
   onGuardar: (cambios: Cambios) => Promise<string | null>;
   onCerrar: () => void;
+  /** Los nombres de columna del archivo que subió (la plantilla o el export de Mercado Libre). */
+  etiquetas?: Record<string, string>;
 };
 
 /**
@@ -22,7 +24,7 @@ type Props = {
  * campo por cada dato con problema. Los valores se aplican en memoria sobre las
  * filas leídas; el archivo del usuario no se toca.
  */
-export function CompletarFilasModal({ filas, errores, onGuardar, onCerrar }: Props) {
+export function CompletarFilasModal({ filas, errores, onGuardar, onCerrar, etiquetas = ETIQUETAS_COLUMNA }: Readonly<Props>) {
   const panel = useRef<HTMLDivElement>(null);
   const [valores, setValores] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
@@ -111,7 +113,7 @@ export function CompletarFilasModal({ filas, errores, onGuardar, onCerrar }: Pro
                     return (
                       <div key={columna} className="flex flex-col gap-1">
                         <label htmlFor={id} className="text-[13px] font-semibold text-ink">
-                          {ETIQUETAS_COLUMNA[columna] ?? columna}
+                          {etiquetas[columna] ?? columna}
                         </label>
                         {columna === "disponible" ? (
                           <select

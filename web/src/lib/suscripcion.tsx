@@ -23,8 +23,6 @@ export type Suscripcion = {
   moneda: string;
   /** Chats (clientes distintos) del mes en curso contra el tope del plan. */
   uso: { chats: number; limite: number };
-  /** Lo que habilita el plan vigente: la regla vive en la API (`funcionesDelPlan`). */
-  funciones?: { importacionRapida: boolean };
 };
 
 export type PlanId = "basico" | "pro";

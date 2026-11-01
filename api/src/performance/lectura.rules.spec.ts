@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rangoDeDias } from '../comercio/historico.rules.js';
-import { cobertura, estadoDeChat, etapaDondeCortan, rangoAnterior, tasa } from './lectura.rules.js';
+import { cobertura, completarDias, estadoDeChat, etapaDondeCortan, rangoAnterior, sumarDias, tasa } from './lectura.rules.js';
 
 const AHORA = new Date('2026-10-22T12:00:00-03:00');
 const hace = (horas: number) => new Date(AHORA.getTime() - horas * 60 * 60 * 1000);
@@ -36,6 +36,28 @@ describe('rangoAnterior', () => {
     expect([anterior.primerDia, anterior.ultimoDia]).toEqual(['2026-08-31', '2026-09-30']);
     expect(anterior.hasta).toEqual(rango.desde);
     expect(anterior.desde).toEqual(rangoDeDias('2026-08-31', '2026-09-30').desde);
+  });
+});
+
+describe('completarDias y sumarDias', () => {
+  const rango = rangoDeDias('2026-10-01', '2026-10-03');
+
+  it('un día por día del rango, juntando chats y ventas del mismo día y con cero en los vacíos', () => {
+    const dias = completarDias(rango, [
+      { dia: '2026-10-01', chats: 3, conPedido: 1, conPago: 1 },
+      { dia: '2026-10-01', pedidos: 2, pagados: 1, cobradoCentavos: 150_000 },
+      { dia: '2026-10-03', chats: 1, conPedido: 0, conPago: 0 },
+    ]);
+    expect(dias).toEqual([
+      { dia: '2026-10-01', chats: 3, conPedido: 1, pedidos: 2, pagados: 1, conPago: 1, cobradoCentavos: 150_000 },
+      { dia: '2026-10-02', chats: 0, conPedido: 0, pedidos: 0, pagados: 0, conPago: 0, cobradoCentavos: 0 },
+      { dia: '2026-10-03', chats: 1, conPedido: 0, pedidos: 0, pagados: 0, conPago: 0, cobradoCentavos: 0 },
+    ]);
+    expect(sumarDias(dias)).toEqual({ chats: 4, conPedido: 1, pedidos: 2, pagados: 1, conPago: 1, cobradoCentavos: 150_000 });
+  });
+
+  it('un período sin días suma cero', () => {
+    expect(sumarDias([])).toEqual({ chats: 0, conPedido: 0, pedidos: 0, pagados: 0, conPago: 0, cobradoCentavos: 0 });
   });
 });
 

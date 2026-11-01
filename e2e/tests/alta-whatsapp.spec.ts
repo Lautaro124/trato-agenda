@@ -5,7 +5,8 @@ test.describe('alta sólo con WhatsApp', () => {
   test('/entrar ofrece crear la cuenta con WhatsApp y lleva a la pantalla del QR de alta', async ({ page }) => {
     await page.goto('/entrar');
 
-    await page.getByRole('link', { name: 'Creala con tu WhatsApp' }).click();
+    await page.getByRole('tab', { name: 'Soy nuevo' }).click();
+    await page.getByRole('link', { name: 'Crear cuenta con WhatsApp' }).click();
     await esperarRuta(page, '/entrar/whatsapp');
 
     // Sin escanear: el QR depende de los servidores de WhatsApp, así que alcanza

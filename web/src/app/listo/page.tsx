@@ -29,7 +29,8 @@ function Item({ children }: { children: ReactNode }) {
  * Paso 3 de 3 del alta (artboard 7a del canvas): antes de vincular WhatsApp le
  * avisamos que el mes de prueba ya arrancó y que no le vamos a pedir tarjeta.
  * Quien se registró con WhatsApp ya escaneó el QR: para esa cuenta los botones
- * van a la agenda o a los planes, nunca a /vincular.
+ * van a la agenda o a los planes, nunca a /vincular. La que todavía no vinculó
+ * puede saltear el paso e ir directo al inicio.
  */
 export default function ListoPage() {
   const router = useRouter();
@@ -91,8 +92,8 @@ export default function ListoPage() {
               <Button size="lg" fullWidth onClick={() => router.push("/vincular")} className="md:w-auto">
                 Vincular WhatsApp y empezar
               </Button>
-              <Link href="/plan" className="text-[13.5px] text-link">
-                Ver el plan
+              <Link href="/inicio" className="text-[13.5px] text-link">
+                Ir al inicio
               </Link>
             </div>
           )}

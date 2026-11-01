@@ -36,7 +36,7 @@ export type DepsGrafoVentas = {
   prisma: PrismaService;
   busqueda: Pick<BusquedaService, 'buscar'>;
   sugerencias: Pick<SugerenciasService, 'verCatalogo' | 'descuentosVigentes'>;
-  ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente'>;
+  ventas: Pick<VentasService, 'crearPedido' | 'pedidosDeConversacion' | 'cancelarUltimoPendiente' | 'cotizarFormasDePago'>;
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;

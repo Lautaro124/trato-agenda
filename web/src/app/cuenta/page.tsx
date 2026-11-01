@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { SeccionDatosCliente } from "@/components/cuenta/SeccionDatosCliente";
+import { SeccionFormasDePago } from "@/components/cuenta/SeccionFormasDePago";
 import { SeccionHorarioAtencion } from "@/components/cuenta/SeccionHorarioAtencion";
 import { SeccionLocal } from "@/components/cuenta/SeccionLocal";
 import { AVISOS_MP, SeccionMercadoPago } from "@/components/cuenta/SeccionMercadoPago";
@@ -123,6 +124,8 @@ function CuentaContenido() {
           )}
 
           {esVentas && <SeccionMercadoPago />}
+
+          {esVentas && <SeccionFormasDePago />}
 
           <SeccionHorarioAtencion />
 

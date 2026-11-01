@@ -45,6 +45,8 @@ export type Producto = {
   precioReferenciaCentavos: number | null;
   /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
   materiales: string[];
+  /** Hasta cuántas cuotas se vende (1 = sólo en un pago; null = con todos los planes). */
+  cuotasMax: number | null;
   /** La receta de cotización (null = no tiene: lo cotiza el dueño). */
   receta: Receta | null;
   politicaCotizacion: PoliticaCotizacion;
@@ -112,6 +114,8 @@ export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
   }>;
   /** null lo borra. */
   descuento: DescuentoAGuardar | null;
+  /** Hasta cuántas cuotas se vende; null = con todos los planes de la cuenta. */
+  cuotasMax: number | null;
 };
 
 /**

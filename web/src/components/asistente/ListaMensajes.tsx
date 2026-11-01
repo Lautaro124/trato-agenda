@@ -22,7 +22,7 @@ export function ListaMensajes({
   className?: string;
 }) {
   return (
-    <nav aria-label="Mensajes" className={cn("flex flex-col gap-2", className)}>
+    <nav data-tutorial="lista-mensajes" aria-label="Mensajes" className={cn("flex flex-col gap-2", className)}>
       {filas.map((fila) => {
         const activo = fila.definicion.clave === seleccion;
         const { texto, clase } = insignia(fila);

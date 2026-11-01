@@ -1,5 +1,6 @@
 import { tipoAsistenteDe } from '../agents/agent-catalog.js';
 import type { User } from '../generated/prisma/client.js';
+import { tutorialesVistos, type Tutorial } from './tutoriales.js';
 
 /** Datos que devuelve Google después del consentimiento. */
 export type PerfilGoogle = {
@@ -31,6 +32,8 @@ export type UsuarioPublico = Pick<User, 'id' | 'email' | 'name' | 'avatarUrl' | 
   debePonerPassword: boolean;
   /** Qué hace su asistente (define la navegación del panel); null sin onboarding. */
   tipoAsistente: 'agenda' | 'ventas' | null;
+  /** Recorridos guiados ya vistos: la web no los vuelve a abrir solos. */
+  tutorialesVistos: Tutorial[];
 };
 
 /**
@@ -56,6 +59,7 @@ export function aUsuarioPublico(
     tienePassword: user.passwordHash !== null,
     debePonerPassword: debePonerPassword(user),
     tipoAsistente,
+    tutorialesVistos: tutorialesVistos(user.tutorialesVistos),
   };
 }
 

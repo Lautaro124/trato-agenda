@@ -2,21 +2,25 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import type { Moneda } from '../comercio/catalogo.rules.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { rangoDeDias, type Rango } from '../comercio/historico.rules.js';
-import { claveDia } from '../conversation/graph/agenda-rules.js';
+import { claveDia, TIMEZONE } from '../conversation/graph/agenda-rules.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ETAPAS, type Etapa } from './etapas.rules.js';
 import {
   cobertura,
+  completarDias,
   DEFINICIONES,
   estadoDeChat,
   etapaDondeCortan,
   MAX_PRODUCTOS_PERFORMANCE,
   rangoAnterior,
+  sumarDias,
   tasa,
 } from './lectura.rules.js';
 import { esTema, TEMAS, type Tema } from './preguntas.rules.js';
 import type {
   ConteosConversion,
+  Conversion,
+  DiaPerformance,
   EtapaPublica,
   FiltroZona,
   FiltrosPerformanceQuery,
@@ -59,16 +63,18 @@ export class LecturaPerformanceService {
     const primerRegistro = primero._min.createdAt;
     const datos = cobertura(rango, primerRegistro);
     const anterior = rangoAnterior(rango);
+    const datosAnteriores = cobertura(anterior, primerRegistro);
 
-    const [conteos, conteosAnteriores, etapas, productos, zonas, preguntas] = await Promise.all([
-      this.conversion(userId, rango, moneda, zona),
-      cobertura(anterior, primerRegistro) === 'sin_datos' ? null : this.conversion(userId, anterior, moneda, zona),
+    const [porDia, porDiaAnterior, etapas, productos, zonas, preguntas] = await Promise.all([
+      this.porDia(userId, rango, moneda, zona),
+      datosAnteriores === 'sin_datos' ? null : this.porDia(userId, anterior, moneda, zona),
       this.etapas(userId, rango, ahora, zona),
       this.productos(userId, rango, moneda, zona),
       this.zonas(userId, rango),
       this.preguntas(userId, rango, zona),
     ]);
 
+    const conversion = conTasas(sumarDias(porDia));
     return {
       moneda,
       zona,
@@ -76,11 +82,18 @@ export class LecturaPerformanceService {
       datos,
       registroDesde: primerRegistro ? claveDia(primerRegistro) : null,
       definiciones: DEFINICIONES,
-      conversion: { ...conTasas(conteos), anterior: conteosAnteriores ? conTasas(conteosAnteriores) : null },
+      conversion,
+      porDia,
+      anterior: {
+        rango: { primerDia: anterior.primerDia, ultimoDia: anterior.ultimoDia },
+        datos: datosAnteriores,
+        conversion: porDiaAnterior ? conTasas(sumarDias(porDiaAnterior)) : null,
+        porDia: porDiaAnterior,
+      },
       etapas,
       productos,
       zonas,
-      preguntas: { ...preguntas, chats: conteos.chats },
+      preguntas: { ...preguntas, chats: conversion.chats },
     };
   }
 
@@ -205,24 +218,35 @@ export class LecturaPerformanceService {
       .sort((a, b) => Number(a.zona === SIN_ZONA) - Number(b.zona === SIN_ZONA) || b.chats - a.chats || a.nombre.localeCompare(b.nombre));
   }
 
-  private async conversion(userId: string, rango: Rango, moneda: Moneda, zona: FiltroZona | null): Promise<ConteosConversion> {
+  /**
+   * Los conteos de conversión día por día, según el día en que cada chat
+   * escribió por primera vez: el total del período es su suma.
+   */
+  private async porDia(userId: string, rango: Rango, moneda: Moneda, zona: FiltroZona | null): Promise<DiaPerformance[]> {
     const deZona = condicionDeZona(zona);
-    const [[chats], [ventas]] = await Promise.all([
-      this.prisma.$queryRaw<Array<{ chats: number; conPedido: number; conPago: number }>>`
-        SELECT COUNT(*)::int AS "chats",
+    const dia = Prisma.sql`to_char(e."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${TIMEZONE}, 'YYYY-MM-DD')`;
+    const [chats, ventas] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ dia: string; chats: number; conPedido: number; conPago: number }>>`
+        SELECT ${dia} AS "dia", COUNT(*)::int AS "chats",
                COUNT(*) FILTER (WHERE e."etapa" IN (${CON_PEDIDO[0]}, ${CON_PEDIDO[1]}, ${CON_PEDIDO[2]}))::int AS "conPedido",
                COUNT(*) FILTER (WHERE e."etapa" = 'pagado')::int AS "conPago"
         FROM "EtapaChat" e
         WHERE e."userId" = ${userId} AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
+        GROUP BY 1
       `,
-      this.prisma.$queryRaw<Array<{ pedidos: number; pagados: number }>>`
-        SELECT COUNT(*)::int AS "pedidos", COUNT(*) FILTER (WHERE v."estado" = 'pagada')::int AS "pagados"
+      this.prisma.$queryRaw<Array<{ dia: string; pedidos: number; pagados: number; cobrado: bigint }>>`
+        SELECT ${dia} AS "dia", COUNT(*)::int AS "pedidos", COUNT(*) FILTER (WHERE v."estado" = 'pagada')::int AS "pagados",
+               COALESCE(SUM(v."totalCentavos") FILTER (WHERE v."estado" = 'pagada'), 0)::bigint AS "cobrado"
         FROM "Venta" v JOIN "EtapaChat" e ON e."conversationId" = v."conversationId"
         WHERE v."userId" = ${userId} AND e."userId" = ${userId} AND NOT v."dePrueba" AND v."moneda" = ${moneda}
           AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
+        GROUP BY 1
       `,
     ]);
-    return { chats: chats.chats, conPedido: chats.conPedido, pedidos: ventas.pedidos, pagados: ventas.pagados, conPago: chats.conPago };
+    return completarDias(rango, [
+      ...chats,
+      ...ventas.map(({ dia, pedidos, pagados, cobrado }) => ({ dia, pedidos, pagados, cobradoCentavos: Number(cobrado) })),
+    ]);
   }
 
   private async etapas(userId: string, rango: Rango, ahora: Date, zona: FiltroZona | null): Promise<EtapaPublica[]> {
@@ -357,7 +381,7 @@ export class LecturaPerformanceService {
   }
 }
 
-function conTasas(conteos: ConteosConversion) {
+function conTasas(conteos: ConteosConversion): Conversion {
   return {
     ...conteos,
     chatAPedido: tasa(conteos.conPedido, conteos.chats),

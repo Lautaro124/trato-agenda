@@ -1,0 +1,5 @@
+# Fin de línea LF en el repo y en la copia de trabajo, aunque se edite desde Windows.
+* text=auto eol=lf
+
+# La matriz de cobertura se versiona con CRLF; no normalizarla.
+api/evals/adversarial/matriz/*.csv -text
