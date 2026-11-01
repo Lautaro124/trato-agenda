@@ -264,7 +264,7 @@ function Editor({
             <label
               key={opcion.valor}
               className={cn(
-                "cursor-pointer rounded-md border px-3 py-2 text-[13.5px] font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-[var(--color-semantic-border-focus)]",
+                "relative cursor-pointer rounded-md border px-3 py-2 text-[13.5px] font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-[var(--color-semantic-border-focus)]",
                 borrador.cobro.modo === opcion.valor ? "border-primary bg-primary-subtle text-ink" : "border-line text-ink-secondary",
               )}
             >
@@ -274,7 +274,7 @@ function Editor({
                 value={opcion.valor}
                 checked={borrador.cobro.modo === opcion.valor}
                 onChange={() => cambiarCobro({ modo: opcion.valor })}
-                className="sr-only"
+                className="absolute inset-0 m-0 cursor-pointer appearance-none opacity-0"
               />
               {opcion.texto}
               <span className="block text-[12px] font-normal text-muted">{opcion.detalle}</span>
