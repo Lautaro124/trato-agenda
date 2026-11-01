@@ -52,6 +52,8 @@ type VentaAvisable = {
   dePrueba: boolean;
   /** Sólo si se envía o se retira; la dirección no viaja en el aviso (está en Ventas). */
   entrega?: string | null;
+  /** "humana" si el chat quedó para el negocio (cobro manual configurado). */
+  atencion?: string;
   items: RenglonVenta[];
 };
 
@@ -97,7 +99,8 @@ export function avisoPedidoManual(venta: VentaAvisable): Aviso {
     cuerpo:
       `${quien(venta)} pidió ${detalleDeRenglones(venta.items, venta.moneda)}.` +
       (venta.reservaVenceAt ? ` Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}.` : '') +
-      `${formaDePago(venta)} Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}`,
+      `${formaDePago(venta)} Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}` +
+      (venta.atencion === 'humana' ? ` ${PAUSA_HASTA_QUE_ACTUES}` : ''),
     enlace: `/ventas?venta=${venta.id}`,
   };
 }
@@ -201,13 +204,19 @@ export function avisoPedidoDerivado(
 }
 
 /** El cliente aceptó un presupuesto que se cobra a mano. */
+/** Lo que se le dice al dueño cuando un cobro manual deja el chat en sus manos. */
+const PAUSA_HASTA_QUE_ACTUES =
+  'Tu asistente no contesta en ese chat hasta que lo marques pagado, lo canceles o se lo devuelvas.';
+
 export function avisoPresupuestoAceptado(
-  pedido: PedidoAMedidaAvisable & { totalCentavos: number; entrega?: string | null },
+  pedido: PedidoAMedidaAvisable & { totalCentavos: number; entrega?: string | null; atencion?: string },
 ): Aviso {
   return {
     tipo: 'presupuesto_aceptado',
     titulo: `${prueba(pedido)}Aceptó el presupuesto: ${formatearCentavos(pedido.totalCentavos)}`,
-    cuerpo: `${quien(pedido)} aceptó el presupuesto${deQue(pedido)}.${entrega(pedido)} Cobrale por WhatsApp y marcalo pagado en Ventas.`,
+    cuerpo:
+      `${quien(pedido)} aceptó el presupuesto${deQue(pedido)}.${entrega(pedido)} Cobrale por WhatsApp y marcalo pagado en Ventas.` +
+      (pedido.atencion === 'humana' ? ` ${PAUSA_HASTA_QUE_ACTUES}` : ''),
     enlace: `/ventas?venta=${pedido.ventaId}`,
   };
 }

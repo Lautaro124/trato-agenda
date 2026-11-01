@@ -150,6 +150,12 @@ export default function PrivacidadPage() {
             dinero. Los datos de pago de tus clientes los maneja Mercado Pago; nosotros no los vemos.
           </p>
           <p>
+            <Fuerte>Si configurás el cobro sin link</Fuerte>: el alias o CBU/CVU y el nombre del titular
+            para que te transfieran, o el mensaje que escribiste para cobrar por otro canal. Se los pasa
+            el asistente a tus clientes cuando anotan un pedido. No vemos ni verificamos las
+            transferencias: el pago lo confirmás vos.
+          </p>
+          <p>
             <Fuerte>Si nos mandás una sugerencia</Fuerte> desde el panel: el tipo que elegiste, el
             texto que escribiste y la fecha. Sólo se acepta texto: nada de archivos ni links.
           </p>
@@ -192,8 +198,9 @@ export default function PrivacidadPage() {
           </p>
           <p>
             <Fuerte>En el asistente de ventas</Fuerte> también se le mandan los productos que encuentra
-            cada búsqueda (nombre, descripción, precio y disponibilidad) y los pedidos de esa
-            conversación. Para que la búsqueda entienda lo que el cliente quiso decir aunque no use las
+            cada búsqueda (nombre, descripción, precio y disponibilidad), los pedidos de esa
+            conversación y, si lo configuraste, cómo se cobra un pedido sin link (tu alias y titular o
+            tu mensaje). Para que la búsqueda entienda lo que el cliente quiso decir aunque no use las
             mismas palabras, el texto de tus productos y el de cada búsqueda se convierten en
             representaciones numéricas (embeddings) con el modelo{" "}
             <Scope>openai/text-embedding-3-small</Scope>, también a través de OpenRouter y con la misma

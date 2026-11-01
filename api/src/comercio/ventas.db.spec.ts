@@ -19,6 +19,7 @@ import {
 } from '../subscription/mercadopago.client.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
 import type { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
+import { enAtencionHumana } from './pedido-a-medida.rules.js';
 import { MAX_PEDIDOS_PENDIENTES } from './ventas.rules.js';
 import { PedidoRechazadoError, VentasService } from './ventas.service.js';
 
@@ -332,6 +333,52 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     // Ya pagada, o de otro dueño: nada.
     expect(await ventas.marcarPagadaPorElDueno(dueno.id, venta.id)).toBeNull();
     expect(await ventas.marcarPagadaPorElDueno('otro', venta.id)).toBeNull();
+  });
+
+  describe('cobro manual configurado: el chat pasa al negocio', () => {
+    const configurar = (cobroManual: string | null) =>
+      prisma.condicionesPago.create({
+        data: {
+          userId: dueno.id,
+          cobroManual,
+          aliasTransferencia: cobroManual === 'transferencia' ? 'mates.sur' : null,
+          titularTransferencia: cobroManual === 'transferencia' ? 'Ana' : null,
+        },
+      });
+    const pausado = async (ventaId: string) => enAtencionHumana(await prisma.venta.findUniqueOrThrow({ where: { id: ventaId } }));
+
+    it('un pedido manual deja el chat en atención humana hasta que se paga, aunque venza la reserva', async () => {
+      await configurar('transferencia');
+      const venta = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      expect(venta).toMatchObject({ atencion: 'humana', motivoDerivacion: 'cobro_manual' });
+      expect(await prisma.eventoVenta.count({ where: { ventaId: venta.id, tipo: 'derivacion', motivo: 'cobro_manual' } })).toBe(1);
+      expect(avisosDeTipo('pedido_manual')[0][1]).toMatchObject({ cuerpo: expect.stringContaining('no contesta en ese chat') });
+
+      // Vencida sin que el dueño haga nada: sigue pausado.
+      await prisma.venta.update({ where: { id: venta.id }, data: { reservaVenceAt: new Date(Date.now() - 60_000) } });
+      expect(await pausado(venta.id)).toBe(true);
+
+      await ventas.marcarPagadaPorElDueno(dueno.id, venta.id);
+      expect(await pausado(venta.id)).toBe(false);
+    });
+
+    it('cancelarlo también le devuelve el chat al asistente', async () => {
+      await configurar('transferencia');
+      const venta = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      await prisma.venta.update({ where: { id: venta.id }, data: { estado: 'cancelada', canceladaAt: new Date() } });
+      expect(await pausado(venta.id)).toBe(false);
+    });
+
+    it('sin cobro manual configurado, o con link de Mercado Pago, el asistente sigue', async () => {
+      const sinConfigurar = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      expect(sinConfigurar.atencion).toBe('asistente');
+
+      await configurar('transferencia');
+      cuentas.tokenDe.mockResolvedValue({ accessToken: 'tok', mpUserId: '1' });
+      mp.crearPreferencia.mockResolvedValue({ id: 'pref', init_point: 'https://mp/pagar' });
+      const conLink = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, medioPago: 'mercadopago' });
+      expect(conLink.atencion).toBe('asistente');
+    });
   });
 
   it('la conciliación encuentra el pago aunque el webhook no haya llegado', async () => {
