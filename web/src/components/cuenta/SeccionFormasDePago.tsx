@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { TextoConDatos } from "@/components/ui/TextoConDatos";
 import { apiFetch } from "@/lib/api";
 import {
   guardarCondicionesPago,
@@ -11,6 +12,7 @@ import {
   MIN_CUOTAS,
   obtenerCondicionesPago,
   problemaDeCondiciones,
+  VARIABLES_MENSAJE_COBRO,
   type CobroManual,
   type CondicionesPago,
 } from "@/lib/condiciones-pago";
@@ -316,17 +318,18 @@ function Editor({
           <label htmlFor="cobro-mensaje" className={LABEL}>
             Mensaje para el cliente
           </label>
-          <textarea
+          <TextoConDatos
             id="cobro-mensaje"
-            rows={3}
+            filas={3}
             maxLength={LARGO_MAX_MENSAJE_COBRO}
-            value={borrador.cobro.mensaje}
+            valor={borrador.cobro.mensaje}
             placeholder="¡Gracias {nombre}! Te escribimos desde el 11-5555-0000 para cobrarte {total}."
-            onChange={(e) => cambiarCobro({ mensaje: e.target.value })}
-            className={INPUT}
+            onCambio={(mensaje) => cambiarCobro({ mensaje })}
+            variables={VARIABLES_MENSAJE_COBRO}
+            describedBy="cobro-mensaje-ayuda"
           />
-          <p className="mt-1 text-[12px] text-muted">
-            Podés usar {"{nombre}"}, {"{total}"} y {"{detalle}"}: se completan solos.
+          <p id="cobro-mensaje-ayuda" className="mt-1 text-[12px] text-muted">
+            Tocá un dato y se inserta donde está el cursor; al cliente le llega completado.
           </p>
         </div>
       )}
