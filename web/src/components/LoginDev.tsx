@@ -17,7 +17,7 @@ function mensajeDeError(status: number): string {
 
 /**
  * Login con contraseña, sólo para desarrollo y E2E: saltea Google y usa la
- * agenda local. Con teléfono, el usuario imita una cuenta creada con WhatsApp. /entrar sólo lo monta fuera de producción, y
+ * agenda local. Con teléfono, el usuario imita una cuenta creada con WhatsApp. /entrar sólo lo monta fuera de producción o en Railway develop, y
  * además se esconde solo si la API no tiene DEV_LOGIN_PASSWORD.
  */
 export function LoginDev() {

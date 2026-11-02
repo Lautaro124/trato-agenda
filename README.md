@@ -52,6 +52,13 @@ ruta con `NODE_ENV=production`, el handler contesta 404 si falta la contraseña,
 `validateEnv` no arranca si `DEV_LOGIN_PASSWORD` aparece en producción. El front
 tampoco incluye el formulario en el build de producción.
 
+La única excepción es el entorno **develop** de Railway: los dos entornos corren
+con `NODE_ENV=production`, pero si `RAILWAY_ENVIRONMENT_NAME=develop` (la pone
+Railway sola) los tres candados dejan pasar el login dev, y el build de la web
+incluye el formulario. Para usarlo, definí `DEV_LOGIN_PASSWORD` en el servicio
+`api` de develop. Ahí la recuperación por código para usuarios dev con teléfono
+no funciona (`/auth/dev/ultimo-codigo` devuelve `null`).
+
 ## Variables de entorno
 
 Hay dos archivos, ninguno versionado:
@@ -113,7 +120,7 @@ bajo ZDR (p50 de 5.9s a 12.1s, con casos que pasan el timeout de 40s del
 runtime). Los números y las alternativas están en
 [`docs/modelo-y-zdr.md`](docs/modelo-y-zdr.md); la decisión de qué modelo usar
 está pendiente.
-| `DEV_LOGIN_PASSWORD` | Opcional, **sólo desarrollo**. Prende el login con contraseña y el calendario falso (ver arriba). Si está definida con `NODE_ENV=production`, la API no arranca. |
+| `DEV_LOGIN_PASSWORD` | Opcional, **sólo desarrollo**. Prende el login con contraseña y el calendario falso (ver arriba). Si está definida con `NODE_ENV=production`, la API no arranca, salvo en Railway develop. |
 | `MERCADOPAGO_ACCESS_TOKEN` | Access token de la aplicación de [Mercado Pago](https://www.mercadopago.com.ar/developers/panel) con la que se cobra la suscripción. Sin ella la API arranca igual; sólo falla el checkout. **Secreto real, nunca commitear.** |
 | `MERCADOPAGO_WEBHOOK_SECRET` | Clave secreta de las notificaciones de esa misma aplicación: con ella se verifica la firma `x-signature` de cada webhook. Sin ella, los webhooks se descartan. |
 | `MERCADOPAGO_CLIENT_ID` | Client ID de esa misma aplicación de Mercado Pago, con OAuth habilitado. Con esto cada comercio conecta **su** cuenta desde `/cuenta` y el asistente de ventas cobra con links a su nombre. Sin ella, "Conectar Mercado Pago" queda deshabilitado y los pedidos quedan para cobrar a mano. |
@@ -319,7 +326,8 @@ En el servicio `api`, además de las de la tabla de arriba:
   cifra los refresh tokens de Google, y una vez elegida no se rota sin invalidar
   todas las cuentas ya vinculadas.
 - `TZ=America/Argentina/Buenos_Aires`.
-- **Nunca** `DEV_LOGIN_PASSWORD`: la API se niega a arrancar si la ve.
+- **Nunca** `DEV_LOGIN_PASSWORD` en production: la API se niega a arrancar si la ve
+  (en develop sí se permite, ver "Entrar sin Google").
 
 En el servicio `web`, `NEXT_PUBLIC_API_URL` apunta al dominio de la API. Se
 resuelve **en el build** (Railway la pasa como build arg porque `web/Dockerfile`

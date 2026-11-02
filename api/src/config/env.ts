@@ -1,3 +1,5 @@
+import { loginDevPermitido } from '../auth/usuario-dev.js';
+
 /** Variables de entorno que la API necesita sí o sí para arrancar. */
 export type Env = {
   NODE_ENV: 'development' | 'production' | 'test';
@@ -28,8 +30,10 @@ export type Env = {
   OPENROUTER_DECISIONS_MODEL: string;
   /** La Decisions API de OpenRouter no cuelga de /api/v1. Los E2E la apuntan al stub. */
   OPENROUTER_DECISIONS_URL: string;
-  /** Contraseña del login de desarrollo. Vacía = login dev apagado. Prohibida en producción. */
+  /** Contraseña del login de desarrollo. Vacía = login dev apagado. Prohibida en producción (salvo Railway develop). */
   DEV_LOGIN_PASSWORD: string;
+  /** Nombre del entorno de Railway (`develop` / `production`); vacío fuera de Railway. */
+  RAILWAY_ENVIRONMENT_NAME: string;
   MERCADOPAGO_ACCESS_TOKEN: string;
   MERCADOPAGO_WEBHOOK_SECRET: string;
   /**
@@ -166,9 +170,11 @@ export function validateEnv(raw: Record<string, unknown>): Env {
 
   const nodeEnv = (raw.NODE_ENV as Env['NODE_ENV']) ?? 'development';
   const devLoginPassword = String(raw.DEV_LOGIN_PASSWORD ?? '');
+  const entornoRailway = String(raw.RAILWAY_ENVIRONMENT_NAME ?? '');
   // El login con contraseña saltea Google entero: si alguien la deja puesta en
-  // Railway, mejor que el deploy no arranque a que quede una puerta abierta.
-  if (nodeEnv === 'production' && devLoginPassword) {
+  // el entorno production de Railway, mejor que el deploy no arranque a que
+  // quede una puerta abierta. En Railway develop sí se permite.
+  if (devLoginPassword && !loginDevPermitido(nodeEnv, entornoRailway)) {
     throw new Error('DEV_LOGIN_PASSWORD no puede estar definida en producción. Borrala de las variables del deploy.');
   }
 
@@ -221,6 +227,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     OPENROUTER_DECISIONS_MODEL: String(raw.OPENROUTER_DECISIONS_MODEL || 'typesafe/jev-1.13'),
     OPENROUTER_DECISIONS_URL: sinBarrasFinales(String(raw.OPENROUTER_DECISIONS_URL || OPENROUTER_DECISIONS_URL_POR_DEFECTO)),
     DEV_LOGIN_PASSWORD: devLoginPassword,
+    RAILWAY_ENVIRONMENT_NAME: entornoRailway,
     MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),
     MERCADOPAGO_WEBHOOK_SECRET: String(raw.MERCADOPAGO_WEBHOOK_SECRET ?? ''),
     MERCADOPAGO_CLIENT_ID: String(raw.MERCADOPAGO_CLIENT_ID ?? ''),

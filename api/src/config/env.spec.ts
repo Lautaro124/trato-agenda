@@ -23,6 +23,23 @@ describe('validateEnv', () => {
     );
   });
 
+  it('permite DEV_LOGIN_PASSWORD en el entorno develop de Railway', () => {
+    const env = validateEnv({
+      ...BASE,
+      NODE_ENV: 'production',
+      RAILWAY_ENVIRONMENT_NAME: 'develop',
+      DEV_LOGIN_PASSWORD: 'secreta',
+    });
+
+    expect(env.DEV_LOGIN_PASSWORD).toBe('secreta');
+  });
+
+  it('no arranca en el entorno production de Railway si DEV_LOGIN_PASSWORD está definida', () => {
+    expect(() =>
+      validateEnv({ ...BASE, NODE_ENV: 'production', RAILWAY_ENVIRONMENT_NAME: 'production', DEV_LOGIN_PASSWORD: 'secreta' }),
+    ).toThrow(/DEV_LOGIN_PASSWORD/);
+  });
+
   it('en producción sin DEV_LOGIN_PASSWORD arranca normal', () => {
     expect(validateEnv({ ...BASE, NODE_ENV: 'production' }).DEV_LOGIN_PASSWORD).toBe('');
   });

@@ -22,7 +22,7 @@ import type { DestinoTrasLogin } from './auth.types.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
 import { normalizarTelefono } from './telefono.js';
 import { destinoTrasLogin, ponerCookieDeSesion } from './sesion.js';
-import { EMAIL_DEV_POR_DEFECTO } from './usuario-dev.js';
+import { EMAIL_DEV_POR_DEFECTO, loginDevPermitido } from './usuario-dev.js';
 
 export class DevLoginDto {
   @IsString()
@@ -44,14 +44,15 @@ export class DevLoginDto {
 }
 
 /**
- * El login con contraseña sólo existe fuera de producción y con
+ * El login con contraseña sólo existe fuera de producción (o en el entorno
+ * develop de Railway, ver `loginDevPermitido`) y con
  * DEV_LOGIN_PASSWORD definida. Es el segundo candado: el primero es que
  * AuthModule ni siquiera registra este controller en producción, y el
  * tercero que validateEnv no arranca si la contraseña llega a un deploy.
  */
 export function loginDevHabilitado(config: ConfigService<Env, true>): boolean {
   return (
-    config.get('NODE_ENV', { infer: true }) !== 'production' &&
+    loginDevPermitido(config.get('NODE_ENV', { infer: true }), config.get('RAILWAY_ENVIRONMENT_NAME', { infer: true })) &&
     Boolean(config.get('DEV_LOGIN_PASSWORD', { infer: true }))
   );
 }

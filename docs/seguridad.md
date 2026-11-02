@@ -39,7 +39,8 @@ controles que corren solos están en `.github/workflows/security.yml` y
 | 16 | Alta | `zlib` 1.3.2-r0 en las dos imágenes (CVE-2026-85091, arreglado en 1.3.2-r1). El `RUN apk upgrade` de la etapa `prod` salía del cache de BuildKit, que lo reusa mientras no cambien la imagen base ni el comando: los paquetes del sistema quedaban congelados en el primer build. | **Arreglado en CI** (2026-10-07): el build que escanea Grype pasa `no-cache-filters: prod`, así que `apk upgrade` corre siempre. **Pendiente en Railway**: su build también cachea capas; si una imagen desplegada queda vieja, redeployar sin cache. |
 
 Lo que se revisó y está bien: el CSRF por `Origin` más cookies `httpOnly`/`secure`;
-la validación de entorno que rechaza `DEV_LOGIN_PASSWORD` en producción; el
+la validación de entorno que rechaza `DEV_LOGIN_PASSWORD` en producción (sólo
+la admite el entorno develop de Railway, por `RAILWAY_ENVIRONMENT_NAME`); el
 refresh token cifrado con GCM e IV aleatorio; scrypt con `timingSafeEqual` y
 hash falso para no delatar números; `ValidationPipe` con `whitelist`; los
 eventos locales se buscan siempre por `userId` antes de editar o borrar; el
