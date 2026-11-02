@@ -75,6 +75,21 @@ describe('DevAuthController', () => {
     expect(authService.upsertUsuarioDev).not.toHaveBeenCalled();
   });
 
+  it('en el entorno production de Railway responde 404 aunque la contraseña coincida', async () => {
+    let authService;
+    ({ app, authService } = await crearApp({ NODE_ENV: 'production', RAILWAY_ENVIRONMENT_NAME: 'production' }));
+
+    await request(app.getHttpServer()).post('/auth/dev/login').send({ password: 'e2e-password' }).expect(404);
+    expect(authService.upsertUsuarioDev).not.toHaveBeenCalled();
+  });
+
+  it('en el entorno develop de Railway entra aunque corra con NODE_ENV=production', async () => {
+    ({ app } = await crearApp({ NODE_ENV: 'production', RAILWAY_ENVIRONMENT_NAME: 'develop' }));
+
+    await request(app.getHttpServer()).get('/auth/dev').expect(200, { habilitado: true });
+    await request(app.getHttpServer()).post('/auth/dev/login').send({ password: 'e2e-password' }).expect(200);
+  });
+
   it('una contraseña incorrecta da 401 y no crea sesión', async () => {
     let authService;
     ({ app, authService } = await crearApp({}));

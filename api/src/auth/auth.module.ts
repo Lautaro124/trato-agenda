@@ -19,6 +19,7 @@ import { AltaGuard } from './guards/alta.guard.js';
 import { JwtStrategy } from './jwt.strategy.js';
 import { LoginWhatsappService } from './login-whatsapp.service.js';
 import { WhatsappAuthController } from './whatsapp-auth.controller.js';
+import { loginDevPermitido } from './usuario-dev.js';
 
 @Module({
   imports: [
@@ -42,11 +43,11 @@ import { WhatsappAuthController } from './whatsapp-auth.controller.js';
       }),
     }),
   ],
-  // Primer candado del login con contraseña: en producción la ruta ni existe.
+  // Primer candado del login con contraseña: en producción (salvo Railway develop) la ruta ni existe.
   controllers: [
     AuthController,
     WhatsappAuthController,
-    ...(process.env.NODE_ENV === 'production' ? [] : [DevAuthController]),
+    ...(loginDevPermitido(process.env.NODE_ENV, process.env.RAILWAY_ENVIRONMENT_NAME) ? [DevAuthController] : []),
   ],
   providers: [
     AuthService,

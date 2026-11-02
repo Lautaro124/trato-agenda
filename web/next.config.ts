@@ -27,6 +27,8 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_SENTRY_ENVIRONMENT:
       process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || process.env.RAILWAY_ENVIRONMENT_NAME || "local",
+    // Prende el formulario de login dev en el build de Railway develop (ver /entrar).
+    NEXT_PUBLIC_ENTORNO_RAILWAY: process.env.RAILWAY_ENVIRONMENT_NAME || "",
   },
   images: {
     // Las fotos de perfil de Google salen de este host.
