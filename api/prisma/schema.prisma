@@ -34,6 +34,11 @@ model User {
   /// auth/password.ts). Nunca en claro. Las cuentas de Google no la usan.
   passwordHash String?
 
+  /// Versión de las sesiones: viaja en el JWT (`sv`) y `JwtStrategy` rechaza
+  /// los que no coinciden. Subirla cierra todas las sesiones abiertas: se hace
+  /// al cambiar o recuperar la contraseña y al cerrar sesión.
+  sesionVersion Int @default(0)
+
   /// Refresh token de Google cifrado con AES-256-GCM. Nunca se expone por la API.
   googleRefreshToken String?
 
