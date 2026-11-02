@@ -82,7 +82,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       const cookies = req.cookies as Record<string, string> | undefined;
       const [userId, sesion] = await Promise.all([
         this.authService.verificarTokenDePaso(cookies?.[COOKIE_CONECTAR], 'conectar'),
-        this.authService.verificarTokenDePaso(cookies?.[nombreCookie(this.config)], undefined),
+        this.authService.verificarSesion(cookies?.[nombreCookie(this.config)]).then((user) => user?.id ?? null),
       ]);
       if (userId && userId === sesion) {
         try {
