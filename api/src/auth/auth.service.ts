@@ -148,7 +148,7 @@ export class AuthService {
   async usuarioDeSesion(payload: JwtPayload): Promise<User | null> {
     if (payload.tipo) return null;
     const user = await this.findById(payload.sub);
-    return user && user.sesionVersion === (payload.sv ?? 0) ? user : null;
+    return user?.sesionVersion === (payload.sv ?? 0) ? user : null;
   }
 
   /** Como `usuarioDeSesion`, pero desde el token crudo de la cookie. */
