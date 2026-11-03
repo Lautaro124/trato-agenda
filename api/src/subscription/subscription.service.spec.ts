@@ -94,7 +94,7 @@ function crearServicio(opciones: {
 
   const config = {
     get: (clave: string) =>
-      clave === 'SUSCRIPCION_PRECIO_ARS' ? 20000 : clave === 'SUSCRIPCION_PRECIO_PRO_ARS' ? 59000 : 'http://localhost:3000',
+      clave === 'SUSCRIPCION_PRECIO_PRO_ARS' ? 75000 : 'http://localhost:3000',
   } as unknown as ConfigService<Env, true>;
   const notificaciones = { avisar: vi.fn().mockResolvedValue(null) } as unknown as NotificacionesService;
 
@@ -113,19 +113,20 @@ describe('SubscriptionService', () => {
   it('el checkout guarda el preapproval y devuelve el init_point', async () => {
     const { service, mercadoPago, filas } = crearServicio({ creadoHaceDias: 2 });
 
-    const { initPoint } = await service.crearCheckout(USUARIO, 'basico');
+    const { initPoint } = await service.crearCheckout(USUARIO, 'pro');
 
     expect(initPoint).toBe('https://mp/checkout');
     expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({
       externalReference: 'user-1',
       backUrl: 'http://localhost:3000/plan?volviendo=1',
-      montoPorMes: 20000,
+      montoPorMes: 75000,
+      reason: 'Trato — plan Pro',
     });
     expect(filas.get('user-1')).toMatchObject({
       mpPreapprovalId: 'pre-1',
       estado: 'pendiente',
-      plan: 'basico',
-      montoCentavos: 2_000_000,
+      plan: 'pro',
+      montoCentavos: 7_500_000,
     });
   });
 
@@ -133,9 +134,9 @@ describe('SubscriptionService', () => {
     const { service, prisma, mercadoPago } = crearServicio({ creadoHaceDias: 2 });
     const sinEmail = { ...USUARIO, email: null };
 
-    await expect(service.crearCheckout(sinEmail, 'basico')).rejects.toThrow('Falta el email');
+    await expect(service.crearCheckout(sinEmail, 'pro')).rejects.toThrow('Falta el email');
 
-    await service.crearCheckout(sinEmail, 'basico', 'nuevo@ejemplo.com');
+    await service.crearCheckout(sinEmail, 'pro', 'nuevo@ejemplo.com');
     expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { email: 'nuevo@ejemplo.com' } });
     expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({ payerEmail: 'nuevo@ejemplo.com' });
   });
@@ -143,14 +144,14 @@ describe('SubscriptionService', () => {
   it('no deja usar para pagar el email de otra cuenta', async () => {
     const { service, mercadoPago } = crearServicio({ creadoHaceDias: 2, emailsTomados: ['ajeno@ejemplo.com'] });
 
-    await expect(service.crearCheckout({ ...USUARIO, email: null }, 'basico', 'ajeno@ejemplo.com')).rejects.toThrow('otra cuenta');
+    await expect(service.crearCheckout({ ...USUARIO, email: null }, 'pro', 'ajeno@ejemplo.com')).rejects.toThrow('otra cuenta');
     expect(mercadoPago.crearPreapproval).not.toHaveBeenCalled();
   });
 
   it('con email propio ignora el que venga en el body', async () => {
     const { service, prisma, mercadoPago } = crearServicio({ creadoHaceDias: 2 });
 
-    await service.crearCheckout(USUARIO, 'basico', 'otro@ejemplo.com');
+    await service.crearCheckout(USUARIO, 'pro', 'otro@ejemplo.com');
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({ payerEmail: 'dueño@ejemplo.com' });
   });
@@ -206,19 +207,7 @@ describe('SubscriptionService', () => {
     expect((await aTiempo.service.estadoPublico('user-1')).diasRestantes).toBe(1);
   });
 
-  it('el checkout del Pro cobra el precio del Pro y lo guarda en la fila', async () => {
-    const { service, mercadoPago, filas } = crearServicio({ creadoHaceDias: 2 });
-
-    await service.crearCheckout(USUARIO, 'pro');
-
-    expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({
-      montoPorMes: 59000,
-      reason: 'Trato — plan Pro',
-    });
-    expect(filas.get('user-1')).toMatchObject({ plan: 'pro', montoCentavos: 5_900_000 });
-  });
-
-  describe('cambio de plan con una suscripción activa', () => {
+  describe('pase a Pro de una suscripción activa del Básico (filas de antes del plan único)', () => {
     function pagandoBasico() {
       const ctx = crearServicio({ creadoHaceDias: 40, suscripcion: { estado: 'activa' } });
       ctx.filas.set('user-1', { ...ctx.filas.get('user-1'), mpPreapprovalId: 'pre-viejo', plan: 'basico' } as Record<string, unknown>);
@@ -280,7 +269,7 @@ describe('SubscriptionService', () => {
         estado: 'activa',
         plan: 'pro',
         mpPreapprovalId: 'pre-1',
-        montoCentavos: 5_900_000,
+        montoCentavos: 7_500_000,
         mpPreapprovalPendienteId: null,
         planPendiente: null,
       });
@@ -315,14 +304,13 @@ describe('SubscriptionService', () => {
     });
   });
 
-  it('el precio público lista los dos planes con su tope de chats', () => {
+  it('el precio público lista el único plan con su tope de chats', () => {
     const { service } = crearServicio({ creadoHaceDias: 2 });
 
     expect(service.precioPublico()).toEqual({
       moneda: 'ARS',
       planes: [
-        { id: 'basico', nombre: 'Básico', chats: 1500, monto: 20000 },
-        { id: 'pro', nombre: 'Pro', chats: 4500, monto: 59000 },
+        { id: 'pro', nombre: 'Pro', chats: 4500, monto: 75000 },
       ],
     });
   });
@@ -346,35 +334,31 @@ describe('SubscriptionService', () => {
     }
 
     it('por debajo del 80 % no avisa', async () => {
-      const { service, notificaciones } = pagando('basico', 1199);
+      const { service, notificaciones } = pagando('pro', 3599);
       await service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(notificaciones.avisar).not.toHaveBeenCalled();
     });
 
     it('al 80 % avisa, una sola vez en el mes aunque ya lo haya leído', async () => {
-      const primera = pagando('basico', 1200);
+      const primera = pagando('pro', 3600);
       await primera.service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(primera.notificaciones.avisar).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({ tipo: 'cupo_chats', clave: 'cupo_chats:80:2026-10' }),
       );
 
-      const repetida = pagando('basico', 1300, ['cupo_chats:80:2026-10']);
+      const repetida = pagando('pro', 3700, ['cupo_chats:80:2026-10']);
       await repetida.service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(repetida.notificaciones.avisar).not.toHaveBeenCalled();
     });
 
-    it('al tope avisa con otra clave, y el Pro tiene 4.500', async () => {
-      const basico = pagando('basico', 1500);
-      await basico.service.avisarSiLlegaAlTope('user-1', AHORA);
-      expect(basico.notificaciones.avisar).toHaveBeenCalledWith(
+    it('al tope de 4.500 avisa con otra clave', async () => {
+      const { service, notificaciones } = pagando('pro', 4500);
+      await service.avisarSiLlegaAlTope('user-1', AHORA);
+      expect(notificaciones.avisar).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({ clave: 'cupo_chats:100:2026-10' }),
       );
-
-      const pro = pagando('pro', 2500);
-      await pro.service.avisarSiLlegaAlTope('user-1', AHORA);
-      expect(pro.notificaciones.avisar).not.toHaveBeenCalled();
     });
   });
 
@@ -382,7 +366,7 @@ describe('SubscriptionService', () => {
     const { service, filas } = crearServicio({ creadoHaceDias: 2, suscripcion: { estado: 'pendiente' } });
     filas.set('user-1', { ...filas.get('user-1'), montoCentavos: 1_500_000 } as Record<string, unknown>);
 
-    expect((await service.estadoPublico('user-1')).monto).toBe(20000);
+    expect((await service.estadoPublico('user-1')).monto).toBe(75000);
   });
 
   it('una suscripción activa muestra lo que efectivamente paga', async () => {

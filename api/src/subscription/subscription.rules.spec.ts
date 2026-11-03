@@ -83,26 +83,21 @@ describe('estadoDeSuscripcion', () => {
 });
 
 describe('planes y cupo de chats', () => {
-  it('el Básico tiene 1.500 chats, el Pro 4.500, y la prueba muestra el del Pro', () => {
-    expect(limiteDeChats('basico')).toBe(1500);
-    expect(limiteDeChats('pro')).toBe(4500);
-    expect(limiteDeChats(null)).toBe(4500);
-    expect(limiteDeChats('desconocido')).toBe(1500);
+  it('hay un solo tope: los 4.500 chats del Pro', () => {
+    expect(limiteDeChats()).toBe(4500);
   });
 
   it('sólo una suscripción activa tiene plan', () => {
-    expect(planVigente({ estado: 'activa' }, 'pro')).toBe('pro');
-    expect(planVigente({ estado: 'activa' }, 'raro')).toBe('basico');
-    expect(planVigente({ estado: 'prueba' }, 'pro')).toBeNull();
-    expect(planVigente({ estado: 'vencida' }, 'pro')).toBeNull();
-    expect(planVigente({ estado: 'activa' }, null)).toBeNull();
+    expect(planVigente({ estado: 'activa' })).toBe('pro');
+    expect(planVigente({ estado: 'prueba' })).toBeNull();
+    expect(planVigente({ estado: 'vencida' })).toBeNull();
   });
 
   it('avisa desde el 80 % y marca superado al llegar al tope', () => {
-    expect(estadoDeCupo({ usados: 1199, plan: 'basico' })).toMatchObject({ cercano: false, superado: false, restantes: 301 });
-    expect(estadoDeCupo({ usados: 1200, plan: 'basico' })).toMatchObject({ cercano: true, superado: false, porcentaje: 80 });
-    expect(estadoDeCupo({ usados: 1500, plan: 'basico' })).toMatchObject({ cercano: true, superado: true, restantes: 0 });
-    expect(estadoDeCupo({ usados: 9000, plan: 'pro' })).toMatchObject({ superado: true, restantes: 0 });
+    expect(estadoDeCupo({ usados: 3599 })).toMatchObject({ cercano: false, superado: false, restantes: 901 });
+    expect(estadoDeCupo({ usados: 3600 })).toMatchObject({ cercano: true, superado: false, porcentaje: 80 });
+    expect(estadoDeCupo({ usados: 4500 })).toMatchObject({ cercano: true, superado: true, restantes: 0 });
+    expect(estadoDeCupo({ usados: 9000 })).toMatchObject({ superado: true, restantes: 0 });
   });
 
   it('el mes se corta a medianoche de Buenos Aires (UTC-3), no de UTC', () => {

@@ -7,7 +7,7 @@ function formatear(monto: number, moneda: string): string {
 }
 
 test.describe('precio del plan', () => {
-  test('la landing y /plan muestran los dos planes con los precios de la API', async ({ page, context, usuarioDev }) => {
+  test('la landing y /plan muestran el único plan con el precio de la API', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     const res = await context.request.get(`${API_URL}/suscripcion/precio`);
     expect(res.ok(), await res.text()).toBe(true);
@@ -15,7 +15,7 @@ test.describe('precio del plan', () => {
       moneda: string;
       planes: Array<{ id: string; nombre: string; chats: number; monto: number }>;
     };
-    expect(planes.map((p) => p.id)).toEqual(['basico', 'pro']);
+    expect(planes.map((p) => p.id)).toEqual(['pro']);
 
     await page.goto('/');
     for (const plan of planes) {
@@ -24,7 +24,7 @@ test.describe('precio del plan', () => {
 
     await page.goto('/plan');
     for (const plan of planes) {
-      await expect(page.getByRole('radio', { name: `Plan ${plan.nombre}` })).toContainText(formatear(plan.monto, moneda));
+      await expect(page.getByRole('region', { name: `Plan ${plan.nombre}` })).toContainText(formatear(plan.monto, moneda));
     }
   });
 });

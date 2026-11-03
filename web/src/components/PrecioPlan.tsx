@@ -2,22 +2,21 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
-import { formatearChats, formatearMonto, usePrecioPlan } from "@/lib/suscripcion";
+import { formatearChats, formatearMonto, usePrecioPlan, type PrecioPlan } from "@/lib/suscripcion";
 
 /**
- * Las tarjetas de planes del bloque de precio de la landing. La landing es un
- * server component, pero los precios se piden desde el browser: dentro de
- * compose el server de Next no llega a NEXT_PUBLIC_API_URL. Mientras cargan
- * ocupan el mismo alto sin mostrar un número, así nunca aparece un precio que
- * no es el de env.
+ * La tarjeta del plan en el bloque de precio de la landing. El precio llega
+ * del build (`precioDelBuild`, SSG) y queda en el HTML. Si el build no llegó a
+ * la API (compose, E2E), se pide desde el browser y mientras carga ocupa el
+ * mismo alto sin mostrar un número, así nunca aparece un precio que no es el de env.
  */
-export function PlanesPrecio({ incluye }: { incluye: readonly string[] }) {
-  const precio = usePrecioPlan();
+export function PlanesPrecio({ incluye, precioInicial }: { incluye: readonly string[]; precioInicial: PrecioPlan | null }) {
+  const precio = usePrecioPlan(precioInicial);
   const planes = precio?.planes ?? [];
 
   return (
-    <div className="grid gap-5 text-left md:grid-cols-2">
-      {(planes.length > 0 ? planes : [null, null]).map((plan, i) => (
+    <div className="mx-auto grid w-full max-w-[520px] gap-5 text-left">
+      {(planes.length > 0 ? planes : [null]).map((plan, i) => (
         <div
           key={plan?.id ?? i}
           className="flex flex-col rounded-[36px] border border-line-strong bg-page p-7 shadow-md md:p-9"

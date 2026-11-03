@@ -44,7 +44,7 @@ export class SubscriptionController {
     return this.subscriptionService.estadoPublico(user.id);
   }
 
-  /** Público: la landing muestra el mismo precio que /plan, sacado de SUSCRIPCION_PRECIO_ARS (Básico) y SUSCRIPCION_PRECIO_PRO_ARS. */
+  /** Público: la landing muestra el mismo precio que /plan, sacado de SUSCRIPCION_PRECIO_PRO_ARS. */
   @Get('precio')
   precio(): PrecioPublico {
     return this.subscriptionService.precioPublico();

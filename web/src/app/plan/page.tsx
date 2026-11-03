@@ -104,7 +104,8 @@ function PlanContenido() {
       .catch(() => {});
   }
 
-  async function suscribirme(plan: PlanId, email: string | null) {
+  async function suscribirme(email: string | null) {
+    const plan: PlanId = "pro";
     setEnviando(true);
     setError(null);
 
@@ -152,18 +153,13 @@ function PlanContenido() {
         ) : vista === "confirmando" ? (
           <Confirmando onReintentar={reintentarConfirmacion} />
         ) : suscripcion?.estado === "activa" ? (
-          <PlanVigente
-            suscripcion={suscripcion}
-            enviando={enviando}
-            onCancelar={() => void cancelar()}
-            onCambiar={(plan) => void suscribirme(plan, null)}
-          />
+          <PlanVigente suscripcion={suscripcion} enviando={enviando} onCancelar={() => void cancelar()} />
         ) : (
           <Checkout
             suscripcion={suscripcion}
             enviando={enviando}
             pideEmail={!user.email}
-            onSuscribirme={(plan, email) => void suscribirme(plan, email)}
+            onSuscribirme={(email) => void suscribirme(email)}
           />
         )}
 
@@ -186,14 +182,13 @@ function Checkout({
   enviando: boolean;
   /** Las cuentas creadas con WhatsApp no tienen email, y Mercado Pago lo exige. */
   pideEmail: boolean;
-  onSuscribirme: (plan: PlanId, email: string | null) => void;
+  onSuscribirme: (email: string | null) => void;
 }) {
   const [email, setEmail] = useState("");
-  const [elegido, setElegido] = useState<PlanId>("basico");
   const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  // Sin la respuesta de la API no inventamos un número: los precios son los de env.
+  // Sin la respuesta de la API no inventamos un número: el precio es el de env.
   const precios = usePrecioPlan();
-  const plan = precios?.planes.find((p) => p.id === elegido) ?? null;
+  const plan = precios?.planes[0] ?? null;
   const precio = plan && precios ? formatearMonto(plan.monto, precios.moneda) : "—";
   const vencida = suscripcion?.estado === "vencida";
 
@@ -209,21 +204,10 @@ function Checkout({
             : suscripcion
               ? `Tu prueba termina el ${formatearFechaCorta(suscripcion.pruebaHasta)}.`
               : ""}{" "}
-          Elegí cómo querés pagar; podés cancelar cuando quieras.
+          Podés cancelar cuando quieras.
         </p>
 
-        <p className="mb-2.5 text-[12.5px] font-semibold text-ink-secondary">Elegí tu plan</p>
-        <div role="radiogroup" aria-label="Plan" className="mb-5 grid gap-3 sm:grid-cols-2">
-          {(precios?.planes ?? []).map((p) => (
-            <OpcionDePlan
-              key={p.id}
-              plan={p}
-              moneda={precios?.moneda ?? "ARS"}
-              marcado={p.id === elegido}
-              onElegir={() => setElegido(p.id)}
-            />
-          ))}
-        </div>
+        {plan && precios && <TarjetaDePlan plan={plan} moneda={precios.moneda} />}
 
         <p className="mb-2.5 text-[12.5px] font-semibold text-ink-secondary">Medio de pago</p>
         <div className="mb-5 flex flex-wrap gap-2">
@@ -276,7 +260,7 @@ function Checkout({
             size="lg"
             fullWidth
             disabled={enviando || !plan || (pideEmail && !emailValido)}
-            onClick={() => onSuscribirme(elegido, pideEmail ? email.trim() : null)}
+            onClick={() => onSuscribirme(pideEmail ? email.trim() : null)}
           >
             {enviando ? "Abriendo Mercado Pago…" : "Suscribirme"}
           </Button>
@@ -287,29 +271,10 @@ function Checkout({
   );
 }
 
-/** Una de las dos tarjetas del selector de plan. */
-function OpcionDePlan({
-  plan,
-  moneda,
-  marcado,
-  onElegir,
-}: {
-  plan: PlanPublico;
-  moneda: string;
-  marcado: boolean;
-  onElegir: () => void;
-}) {
+/** El plan que se contrata: hay uno solo. */
+function TarjetaDePlan({ plan, moneda }: { plan: PlanPublico; moneda: string }) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={marcado}
-      aria-label={`Plan ${plan.nombre}`}
-      onClick={onElegir}
-      className={`rounded-md border p-4 text-left transition-colors ${
-        marcado ? "border-primary bg-primary-subtle" : "border-line bg-sunken hover:border-line-strong"
-      }`}
-    >
+    <section aria-label={`Plan ${plan.nombre}`} className="mb-5 rounded-md border border-primary bg-primary-subtle p-4">
       <div className="font-display text-[15.5px] font-semibold text-ink">{plan.nombre}</div>
       <div className="mt-1 font-display text-[21px] font-bold text-ink">
         {formatearMonto(plan.monto, moneda)}
@@ -318,7 +283,7 @@ function OpcionDePlan({
       <div className="mt-1 text-[12.5px] leading-[1.5] text-ink-secondary">
         Hasta {formatearChats(plan.chats)} chats por mes
       </div>
-    </button>
+    </section>
   );
 }
 
@@ -352,7 +317,7 @@ function UsoDelMes({ uso }: { uso: Suscripcion["uso"] }) {
   );
 }
 
-const NOMBRE_DE_PLAN: Record<PlanId, string> = { basico: "Básico", pro: "Pro" };
+const NOMBRE_DE_PLAN: Record<PlanId, string> = { pro: "Pro" };
 
 /** Estado de éxito del artboard 7c. */
 function Exito({ suscripcion, onVolver }: { suscripcion: Suscripcion | null; onVolver: () => void }) {
@@ -399,15 +364,11 @@ function PlanVigente({
   suscripcion,
   enviando,
   onCancelar,
-  onCambiar,
 }: {
   suscripcion: Suscripcion;
   enviando: boolean;
   onCancelar: () => void;
-  onCambiar: (plan: PlanId) => void;
 }) {
-  const precios = usePrecioPlan();
-  const pro = precios?.planes.find((p) => p.id === "pro");
   return (
     <div className="w-full max-w-[520px] rounded-lg border border-line bg-card p-6 shadow-md">
       <h1 className="mb-2 font-display text-2xl leading-[1.2] font-bold tracking-[-0.02em] text-ink">
@@ -425,18 +386,6 @@ function PlanVigente({
           valor={suscripcion.proximoCobroAt ? formatearFechaCorta(suscripcion.proximoCobroAt) : "—"}
         />
       </div>
-      {suscripcion.plan === "basico" && pro && (
-        <div className="mb-4 rounded-md border border-line bg-card p-4">
-          <p className="mb-3 text-[13.5px] leading-[1.55] text-ink-secondary">
-            Plan Pro: hasta {formatearChats(pro.chats)} chats por mes por{" "}
-            {formatearMonto(pro.monto, precios?.moneda)} al mes. Pasás a Mercado Pago a autorizar el nuevo débito y
-            cancelamos el actual.
-          </p>
-          <Button disabled={enviando} onClick={() => onCambiar("pro")}>
-            Pasar a Pro
-          </Button>
-        </div>
-      )}
       <Button variant="ghost" disabled={enviando} onClick={onCancelar}>
         Cancelar la suscripción
       </Button>

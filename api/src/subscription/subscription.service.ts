@@ -49,8 +49,7 @@ export class SubscriptionService {
   async estadoPublico(userId: string): Promise<SuscripcionPublica> {
     const { estado, suscripcion } = await this.resolver(userId);
     const chats = await this.chatsDelMes(userId);
-    const limite = limiteDeChats(estado.estado === 'activa' ? suscripcion?.plan : null);
-    return aSuscripcionPublica(estado, suscripcion, this.precio('basico'), { chats, limite });
+    return aSuscripcionPublica(estado, suscripcion, this.precio(), { chats, limite: limiteDeChats() });
   }
 
   /** Los precios de los planes, sin sesión: la landing los lee de acá para no hardcodearlos. */
@@ -61,7 +60,7 @@ export class SubscriptionService {
         id,
         nombre: PLANES[id].nombre,
         chats: PLANES[id].chats,
-        monto: this.precio(id),
+        monto: this.precio(),
       })),
     };
   }
@@ -92,13 +91,10 @@ export class SubscriptionService {
    * resultado ni le importa si falla.
    */
   async avisarSiLlegaAlTope(userId: string, ahora: Date = new Date()): Promise<void> {
-    const { estado, suscripcion } = await this.resolver(userId);
-    const plan = estado.estado === 'activa' ? (suscripcion?.plan ?? null) : null;
-    const cupo = estadoDeCupo({ usados: await this.chatsDelMes(userId, ahora), plan });
+    const cupo = estadoDeCupo({ usados: await this.chatsDelMes(userId, ahora) });
     if (!cupo.cercano) return;
 
     const aviso = avisoCupoDeChats({
-      plan,
       usados: cupo.usados,
       limite: cupo.limite,
       superado: cupo.superado,
@@ -145,7 +141,7 @@ export class SubscriptionService {
    */
   async crearCheckout(user: User, plan: PlanId, email?: string): Promise<{ initPoint: string }> {
     const frontendUrl = this.config.get('FRONTEND_URL', { infer: true });
-    const monto = this.precio(plan);
+    const monto = this.precio();
     const payerEmail = await this.emailDelPagador(user, email);
 
     const preapproval = await this.mercadoPago.crearPreapproval({
@@ -245,7 +241,7 @@ export class SubscriptionService {
 
     await this.prisma.subscription.upsert({
       where: { userId },
-      create: { userId, montoCentavos: Math.round(this.precio('basico') * 100), moneda: 'ARS', ...datos },
+      create: { userId, montoCentavos: Math.round(this.precio() * 100), moneda: 'ARS', ...datos },
       update: datos,
     });
 
@@ -267,7 +263,8 @@ export class SubscriptionService {
     }
     if (preapproval.status !== 'authorized') return;
 
-    const plan: PlanId = fila.planPendiente === 'pro' ? 'pro' : 'basico';
+    // Hay un solo plan: un planPendiente viejo (de cuando existía el Básico) también pasa a Pro.
+    const plan: PlanId = 'pro';
     const anteriorId = fila.mpPreapprovalId;
     await this.prisma.subscription.update({
       where: { userId },
@@ -276,7 +273,7 @@ export class SubscriptionService {
         plan,
         mpPreapprovalId: preapproval.id,
         mpStatus: preapproval.status,
-        montoCentavos: Math.round(this.precio(plan) * 100),
+        montoCentavos: Math.round(this.precio() * 100),
         proximoCobroAt: preapproval.next_payment_date ? new Date(preapproval.next_payment_date) : null,
         ultimoPagoAt: new Date(),
         canceladaAt: null,
@@ -348,9 +345,7 @@ export class SubscriptionService {
     };
   }
 
-  private precio(plan: PlanId): number {
-    return plan === 'pro'
-      ? this.config.get('SUSCRIPCION_PRECIO_PRO_ARS', { infer: true })
-      : this.config.get('SUSCRIPCION_PRECIO_ARS', { infer: true });
+  private precio(): number {
+    return this.config.get('SUSCRIPCION_PRECIO_PRO_ARS', { infer: true });
   }
 }

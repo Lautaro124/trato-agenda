@@ -36,7 +36,7 @@ export function aSuscripcionPublica(
   uso: { chats: number; limite: number },
 ): SuscripcionPublica {
   const pagando = estado.estado === 'activa' && suscripcion !== null;
-  const plan = planVigente(estado, suscripcion?.plan);
+  const plan = planVigente(estado);
   return {
     estado: estado.estado,
     diasRestantes: estado.diasRestantes,

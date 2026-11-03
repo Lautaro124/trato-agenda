@@ -4,6 +4,7 @@ import { PlanesPrecio } from "@/components/PrecioPlan";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { EMAIL_SOPORTE } from "@/lib/contacto";
+import { precioDelBuild } from "@/lib/precio-plan";
 
 export const metadata = {
   title: "Trato — la atención al cliente de tu negocio por WhatsApp",
@@ -110,7 +111,8 @@ function ChatBubble({ propio, children }: { propio?: boolean; children: ReactNod
   );
 }
 
-export default function Home() {
+export default async function Home() {
+  const precio = await precioDelBuild();
   return (
     <main className="overflow-hidden bg-page">
       <header className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b border-line bg-page px-5 py-3.5 md:px-10">
@@ -279,12 +281,12 @@ export default function Home() {
       >
         <div className="mx-auto max-w-[920px] text-center">
           <h2 className="mb-3 font-display text-[28px] leading-[1.12] font-bold tracking-[-0.03em] text-ink md:text-[38px]">
-            Dos planes, según cuántos chats atiendas
+            Un solo plan, con todo incluido
           </h2>
           <p className="mb-7 text-[16px] leading-[1.6] text-ink-secondary">
-            Probás un mes completo gratis. Si te sirve, elegís el plan que te quede cómodo.
+            Probás un mes completo gratis. Si te sirve, lo activás y seguís.
           </p>
-          <PlanesPrecio incluye={INCLUYE_PLAN} />
+          <PlanesPrecio incluye={INCLUYE_PLAN} precioInicial={precio} />
           <p className="mt-5 text-[13px] leading-[1.6] text-muted">
             No te pedimos tarjeta para la prueba. Te avisamos 7 días antes de que termine. Si te acercás al tope de
             chats te avisamos, pero el asistente no se corta.

@@ -3,7 +3,6 @@
  * campanita del panel y a su propio chat de WhatsApp.
  */
 import { formatearCentavos, formatearMonto } from '../comercio/catalogo.rules.js';
-import { PLANES } from '../subscription/subscription.rules.js';
 import { detalleDeRenglones, fechaYHora, type RenglonVenta } from '../comercio/ventas.rules.js';
 
 export const TIPOS_NOTIFICACION = [
@@ -270,7 +269,6 @@ export function textoParaWhatsapp(aviso: Pick<Aviso, 'titulo' | 'cuerpo'>): stri
 
 /** Aviso de cupo de chats del mes: sólo informa, el asistente sigue contestando. */
 export function avisoCupoDeChats(datos: {
-  plan: string | null;
   usados: number;
   limite: number;
   superado: boolean;
@@ -279,14 +277,10 @@ export function avisoCupoDeChats(datos: {
   const titulo = datos.superado
     ? `Llegaste al tope de ${datos.limite} chats del mes`
     : `Ya usaste ${datos.usados} de ${datos.limite} chats este mes`;
-  const cierre =
-    datos.plan === 'pro'
-      ? 'El asistente sigue contestando igual.'
-      : `El asistente sigue contestando igual; si querés más margen, podés pasarte al plan Pro (${PLANES.pro.chats.toLocaleString('es-AR')} chats).`;
   return {
     tipo: 'cupo_chats',
     titulo,
-    cuerpo: `Cada cliente distinto que te escribe en el mes cuenta como un chat. ${cierre}`,
+    cuerpo: `Cada cliente distinto que te escribe en el mes cuenta como un chat. El asistente sigue contestando igual.`,
     enlace: '/plan',
     clave: `cupo_chats:${datos.superado ? '100' : '80'}:${datos.etiquetaMes}`,
   };

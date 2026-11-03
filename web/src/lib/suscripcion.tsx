@@ -25,7 +25,8 @@ export type Suscripcion = {
   uso: { chats: number; limite: number };
 };
 
-export type PlanId = "basico" | "pro";
+/** Hay un solo plan pago. */
+export type PlanId = "pro";
 
 type SuscripcionValue = {
   suscripcion: Suscripcion | null;
@@ -89,19 +90,21 @@ export function useSuscripcion(): SuscripcionValue {
 
 export type PlanPublico = { id: PlanId; nombre: string; chats: number; monto: number };
 
-/** Espejo de `PrecioPublico` en la API: los planes y sus precios, sin sesión. */
+/** Espejo de `PrecioPublico` en la API: el plan y su precio, sin sesión. */
 export type PrecioPlan = { moneda: string; planes: PlanPublico[] };
 
 /**
- * Los precios de los planes tal como los fijan SUSCRIPCION_PRECIO_ARS (Básico)
- * y SUSCRIPCION_PRECIO_PRO_ARS en la API. Los usan la landing, que no tiene
+ * El precio del plan tal como lo fija SUSCRIPCION_PRECIO_PRO_ARS en la API.
+ * Lo usan la landing, que no tiene
  * sesión, y /plan; `null` mientras carga o si la API no responde, para no
  * mostrar nunca un número inventado.
  */
-export function usePrecioPlan(): PrecioPlan | null {
-  const [precio, setPrecio] = useState<PrecioPlan | null>(null);
+export function usePrecioPlan(inicial: PrecioPlan | null = null): PrecioPlan | null {
+  const [precio, setPrecio] = useState<PrecioPlan | null>(inicial);
 
   useEffect(() => {
+    // Ya vino en el HTML estático (la landing lo trae del build): no se vuelve a pedir.
+    if (inicial) return;
     const ctrl = new AbortController();
 
     apiFetch("/suscripcion/precio", { signal: ctrl.signal })
@@ -110,7 +113,7 @@ export function usePrecioPlan(): PrecioPlan | null {
       .catch(() => {});
 
     return () => ctrl.abort();
-  }, []);
+  }, [inicial]);
 
   return precio;
 }
