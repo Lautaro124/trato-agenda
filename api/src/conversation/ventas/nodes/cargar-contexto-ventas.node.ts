@@ -16,8 +16,8 @@ import type { AgentConUser } from '../../graph/state.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-historial.js';
 import { Prisma, type Agent, type Conversation } from '../../../generated/prisma/client.js';
 import type { PedidoAMedida } from '../../../comercio/pedidos-a-medida.service.js';
+import { bloqueAtencionHumana, ultimaAtencionHumana } from '../../graph/atencion-humana.js';
 import {
-  bloqueAtencionHumana,
   bloqueCatalogo,
   bloqueLocal,
   bloquePedidos,
@@ -43,31 +43,6 @@ const logger = new Logger('CargarContextoVentasNode');
 
 /** Pedidos a medida que entran al contexto: los abiertos más los últimos cerrados. */
 const PEDIDOS_A_MEDIDA_EN_CONTEXTO = 5;
-
-/**
- * Lo que se habló mientras el chat lo atendió una persona, si se lo
- * devolvieron al asistente dentro de la ventana que ve: los mensajes de
- * entonces no están en el hilo de LangGraph (el asistente no corría).
- */
-async function ultimaDevolucion(prisma: PrismaService, conversationId: string, desde: Date) {
-  const venta = await prisma.venta.findFirst({
-    where: { conversationId, devueltaAt: { not: null, gte: desde }, derivadaAt: { not: null } },
-    orderBy: { devueltaAt: 'desc' },
-    select: { derivadaAt: true, devueltaAt: true, notaDevolucion: true },
-  });
-  if (!venta?.derivadaAt || !venta.devueltaAt) return null;
-  const mensajes = await prisma.message.findMany({
-    where: {
-      conversationId,
-      role: { in: ['user', 'assistant'] },
-      createdAt: { gte: venta.derivadaAt, lte: venta.devueltaAt },
-    },
-    select: { role: true, content: true },
-    orderBy: { createdAt: 'desc' },
-    take: 20,
-  });
-  return { nota: venta.notaDevolucion, mensajes: mensajes.reverse() };
-}
 
 /**
  * Si el cliente ya eligió todo o sigue definiendo, según Jev. Sólo hace falta
@@ -193,7 +168,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
         orderBy: { createdAt: 'desc' },
         take: PEDIDOS_A_MEDIDA_EN_CONTEXTO,
       }) as Promise<PedidoAMedida[]>,
-      ultimaDevolucion(deps.prisma, conversation.id, new Date(Date.now() - ventanaMs)),
+      ultimaAtencionHumana(deps.prisma, guardada, new Date(Date.now() - ventanaMs)),
       deps.prisma.condicionesPago.findUnique({ where: { userId: state.ownerUserId } }),
     ]);
     const mpConectado = cuentaMp !== null;

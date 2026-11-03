@@ -36,7 +36,8 @@ import {
   type FormaDePago,
 } from './condiciones-pago.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
-import { enAtencionHumana, pausaPorCobroManual } from './pedido-a-medida.rules.js';
+import { pausaPorCobroManual } from './pedido-a-medida.rules.js';
+import { tomarChat } from '../chats/atencion.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
@@ -536,7 +537,7 @@ export class VentasService {
         ...datosParaGuardar(input.datosCliente),
         items: { create: renglones },
         // Con el cobro manual configurado, el asistente manda los datos de pago y
-        // el chat queda para el negocio hasta que el pedido se pague o se cancele.
+        // el chat queda para el negocio hasta que el dueño se lo devuelva (LAU-81).
         ...(pausa
           ? {
               ...pausaPorCobroManual(ahora),
@@ -551,6 +552,8 @@ export class VentasService {
     if (input.conversationId) {
       // Igual que con los turnos: el nombre se pregunta una vez por conversación.
       await tx.conversation.update({ where: { id: input.conversationId }, data: { nombreCliente } });
+      // Cobro manual: el chat queda en manos del negocio (LAU-81).
+      if (pausa) await tomarChat(tx, input.userId, input.conversationId, ahora);
     }
     return { venta, maxCuotas: maxCuotasSinPlan(condiciones, tope) };
   }
@@ -856,15 +859,13 @@ export class VentasService {
 
   private async recordarPago(venta: Venta, ahora: Date): Promise<boolean> {
     if (!venta.conversationId || !venta.reservaVenceAt) return false;
-    const [posteriores, humanas] = await Promise.all([
+    const [posteriores, humana] = await Promise.all([
       // Si después pidió otra cosa en el mismo chat, recordarle el pedido viejo confunde.
       this.prisma.venta.count({ where: { conversationId: venta.conversationId, createdAt: { gt: venta.createdAt } } }),
-      this.prisma.venta.findMany({
-        where: { conversationId: venta.conversationId, atencion: 'humana' },
-        select: { atencion: true, estado: true },
-      }),
+      // Mientras lo atiende una persona, el asistente no escribe (LAU-81).
+      this.prisma.conversation.count({ where: { id: venta.conversationId, atencion: 'humana' } }),
     ]);
-    if (posteriores > 0 || humanas.some(enAtencionHumana)) return false;
+    if (posteriores > 0 || humana > 0) return false;
     if (!(await this.suscripcion.asistenteActivo(venta.userId))) return false;
     if (!(await this.horarioAtencion.puedeEscribir(venta.userId, venta.conversationId, ahora))) return false;
 

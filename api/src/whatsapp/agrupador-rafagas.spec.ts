@@ -54,6 +54,31 @@ describe('AgrupadorDeRafagas', () => {
     expect(procesar.mock.calls[1][1]).toHaveLength(MAX_MENSAJES_RAFAGA);
   });
 
+  it('interrumpir descarta la respuesta en curso aunque ya se haya descartado el máximo de veces', async () => {
+    const vistas: Cancelacion[] = [];
+    const procesar = vi.fn().mockImplementation(
+      (_clave: string, _items: string[], cancelacion: Cancelacion) =>
+        new Promise<void>((_resolve, reject) => {
+          vistas.push(cancelacion);
+          cancelacion.signal.addEventListener('abort', () => reject(new VueltaCancelada()));
+        }),
+    );
+    const { agrupador } = crear(procesar);
+
+    agrupador.agregar('u\nc', 'hola');
+    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS);
+    for (let i = 0; i < MAX_CANCELACIONES_POR_RAFAGA; i++) {
+      agrupador.agregar('u\nc', `otro${i}`);
+      await vi.runOnlyPendingTimersAsync();
+    }
+    const enCurso = vistas.at(-1)!;
+    expect(enCurso.cancelada).toBe(false);
+
+    agrupador.interrumpir('u\nc');
+
+    expect(enCurso.cancelada).toBe(true);
+  });
+
   it('descartar olvida lo pendiente de ese dueño y no toca a los demás', async () => {
     const { agrupador, procesar } = crear();
 

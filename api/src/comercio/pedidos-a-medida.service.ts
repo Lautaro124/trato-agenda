@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type EventoVenta, type Message, type Presupuesto } from '../generated/prisma/client.js';
+import { chatEnAtencionHumana, devolverChat, limpiarNota, tomarChat } from '../chats/atencion.js';
 import {
   avisoPedidoDerivado,
   avisoPresupuestoAceptado,
@@ -19,10 +20,8 @@ import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
 import {
   armarSolicitudDeVenta,
   cambioDeSolicitud,
-  enAtencionHumana,
   ETIQUETA_MOTIVO,
   LARGO_MAX_DETALLE_DERIVACION,
-  LARGO_MAX_NOTA,
   leerSolicitudDeVenta,
   MAX_A_MEDIDA_ABIERTOS,
   pausaPorCobroManual,
@@ -208,21 +207,9 @@ export class PedidosAMedidaService {
     });
   }
 
-  /**
-   * ¿El asistente tiene que callarse en este chat? Sí mientras algún pedido
-   * de la conversación esté en atención humana y siga abierto.
-   */
-  async enAtencionHumana(userId: string, remoteJid: string): Promise<boolean> {
-    const venta = await this.prisma.venta.findFirst({
-      where: {
-        userId,
-        atencion: 'humana',
-        estado: { in: ['solicitado', 'a_cotizar', 'cotizado', 'pendiente_pago', 'vencida'] },
-        conversation: { remoteJid },
-      },
-      select: { atencion: true, estado: true },
-    });
-    return venta !== null && enAtencionHumana(venta);
+  /** ¿El asistente tiene que callarse en este chat? Sí mientras lo atienda una persona (LAU-81). */
+  enAtencionHumana(userId: string, remoteJid: string): Promise<boolean> {
+    return chatEnAtencionHumana(this.prisma, userId, remoteJid);
   }
 
   /** Los pedidos que esperan a una persona, para "Te esperan" del panel. */
@@ -664,6 +651,8 @@ export class PedidosAMedidaService {
       await tx.eventoVenta.create({
         data: { ventaId: venta.id, tipo: 'derivacion', de: venta.atencion, a: 'humana', motivo: input.motivo, autor: input.autor },
       });
+      // Derivar un pedido pone el chat en manos de una persona (LAU-81).
+      if (venta.conversationId) await tomarChat(tx, input.userId, venta.conversationId, ahora);
       return venta.id;
     });
 
@@ -683,30 +672,22 @@ export class PedidosAMedidaService {
   }
 
   /**
-   * El dueño le devuelve el chat al asistente. Se devuelven todos los pedidos
-   * de esa conversación que estaban en atención humana: la pausa es del chat.
+   * El dueño le devuelve el chat al asistente desde un pedido. La pausa es del
+   * chat: se devuelve la conversación entera con todos sus pedidos derivados.
    */
   async devolver(userId: string, ventaId: string, nota: string | null, ahora: Date = new Date()): Promise<PedidoAMedida | null> {
     const venta = await this.prisma.venta.findFirst({ where: { id: ventaId, userId } });
     if (!venta) return null;
-    const limpia = nota ? enUnaLinea(nota).slice(0, LARGO_MAX_NOTA) || null : null;
-    const delChat = await this.prisma.venta.findMany({
-      where: venta.conversationId
-        ? { userId, conversationId: venta.conversationId, atencion: 'humana' }
-        : { id: venta.id, atencion: 'humana' },
-      select: { id: true },
+    const limpia = limpiarNota(nota);
+    await this.prisma.$transaction(async (tx) => {
+      if (venta.conversationId) {
+        await devolverChat(tx, userId, venta.conversationId, limpia, ahora);
+        return;
+      }
+      if (venta.atencion !== 'humana') return;
+      await tx.venta.update({ where: { id: venta.id }, data: { atencion: 'asistente', devueltaAt: ahora, notaDevolucion: limpia } });
+      await tx.eventoVenta.create({ data: { ventaId: venta.id, tipo: 'devolucion', de: 'humana', a: 'asistente', autor: 'dueno' } });
     });
-    await this.prisma.$transaction([
-      ...delChat.map(({ id }) =>
-        this.prisma.venta.update({
-          where: { id },
-          data: { atencion: 'asistente', devueltaAt: ahora, notaDevolucion: limpia },
-        }),
-      ),
-      ...delChat.map(({ id }) =>
-        this.prisma.eventoVenta.create({ data: { ventaId: id, tipo: 'devolucion', de: 'humana', a: 'asistente', autor: 'dueno' } }),
-      ),
-    ]);
     return this.buscarCualquiera(userId, ventaId);
   }
 
@@ -923,10 +904,11 @@ export class PedidosAMedidaService {
         opciones.autor === 'asistente' &&
         bloqueada.conversationId !== null &&
         leerCondiciones(await tx.condicionesPago.findUnique({ where: { userId } })).cobroManual !== null;
-      if (pausa) {
+      if (pausa && bloqueada.conversationId) {
         await tx.eventoVenta.create({
           data: { ventaId, tipo: 'derivacion', de: bloqueada.atencion, a: 'humana', motivo: 'cobro_manual', autor: 'sistema' },
         });
+        await tomarChat(tx, userId, bloqueada.conversationId, ahora);
       }
       return tx.venta.update({
         where: { id: ventaId },

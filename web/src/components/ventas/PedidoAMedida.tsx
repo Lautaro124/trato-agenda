@@ -92,7 +92,7 @@ export function Atencion({ venta, acciones }: { venta: DetalleVenta; acciones: A
         <p>
           <strong>Lo atendés vos</strong>
           {venta.derivadaAt && ` desde el ${fechaCorta(venta.derivadaAt)}`}. El asistente no contesta en este chat hasta
-          que se lo devuelvas; escribile al cliente desde tu WhatsApp.
+          que se lo devuelvas; escribile al cliente desde tu WhatsApp o desde Chats.
         </p>
         {venta.motivoDerivacion && (
           <p>

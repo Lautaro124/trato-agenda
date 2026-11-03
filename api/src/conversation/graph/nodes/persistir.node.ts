@@ -28,10 +28,18 @@ function textoDe(mensaje: BaseMessage): string {
   return typeof mensaje.content === 'string' ? mensaje.content : JSON.stringify(mensaje.content);
 }
 
+/**
+ * Marca de un mensaje del cliente que ya está en `Message` (lo escribió
+ * mientras atendía una persona, LAU-81): la vuelta lo contesta pero no lo
+ * guarda otra vez.
+ */
+export const CLAVE_YA_GUARDADO = 'yaGuardado';
+
 /** Traduce un mensaje de LangChain al JSON que ya guardaba el runtime anterior. */
 function aFila(mensaje: BaseMessage): FilaMensaje | null {
   switch (mensaje.getType()) {
     case 'human':
+      if ((mensaje.response_metadata as Record<string, unknown> | undefined)?.[CLAVE_YA_GUARDADO] === true) return null;
       return { role: 'user', content: { content: textoDe(mensaje) } };
     case 'ai': {
       const toolCalls = (mensaje as { tool_calls?: { id?: string; name: string; args: unknown }[] }).tool_calls ?? [];

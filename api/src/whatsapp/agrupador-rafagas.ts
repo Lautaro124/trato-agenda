@@ -95,6 +95,16 @@ export class AgrupadorDeRafagas<T> {
     }
   }
 
+  /**
+   * El chat pasó a una persona (LAU-81): se descarta la respuesta que se
+   * está armando aunque ya se haya descartado otras veces. Sus mensajes
+   * vuelven a la ráfaga y, al salir, el asistente ve que el chat no es suyo y
+   * sólo los guarda. Lo ya comprometido sale igual (`Cancelacion`).
+   */
+  interrumpir(clave: string): void {
+    this.enCurso.get(clave)?.corrida.cancelacion.cancelar();
+  }
+
   /** Corta los temporizadores pendientes (al apagar la API). Lo que no se contestó se pierde, como antes. */
   cerrar(): void {
     for (const rafaga of this.rafagas.values()) {

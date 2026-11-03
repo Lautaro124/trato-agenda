@@ -45,7 +45,8 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
       upsert: vi.fn().mockResolvedValue({}),
     },
     whatsappClave: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    conversation: { findUnique: vi.fn().mockResolvedValue(null) },
+    conversation: { findUnique: vi.fn().mockResolvedValue(null), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    message: { create: vi.fn().mockResolvedValue({}) },
     $executeRaw: vi.fn().mockResolvedValue(0),
     $transaction: vi.fn(),
   } as unknown as PrismaService;
@@ -304,8 +305,8 @@ describe('WhatsappService — mensajes de clientes', () => {
     expect(sock.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('guarda lo que el dueño contesta desde su teléfono sólo en un chat en atención humana', async () => {
-    const { service, pedidos } = crearServicio();
+  it('si el dueño escribe desde su teléfono en un chat del asistente, el chat pasa a él y se guarda (LAU-81)', async () => {
+    const { service, prisma } = crearServicio();
     const sock = { ...socketDeChat(), authState: { creds: {} } };
     const delDueno = (id: string) =>
       (service as unknown as { handleMessagesUpsert: (u: string, s: unknown, e: unknown) => Promise<void> }).handleMessagesUpsert(
@@ -314,12 +315,32 @@ describe('WhatsappService — mensajes de clientes', () => {
         { type: 'notify', messages: [{ key: { remoteJid: JID, fromMe: true, id }, message: { conversation: 'Te lo hago en roble' } }] },
       );
 
+    // Un chat que el asistente nunca atendió: no se crea nada.
     await delDueno('d-1');
-    expect(pedidos.guardarMensajeEnPausa).not.toHaveBeenCalled();
+    expect(prisma.conversation.updateMany).not.toHaveBeenCalled();
+    expect(prisma.message.create).not.toHaveBeenCalled();
 
-    pedidos.enAtencionHumana.mockResolvedValue(true);
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({ id: 'conv-1' } as never);
     await delDueno('d-2');
-    expect(pedidos.guardarMensajeEnPausa).toHaveBeenCalledWith('user-1', JID, 'Te lo hago en roble', 'dueno');
+    expect(prisma.conversation.updateMany).toHaveBeenCalledWith({
+      where: { id: 'conv-1', userId: 'user-1', atencion: 'asistente' },
+      data: expect.objectContaining({ atencion: 'humana' }),
+    });
+    expect(prisma.message.create).toHaveBeenCalledWith({
+      data: { conversationId: 'conv-1', role: 'assistant', content: { content: 'Te lo hago en roble', humano: true } },
+    });
+  });
+
+  it('un chat en atención humana guarda el mensaje del cliente aunque la suscripción esté vencida', async () => {
+    const { service, pedidos, subscriptionService, conversationService } = crearServicio();
+    pedidos.enAtencionHumana.mockResolvedValue(true);
+    vi.mocked(subscriptionService.asistenteActivo).mockResolvedValue(false);
+
+    await recibirMensaje(service, socketDeChat(), 'hola', 'm-1');
+    await vi.runAllTimersAsync();
+
+    expect(pedidos.guardarMensajeEnPausa).toHaveBeenCalledWith('user-1', JID, 'hola', 'cliente');
+    expect(conversationService.responder).not.toHaveBeenCalled();
   });
 
   it('espera a que el cliente termine de escribir y contesta la ráfaga entera de una vez', async () => {
@@ -338,6 +359,7 @@ describe('WhatsappService — mensajes de clientes', () => {
     expect(conversationService.responder).toHaveBeenCalledOnce();
     expect(conversationService.responder).toHaveBeenCalledWith('user-1', JID, 'hola\nquería un turno', {
       cancelacion: expect.any(Cancelacion),
+      yaGuardado: false,
     });
     expect(sock.readMessages).toHaveBeenCalledWith([
       { remoteJid: JID, fromMe: false, id: 'm-1' },
