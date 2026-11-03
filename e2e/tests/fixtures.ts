@@ -74,6 +74,7 @@ export const TUTORIALES = [
   'calendario',
   'reuniones',
   'chat',
+  'chats',
   'productos',
   'costos',
   'ventas',

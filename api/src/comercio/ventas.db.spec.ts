@@ -474,6 +474,11 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       horario.puedeEscribir.mockResolvedValue(true);
     });
 
+    // Un cobro manual de otro test pudo dejar el chat en atención humana: sólo el botón lo devuelve (LAU-81).
+    beforeEach(async () => {
+      await prisma.conversation.update({ where: { id: conversationId }, data: { atencion: 'asistente' } });
+    });
+
     it('cuando faltan 10 minutos le recuerda una sola vez, en el chat del pedido, sin link', async () => {
       const venta = await pedidoMp();
 
@@ -516,11 +521,11 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     });
 
     it('se calla con el chat en atención humana o con el asistente suspendido', async () => {
-      const venta = await pedidoMp();
-      await prisma.venta.update({ where: { id: venta.id }, data: { atencion: 'humana', derivadaAt: T } });
+      await pedidoMp();
+      await prisma.conversation.update({ where: { id: conversationId }, data: { atencion: 'humana', tomadaAt: T } });
       expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
 
-      await prisma.venta.update({ where: { id: venta.id }, data: { atencion: 'asistente' } });
+      await prisma.conversation.update({ where: { id: conversationId }, data: { atencion: 'asistente' } });
       suscripcion.asistenteActivo.mockResolvedValue(false);
       expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
       expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();

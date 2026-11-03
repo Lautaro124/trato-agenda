@@ -7,6 +7,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CalendarModule } from './calendar/calendar.module.js';
+import { ChatsModule } from './chats/chats.module.js';
 import { ComercioModule } from './comercio/comercio.module.js';
 import { HorarioAtencionModule } from './horario-atencion/horario-atencion.module.js';
 import { ImportacionModule } from './importacion/importacion.module.js';
@@ -36,6 +37,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module.js';
     SubscriptionModule,
     HorarioAtencionModule,
     WhatsappModule,
+    ChatsModule,
     RetentionModule,
   ],
   controllers: [AppController],

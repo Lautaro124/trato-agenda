@@ -9,14 +9,31 @@ import {
   Query,
   Res,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Transform } from 'class-transformer';
-import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 import type { Response } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { AgentsService } from '../agents/agents.service.js';
 import type { Env } from '../config/env.js';
+import type { User } from '../generated/prisma/client.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { CurrentUser } from './current-user.decorator.js';
+import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { AuthService } from './auth.service.js';
 import type { DestinoTrasLogin } from './auth.types.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
@@ -41,6 +58,34 @@ export class DevLoginDto {
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? normalizarTelefono(value) : value))
   @Matches(/^\d{8,15}$/)
   telefono?: string;
+}
+
+class MensajeSembradoDto {
+  @IsIn(['cliente', 'asistente'])
+  de!: 'cliente' | 'asistente';
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1000)
+  texto!: string;
+}
+
+/** Un chat de WhatsApp sembrado para los E2E de Chats (LAU-81): no hay WhatsApp real en el stack. */
+export class ChatSembradoDto {
+  @Matches(/^\d{8,15}$/)
+  telefono!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  nombre?: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => MensajeSembradoDto)
+  mensajes!: MensajeSembradoDto[];
 }
 
 /**
@@ -81,6 +126,7 @@ export class DevAuthController {
     private readonly agentsService: AgentsService,
     private readonly codigos: CodigoAccesoService,
     private readonly config: ConfigService<Env, true>,
+    private readonly prisma: PrismaService,
   ) {}
 
   /** Le dice a /entrar si tiene que mostrar el formulario de contraseña. */
@@ -124,5 +170,34 @@ export class DevAuthController {
       throw new NotFoundException();
     }
     return { codigo: this.codigos.ultimoCodigoDev(normalizarTelefono(telefono)) };
+  }
+
+  /**
+   * Siembra un chat de WhatsApp del usuario logueado, como si el cliente le
+   * hubiera escrito: los E2E de Chats no tienen un WhatsApp real. Mismos
+   * candados que el login; sólo escribe en la cuenta propia.
+   */
+  @Post('chat')
+  @UseGuards(JwtAuthGuard)
+  async sembrarChat(@CurrentUser() user: User, @Body() dto: ChatSembradoDto): Promise<{ id: string }> {
+    if (!loginDevHabilitado(this.config)) {
+      throw new NotFoundException();
+    }
+    const remoteJid = `${dto.telefono}@s.whatsapp.net`;
+    const conversation = await this.prisma.conversation.upsert({
+      where: { userId_remoteJid: { userId: user.id, remoteJid } },
+      create: { userId: user.id, remoteJid, nombreCliente: dto.nombre ?? null },
+      update: {},
+    });
+    for (const mensaje of dto.mensajes) {
+      await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: mensaje.de === 'cliente' ? 'user' : 'assistant',
+          content: { content: mensaje.texto },
+        },
+      });
+    }
+    return { id: conversation.id };
   }
 }

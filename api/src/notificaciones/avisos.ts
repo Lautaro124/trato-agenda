@@ -206,7 +206,7 @@ export function avisoPedidoDerivado(
 /** El cliente aceptó un presupuesto que se cobra a mano. */
 /** Lo que se le dice al dueño cuando un cobro manual deja el chat en sus manos. */
 const PAUSA_HASTA_QUE_ACTUES =
-  'Tu asistente no contesta en ese chat hasta que lo marques pagado, lo canceles o se lo devuelvas.';
+  'Tu asistente no contesta en ese chat hasta que se lo devuelvas desde Chats o desde el pedido.';
 
 export function avisoPresupuestoAceptado(
   pedido: PedidoAMedidaAvisable & { totalCentavos: number; entrega?: string | null; atencion?: string },

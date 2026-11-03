@@ -6,6 +6,7 @@ export const CLAVES_TUTORIAL = [
   "calendario",
   "reuniones",
   "chat",
+  "chats",
   "productos",
   "costos",
   "ventas",
@@ -97,6 +98,29 @@ const PASOS: Record<Exclude<ClaveTutorial, "inicio">, Paso[]> = {
     },
   ],
   chat: [CHAT_DE_PRUEBA],
+  chats: [
+    {
+      objetivo: "lista-chats",
+      titulo: "Tus chats de WhatsApp",
+      texto: "Acá están las conversaciones que atiende tu asistente, la más reciente arriba. Tocá una para leerla.",
+    },
+    {
+      objetivo: "filtro-chats",
+      titulo: "Bot o Vos",
+      texto:
+        "Cada chat dice quién contesta. Bot: responde tu asistente. Vos: el bot no escribe y te toca a vos. «Te espera» marca a quien nadie le contestó.",
+    },
+    {
+      objetivo: "control-chat",
+      titulo: "Un botón decide quién contesta",
+      texto: "«Tomar el control» frena al bot en este chat al instante. «Devolver al bot» le pasa la posta de nuevo. El bot nunca vuelve solo.",
+    },
+    {
+      titulo: "Contestá desde acá o desde tu teléfono",
+      texto:
+        "Lo que escribís en un chat tuyo sale por tu WhatsApp. Si le contestás a un cliente desde tu teléfono, ese chat pasa a Vos solo.",
+    },
+  ],
   productos: [
     {
       objetivo: "cargar-productos",

@@ -239,10 +239,28 @@ model Conversation {
   /// (LAU-37). Fuera del horario de atención se avisa una vez por cierre.
   avisoFueraDeHorarioAt DateTime?
 
+  /// Quién contesta este chat (LAU-81): "asistente" | "humana". Es el único
+  /// estado del chat: lo cambian el dueño (panel o escribiendo desde su
+  /// teléfono) y una derivación de pedido (LAU-27). Sólo vuelve a
+  /// "asistente" con el botón del panel. Reglas en src/chats/atencion.ts.
+  atencion       String    @default("asistente")
+  /// Cuándo pasó a una persona y cuándo se le devolvió al asistente, con la
+  /// nota que dejó el dueño (dato, nunca instrucción). El asistente lee lo
+  /// que se habló entre las dos fechas al retomar.
+  tomadaAt       DateTime?
+  devueltaAt     DateTime?
+  notaDevolucion String?
+
+  /// Cuándo se guardó el último mensaje del chat: ordena la lista de Chats.
+  /// Lo mantiene un trigger de la base sobre "Message" (migración
+  /// 20261103120000_atencion_por_conversacion), así no depende de quién escriba.
+  ultimoMensajeAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, remoteJid])
+  @@index([userId, ultimoMensajeAt])
 }
 
 /// Un mensaje del historial de una Conversation, en el shape que espera
@@ -264,8 +282,13 @@ model Message {
 
   createdAt DateTime @default(now())
 
+  /// Llave de idempotencia de un mensaje que el dueño mandó desde el panel
+  /// (LAU-81): reintentar con la misma no lo manda dos veces.
+  clave String?
+
   /// El conteo de chats del mes (suscripción) filtra por rol y fecha.
   @@index([conversationId, createdAt])
+  @@unique([conversationId, clave])
 }
 
 /// Turno agendado (o cancelado) en el calendario del dueño a partir de una

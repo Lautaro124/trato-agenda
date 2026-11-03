@@ -67,15 +67,17 @@ export function vencimientoDeCobroAMedida(medio: MedioDePago, ahora: Date = new 
 }
 
 /** Estados en los que el pedido sigue vivo (todavía se puede cotizar, cobrar o cancelar). */
-const ABIERTOS: ReadonlySet<string> = new Set(['solicitado', 'a_cotizar', 'cotizado', 'pendiente_pago', 'vencida']);
+export const ESTADOS_ABIERTOS = ['solicitado', 'a_cotizar', 'cotizado', 'pendiente_pago', 'vencida'] as const;
+const ABIERTOS: ReadonlySet<string> = new Set(ESTADOS_ABIERTOS);
 
 export function estaAbierto(estado: string): boolean {
   return ABIERTOS.has(estado);
 }
 
 /**
- * El asistente se calla en el chat mientras alguno de sus pedidos esté en
- * atención humana y siga abierto: pagarlo o cancelarlo lo devuelve solo.
+ * Un pedido derivado a una persona que sigue abierto (lo que lista "Te
+ * esperan" en Ventas). Quién contesta el chat lo decide la conversación
+ * (chats/atencion.ts), no el pedido.
  */
 export function enAtencionHumana(venta: { atencion: string; estado: string }): boolean {
   return venta.atencion === 'humana' && estaAbierto(venta.estado);

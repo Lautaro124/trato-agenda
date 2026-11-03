@@ -20,6 +20,7 @@ type Tab =
   | "productos"
   | "ventas"
   | "chat"
+  | "chats"
   | "plan"
   | "cuenta"
   | "asistente"
@@ -44,9 +45,12 @@ function pestanasDe(user: Usuario): Pestana[] {
   const inicio: Pestana = { tab: "inicio", href: "/inicio", label: "Inicio" };
   const plan: Pestana = { tab: "plan", href: "/plan", label: "Plan" };
   const asistente: Pestana = { tab: "asistente", href: "/asistente", label: "Asistente" };
+  // Las conversaciones de WhatsApp y el control bot/humano (LAU-81).
+  const chats: Pestana = { tab: "chats", href: "/chats", label: "Chats" };
   if (user.tipoAsistente === "ventas") {
     return [
       inicio,
+      chats,
       { tab: "productos", href: "/productos", label: "Productos" },
       // Con qué materiales y costos cotiza el asistente los productos a medida (LAU-26).
       { tab: "costos", href: "/costos", label: "Costos" },
@@ -59,6 +63,7 @@ function pestanasDe(user: Usuario): Pestana[] {
   }
   return [
     inicio,
+    chats,
     { tab: "calendario", href: "/calendario", label: "Calendario" },
     { tab: "reuniones", href: "/reuniones", label: "Reuniones" },
     asistente,

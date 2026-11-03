@@ -17,7 +17,7 @@
  * - El cobro manual (pedidos sin link) puede ser por transferencia a un alias
  *   o por otro canal con un mensaje del dueño. Con cualquiera de los dos, el
  *   asistente le manda eso al cliente y deja el chat en manos del negocio
- *   hasta que el pedido se pague o se cancele. null = se coordina por el chat
+ *   hasta que el dueño se lo devuelva al asistente (LAU-81). null = se coordina por el chat
  *   y el asistente sigue atendiendo.
  *
  * La web copia los topes y la validación (web/src/lib/condiciones-pago.ts).

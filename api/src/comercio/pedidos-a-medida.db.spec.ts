@@ -176,7 +176,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
     ]);
   });
 
-  it('atención humana: calla el chat hasta que se devuelve o se cierra el pedido', async () => {
+  it('atención humana: calla el chat hasta que se devuelve con el botón, aunque el pedido se cierre (LAU-81)', async () => {
     const venta = await pedidos.derivar({
       userId: dueno.id,
       conversationId,
@@ -214,6 +214,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos a medida (Postgres real)', () => {
     });
     expect(await pedidos.enAtencionHumana(dueno.id, remoteJid)).toBe(true);
     await ventas.cancelar(dueno.id, venta.id);
+    expect(await pedidos.enAtencionHumana(dueno.id, remoteJid)).toBe(true);
+    await pedidos.devolver(dueno.id, venta.id, null);
     expect(await pedidos.enAtencionHumana(dueno.id, remoteJid)).toBe(false);
   });
 

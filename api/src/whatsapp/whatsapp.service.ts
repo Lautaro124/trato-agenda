@@ -1,3 +1,4 @@
+import { tomarChat } from '../chats/atencion.js';
 import {
   ConflictException,
   HttpException,
@@ -128,7 +129,10 @@ type MensajeEntrante = {
   userId: string;
   remoteJid: string;
   sock: WASocket;
-  key: WAMessageKey;
+  /** Sin key: mensajes del cliente ya guardados que el dueño pidió que conteste el asistente al devolverle el chat. */
+  key?: WAMessageKey;
+  /** El mensaje ya está en el historial (se guardó mientras atendía una persona): no se vuelve a guardar. */
+  yaGuardado?: boolean;
   texto: string;
   enviadoEn: number | null;
   recibidoEn: number;
@@ -552,8 +556,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Un mensaje de texto de un cliente: pasa por la suscripción, el horario de
-   * atención y la atención humana antes de sumarse a la ráfaga de su chat.
+   * Un mensaje de texto de un cliente: pasa por la atención humana, la
+   * suscripción y el horario de atención antes de sumarse a la ráfaga de su chat.
    */
   private async recibirMensajeDeCliente(
     userId: string,
@@ -562,6 +566,19 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     remoteJid: string,
     texto: string,
   ): Promise<void> {
+    // El chat lo atiende una persona (LAU-81): el asistente no contesta, ni
+    // marca leído, ni muestra "escribiendo…". El mensaje queda guardado para
+    // que el dueño lo vea en Chats y el asistente al retomar. Va antes de la
+    // suscripción y el horario: esas reglas frenan sólo al asistente.
+    if (await this.pedidos.enAtencionHumana(userId, remoteJid)) {
+      await this.pedidos
+        .guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'cliente')
+        .catch((error: unknown) =>
+          this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
+        );
+      return;
+    }
+
     if (!(await this.subscriptionService.asistenteActivo(userId))) {
       this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
       return;
@@ -583,18 +600,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Un pedido de este chat lo atiende una persona (LAU-27): el asistente no
-    // contesta, ni marca leído, ni muestra "escribiendo…". El mensaje queda
-    // guardado para que el dueño lo vea en Ventas y el asistente al retomar.
-    if (await this.pedidos.enAtencionHumana(userId, remoteJid)) {
-      await this.pedidos
-        .guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'cliente')
-        .catch((error: unknown) =>
-          this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
-        );
-      return;
-    }
-
     this.rafagas.agregar(`${userId}\n${remoteJid}`, {
       userId,
       remoteJid,
@@ -608,9 +613,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Un mensaje que el dueño escribió desde su teléfono en el chat de un
-   * cliente. Si ese chat está en atención humana, se guarda: es la mitad de la
-   * charla que el asistente no vio. Se descartan su propio chat (los códigos
-   * de acceso) y lo que salió del asistente (`enviados`), que vuelve como eco.
+   * cliente (LAU-81): el chat pasa a él (si lo tenía el asistente, se corta
+   * la respuesta en curso) y el mensaje se guarda, es la mitad de la charla
+   * que el asistente no vio. Se descartan su propio chat (los códigos de
+   * acceso), lo que salió de la API (`enviados`, que vuelve como eco) y los
+   * chats que el asistente nunca atendió.
    */
   private async guardarRespuestaDelDueno(
     userId: string,
@@ -623,11 +630,65 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const telefono = estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
     if (telefono && remoteJid === jidPropio(telefono)) return;
     try {
-      if (!(await this.pedidos.enAtencionHumana(userId, remoteJid))) return;
-      await this.pedidos.guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'dueno');
+      const conversation = await this.prisma.conversation.findUnique({
+        where: { userId_remoteJid: { userId, remoteJid } },
+        select: { id: true },
+      });
+      if (!conversation) return;
+      if (await tomarChat(this.prisma, userId, conversation.id, new Date())) this.interrumpir(userId, remoteJid);
+      await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: 'assistant',
+          content: { content: texto.slice(0, MAX_CARACTERES_RAFAGA), humano: true },
+        },
+      });
     } catch (error) {
       this.logger.error(`No se pudo guardar una respuesta del dueño ${userId}: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * El chat pasó a una persona: se descarta la respuesta que el asistente
+   * estaba armando, si todavía no se comprometió (LAU-81).
+   */
+  interrumpir(userId: string, remoteJid: string): void {
+    this.rafagas.interrumpir(`${userId}\n${remoteJid}`);
+  }
+
+  /**
+   * El dueño devolvió el chat y eligió que el asistente conteste lo que el
+   * cliente escribió mientras tanto (ya guardado). Pasa por la ráfaga del
+   * chat, así se serializa con lo que llegue. Con la suscripción vencida el
+   * asistente no contesta. false si no hay un socket vinculado.
+   */
+  async contestarPendientes(userId: string, remoteJid: string, texto: string): Promise<boolean> {
+    const sock = this.sockets.get(userId);
+    if (!sock || !estaVinculado(sock.authState.creds)) return false;
+    if (!(await this.subscriptionService.asistenteActivo(userId))) return false;
+    this.rafagas.agregar(`${userId}\n${remoteJid}`, {
+      userId,
+      remoteJid,
+      sock,
+      yaGuardado: true,
+      texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
+      enviadoEn: null,
+      recibidoEn: Date.now(),
+    });
+    return true;
+  }
+
+  /**
+   * Un mensaje que el dueño escribe desde el panel (LAU-81). Sale por la
+   * misma vía que todo lo demás (`enviar`), así su eco no se toma como un
+   * mensaje desde el teléfono. Sin chequeos de suscripción ni horario: esas
+   * reglas frenan sólo al asistente. false si no hay un socket vinculado.
+   */
+  async enviarDesdePanel(userId: string, remoteJid: string, texto: string): Promise<boolean> {
+    const sock = this.sockets.get(userId);
+    if (!sock || !estaVinculado(sock.authState.creds)) return false;
+    await this.enviar(userId, sock, remoteJid, { text: texto });
+    return true;
   }
 
   /**
@@ -646,11 +707,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const texto = items.map((item) => item.texto).join('\n');
 
     // Lo cosmético (leído, "escribiendo…") nunca frena la respuesta.
-    await sock.readMessages(items.map((item) => item.key)).catch(() => undefined);
+    const keys = items.flatMap((item) => (item.key ? [item.key] : []));
+    if (keys.length > 0) await sock.readMessages(keys).catch(() => undefined);
     const escribiendo = this.mostrarEscribiendo(sock, remoteJid);
     const inicio = Date.now();
     try {
-      const respuesta = await this.conversationService.responder(userId, remoteJid, texto, { cancelacion }).catch(
+      const yaGuardado = items.every((item) => item.yaGuardado);
+      const respuesta = await this.conversationService.responder(userId, remoteJid, texto, { cancelacion, yaGuardado }).catch(
         (error: unknown) => {
           if (error instanceof VueltaCancelada) {
             this.logger.log(

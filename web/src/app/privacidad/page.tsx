@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 22 de octubre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 3 de noviembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -115,6 +115,14 @@ export default function PrivacidadPage() {
             asistente: su número, el texto de los mensajes que intercambia con el asistente, el nombre
             que da para agendar y un resumen breve de lo que pidió. Es lo que le permite coordinar los
             turnos y lo que ves en el historial de tu panel.
+          </p>
+          <p>
+            <Fuerte>Si atendés un chat vos.</Fuerte> En la pantalla Chats de tu panel ves el texto de
+            esas conversaciones y podés tomar el control de un chat: mientras lo atendés, guardamos lo
+            que el cliente te escribe y lo que le contestás, desde el panel o desde tu teléfono, para
+            mostrártelo y para que tu asistente sepa qué se habló cuando se lo devolvés. Lo que mandás
+            desde el panel sale por tu WhatsApp vinculado. Si al devolverlo le dejás una nota a tu
+            asistente, la guardamos con esa conversación y se le pasa al modelo como contexto.
           </p>
           <p>
             <Fuerte>De pagos.</Fuerte> Si activás la suscripción, el cobro lo procesa Mercado Pago.
