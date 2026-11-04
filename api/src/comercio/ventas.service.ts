@@ -24,25 +24,24 @@ import {
   type Entrega,
 } from './datos-cliente.rules.js';
 import {
+  cuotasEnComun,
   descuentoEfectivo,
   leerCondiciones,
-  maxCuotasSinPlan,
-  planesEn,
+  leerCuotasProducto,
   problemaDeFormaDePago,
-  topeDelPedido,
-  recargoDe,
+  recargoDeRenglon,
   valorDeCuota,
   type CondicionesPago,
+  type CuotasProducto,
   type FormaDePago,
 } from './condiciones-pago.rules.js';
 import { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
-import { pausaPorCobroManual } from './pedido-a-medida.rules.js';
 import { tomarChat } from '../chats/atencion.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
-import { reservadasPorVariante } from './reservas.js';
+import { reservadasPorProducto } from './reservas.js';
 import {
   agruparItems,
   detalleDeRenglones,
@@ -52,6 +51,7 @@ import {
   MINUTOS_RECORDATORIO_PAGO,
   pagoSaldaVenta,
   problemaDeForma,
+  pausaPorCobroManual,
   telefonoDeJid,
   vencimientoDeReserva,
   type ItemPedido,
@@ -96,12 +96,11 @@ export type CrearPedidoInput = {
   ahora?: Date;
 };
 
-/** Una variante que quedó en o por debajo de su mínimo al descontar una venta. */
-export type VarianteConStockBajo = {
-  varianteId: string;
-  sku: string;
+/** Un producto que quedó en o por debajo de su mínimo al descontar una venta. */
+export type ProductoConStockBajo = {
+  productoId: string;
+  codigo: string;
   nombreProducto: string;
-  nombreVariante: string;
   stock: number;
 };
 
@@ -109,35 +108,27 @@ export type ResultadoPago = {
   venta: VentaConItems;
   /** false si ya estaba pagada: la notificación repetida no hace nada. */
   nueva: boolean;
-  stockBajo: VarianteConStockBajo[];
+  stockBajo: ProductoConStockBajo[];
 };
 
 type Tx = Prisma.TransactionClient;
 
-type VarianteBloqueada = {
+type ProductoBloqueado = {
   id: string;
-  sku: string;
+  codigo: string;
   nombre: string;
   precioCentavos: number;
   stock: number | null;
   disponible: boolean;
   activo: boolean;
-  codigo: string;
-  nombreProducto: string;
-  productoId: string;
   categoria: string | null;
   moneda: string;
-  /** Una versión de un producto a medida: se pide con pedir_variante, no se reserva como stock. */
-  aMedida: boolean;
-  /** Hasta cuántas cuotas se vende el producto (null = sin tope). */
-  cuotasMax: number | null;
+  /** Las cuotas guardadas, sin validar (leerCuotasProducto). */
+  cuotas: unknown;
 };
 
-/** Lo que hace falta de una variante para ponerle precio a un renglón. */
-type VarianteConPrecio = Pick<
-  VarianteBloqueada,
-  'id' | 'codigo' | 'nombre' | 'nombreProducto' | 'productoId' | 'categoria' | 'precioCentavos'
->;
+/** Lo que hace falta de un producto para ponerle precio a un renglón. */
+type ProductoConPrecio = Pick<ProductoBloqueado, 'id' | 'codigo' | 'nombre' | 'categoria' | 'precioCentavos'>;
 
 /** Cuánto sale cada forma de pago de un mismo pedido (ver_formas_de_pago). */
 export type CotizacionFormasDePago = {
@@ -146,9 +137,10 @@ export type CotizacionFormasDePago = {
   contadoCentavos: number;
   /** Con el mejor entre las promos y el descuento en efectivo; null si no hay. */
   efectivoCentavos: number | null;
-  /** El tope de cuotas del pedido (el más bajo de sus productos), o null. */
-  cuotasMax: number | null;
-  planes: Array<{ cuotas: number; recargoPorcentaje: number; totalCentavos: number; cuotaCentavos: number }>;
+  /** Las cuotas que tienen todos los productos, con lo que suma cada una. */
+  planes: Array<{ cuotas: number; recargoCentavos: number; totalCentavos: number; cuotaCentavos: number }>;
+  /** Sin planes, por qué: en dólares, ningún producto va en cuotas, o no comparten ninguna. */
+  sinCuotas: 'dolares' | 'un_pago' | 'sin_comun' | null;
 };
 
 /**
@@ -157,29 +149,28 @@ export type CotizacionFormasDePago = {
  */
 function renglonesConPrecio(
   items: ItemPedido[],
-  porId: Map<string, VarianteConPrecio>,
+  porId: Map<string, ProductoConPrecio>,
   descuentos: DescuentoParaAplicar[],
   moneda: Moneda,
   ahora: Date,
 ) {
   return items.map((item) => {
-    const variante = porId.get(item.varianteId) as VarianteConPrecio;
+    const producto = porId.get(item.productoId) as ProductoConPrecio;
     const descuento = mejorDescuento(
       descuentos,
-      { id: variante.productoId, categoria: variante.categoria, moneda },
-      variante.precioCentavos,
+      { id: producto.id, categoria: producto.categoria, moneda },
+      producto.precioCentavos,
       ahora,
     );
-    const unitario = descuento?.precioFinalCentavos ?? variante.precioCentavos;
+    const unitario = descuento?.precioFinalCentavos ?? producto.precioCentavos;
     return {
-      varianteId: variante.id,
-      codigo: variante.codigo,
-      nombreProducto: variante.nombreProducto,
-      nombreVariante: variante.nombre,
+      productoId: producto.id,
+      codigo: producto.codigo,
+      nombreProducto: producto.nombre,
       precioUnitarioCentavos: unitario,
       cantidad: item.cantidad,
       subtotalCentavos: unitario * item.cantidad,
-      precioListaCentavos: variante.precioCentavos,
+      precioListaCentavos: producto.precioCentavos,
       descuentoCentavos: descuento?.descuentoCentavos ?? 0,
       descuentoEtiqueta: descuento ? [descuento.etiqueta, descuento.nombre].filter(Boolean).join(' · ') : null,
     };
@@ -196,12 +187,33 @@ function sumaDe(renglones: Array<{ subtotalCentavos: number }>): number {
   return renglones.reduce((suma, renglon) => suma + renglon.subtotalCentavos, 0);
 }
 
+/** Las cuotas de cada producto de un pedido, ya validadas contra su precio y su moneda. */
+function cuotasPorProducto(
+  productos: Array<{ id: string; cuotas: unknown; precioCentavos: number; moneda: string }>,
+): Map<string, CuotasProducto | null> {
+  return new Map(
+    productos.map((producto) => [producto.id, leerCuotasProducto(producto.cuotas, producto.precioCentavos, producto.moneda)]),
+  );
+}
+
+/** Lo que suma pagar el pedido en ese plan: el recargo de cada renglón. */
+function recargoDelPedido(
+  renglones: Array<{ productoId: string; cantidad: number; subtotalCentavos: number }>,
+  cuotas: Map<string, CuotasProducto | null>,
+  plan: number,
+): number {
+  return renglones.reduce((suma, renglon) => {
+    const delProducto = cuotas.get(renglon.productoId);
+    return suma + (delProducto ? recargoDeRenglon(delProducto, plan, renglon) : 0);
+  }, 0);
+}
+
 /** Un pedido es de una sola moneda: el link de Mercado Pago y los totales no mezclan. */
 const PEDIDO_CON_DOS_MONEDAS =
   'No se pueden mezclar productos en pesos y en dólares en un mismo pedido: hacé un pedido para cada moneda.';
 
 /** Estados desde los que el dueño (o el cliente) puede cancelar un pedido. */
-const ESTADOS_CANCELABLES = ['solicitado', 'a_cotizar', 'cotizado', 'pendiente_pago', 'vencida'] as const;
+const ESTADOS_CANCELABLES = ['pendiente_pago', 'vencida'] as const;
 
 /** Ventas de Mercado Pago que la conciliación sigue mirando después de vencida la reserva. */
 const HORAS_CONCILIACION = 24;
@@ -211,7 +223,7 @@ const HORAS_CONCILIACION = 24;
  * (ventas.rules.ts): una venta pendiente y sin vencer retiene sus unidades,
  * y la cuenta se hace sumando esas ventas, no con una tabla aparte.
  *
- * Crear un pedido bloquea (`FOR UPDATE`) las variantes que pide, en orden de
+ * Crear un pedido bloquea (`FOR UPDATE`) los productos que pide, en orden de
  * id, dentro de una transacción: dos clientes que piden la última unidad al
  * mismo tiempo se serializan y el segundo ve la reserva del primero.
  */
@@ -230,13 +242,13 @@ export class VentasService {
     private readonly horarioAtencion: HorarioAtencionService,
   ) {}
 
-  /** Unidades retenidas por pedidos pendientes y sin vencer, por variante (ver reservas.ts). */
-  reservadasPorVariante(
-    varianteIds: string[],
+  /** Unidades retenidas por pedidos pendientes y sin vencer, por producto (ver reservas.ts). */
+  reservadasPorProducto(
+    productoIds: string[],
     tx: Tx | PrismaService = this.prisma,
     ahora: Date = new Date(),
   ): Promise<Map<string, number>> {
-    return reservadasPorVariante(tx, varianteIds, ahora);
+    return reservadasPorProducto(tx, productoIds, ahora);
   }
 
   /**
@@ -253,7 +265,7 @@ export class VentasService {
 
     // Mercado Pago cobra en pesos: un pedido en dólares se coordina a mano. La
     // moneda se vuelve a leer, bloqueada, dentro de la reserva.
-    const moneda = await this.monedaDelPedido(input.userId, input.items.map((item) => item.varianteId));
+    const moneda = await this.monedaDelPedido(input.userId, input.items.map((item) => item.productoId));
     // El efectivo se cobra en mano, nunca con el link.
     const medioPago: MedioDePago = moneda === 'USD' || input.formaPago === 'efectivo' ? 'manual' : input.medioPago;
     input = { ...input, medioPago };
@@ -266,7 +278,7 @@ export class VentasService {
     }
 
     const items = agruparItems(input.items);
-    const { venta, maxCuotas } = await this.prisma.$transaction((tx) =>
+    const venta = await this.prisma.$transaction((tx) =>
       this.reservar(tx, input, items, nombreCliente, ahora, moneda),
     );
 
@@ -276,7 +288,6 @@ export class VentasService {
           token.accessToken,
           venta,
           venta.reservaVenceAt ?? vencimientoDeReserva(input.medioPago, ahora),
-          maxCuotas,
         );
         return await this.prisma.venta.update({
           where: { id: venta.id },
@@ -300,19 +311,13 @@ export class VentasService {
 
   /**
    * El link de Checkout Pro de una venta, con sus renglones y a nombre del
-   * comercio. Lo usan los pedidos del catálogo y el cobro de un presupuesto
-   * a medida (pedidos-a-medida.service.ts). `maxCuotas` limita las cuotas de
-   * un pedido sin plan elegido (maxCuotasSinPlan).
+   * comercio. Sin plan elegido es en un pago: las cuotas son las de cada
+   * producto, con su recargo, y no las que la cuenta de Mercado Pago ofrezca.
    */
-  crearPreferencia(
-    accessToken: string,
-    venta: VentaConItems,
-    venceAt: Date,
-    maxCuotas: number | null = null,
-  ): Promise<Preferencia> {
+  crearPreferencia(accessToken: string, venta: VentaConItems, venceAt: Date): Promise<Preferencia> {
     const items = venta.items.map((item) => ({
-      id: item.varianteId ?? item.codigo,
-      title: `${item.nombreProducto}${item.nombreVariante ? ` - ${item.nombreVariante}` : ''}`.slice(0, 250),
+      id: item.productoId ?? item.codigo,
+      title: item.nombreProducto.slice(0, 250),
       quantity: item.cantidad,
       unit_price: item.precioUnitarioCentavos / 100,
       currency_id: venta.moneda,
@@ -329,26 +334,11 @@ export class VentasService {
     }
     return this.mp.crearPreferencia(accessToken, {
       items,
-      ...(venta.formaPago === 'cuotas' && venta.cuotas
-        ? { cuotas: venta.cuotas }
-        : maxCuotas !== null
-          ? { maxCuotas }
-          : {}),
+      ...(venta.formaPago === 'cuotas' && venta.cuotas ? { cuotas: venta.cuotas } : { maxCuotas: 1 }),
       externalReference: venta.id,
       notificationUrl: `${this.config.get('API_PUBLIC_URL', { infer: true })}/ventas/webhook?venta=${venta.id}`,
       venceAt,
     });
-  }
-
-  /** Corta un link que ya no se puede cobrar (presupuesto reemplazado, pedido cancelado). Best effort. */
-  async vencerLink(userId: string, mpPreferenceId: string, ahora: Date = new Date()): Promise<void> {
-    try {
-      const token = await this.cuentas.tokenDe(userId);
-      if (token) await this.mp.vencerPreferencia(token.accessToken, mpPreferenceId, ahora);
-    } catch (error) {
-      if (error instanceof MercadoPagoNoAutorizadoError) await this.desconectarPorRevocacion(userId);
-      this.logger.warn(`No se pudo vencer el link ${mpPreferenceId}: ${(error as Error).message}`);
-    }
   }
 
   /**
@@ -361,48 +351,27 @@ export class VentasService {
     const forma = problemaDeForma(pedido);
     if (forma) throw new PedidoRechazadoError(forma);
     const items = agruparItems(pedido);
-    const variantes = await this.prisma.variante.findMany({
-      where: { id: { in: items.map((item) => item.varianteId) }, activo: true, producto: { userId, activo: true } },
-      select: {
-        id: true,
-        nombre: true,
-        precioCentavos: true,
-        producto: {
-          select: { id: true, codigo: true, nombre: true, categoria: true, moneda: true, solicitud: true, cuotasMax: true },
-        },
-      },
+    const productos = await this.prisma.producto.findMany({
+      where: { id: { in: items.map((item) => item.productoId) }, userId, activo: true },
+      select: { id: true, codigo: true, nombre: true, categoria: true, moneda: true, cuotas: true, precioCentavos: true },
     });
-    const porId = new Map<string, VarianteConPrecio>(
-      variantes.map((variante) => [
-        variante.id,
-        {
-          id: variante.id,
-          codigo: variante.producto.codigo,
-          nombre: variante.nombre,
-          nombreProducto: variante.producto.nombre,
-          productoId: variante.producto.id,
-          categoria: variante.producto.categoria,
-          precioCentavos: variante.precioCentavos,
-        },
-      ]),
-    );
-    if (items.some((item) => !porId.has(item.varianteId))) {
+    const porId = new Map<string, ProductoConPrecio>(productos.map((producto) => [producto.id, producto]));
+    if (items.some((item) => !porId.has(item.productoId))) {
       throw new PedidoRechazadoError('Alguno de los productos ya no está en el catálogo. Volvé a buscarlo.');
     }
-    if (variantes.some((variante) => variante.producto.solicitud !== null)) {
-      throw new PedidoRechazadoError('Alguno es de un producto a medida: esos se cotizan aparte, no con ver_formas_de_pago.');
-    }
-    const monedas = new Set(variantes.map((variante) => monedaDe(variante.producto.moneda)));
+    const monedas = new Set(productos.map((producto) => monedaDe(producto.moneda)));
     if (monedas.size > 1) throw new PedidoRechazadoError(PEDIDO_CON_DOS_MONEDAS);
     const moneda: Moneda = monedas.has('USD') ? 'USD' : 'ARS';
 
     const [descuentos, fila] = await Promise.all([
-      descuentosActivos(this.prisma, userId, [...new Set(variantes.map((variante) => variante.producto.id))]),
+      descuentosActivos(this.prisma, userId, productos.map((producto) => producto.id)),
       this.prisma.condicionesPago.findUnique({ where: { userId } }),
     ]);
     const condiciones = leerCondiciones(fila);
-    const tope = topeDelPedido(variantes.map((variante) => variante.producto.cuotasMax));
-    const contado = sumaDe(renglonesConPrecio(items, porId, descuentos, moneda, ahora));
+    const renglones = renglonesConPrecio(items, porId, descuentos, moneda, ahora);
+    const contado = sumaDe(renglones);
+    const cuotas = cuotasPorProducto(productos);
+    const enComun = moneda === 'ARS' ? cuotasEnComun([...cuotas.values()]) : [];
     const efectivo =
       condiciones.descuentoEfectivoPorcentaje === null
         ? null
@@ -411,18 +380,26 @@ export class VentasService {
       moneda,
       contadoCentavos: contado,
       efectivoCentavos: efectivo,
-      cuotasMax: tope,
-      planes: planesEn(condiciones, moneda, tope).map((plan) => {
-        const total = contado + recargoDe(contado, plan);
-        return { ...plan, totalCentavos: total, cuotaCentavos: valorDeCuota(total, plan.cuotas) };
+      planes: enComun.map((plan) => {
+        const recargo = recargoDelPedido(renglones, cuotas, plan);
+        const total = contado + recargo;
+        return { cuotas: plan, recargoCentavos: recargo, totalCentavos: total, cuotaCentavos: valorDeCuota(total, plan) };
       }),
+      sinCuotas:
+        enComun.length > 0
+          ? null
+          : moneda !== 'ARS'
+            ? 'dolares'
+            : [...cuotas.values()].every((delProducto) => delProducto === null)
+              ? 'un_pago'
+              : 'sin_comun',
     };
   }
 
-  /** La moneda de las variantes pedidas (sin bloquear); con dos distintas, rechaza. */
-  private async monedaDelPedido(userId: string, varianteIds: string[]): Promise<Moneda> {
+  /** La moneda de los productos pedidos (sin bloquear); con dos distintas, rechaza. */
+  private async monedaDelPedido(userId: string, productoIds: string[]): Promise<Moneda> {
     const productos = await this.prisma.producto.findMany({
-      where: { userId, variantes: { some: { id: { in: varianteIds } } } },
+      where: { userId, id: { in: productoIds } },
       select: { moneda: true },
     });
     const monedas = new Set(productos.map((producto) => monedaDe(producto.moneda)));
@@ -437,47 +414,42 @@ export class VentasService {
     nombreCliente: string,
     ahora: Date,
     moneda: Moneda,
-  ): Promise<{ venta: VentaConItems; maxCuotas: number | null }> {
+  ): Promise<VentaConItems> {
     // Las condiciones se leen en la misma transacción que los precios: el total
     // es el de las que valían al reservar.
     const condiciones = leerCondiciones(await tx.condicionesPago.findUnique({ where: { userId: input.userId } }));
     const formaPago = input.formaPago ?? null;
     const cuotas = formaPago === 'cuotas' ? (input.cuotas ?? null) : null;
 
-    const ids = items.map((item) => item.varianteId).sort();
-    // Orden fijo de bloqueo (por id): dos pedidos con las mismas variantes no se traban entre sí.
-    const variantes = await tx.$queryRaw<VarianteBloqueada[]>`
-      SELECT v."id", v."sku", v."nombre", v."precioCentavos", v."stock", v."disponible", v."activo",
-             p."codigo", p."nombre" AS "nombreProducto", p."id" AS "productoId", p."categoria", p."moneda",
-             (p."solicitud" IS NOT NULL) AS "aMedida", p."cuotasMax"
-      FROM "Variante" v JOIN "Producto" p ON p."id" = v."productoId"
-      WHERE v."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo" AND v."activo"
-      ORDER BY v."id"
-      FOR UPDATE OF v
+    // Por unidades de código, no por idioma: el orden sólo tiene que ser el mismo en todos los pedidos.
+    const ids = items.map((item) => item.productoId).sort((a, b) => Number(a > b) - Number(a < b));
+    // Orden fijo de bloqueo (por id): dos pedidos con los mismos productos no se traban entre sí.
+    const productos = await tx.$queryRaw<ProductoBloqueado[]>`
+      SELECT p."id", p."codigo", p."nombre", p."precioCentavos", p."stock", p."disponible", p."activo",
+             p."categoria", p."moneda", p."cuotas"
+      FROM "Producto" p
+      WHERE p."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo"
+      ORDER BY p."id"
+      FOR UPDATE
     `;
-    const porId = new Map(variantes.map((variante) => [variante.id, variante]));
-    if (items.some((item) => !porId.has(item.varianteId))) {
+    const porId = new Map(productos.map((producto) => [producto.id, producto]));
+    if (items.some((item) => !porId.has(item.productoId))) {
       throw new PedidoRechazadoError(
-        'Alguno de los productos ya no está en el catálogo (o el id de variante no es de una búsqueda). Volvé a buscarlo.',
+        'Alguno de los productos ya no está en el catálogo (o el id no es de una búsqueda). Volvé a buscarlo.',
       );
     }
     // Si el dueño cambió la moneda entre la lectura de arriba y este bloqueo, se
     // rechaza en vez de cobrar en la que no era.
-    if (variantes.some((variante) => monedaDe(variante.moneda) !== moneda)) {
+    if (productos.some((producto) => monedaDe(producto.moneda) !== moneda)) {
       throw new PedidoRechazadoError(
-        new Set(variantes.map((variante) => monedaDe(variante.moneda))).size > 1
+        new Set(productos.map((producto) => monedaDe(producto.moneda))).size > 1
           ? PEDIDO_CON_DOS_MONEDAS
           : 'El precio de alguno de los productos acaba de cambiar. Volvé a buscarlo.',
       );
     }
-    if (variantes.some((variante) => variante.aMedida)) {
-      throw new PedidoRechazadoError(
-        'Alguno es una versión de un producto a medida: esa no se vende con crear_pedido, se pide con pedir_variante.',
-      );
-    }
-    // El tope de cuotas sale de la misma lectura que los precios, no de la cotización.
-    const tope = topeDelPedido(variantes.map((variante) => variante.cuotasMax));
-    const problemaDePago = problemaDeFormaDePago(condiciones, formaPago, cuotas, moneda, tope);
+    // Las cuotas salen de la misma lectura que los precios, no de la cotización.
+    const cuotasDe = cuotasPorProducto(productos);
+    const problemaDePago = problemaDeFormaDePago(condiciones, formaPago, cuotas, moneda, [...cuotasDe.values()]);
     if (problemaDePago) throw new PedidoRechazadoError(problemaDePago);
 
     if (input.conversationId) {
@@ -491,31 +463,29 @@ export class VentasService {
       }
     }
 
-    const reservadas = await this.reservadasPorVariante(ids, tx, ahora);
+    const reservadas = await this.reservadasPorProducto(ids, tx, ahora);
     for (const item of items) {
-      const variante = porId.get(item.varianteId) as VarianteBloqueada;
-      if (!hayStock(variante, item.cantidad, reservadas.get(variante.id) ?? 0)) {
-        const nombre = `${variante.nombreProducto}${variante.nombre ? ` (${variante.nombre})` : ''}`;
+      const producto = porId.get(item.productoId) as ProductoBloqueado;
+      if (!hayStock(producto, item.cantidad, reservadas.get(producto.id) ?? 0)) {
         throw new PedidoRechazadoError(
-          `No hay stock suficiente de ${JSON.stringify(nombre)} para ` +
+          `No hay stock suficiente de ${JSON.stringify(producto.nombre)} para ` +
             `${item.cantidad === 1 ? '1 unidad' : `${item.cantidad} unidades`}: ` +
-            `${describirStock(variante, reservadas.get(variante.id) ?? 0)}.`,
+            `${describirStock(producto, reservadas.get(producto.id) ?? 0)}.`,
         );
       }
     }
 
     // El precio sale siempre de acá, con el descuento que esté vigente al
-    // reservar: el modelo sólo manda variantes y cantidades. Leídos en la misma
+    // reservar: el modelo sólo manda productos y cantidades. Leídos en la misma
     // transacción para que el total sea el que se le cobra.
     const descuentos = await descuentosActivos(
       tx,
       input.userId,
-      variantes.map((variante) => variante.productoId),
+      productos.map((producto) => producto.id),
     );
     const renglones = renglonesConPrecio(items, porId, descuentosDe(descuentos, condiciones, formaPago), moneda, ahora);
     const subtotal = sumaDe(renglones);
-    const plan = condiciones.planesCuotas.find((candidato) => candidato.cuotas === cuotas);
-    const recargo = plan ? recargoDe(subtotal, plan) : 0;
+    const recargo = cuotas !== null ? recargoDelPedido(renglones, cuotasDe, cuotas) : 0;
 
     const pausa = input.medioPago === 'manual' && condiciones.cobroManual !== null && input.conversationId !== null;
     const venta = await tx.venta.create({
@@ -555,7 +525,7 @@ export class VentasService {
       // Cobro manual: el chat queda en manos del negocio (LAU-81).
       if (pausa) await tomarChat(tx, input.userId, input.conversationId, ahora);
     }
-    return { venta, maxCuotas: maxCuotasSinPlan(condiciones, tope) };
+    return venta;
   }
 
   /** Una venta del dueño, o null si no existe o es de otro. */
@@ -584,31 +554,16 @@ export class VentasService {
   }
 
   /**
-   * Cancela un pedido sin pagar del dueño (uno a medida, en cualquier etapa
-   * antes del pago). null si no existe, no es suyo o ya no se puede cancelar.
+   * Cancela un pedido sin pagar del dueño. null si no existe, no es suyo o ya
+   * no se puede cancelar.
    */
-  async cancelar(
-    userId: string,
-    ventaId: string,
-    ahora: Date = new Date(),
-    autor: 'dueno' | 'asistente' = 'dueno',
-  ): Promise<VentaConItems | null> {
-    const antes = await this.prisma.venta.findFirst({ where: { id: ventaId, userId }, select: { estado: true, tipo: true } });
-    if (!antes) return null;
+  async cancelar(userId: string, ventaId: string, ahora: Date = new Date()): Promise<VentaConItems | null> {
     const { count } = await this.prisma.venta.updateMany({
       where: { id: ventaId, userId, estado: { in: [...ESTADOS_CANCELABLES] } },
       data: { estado: 'cancelada', canceladaAt: ahora },
     });
     if (count === 0) return null;
-    const venta = await this.prisma.venta.findUniqueOrThrow({ where: { id: ventaId }, include: { items: true } });
-    if (venta.tipo === 'a_medida') {
-      await this.prisma.eventoVenta.create({
-        data: { ventaId, tipo: 'estado', de: antes.estado, a: 'cancelada', autor },
-      });
-      // Un link de pago a medida vale días: que no se pueda pagar un pedido cancelado.
-      if (venta.mpPreferenceId) await this.vencerLink(userId, venta.mpPreferenceId, ahora);
-    }
-    return venta;
+    return this.prisma.venta.findUniqueOrThrow({ where: { id: ventaId }, include: { items: true } });
   }
 
   /**
@@ -634,20 +589,20 @@ export class VentasService {
 
       const items = await tx.itemVenta.findMany({ where: { ventaId } });
       let sinStock = false;
-      const conStockBajo: VarianteConStockBajo[] = [];
+      const conStockBajo: ProductoConStockBajo[] = [];
       for (const item of items) {
-        if (!item.varianteId) continue;
+        if (!item.productoId) continue;
         const [descontada] = await tx.$queryRaw<Array<{ stock: number; stockMinimo: number | null }>>`
-          UPDATE "Variante" SET "stock" = "stock" - ${item.cantidad}
-          WHERE "id" = ${item.varianteId} AND "stock" IS NOT NULL AND "stock" >= ${item.cantidad}
+          UPDATE "Producto" SET "stock" = "stock" - ${item.cantidad}
+          WHERE "id" = ${item.productoId} AND "stock" IS NOT NULL AND "stock" >= ${item.cantidad}
           RETURNING "stock", "stockMinimo"
         `;
         let resultado = descontada;
         if (!resultado) {
           // O no controla cantidad (stock null, no hay nada que descontar) o no alcanzó.
           const [faltante] = await tx.$queryRaw<Array<{ stock: number; stockMinimo: number | null }>>`
-            UPDATE "Variante" SET "stock" = 0
-            WHERE "id" = ${item.varianteId} AND "stock" IS NOT NULL
+            UPDATE "Producto" SET "stock" = 0
+            WHERE "id" = ${item.productoId} AND "stock" IS NOT NULL
             RETURNING "stock", "stockMinimo"
           `;
           if (faltante) sinStock = true;
@@ -655,10 +610,9 @@ export class VentasService {
         }
         if (resultado && stockBajo({ stock: resultado.stock, stockMinimo: resultado.stockMinimo ?? 0 })) {
           conStockBajo.push({
-            varianteId: item.varianteId,
-            sku: item.codigo,
+            productoId: item.productoId,
+            codigo: item.codigo,
             nombreProducto: item.nombreProducto,
-            nombreVariante: item.nombreVariante,
             stock: resultado.stock,
           });
         }
@@ -674,17 +628,6 @@ export class VentasService {
         },
         include: { items: true },
       });
-      if (venta.tipo === 'a_medida') {
-        await tx.eventoVenta.create({
-          data: {
-            ventaId,
-            tipo: 'estado',
-            de: bloqueada.estado,
-            a: 'pagada',
-            autor: opciones.mpPaymentId ? 'mercadopago' : 'dueno',
-          },
-        });
-      }
       return { venta, nueva: true, stockBajo: conStockBajo };
     });
     // Fuera de la transacción: la métrica nunca frena el pago (y es de mejor esfuerzo).
@@ -768,7 +711,7 @@ export class VentasService {
   }
 
   private async avisarStock(userId: string, resultado: ResultadoPago): Promise<void> {
-    for (const variante of resultado.stockBajo) await this.avisar(userId, avisoStock(variante));
+    for (const producto of resultado.stockBajo) await this.avisar(userId, avisoStock(producto));
   }
 
   /** Mercado Pago dejó de aceptar el token del comercio: se desconecta y se le avisa. */

@@ -254,7 +254,8 @@ describe.skipIf(!HAY_CLAVE || !hayBaseDePrueba)('eval: asistente de ventas', () 
         nombre: producto.nombre,
         descripcion: producto.descripcion,
         categoria: producto.categoria,
-        variantes: [{ precioCentavos: producto.precio * 100, stock: producto.stock }],
+        precioCentavos: producto.precio * 100,
+        stock: producto.stock,
       });
     }
     await indexador.esperar();

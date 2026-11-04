@@ -21,7 +21,7 @@ describe('extracción con IA', () => {
         descripcion: 'Tres cuerpos,',
         imagenes: ['https://tienda.com/b.jpg'],
         variantes: [{ nombre: '', sku: null, precioCentavos: null }],
-        avisos: ['sin_precio', 'parece_a_medida'],
+        avisos: ['sin_precio'],
       }),
       expect.objectContaining({ nombre: 'Sillón Kiev', imagenes: [], avisos: ['sin_precio', 'sin_descripcion', 'sin_imagen'] }),
     ]);

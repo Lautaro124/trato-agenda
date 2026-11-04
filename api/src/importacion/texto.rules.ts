@@ -10,7 +10,7 @@
  *   texto a la vista del dueño pero no del modelo;
  * - la frase con la que el código pide mandar algo tal cual (neutralizarMarcador);
  * - los marcadores internos "[producto …]", "[variante …]", "[pedido …]" que
- *   leen variantesMostradas, productosMostrados y el stub de los e2e;
+ *   leen productosMostrados y el stub de los e2e;
  * - en las descripciones, los montos: el chequeo de precios del asistente
  *   (preciosSinRespaldo) acepta cualquier monto que aparezca en un resultado
  *   de búsqueda, así que un "$ 1" en la descripción respaldaría un precio falso.

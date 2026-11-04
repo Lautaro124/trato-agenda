@@ -3,16 +3,13 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { EditorAMedida } from "@/components/productos/EditorAMedida";
 import { EditorProducto } from "@/components/productos/EditorProducto";
 import { MarcoDeProducto } from "@/components/productos/MarcoDeProducto";
 import { ErrorDeApi, obtenerProducto, type Producto } from "@/lib/productos";
 
-const SIN_CODIGOS: ReadonlySet<string> = new Set();
-
 type Carga = { estado: "cargando" } | { estado: "listo"; producto: Producto } | { estado: "error"; mensaje: string };
 
-/** Edición de un producto: el editor depende de qué es (con `solicitud`, a medida; si no, de stock). */
+/** Edición de un producto. */
 export default function EditarProductoPage() {
   return (
     <MarcoDeProducto>
@@ -63,10 +60,5 @@ function Edicion() {
   }
 
   const volver = () => router.push("/productos");
-  // Un producto guardado ya tiene su código: el automático (y los códigos usados) es sólo para los nuevos.
-  return carga.producto.solicitud !== null ? (
-    <EditorAMedida producto={carga.producto} codigosUsados={SIN_CODIGOS} onCerrar={volver} onGuardado={volver} />
-  ) : (
-    <EditorProducto producto={carga.producto} onCerrar={volver} onGuardado={volver} />
-  );
+  return <EditorProducto producto={carga.producto} onCerrar={volver} onGuardado={volver} />;
 }

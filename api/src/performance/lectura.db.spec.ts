@@ -58,7 +58,7 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
   async function venta(
     userId: string,
     conversationId: string,
-    datos: { estado: string; varianteId?: string; cantidad?: number; subtotal?: number; moneda?: string; dePrueba?: boolean },
+    datos: { estado: string; productoId?: string; cantidad?: number; subtotal?: number; moneda?: string; dePrueba?: boolean },
   ) {
     const cantidad = datos.cantidad ?? 1;
     const subtotal = datos.subtotal ?? 1_000_000;
@@ -73,7 +73,7 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
         items: {
           create: [
             {
-              varianteId: datos.varianteId,
+              productoId: datos.productoId,
               codigo: 'X',
               nombreProducto: 'X',
               cantidad,
@@ -86,8 +86,8 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     });
   }
 
-  let mate: { id: string; varianteId: string };
-  let placard: string;
+  let mate: { id: string };
+  let placard: { id: string };
 
   beforeAll(async () => {
     prisma = crearPrismaDePrueba();
@@ -98,15 +98,11 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     await cuentaDeVentas(dueno.id);
     await cuentaDeVentas(otro.id);
 
-    const productoMate = await prisma.producto.create({
-      data: { userId: dueno.id, codigo: 'MATE', nombre: 'Mate', variantes: { create: [{ sku: 'MATE', precioCentavos: 1_000_000 }] } },
-      include: { variantes: true },
+    mate = await prisma.producto.create({ data: { userId: dueno.id, codigo: 'MATE', nombre: 'Mate', precioCentavos: 1_000_000 } });
+    placard = await prisma.producto.create({
+      data: { userId: dueno.id, codigo: 'PLACARD', nombre: 'Placard', precioCentavos: 5_000_000 },
     });
-    mate = { id: productoMate.id, varianteId: productoMate.variantes[0].id };
-    placard = (
-      await prisma.producto.create({ data: { userId: dueno.id, codigo: 'PLACARD', nombre: 'Placard', solicitud: { preguntas: [] } } })
-    ).id;
-    const ajeno = await prisma.producto.create({ data: { userId: otro.id, codigo: 'AJENO', nombre: 'Ajeno' } });
+    const ajeno = await prisma.producto.create({ data: { userId: otro.id, codigo: 'AJENO', nombre: 'Ajeno', precioCentavos: 100 } });
 
     // Septiembre: un chat que vio el mate y no compró (período anterior).
     const septiembre = await chat(dueno.id, 'vio_productos', new Date('2026-09-20T10:00:00-03:00'));
@@ -117,32 +113,23 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     const pago = await chat(dueno.id, 'pagado', dia(2), dia(2), false, { provincia: 'cordoba', origenZona: 'dato' });
     await interes(dueno.id, pago, mate.id, 'vio');
     await interes(dueno.id, pago, mate.id, 'pidio');
-    await venta(dueno.id, pago, { estado: 'pagada', varianteId: mate.varianteId, cantidad: 2, subtotal: 2_000_000 });
+    await venta(dueno.id, pago, { estado: 'pagada', productoId: mate.id, cantidad: 2, subtotal: 2_000_000 });
     // 2. pidió el mate y no pagó; el chat está quieto hace 3 días: estancado.
     const pendiente = await chat(dueno.id, 'pedido', dia(5), dia(28, '12:00'), false, { provincia: 'cordoba', origenZona: 'inferida' });
     await interes(dueno.id, pendiente, mate.id, 'vio');
     await interes(dueno.id, pendiente, mate.id, 'pidio');
-    await venta(dueno.id, pendiente, { estado: 'pendiente_pago', varianteId: mate.varianteId });
+    await venta(dueno.id, pendiente, { estado: 'pendiente_pago', productoId: mate.id });
     // 3. vio el mate y se fue hace semanas, derivado: abandonado.
     const abandonado = await chat(dueno.id, 'vio_productos', dia(6), dia(7), true);
     await interes(dueno.id, abandonado, mate.id, 'vio');
-    // 4. pidió el placard a medida y lo pagó.
-    const aMedida = await chat(dueno.id, 'pagado', dia(10), dia(10), false, { provincia: 'mendoza', origenZona: 'dato' });
-    await interes(dueno.id, aMedida, placard, 'pidio');
-    await prisma.venta.create({
-      data: {
-        userId: dueno.id,
-        conversationId: aMedida,
-        tipo: 'a_medida',
-        estado: 'pagada',
-        totalCentavos: 5_000_000,
-        solicitud: { productoId: placard, nombreProducto: 'Placard', respuestas: [], resumen: '' },
-      },
-    });
+    // 4. pidió el placard y lo pagó.
+    const placardPagado = await chat(dueno.id, 'pagado', dia(10), dia(10), false, { provincia: 'mendoza', origenZona: 'dato' });
+    await interes(dueno.id, placardPagado, placard.id, 'pidio');
+    await venta(dueno.id, placardPagado, { estado: 'pagada', productoId: placard.id, subtotal: 5_000_000 });
     // 5. sólo consultó, hace un rato: activo. Tiene una venta de prueba y una en dólares, que no cuentan.
     const consulta = await chat(dueno.id, 'consulta', dia(31, '09:00'), dia(31, '17:00'));
-    await venta(dueno.id, consulta, { estado: 'pagada', varianteId: mate.varianteId, dePrueba: true });
-    await venta(dueno.id, consulta, { estado: 'pagada', varianteId: mate.varianteId, moneda: 'USD' });
+    await venta(dueno.id, consulta, { estado: 'pagada', productoId: mate.id, dePrueba: true });
+    await venta(dueno.id, consulta, { estado: 'pagada', productoId: mate.id, moneda: 'USD' });
 
     // Preguntas, ya clasificadas, de tres de esos chats.
     const preguntas: Array<[string, string, string, boolean, string | null, string | null]> = [
@@ -238,7 +225,6 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
       'eligiendo',
       'lista',
       'pedido',
-      'cotizado',
       'pagado',
     ]);
     expect(de('consulta')).toMatchObject({ total: 1, activos: 1 });
@@ -253,7 +239,6 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
 
     expect(productos.map((producto) => producto.codigo)).toEqual(['MATE', 'PLACARD']);
     expect(productos[0]).toMatchObject({
-      aMedida: false,
       vieron: 3,
       pidieron: 2,
       pagaron: 1,
@@ -265,7 +250,6 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
       cortanEn: 'vio_productos',
     });
     expect(productos[1]).toMatchObject({
-      aMedida: true,
       vieron: 0,
       pidieron: 1,
       pagaron: 1,
@@ -309,7 +293,7 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
       // El texto vencido (null) no aparece entre los ejemplos.
       { tema: 'envio', nombre: 'Envío', total: 2, sinResolver: 2, ejemplos: ['¿Hacen envíos a Córdoba?'] },
       { tema: 'precio', nombre: 'Precio', total: 1, sinResolver: 0, ejemplos: ['¿Cuánto sale el mate?'] },
-      { tema: 'stock', nombre: 'Stock y variantes', total: 1, sinResolver: 0, ejemplos: ['¿Tiene virola?'] },
+      { tema: 'stock', nombre: 'Stock', total: 1, sinResolver: 0, ejemplos: ['¿Tiene virola?'] },
     ]);
     expect(preguntas.porProducto).toEqual([{ productoId: mate.id, nombre: 'Mate', total: 4, sinResolver: 2, temaPrincipal: 'envio' }]);
     // Los chats que pagaron no cuentan para "dónde se quedan".

@@ -60,19 +60,6 @@ export class RegistroPerformanceService {
     });
   }
 
-  /** crear_pedido sólo trae variantes: se las lleva a su producto, dentro de la cuenta. */
-  async registrarPedidoDeVariantes(userId: string, conversationId: string, varianteIds: string[]): Promise<void> {
-    await this.seguro('registrarPedidoDeVariantes', conversationId, async () => {
-      const ids = [...new Set(varianteIds)];
-      if (ids.length === 0) return;
-      const variantes = await this.prisma.variante.findMany({
-        where: { id: { in: ids }, producto: { userId } },
-        select: { productoId: true },
-      });
-      await this.interes(userId, conversationId, variantes.map((variante) => variante.productoId), 'pidio');
-    });
-  }
-
   /**
    * Los datos que dio el cliente en un pedido: si dicen la provincia (o un
    * código postal con letra), esa es la zona del chat, aunque ya hubiera una
@@ -99,7 +86,7 @@ export class RegistroPerformanceService {
     });
   }
 
-  /** Una venta que avanzó (cotizada, pagada) lleva su chat a esa etapa. Las de prueba no cuentan. */
+  /** Una venta pagada lleva su chat a esa etapa. Las de prueba no cuentan. */
   async avanzarPorVenta(venta: VentaDelChat, etapa: Etapa): Promise<void> {
     const { conversationId } = venta;
     if (!conversationId || venta.dePrueba) return;

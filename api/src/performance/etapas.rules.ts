@@ -9,7 +9,7 @@
  */
 
 /** En orden. "eligiendo" y "lista" las da Jev y sólo existen si la cuenta lo usa. */
-export const ETAPAS = ['consulta', 'vio_productos', 'eligiendo', 'lista', 'pedido', 'cotizado', 'pagado'] as const;
+export const ETAPAS = ['consulta', 'vio_productos', 'eligiendo', 'lista', 'pedido', 'pagado'] as const;
 export type Etapa = (typeof ETAPAS)[number];
 
 /** Lo que guarda InteresProducto: el producto apareció en lo que se le mostró, o lo pidió. */

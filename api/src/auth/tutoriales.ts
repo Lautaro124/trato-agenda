@@ -13,7 +13,6 @@ export const TUTORIALES = [
   'chat',
   'chats',
   'productos',
-  'costos',
   'ventas',
   'rendimiento',
   'asistente',

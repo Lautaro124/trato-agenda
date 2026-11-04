@@ -11,10 +11,10 @@
  *   otro vendedor, y la del propio puede no ser la de este negocio.
  * - Una moneda que no sea ARS o USD deja el precio vacío.
  */
-import { esMoneda, LARGOS, MAX_VARIANTES, PRECIO_MAX_PESOS, type Moneda } from '../comercio/catalogo.rules.js';
+import { esMoneda, LARGOS, PRECIO_MAX_PESOS, type Moneda } from '../comercio/catalogo.rules.js';
 import { revisarUrl } from './ssrf.rules.js';
 import { decodificarEntidades, textoSeguro } from './texto.rules.js';
-import { MAX_IMAGENES_OFRECIDAS, type AvisoBorrador, type ProductoExtraido, type VarianteExtraida } from './modelo.js';
+import { LARGO_VARIANTE, MAX_IMAGENES_OFRECIDAS, MAX_VARIANTES_PAGINA, type AvisoBorrador, type ProductoExtraido, type VarianteExtraida } from './modelo.js';
 
 type Json = Record<string, unknown>;
 
@@ -34,7 +34,7 @@ function skuDe(objeto: Json): string | null {
     .filter(esObjeto)
     .find((atributo) => campo(atributo, 'id') === 'SELLER_SKU');
   const crudo = propio || (atributo ? texto(campo(atributo, 'value_name')) : '');
-  return textoSeguro(crudo, { largo: LARGOS.sku, sinMontos: true }) || null;
+  return textoSeguro(crudo, { largo: LARGOS.codigo, sinMontos: true }) || null;
 }
 
 function imagenesDe(item: Json): string[] {
@@ -58,7 +58,7 @@ function nombreDeVariacion(variacion: Json, indice: number): string {
       return nombre && valor ? `${nombre}: ${valor}` : valor;
     })
     .filter(Boolean);
-  return textoSeguro(partes.join(' / '), { largo: LARGOS.variante, sinMontos: true }) || `Variante ${indice + 1}`;
+  return textoSeguro(partes.join(' / '), { largo: LARGO_VARIANTE, sinMontos: true }) || `Variante ${indice + 1}`;
 }
 
 /** Un item de `GET /items/{id}` (y su descripción en texto plano, si se pudo leer) → producto. */
@@ -84,8 +84,8 @@ export function productoDesdeItem(item: unknown, descripcionPlana: string | null
           precioCentavos: precio(campo(variacion, 'price') ?? campo(item, 'price')),
         }))
       : [{ nombre: '', sku: skuDe(item), precioCentavos: precio(campo(item, 'price')) }];
-  if (variantes.length > MAX_VARIANTES) {
-    variantes = variantes.slice(0, MAX_VARIANTES);
+  if (variantes.length > MAX_VARIANTES_PAGINA) {
+    variantes = variantes.slice(0, MAX_VARIANTES_PAGINA);
     avisos.add('variantes_recortadas');
   }
   // SKUs repetidos (pasa) no sirven para distinguir: se dejan vacíos y el catálogo arma unos.

@@ -14,7 +14,7 @@ import { HORAS_ESTANCADO } from './lectura.rules.js';
 export const TEMAS = {
   precio: 'Precio',
   envio: 'Envío',
-  stock: 'Stock y variantes',
+  stock: 'Stock',
   medidas: 'Medidas y materiales',
   pago: 'Formas de pago',
   plazos: 'Plazos de entrega',

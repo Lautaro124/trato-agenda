@@ -1,4 +1,4 @@
-import { MENSAJE_ATENCION_HUMANA_PRUEBA } from '../comercio/pedido-a-medida.rules.js';
+import { MENSAJE_ATENCION_HUMANA_PRUEBA } from '../comercio/ventas.rules.js';
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { GraphRecursionError } from '@langchain/langgraph';
 import { Inject, Injectable, Logger } from '@nestjs/common';

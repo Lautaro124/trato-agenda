@@ -51,9 +51,9 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
         nombre: 'Mate',
         descripcion: 'De calabaza',
         textoBusqueda: 'mate de calabaza',
-        variantes: { create: [{ sku: 'MATE', precioCentavos: 1_000_000, stock: 3 }] },
+        precioCentavos: 1_000_000,
+        stock: 3,
       },
-      include: { variantes: true },
     });
     const venta = await prisma.venta.create({
       data: {
@@ -67,7 +67,7 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
         items: {
           create: [
             {
-              varianteId: producto.variantes[0].id,
+              productoId: producto.id,
               codigo: 'MATE',
               nombreProducto: 'Mate',
               cantidad: 1,
@@ -78,22 +78,17 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
         },
       },
     });
-    // Un pedido a medida con su presupuesto y su historial (LAU-27).
-    const aMedida = await prisma.venta.create({
+    // Un pedido derivado a una persona, con su historial (LAU-27).
+    const derivada = await prisma.venta.create({
       data: {
         userId: dueno.id,
         conversationId: conversacion.id,
-        tipo: 'a_medida',
-        estado: 'cotizado',
         totalCentavos: 500_000,
-        presupuestos: {
-          create: [{ version: 1, origen: 'dueno', estado: 'enviado', renglones: [], totalCentavos: 500_000 }],
-        },
-        eventos: { create: [{ tipo: 'estado', a: 'cotizado', autor: 'dueno' }] },
+        atencion: 'humana',
+        motivoDerivacion: 'dueno',
+        eventos: { create: [{ tipo: 'derivacion', de: 'asistente', a: 'humana', motivo: 'dueno', autor: 'dueno' }] },
       },
     });
-    await prisma.insumo.create({ data: { userId: dueno.id, tipo: 'material', nombre: 'Melamina', unidad: 'm2', costoCentavos: 100 } });
-    await prisma.configCotizacion.create({ data: { userId: dueno.id } });
     await prisma.notificacion.create({ data: { userId: dueno.id, tipo: 'pedido_manual', titulo: 'Pedido', cuerpo: 'Ana' } });
     await prisma.sugerenciaMejora.create({ data: { userId: dueno.id, tipo: 'idea', texto: 'Recordatorios el día antes' } });
     // El registro del módulo de performance (LAU-30).
@@ -135,7 +130,6 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       prisma.agent.count({ where: donde }),
       prisma.conversation.count({ where: donde }),
       prisma.producto.count({ where: donde }),
-      prisma.variante.count({ where: { productoId: producto.id } }),
       prisma.venta.count({ where: donde }),
       prisma.itemVenta.count({ where: { ventaId: venta.id } }),
       prisma.notificacion.count({ where: donde }),
@@ -143,15 +137,12 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
       prisma.whatsappSession.count({ where: donde }),
       prisma.whatsappClave.count({ where: donde }),
       prisma.sugerenciaMejora.count({ where: donde }),
-      prisma.presupuesto.count({ where: { ventaId: aMedida.id } }),
-      prisma.eventoVenta.count({ where: { ventaId: aMedida.id } }),
-      prisma.insumo.count({ where: donde }),
-      prisma.configCotizacion.count({ where: donde }),
+      prisma.eventoVenta.count({ where: { ventaId: derivada.id } }),
       prisma.etapaChat.count({ where: donde }),
       prisma.interesProducto.count({ where: donde }),
       prisma.preguntaChat.count({ where: donde }),
     ]);
-    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(restos).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it('borrar y volver a crear la cuenta no reinicia el mes de prueba', async () => {

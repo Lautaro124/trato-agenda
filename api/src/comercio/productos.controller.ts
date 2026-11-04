@@ -26,7 +26,7 @@ import { MAX_BYTES_SUBIDA } from './imagenes.rules.js';
 import { ImagenesService, type ImagenGuardada, type UsoDeImagenes } from './imagenes.service.js';
 import { ProductosService, type ListadoProductos } from './productos.service.js';
 import {
-  ActualizarVarianteDto,
+  ActualizarStockDto,
   GuardarProductoDto,
   ImportarProductosDto,
   ListarProductosQuery,
@@ -75,13 +75,14 @@ export class ProductosController {
     return this.productos.importar(user.id, dto.filas, dto.confirmar);
   }
 
-  @Patch('variantes/:id')
-  actualizarVariante(
+  /** La edición rápida de precio y stock desde la tarjeta del catálogo. */
+  @Patch(':id/stock')
+  actualizarStock(
     @CurrentUser() user: User,
     @Param('id') id: string,
-    @Body() dto: ActualizarVarianteDto,
+    @Body() dto: ActualizarStockDto,
   ): Promise<ProductoPublico> {
-    return this.productos.actualizarVariante(user.id, id, dto);
+    return this.productos.actualizarStock(user.id, id, dto);
   }
 
   /**
@@ -115,42 +116,6 @@ export class ProductosController {
   @HttpCode(HttpStatus.NO_CONTENT)
   quitarImagen(@CurrentUser() user: User, @Param('id') id: string): Promise<void> {
     return this.imagenes.borrar(user.id, id);
-  }
-
-  /** La foto propia de una versión con precio fijo (producto a medida). Igual que la del producto. */
-  @Put(':id/variantes/:varianteId/imagen')
-  @UseInterceptors(
-    FileInterceptor('imagen', { limits: { fileSize: MAX_BYTES_SUBIDA, files: 1, fields: 0, parts: 1 } }),
-  )
-  subirImagenDeVariante(
-    @CurrentUser() user: User,
-    @Param('id') id: string,
-    @Param('varianteId') varianteId: string,
-    @UploadedFile() archivo: { buffer: Buffer } | undefined,
-  ): Promise<ImagenGuardada> {
-    if (!archivo) throw new UnprocessableEntityException('Falta la foto.');
-    return this.imagenes.guardarDeVariante(user.id, id, varianteId, archivo.buffer);
-  }
-
-  @Get(':id/variantes/:varianteId/imagen')
-  @Header('Cache-Control', 'private, max-age=300')
-  async imagenDeVariante(
-    @CurrentUser() user: User,
-    @Param('id') id: string,
-    @Param('varianteId') varianteId: string,
-  ): Promise<StreamableFile> {
-    const datos = await this.imagenes.obtenerDeVariante(user.id, id, varianteId);
-    return new StreamableFile(datos, { type: 'image/jpeg', length: datos.length });
-  }
-
-  @Delete(':id/variantes/:varianteId/imagen')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  quitarImagenDeVariante(
-    @CurrentUser() user: User,
-    @Param('id') id: string,
-    @Param('varianteId') varianteId: string,
-  ): Promise<void> {
-    return this.imagenes.borrarDeVariante(user.id, id, varianteId);
   }
 
   @Get(':id')

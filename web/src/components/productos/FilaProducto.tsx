@@ -7,14 +7,12 @@ import { cn } from "@/lib/cn";
 import { descripcionDescuento, origenDescuento } from "@/lib/descuentos";
 import { urlImagenProducto } from "@/lib/imagenes";
 import {
-  actualizarVariante,
+  actualizarStock,
   centavosParaInput,
   etiquetaStock,
-  formatearCentavos,
   formatearMonto,
   leerCentavos,
   type Producto,
-  type Variante,
 } from "@/lib/productos";
 
 const ETIQUETA = "text-[11.5px] font-semibold text-muted";
@@ -24,29 +22,22 @@ const INPUT_CHICO =
 /** Cuánto queda a la vista el "Guardado" después de guardar. */
 const MS_AVISO_GUARDADO = 3000;
 
-/** Lo que el dueño está tipeando en una variante, todavía sin guardar. */
+/** Lo que el dueño está tipeando, todavía sin guardar. */
 type Borrador = { precio: string; stock: string; disponible: boolean };
 
-type CambiosDeVariante = Parameters<typeof actualizarVariante>[1];
+type CambiosDeStock = Parameters<typeof actualizarStock>[1];
 
-function borradorDe(variante: Variante): Borrador {
+function borradorDe(producto: Producto): Borrador {
   return {
-    precio: centavosParaInput(variante.precioCentavos),
-    stock: variante.stock === null ? "" : String(variante.stock),
-    disponible: variante.disponible,
+    precio: centavosParaInput(producto.precioCentavos),
+    stock: producto.stock === null ? "" : String(producto.stock),
+    disponible: producto.disponible,
   };
 }
 
-function borradoresDe(producto: Producto): Record<string, Borrador> {
-  return Object.fromEntries(producto.variantes.map((v) => [v.id, borradorDe(v)]));
-}
-
-/** Cambia cuando cambia algo de lo que se edita en la tarjeta (el PATCH de variante no toca `updatedAt`). */
+/** Cambia cuando cambia algo de lo que se edita en la tarjeta. */
 function firmaDe(producto: Producto): string {
-  return JSON.stringify([
-    producto.updatedAt,
-    producto.variantes.map((v) => [v.id, v.precioCentavos, v.stock, v.disponible]),
-  ]);
+  return JSON.stringify([producto.updatedAt, producto.precioCentavos, producto.stock, producto.disponible]);
 }
 
 /** El stock tipeado: null = sin control, "invalido" si no es un entero. */
@@ -57,19 +48,19 @@ function leerStock(texto: string): number | null | "invalido" {
 }
 
 /**
- * Qué cambió en una variante respecto de lo guardado. Un precio o stock mal
- * tipeado cuenta como cambio (hay algo por corregir antes de guardar).
+ * Qué cambió respecto de lo guardado. Un precio o stock mal tipeado cuenta
+ * como cambio (hay algo por corregir antes de guardar).
  */
-function analizar(variante: Variante, borrador: Borrador) {
+function analizar(producto: Producto, borrador: Borrador) {
   const centavos = leerCentavos(borrador.precio);
   const stock = leerStock(borrador.stock);
-  const cambios: CambiosDeVariante = {};
-  if (centavos !== null && centavos !== variante.precioCentavos) cambios.precioCentavos = centavos;
-  if (stock !== "invalido" && stock !== variante.stock) cambios.stock = stock;
+  const cambios: CambiosDeStock = {};
+  if (centavos !== null && centavos !== producto.precioCentavos) cambios.precioCentavos = centavos;
+  if (stock !== "invalido" && stock !== producto.stock) cambios.stock = stock;
   // "Hay / Sin stock" sólo vale cuando no se controla cantidad.
-  if (stock === null && borrador.disponible !== variante.disponible) cambios.disponible = borrador.disponible;
-  const precioEditado = centavos === null || centavos !== variante.precioCentavos;
-  const stockEditado = stock === "invalido" || stock !== variante.stock;
+  if (stock === null && borrador.disponible !== producto.disponible) cambios.disponible = borrador.disponible;
+  const precioEditado = centavos === null || centavos !== producto.precioCentavos;
+  const stockEditado = stock === "invalido" || stock !== producto.stock;
   const error = centavos === null ? "Precio inválido." : stock === "invalido" ? "El stock es un número entero." : null;
   return {
     cambios,
@@ -79,18 +70,16 @@ function analizar(variante: Variante, borrador: Borrador) {
     editada: precioEditado || stockEditado || "disponible" in cambios,
     // Lo que muestra el badge mientras se edita: lo tipeado si se entiende, si no lo guardado.
     vista: {
-      stock: stock === "invalido" ? variante.stock : stock,
+      stock: stock === "invalido" ? producto.stock : stock,
       disponible: borrador.disponible,
-      stockMinimo: variante.stockMinimo,
+      stockMinimo: producto.stockMinimo,
     },
   };
 }
 
 /**
  * Una tarjeta del catálogo: datos del producto y edición rápida de precio y
- * stock por variante. Lo que se tipea queda pendiente hasta "Guardar cambios".
- * Un producto a medida (con `solicitud`) no tiene precio ni stock que editar:
- * la tarjeta muestra el producto, sus versiones y sus preguntas.
+ * stock. Lo que se tipea queda pendiente hasta "Guardar cambios".
  */
 export function FilaProducto({
   producto,
@@ -103,7 +92,7 @@ export function FilaProducto({
   onEditar: () => void;
   onBorrar: () => void;
 }) {
-  const [borradores, setBorradores] = useState(() => borradoresDe(producto));
+  const [borrador, setBorrador] = useState(() => borradorDe(producto));
   const [firma, setFirma] = useState(() => firmaDe(producto));
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +103,7 @@ export function FilaProducto({
   const firmaActual = firmaDe(producto);
   if (firmaActual !== firma) {
     setFirma(firmaActual);
-    setBorradores(borradoresDe(producto));
+    setBorrador(borradorDe(producto));
   }
 
   useEffect(() => {
@@ -123,61 +112,45 @@ export function FilaProducto({
     return () => clearTimeout(timer);
   }, [guardado]);
 
-  const analisis = producto.variantes.map((variante) => ({
-    variante,
-    borrador: borradores[variante.id] ?? borradorDe(variante),
-    ...analizar(variante, borradores[variante.id] ?? borradorDe(variante)),
-  }));
-  const hayCambios = analisis.some((a) => a.editada);
+  const analisis = analizar(producto, borrador);
+  const hayCambios = analisis.editada;
 
-  const cambiar = (id: string, cambios: Partial<Borrador>) => {
+  const cambiar = (cambios: Partial<Borrador>) => {
     setGuardado(false);
     setError(null);
-    setBorradores((actuales) => ({ ...actuales, [id]: { ...actuales[id], ...cambios } }));
+    setBorrador((actual) => ({ ...actual, ...cambios }));
   };
 
   const descartar = () => {
-    setBorradores(borradoresDe(producto));
+    setBorrador(borradorDe(producto));
     setError(null);
   };
 
   const guardar = (e: React.FormEvent) => {
     e.preventDefault();
     if (guardando || !hayCambios) return;
-    const conError = analisis.find((a) => a.error);
-    if (conError) {
-      const unica = producto.variantes.length === 1 && conError.variante.nombre === "";
-      setError(unica ? conError.error : `${conError.variante.nombre}: ${conError.error}`);
+    if (analisis.error) {
+      setError(analisis.error);
       return;
     }
-    const pendientes = analisis.filter((a) => Object.keys(a.cambios).length > 0);
-    if (pendientes.length === 0) {
+    if (Object.keys(analisis.cambios).length === 0) {
       // Sólo cambió el formato ("15000" en vez de "15.000"): nada que mandar.
       descartar();
       return;
     }
     setGuardando(true);
     setError(null);
-    // Uno por variante y en orden: el último trae el producto con todo aplicado.
-    pendientes
-      .reduce<Promise<Producto | null>>(
-        (anterior, a) => anterior.then(() => actualizarVariante(a.variante.id, a.cambios)),
-        Promise.resolve(null),
-      )
+    actualizarStock(producto.id, analisis.cambios)
       .then((actualizado) => {
-        if (actualizado) onCambio(actualizado);
+        onCambio(actualizado);
         setGuardado(true);
       })
       .catch(() => setError("No se pudo guardar. Probá de nuevo."))
       .finally(() => setGuardando(false));
   };
 
-  // Lo decide el producto: con solicitud es a medida, y ahí no hay precio, stock ni descuento que editar.
-  const aMedida = producto.solicitud !== null;
-  // El descuento que hoy aplica (el mismo para todas las variantes, salvo un monto
-  // fijo que no entra en alguna): el de la primera variante que tenga.
-  const aplicado = aMedida ? null : (producto.variantes.find((v) => v.descuento)?.descuento ?? null);
-  const propioInactivo = !aMedida && !aplicado && producto.descuento;
+  const aplicado = producto.descuentoAplicado;
+  const propioInactivo = !aplicado && producto.descuento;
 
   return (
     <li
@@ -217,8 +190,6 @@ export function FilaProducto({
         </div>
       </div>
 
-      {aMedida && <ResumenAMedida producto={producto} />}
-
       {aplicado ? (
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <Badge tone="primary">{descripcionDescuento(aplicado)}</Badge>
@@ -232,129 +203,57 @@ export function FilaProducto({
         )
       )}
 
-      {!aMedida && (
-        <form onSubmit={guardar} aria-label={`Precio y stock de ${producto.nombre}`}>
-          <ul className="mt-3 flex flex-col gap-2">
-            {analisis.map((a) => (
-              <FilaVariante
-                key={a.variante.id}
-                variante={a.variante}
-                borrador={a.borrador}
-                nombreProducto={producto.nombre}
-                moneda={producto.moneda}
-                unica={producto.variantes.length === 1 && a.variante.nombre === ""}
-                editada={a.editada}
-                precioEditado={a.precioEditado}
-                stockEditado={a.stockEditado}
-                estado={etiquetaStock(a.vista)}
-                sinControl={a.vista.stock === null}
-                deshabilitada={guardando}
-                onCambio={(cambios) => cambiar(a.variante.id, cambios)}
-              />
-            ))}
-          </ul>
+      <form onSubmit={guardar} aria-label={`Precio y stock de ${producto.nombre}`}>
+        <PrecioYStock
+          producto={producto}
+          borrador={borrador}
+          editada={analisis.editada}
+          precioEditado={analisis.precioEditado}
+          stockEditado={analisis.stockEditado}
+          estado={etiquetaStock(analisis.vista)}
+          sinControl={analisis.vista.stock === null}
+          deshabilitada={guardando}
+          onCambio={cambiar}
+        />
 
-          {hayCambios ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-              <p className="flex-1 text-[13px] font-semibold text-[var(--color-primitive-coral-700)]">
-                Cambios sin guardar
-              </p>
-              <Button variant="secondary" size="sm" disabled={guardando} onClick={descartar}>
-                Descartar
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={guardando}
-                aria-label={`Guardar cambios de ${producto.nombre}`}
-              >
-                {guardando ? "Guardando…" : "Guardar cambios"}
-              </Button>
-            </div>
-          ) : (
-            guardado && (
-              <p role="status" className="mt-3 text-[13px] font-semibold text-success-text">
-                ✓ Guardado
-              </p>
-            )
-          )}
-
-          {error && (
-            <p role="alert" className="mt-2 text-[12px] text-danger-text">
-              {error}
+        {hayCambios ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+            <p className="flex-1 text-[13px] font-semibold text-[var(--color-primitive-coral-700)]">
+              Cambios sin guardar
             </p>
-          )}
-        </form>
-      )}
+            <Button variant="secondary" size="sm" disabled={guardando} onClick={descartar}>
+              Descartar
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={guardando}
+              aria-label={`Guardar cambios de ${producto.nombre}`}
+            >
+              {guardando ? "Guardando…" : "Guardar cambios"}
+            </Button>
+          </div>
+        ) : (
+          guardado && (
+            <p role="status" className="mt-3 text-[13px] font-semibold text-success-text">
+              ✓ Guardado
+            </p>
+          )
+        )}
+
+        {error && (
+          <p role="alert" className="mt-2 text-[12px] text-danger-text">
+            {error}
+          </p>
+        )}
+      </form>
     </li>
   );
 }
 
-/**
- * Lo que muestra la tarjeta de un producto a medida: precio
- * "desde", materiales, sus versiones con precio fijo y las preguntas.
- */
-function ResumenAMedida({ producto }: Readonly<{ producto: Producto }>) {
-  const preguntas = producto.solicitud?.preguntas.length ?? 0;
-  return (
-    <div className="mt-3 flex flex-col gap-1.5 rounded-md bg-sunken p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="info">A medida</Badge>
-        {producto.politicaCotizacion === "automatica" && <Badge tone="success">Cotiza tu asistente</Badge>}
-        {producto.politicaCotizacion === "revision" && <Badge tone="neutral">Lo aprobás vos</Badge>}
-        <span className="text-[14px] font-semibold text-ink">
-          {producto.precioReferenciaCentavos
-            ? `Desde ${formatearCentavos(producto.precioReferenciaCentavos)}`
-            : "Precio a cotizar"}
-        </span>
-      </div>
-      {producto.materiales.length > 0 && (
-        <p className="text-[12.5px] text-ink-secondary">En {producto.materiales.join(" · ")}</p>
-      )}
-      {producto.solicitud && producto.variantes.length > 0 && (
-        <ul aria-label={`Versiones con precio fijo de ${producto.nombre}`} className="flex flex-col gap-1">
-          {producto.variantes.map((variante) => (
-            <li key={variante.id} className="flex items-center gap-2 text-[13px] text-ink">
-              {variante.imagenActualizada ? (
-                // eslint-disable-next-line @next/next/no-img-element -- viene de la API con la cookie de sesión; el optimizador de Next no la tiene
-                <img
-                  src={urlImagenProducto(producto.id, variante.imagenActualizada, variante.id)}
-                  alt={`Foto de ${variante.nombre}`}
-                  loading="lazy"
-                  className="size-7 shrink-0 rounded-sm bg-card object-cover"
-                />
-              ) : null}
-              <span className="min-w-0 flex-1 truncate">{variante.nombre}</span>
-              <span className="font-semibold">{formatearCentavos(variante.precioCentavos)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {producto.solicitud ? (
-        <p className="text-[12.5px] text-ink-secondary">
-          {preguntas === 0
-            ? "Sin preguntas propias"
-            : preguntas === 1
-              ? "1 pregunta para hacer"
-              : `${preguntas} preguntas para hacer`}
-        </p>
-      ) : (
-        // Cargado antes como producto de stock: al guardarlo desde "Editar" pasa a ser a medida.
-        <p className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-secondary">
-          <Badge tone="warning">Incompleto</Badge>
-          Tocá “Editar” y guardalo para que sea a medida.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function FilaVariante({
-  variante,
+function PrecioYStock({
+  producto,
   borrador,
-  nombreProducto,
-  moneda,
-  unica,
   editada,
   precioEditado,
   stockEditado,
@@ -363,11 +262,8 @@ function FilaVariante({
   deshabilitada,
   onCambio,
 }: {
-  variante: Variante;
+  producto: Producto;
   borrador: Borrador;
-  nombreProducto: string;
-  moneda: string;
-  unica: boolean;
   editada: boolean;
   precioEditado: boolean;
   stockEditado: boolean;
@@ -376,32 +272,24 @@ function FilaVariante({
   deshabilitada: boolean;
   onCambio: (cambios: Partial<Borrador>) => void;
 }) {
-  const etiqueta = unica ? nombreProducto : `${nombreProducto} ${variante.nombre}`;
+  const { nombre, moneda } = producto;
   // El final que muestra es el guardado: mientras se edita el precio no se sabe todavía.
-  const final = variante.descuento && !precioEditado ? variante.precioFinalCentavos : null;
+  const final = producto.descuentoAplicado && !precioEditado ? producto.precioFinalCentavos : null;
   const borde = (editado: boolean) =>
     editado ? "border-primary ring-1 ring-[var(--color-semantic-border-focus)]" : "border-line";
 
   return (
-    <li
+    <div
       className={cn(
-        "grid grid-cols-2 items-end gap-x-3 gap-y-2 rounded-md px-3 py-2 @md:grid-cols-[1fr_120px_120px_76px]",
+        "mt-3 grid grid-cols-2 items-end gap-x-3 gap-y-2 rounded-md px-3 py-2 @md:grid-cols-[120px_120px_1fr]",
         editada ? "bg-[var(--color-primitive-coral-50)]" : "bg-sunken",
       )}
     >
-      <div className="order-1 min-w-0">
-        <p className="truncate text-[13.5px] text-ink">
-          {unica ? "Única" : variante.nombre}
-          {editada && (
-            <span className="ml-1.5 text-[11px] font-bold text-[var(--color-primitive-coral-700)]">· Editado</span>
-          )}
-        </p>
-        <p className="truncate text-[11.5px] text-muted">SKU {variante.sku}</p>
-      </div>
-
-      {/* En una tarjeta angosta: nombre y estado arriba, precio y stock abajo, cada uno con su etiqueta. */}
-      <label className="order-3 flex flex-col gap-1 @md:order-2">
-        <span className={ETIQUETA}>Precio</span>
+      <label className="flex flex-col gap-1">
+        <span className={ETIQUETA}>
+          Precio
+          {editada && <span className="ml-1.5 text-[11px] font-bold text-[var(--color-primitive-coral-700)]">· Editado</span>}
+        </span>
         <span className="flex items-center gap-1">
           <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>
           <input
@@ -409,13 +297,13 @@ function FilaVariante({
             value={borrador.precio}
             disabled={deshabilitada}
             onChange={(e) => onCambio({ precio: e.target.value })}
-            aria-label={`Precio de ${etiqueta}`}
+            aria-label={`Precio de ${nombre}`}
             className={cn(INPUT_CHICO, borde(precioEditado))}
           />
         </span>
       </label>
 
-      <label className="order-4 flex flex-col gap-1 @md:order-3">
+      <label className="flex flex-col gap-1">
         <span className={ETIQUETA}>Stock (unidades)</span>
         <input
           inputMode="numeric"
@@ -423,20 +311,20 @@ function FilaVariante({
           placeholder="Sin control"
           disabled={deshabilitada}
           onChange={(e) => onCambio({ stock: e.target.value })}
-          aria-label={`Stock de ${etiqueta}`}
+          aria-label={`Stock de ${nombre}`}
           className={cn(INPUT_CHICO, borde(stockEditado))}
         />
       </label>
 
       {/* La cantidad ya está en el campo: el badge sólo aparece cuando dice algo más (sin stock, stock bajo, o el "Hay" que se toca). */}
-      <div className="order-2 flex items-center justify-end gap-2 self-center @md:order-4 @md:min-h-[34px] @md:self-end">
+      <div className="col-span-2 flex items-center justify-end gap-2 @md:col-span-1 @md:min-h-[34px]">
         {sinControl ? (
           <button
             type="button"
             disabled={deshabilitada}
             onClick={() => onCambio({ disponible: !borrador.disponible })}
             aria-pressed={borrador.disponible}
-            aria-label={`${etiqueta}: ${borrador.disponible ? "hay stock" : "sin stock"}`}
+            aria-label={`${nombre}: ${borrador.disponible ? "hay stock" : "sin stock"}`}
             className="cursor-pointer"
           >
             <Badge tone={estado.tono}>{estado.texto}</Badge>
@@ -447,11 +335,11 @@ function FilaVariante({
       </div>
 
       {final !== null && (
-        <p className="order-5 col-span-2 text-[12.5px] font-bold text-[var(--color-primitive-coral-700)] @md:col-span-4">
+        <p className="col-span-2 text-[12.5px] font-bold text-[var(--color-primitive-coral-700)] @md:col-span-3">
           Final {formatearMonto(final, moneda)}{" "}
-          <span className="font-medium text-muted line-through">{formatearMonto(variante.precioCentavos, moneda)}</span>
+          <span className="font-medium text-muted line-through">{formatearMonto(producto.precioCentavos, moneda)}</span>
         </p>
       )}
-    </li>
+    </div>
   );
 }

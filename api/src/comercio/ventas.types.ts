@@ -1,44 +1,16 @@
 import { Transform, Type } from 'class-transformer';
-import {
-  ArrayMaxSize,
-  ArrayMinSize,
-  IsArray,
-  IsBoolean,
-  IsIn,
-  IsInt,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Matches,
-  Max,
-  MaxLength,
-  Min,
-  ValidateNested,
-} from 'class-validator';
-import type { EventoVenta, ItemVenta, Message, Presupuesto, Venta } from '../generated/prisma/client.js';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import type { EventoVenta, ItemVenta, Message, Venta } from '../generated/prisma/client.js';
 import { MONEDAS, type Moneda } from './catalogo.rules.js';
 import { leerDatosDeVenta, leerEntrega, type DatoCliente, type Entrega } from './datos-cliente.rules.js';
 import {
   ATENCIONES,
+  estadoVisible,
+  ESTADOS_VENTA,
   LARGO_MAX_NOTA,
-  leerSolicitudDeVenta,
-  leerTipoVenta,
   type Atencion,
-  type SolicitudDeVenta,
-  type TipoVenta,
-} from './pedido-a-medida.rules.js';
-import {
-  CANTIDAD_MAX,
-  LARGO_MAX_CONCEPTO,
-  LARGO_MAX_NOTA_PRESUPUESTO,
-  LARGO_MAX_UNIDAD,
-  leerRenglones,
-  MAX_RENGLONES_PRESUPUESTO,
-  TIPOS_RENGLON,
-  TOTAL_MAX_CENTAVOS,
-  type RenglonPresupuesto,
-} from './presupuesto.rules.js';
-import { estadoVisible, ESTADOS_VENTA, MEDIOS_DE_PAGO, type EstadoVenta, type MedioDePago } from './ventas.rules.js';
+  type EstadoVenta,
+} from './ventas.rules.js';
 
 /** Lo que ve el dueño de una venta. Nunca los ids de Mercado Pago de la preferencia. */
 export type VentaPublica = Pick<
@@ -61,16 +33,12 @@ export type VentaPublica = Pick<
   | 'createdAt'
 > & {
   estado: EstadoVenta;
-  /** "stock" (del catálogo) | "a_medida" (se cotiza). */
-  tipo: TipoVenta;
   /** "humana" mientras lo atiende una persona y el asistente no contesta en ese chat. */
   atencion: Atencion;
   derivadaAt: Date | null;
   motivoDerivacion: string | null;
   detalleDerivacion: string | null;
   devueltaAt: Date | null;
-  /** Sólo a medida: lo que pidió el cliente. */
-  solicitud: SolicitudDeVenta | null;
   /** Si el pago vino por Mercado Pago, el número de operación (para buscarlo en su cuenta). */
   mpPaymentId: string | null;
   /** null si el comercio no hace envíos. */
@@ -82,7 +50,6 @@ export type VentaPublica = Pick<
       ItemVenta,
       | 'codigo'
       | 'nombreProducto'
-      | 'nombreVariante'
       | 'cantidad'
       | 'precioUnitarioCentavos'
       | 'subtotalCentavos'
@@ -97,13 +64,11 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
   return {
     id: venta.id,
     estado: estadoVisible(venta, ahora),
-    tipo: leerTipoVenta(venta.tipo),
     atencion: venta.atencion === 'humana' ? 'humana' : 'asistente',
     derivadaAt: venta.derivadaAt,
     motivoDerivacion: venta.motivoDerivacion,
     detalleDerivacion: venta.detalleDerivacion,
     devueltaAt: venta.devueltaAt,
-    solicitud: venta.tipo === 'a_medida' ? leerSolicitudDeVenta(venta.solicitud) : null,
     medioPago: venta.medioPago,
     formaPago: venta.formaPago,
     cuotas: venta.cuotas,
@@ -125,7 +90,6 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
     items: venta.items.map((item) => ({
       codigo: item.codigo,
       nombreProducto: item.nombreProducto,
-      nombreVariante: item.nombreVariante,
       cantidad: item.cantidad,
       precioUnitarioCentavos: item.precioUnitarioCentavos,
       subtotalCentavos: item.subtotalCentavos,
@@ -133,39 +97,6 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
       descuentoCentavos: item.descuentoCentavos,
       descuentoEtiqueta: item.descuentoEtiqueta,
     })),
-  };
-}
-
-/** Un presupuesto como lo ve el dueño (los renglones con su costo, aunque el cliente vea sólo el total). */
-export type PresupuestoPublico = Pick<
-  Presupuesto,
-  | 'id'
-  | 'version'
-  | 'origen'
-  | 'estado'
-  | 'totalCentavos'
-  | 'moneda'
-  | 'estimativo'
-  | 'detalleAlCliente'
-  | 'nota'
-  | 'enviadoAt'
-  | 'createdAt'
-> & { renglones: RenglonPresupuesto[] };
-
-export function aPresupuestoPublico(presupuesto: Presupuesto): PresupuestoPublico {
-  return {
-    id: presupuesto.id,
-    version: presupuesto.version,
-    origen: presupuesto.origen,
-    estado: presupuesto.estado,
-    totalCentavos: presupuesto.totalCentavos,
-    moneda: presupuesto.moneda,
-    estimativo: presupuesto.estimativo,
-    detalleAlCliente: presupuesto.detalleAlCliente,
-    nota: presupuesto.nota,
-    enviadoAt: presupuesto.enviadoAt,
-    createdAt: presupuesto.createdAt,
-    renglones: leerRenglones(presupuesto.renglones),
   };
 }
 
@@ -187,10 +118,9 @@ export function aMensajesPublicos(mensajes: Array<Pick<Message, 'role' | 'conten
   });
 }
 
-/** El detalle de un pedido: además de lo del listado, presupuestos, historial y conversación. */
+/** El detalle de un pedido: además de lo del listado, historial y conversación. */
 export type DetalleVentaPublica = VentaPublica & {
   notaDevolucion: string | null;
-  presupuestos: PresupuestoPublico[];
   eventos: Array<Pick<EventoVenta, 'tipo' | 'de' | 'a' | 'motivo' | 'autor' | 'createdAt'>>;
   mensajes: MensajePublico[];
 };
@@ -198,7 +128,6 @@ export type DetalleVentaPublica = VentaPublica & {
 export function aDetalleVentaPublica(
   venta: Venta & {
     items: ItemVenta[];
-    presupuestos: Presupuesto[];
     eventos: EventoVenta[];
     mensajes: Array<Pick<Message, 'role' | 'content' | 'createdAt'>>;
   },
@@ -207,78 +136,17 @@ export function aDetalleVentaPublica(
   return {
     ...aVentaPublica(venta, ahora),
     notaDevolucion: venta.notaDevolucion,
-    presupuestos: venta.presupuestos.map(aPresupuestoPublico),
     eventos: venta.eventos.map(({ tipo, de, a, motivo, autor, createdAt }) => ({ tipo, de, a, motivo, autor, createdAt })),
     mensajes: aMensajesPublicos(venta.mensajes),
   };
 }
 
-export class RenglonPresupuestoDto {
-  @IsString()
-  @MaxLength(LARGO_MAX_CONCEPTO)
-  concepto!: string;
-
-  @IsOptional()
-  @IsIn(TIPOS_RENGLON)
-  tipo?: (typeof TIPOS_RENGLON)[number];
-
-  @IsNumber({ allowNaN: false, allowInfinity: false })
-  @Min(0.001)
-  @Max(CANTIDAD_MAX)
-  cantidad!: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(LARGO_MAX_UNIDAD)
-  unidad?: string;
-
-  @IsInt()
-  @Min(0)
-  @Max(TOTAL_MAX_CENTAVOS)
-  precioUnitarioCentavos!: number;
-}
-
-/** Un presupuesto armado por el dueño en el panel (`POST /ventas/:id/presupuestos`). */
-export class PresupuestoDto {
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(MAX_RENGLONES_PRESUPUESTO)
-  @ValidateNested({ each: true })
-  @Type(() => RenglonPresupuestoDto)
-  renglones!: RenglonPresupuestoDto[];
-
-  @IsBoolean()
-  estimativo!: boolean;
-
-  @IsBoolean()
-  detalleAlCliente!: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(LARGO_MAX_NOTA_PRESUPUESTO)
-  nota?: string;
-
-  /** true: se manda al cliente en el mismo paso (si no, queda como borrador). */
-  @IsOptional()
-  @IsBoolean()
-  enviar?: boolean;
-}
-
-/** "Atender yo" (`humana: true`) o "Devolver al asistente" con una nota opcional. */
-export class AtencionDto {
-  @IsBoolean()
-  humana!: boolean;
-
+/** "Devolver al asistente", con una nota opcional. */
+export class DevolverDto {
   @IsOptional()
   @IsString()
   @MaxLength(LARGO_MAX_NOTA)
   nota?: string;
-}
-
-export class CobrarDto {
-  @IsOptional()
-  @IsIn(MEDIOS_DE_PAGO)
-  medioPago?: MedioDePago;
 }
 
 const DIA = /^\d{4}-\d{2}-\d{2}$/;

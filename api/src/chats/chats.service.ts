@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { catchError, distinctUntilChanged, EMPTY, from, interval, map, startWith, switchMap, type Observable } from 'rxjs';
 import { Limitador } from '../auth/limitador.js';
-import { ESTADOS_ABIERTOS } from '../comercio/pedido-a-medida.rules.js';
+import { ESTADOS_ABIERTOS } from '../comercio/ventas.rules.js';
 import { aMensajesPublicos } from '../comercio/ventas.types.js';
 import { telefonoDeJid } from '../comercio/ventas.rules.js';
 import { esConversacionDePrueba, jidDePrueba } from '../conversation/conversation.service.js';
@@ -250,16 +250,16 @@ export class ChatsService {
       this.prisma.venta.findMany({
         where: { conversationId: { in: ids }, dePrueba: false, estado: { in: [...ESTADOS_ABIERTOS] } },
         orderBy: { createdAt: 'desc' },
-        select: { conversationId: true, estado: true, tipo: true },
+        select: { conversationId: true, estado: true },
       }),
     ]);
     const ultimoDe = new Map(ultimos.map((fila) => [fila.conversationId, aMensajesPublicos([fila])[0] ?? null]));
     const turnoDe = new Map<string, { inicio: Date }>();
     for (const turno of turnos) if (!turnoDe.has(turno.conversationId)) turnoDe.set(turno.conversationId, { inicio: turno.inicio });
-    const pedidoDe = new Map<string, { estado: string; tipo: string }>();
+    const pedidoDe = new Map<string, { estado: string }>();
     for (const venta of ventas) {
       if (venta.conversationId && !pedidoDe.has(venta.conversationId)) {
-        pedidoDe.set(venta.conversationId, { estado: venta.estado, tipo: venta.tipo });
+        pedidoDe.set(venta.conversationId, { estado: venta.estado });
       }
     }
 

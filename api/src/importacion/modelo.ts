@@ -13,6 +13,10 @@ export const MAX_IMAGENES_OFRECIDAS = 6;
 /** Productos que se leen de un listado genérico y de uno de Mercado Libre. */
 export const MAX_PRODUCTOS_LISTADO_WEB = 20;
 export const MAX_PRODUCTOS_LISTADO_ML = 50;
+/** Variantes (talles, colores) que se leen de una página: cada una da un producto. */
+export const MAX_VARIANTES_PAGINA = 50;
+/** Largo del nombre de una variante, que se suma al del producto. */
+export const LARGO_VARIANTE = 60;
 
 export type FuenteImportacion = 'mercadolibre' | 'tiendamia' | 'web';
 
@@ -24,13 +28,7 @@ export type AvisoBorrador =
   | 'variantes_recortadas'
   | 'descripcion_recortada'
   | 'sin_descripcion'
-  | 'sin_imagen'
-  /** La página habla de hacerlo a medida o de cotizarlo: se sugiere cargarlo como producto a medida. */
-  | 'parece_a_medida';
-
-/** Cómo se vende lo importado: con precio y stock, o a medida (se cotiza). */
-export type TipoImportado = 'stock' | 'a_medida';
-export const TIPOS_IMPORTADO: readonly TipoImportado[] = ['stock', 'a_medida'];
+  | 'sin_imagen';
 
 /** Por qué un enlace no dio productos, en un código que la pantalla sabe explicar. */
 export type CodigoErrorImportacion =
@@ -78,18 +76,18 @@ export type ProductoExtraido = {
 /** Ya existe en el catálogo: por qué se lo considera el mismo. */
 export type DuplicadoDe = { motivo: 'origen' | 'codigo' | 'sku'; productoId: string; nombre: string };
 
-/** Lo que vuelve a la vista previa por cada producto encontrado. */
-export type BorradorProducto = Omit<ProductoExtraido, 'idExterno' | 'url' | 'seccion'> & {
+/**
+ * Lo que vuelve a la vista previa por cada producto encontrado. Un producto de
+ * la página con varias variantes llega como un borrador por variante.
+ */
+export type BorradorProducto = Omit<ProductoExtraido, 'idExterno' | 'url' | 'seccion' | 'variantes'> & {
+  /** null = la página no lo dice: lo carga el dueño. */
+  precioCentavos: number | null;
   claveOrigen: string;
   origenUrl: string;
   fuente: FuenteImportacion;
   codigoSugerido: string;
   duplicado: DuplicadoDe | null;
-  /**
-   * Cómo conviene cargarlo: de stock si la página trae precio, a medida si
-   * habla de cotizar o de medidas a pedido; null = el dueño lo tiene que elegir.
-   */
-  tipoSugerido: TipoImportado | null;
   /** Firma de { claveOrigen, origenUrl, imagenes }: la confirmación sólo acepta lo que salió de acá. */
   firma: string;
   emitidaAt: string;
@@ -112,8 +110,6 @@ export type ResultadoConfirmacion = {
     claveOrigen: string;
     estado: EstadoConfirmado;
     productoId?: string;
-    /** Con qué tipo quedó guardado, para mandar al editor que corresponde. */
-    tipo?: TipoImportado;
     /** Por qué se salteó o falló, en una frase para el dueño. */
     motivo?: string;
     foto: EstadoFoto;

@@ -1,6 +1,5 @@
 "use client";
 
-import { cn } from "@/lib/cn";
 import { formatearMonto } from "@/lib/productos";
 import { pesosCompactos, type Totales } from "@/lib/ventas";
 
@@ -21,10 +20,8 @@ function Tarjeta({ etiqueta, valor, detalle }: { etiqueta: string; valor: string
 
 /** La fila de números del período: lo cobrado manda, el resto lo acompaña. */
 export function KpiVentas({ totales, moneda = "ARS" }: { totales: Totales; moneda?: string }) {
-  // Lo que espera precio (productos a medida) sólo aparece si hay algo esperando.
-  const conCotizar = (totales.porCotizar ?? 0) > 0;
   return (
-    <div className={cn("grid grid-cols-2 gap-3", conCotizar ? "lg:grid-cols-5" : "lg:grid-cols-4")}>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Tarjeta etiqueta="Cobrado" valor={monto(totales.cobradoCentavos, moneda)} />
       <Tarjeta etiqueta="Ventas pagadas" valor={totales.pagadas.toLocaleString("es-AR")} />
       {/* Un promedio con centavos es precisión de más: va redondeado al peso. */}
@@ -37,14 +34,6 @@ export function KpiVentas({ totales, moneda = "ARS" }: { totales: Totales; moned
         valor={monto(totales.pendienteCentavos, moneda)}
         detalle={totales.pendientes === 1 ? "1 pedido por cobrar" : `${totales.pendientes} pedidos por cobrar`}
       />
-      {conCotizar && (
-        // Lo que espera precio no es plata todavía: va como cantidad, nunca como monto.
-        <Tarjeta
-          etiqueta="Para cotizar"
-          valor={(totales.porCotizar ?? 0).toLocaleString("es-AR")}
-          detalle={totales.porCotizar === 1 ? "pedido sin precio" : "pedidos sin precio"}
-        />
-      )}
     </div>
   );
 }

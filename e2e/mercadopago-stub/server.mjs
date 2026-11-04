@@ -6,8 +6,7 @@
 //   - POST /checkout/preferences crea el link de pago; GET /checkout/:id es una
 //     pantalla con un botón "Pagar" que aprueba el pago y dispara el webhook
 //     firmado (x-signature) al notification_url, igual que Mercado Pago;
-//     PUT /checkout/preferences/:id cambia el vencimiento (un pedido a medida
-//     recotizado vence el link anterior) y un link vencido ya no se paga;
+//     un link vencido ya no se paga;
 //   - GET /v1/payments/:id y /v1/payments/search para la conciliación;
 //   - la suscripción de Trato (preapproval): POST /preapproval la crea
 //     pendiente, GET/PUT /preapproval/:id la leen o la cancelan, y
@@ -194,17 +193,6 @@ const servidor = http.createServer(async (req, res) => {
     preferencias.set(id, { id, collectorId: token.userId, ...cuerpo });
     llamadas.push({ tipo: 'preferencia', id, external_reference: cuerpo.external_reference, items: cuerpo.items });
     return responder(res, 201, { id, init_point: `${URL_PUBLICA}/checkout/${id}`, collector_id: token.userId });
-  }
-
-  const actualizar = ruta.match(/^\/checkout\/preferences\/(pref-[\w-]+)$/);
-  if (req.method === 'PUT' && actualizar) {
-    const token = tokens.get(tokenDe(req));
-    const preferencia = preferencias.get(actualizar[1]);
-    if (!token || !preferencia || preferencia.collectorId !== token.userId) return responder(res, 404, { message: 'preference not found' });
-    const cuerpo = await leerCuerpo(req);
-    Object.assign(preferencia, cuerpo);
-    llamadas.push({ tipo: 'preferencia_actualizada', id: preferencia.id, expiration_date_to: cuerpo.expiration_date_to });
-    return responder(res, 200, { id: preferencia.id, init_point: `${URL_PUBLICA}/checkout/${preferencia.id}` });
   }
 
   const checkout = ruta.match(/^\/checkout\/(pref-[\w-]+)(\/pagar)?$/);

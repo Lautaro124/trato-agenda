@@ -1,5 +1,4 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   filaDeCobroManual,
@@ -11,8 +10,8 @@ import {
 export class CondicionesInvalidasError extends Error {}
 
 /**
- * Cuotas, descuento en efectivo y cobro sin link de un comercio (LAU-34):
- * /cuenta en la web.
+ * Descuento en efectivo y cobro sin link de un comercio (LAU-34): /cuenta en
+ * la web. Las cuotas son de cada producto (productos.service.ts).
  * Sólo para cuentas de ventas (409 si no); todo por `userId`.
  */
 @Injectable()
@@ -32,7 +31,7 @@ export class CondicionesPagoService {
   /** Sin `cobroManual` en la entrada (una pantalla vieja) se deja el que estaba. */
   async guardar(
     userId: string,
-    entrada: { planesCuotas: unknown; descuentoEfectivoPorcentaje: unknown; cobroManual?: unknown },
+    entrada: { descuentoEfectivoPorcentaje: unknown; cobroManual?: unknown },
   ): Promise<CondicionesPago> {
     await this.exigirVentas(userId);
     const cobroManual =
@@ -40,7 +39,6 @@ export class CondicionesPagoService {
     const resultado = normalizarCondiciones({ ...entrada, cobroManual });
     if ('error' in resultado) throw new CondicionesInvalidasError(resultado.error);
     const datos = {
-      planesCuotas: resultado.condiciones.planesCuotas as unknown as Prisma.InputJsonValue,
       descuentoEfectivoPorcentaje: resultado.condiciones.descuentoEfectivoPorcentaje,
       ...filaDeCobroManual(resultado.condiciones.cobroManual),
     };

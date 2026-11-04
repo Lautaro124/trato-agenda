@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { TextoConDatos } from "@/components/ui/TextoConDatos";
@@ -7,9 +8,6 @@ import { apiFetch } from "@/lib/api";
 import {
   guardarCondicionesPago,
   LARGO_MAX_MENSAJE_COBRO,
-  MAX_CUOTAS,
-  MAX_PLANES_CUOTAS,
-  MIN_CUOTAS,
   obtenerCondicionesPago,
   problemaDeCondiciones,
   VARIABLES_MENSAJE_COBRO,
@@ -32,7 +30,6 @@ type ModoBorrador = "chat" | CobroManual["modo"];
  * cambiar de opción no borra lo escrito.
  */
 type Borrador = {
-  planes: Array<{ cuotas: string; recargo: string }>;
   efectivo: string;
   cobro: { modo: ModoBorrador; alias: string; titular: string; mensaje: string };
 };
@@ -40,7 +37,6 @@ type Borrador = {
 function aBorrador(condiciones: CondicionesPago): Borrador {
   const cobro = condiciones.cobroManual;
   return {
-    planes: condiciones.planesCuotas.map((plan) => ({ cuotas: String(plan.cuotas), recargo: String(plan.recargoPorcentaje) })),
     efectivo: condiciones.descuentoEfectivoPorcentaje === null ? "" : String(condiciones.descuentoEfectivoPorcentaje),
     cobro: {
       modo: cobro?.modo ?? "chat",
@@ -71,20 +67,14 @@ const MODOS_COBRO: Array<{ valor: ModoBorrador; texto: string; detalle: string }
 function aCondiciones(borrador: Borrador): CondicionesPago {
   const numero = (texto: string) => (texto.trim() === "" ? Number.NaN : Number(texto));
   return {
-    planesCuotas: borrador.planes.map((plan) => ({
-      cuotas: numero(plan.cuotas),
-      // Un recargo vacío es "sin interés".
-      recargoPorcentaje: plan.recargo.trim() === "" ? 0 : numero(plan.recargo),
-    })),
     descuentoEfectivoPorcentaje: borrador.efectivo.trim() === "" ? null : numero(borrador.efectivo),
     cobroManual: aCobroManual(borrador.cobro),
   };
 }
 
 /**
- * Cómo puede pagar el cliente (LAU-34): planes de cuotas con su recargo, como
- * en Mercado Libre, y el descuento por pagar en efectivo. El asistente sólo
- * ofrece lo que esté acá.
+ * Cómo puede pagar el cliente (LAU-34): el descuento por pagar en efectivo y
+ * el cobro sin link. Las cuotas son de cada producto (EditorProducto).
  */
 export function SeccionFormasDePago() {
   const [guardado, setGuardado] = useState<CondicionesPago | null>(null);
@@ -110,8 +100,8 @@ export function SeccionFormasDePago() {
     <section id="formas-de-pago" aria-label="Formas de pago" className="scroll-mt-20 rounded-lg border border-line bg-card p-5">
       <h2 className="mb-2 font-display text-[15px] font-bold text-ink">Formas de pago</h2>
       <p className="mb-4 text-[13.5px] leading-[1.6] text-ink-secondary">
-        Las cuotas y el descuento en efectivo que ofrece tu asistente, y cómo cobra los pedidos sin link. Los totales los calcula Trato; si no cargás
-        cuotas ni descuento, no ofrece ninguno.
+        El descuento en efectivo que ofrece tu asistente y cómo cobra los pedidos sin link. Los totales los calcula
+        Trato.
       </p>
       {guardado ? (
         // Se monta con lo guardado: el editor toma su estado inicial una sola vez.
@@ -139,16 +129,9 @@ function Editor({
   const condiciones = aCondiciones(borrador);
   const problema = problemaDeCondiciones(condiciones);
   const hayCambios = huella(borrador) !== huella(aBorrador(guardado));
-  const haySinInteres = condiciones.planesCuotas.some((plan) => plan.recargoPorcentaje === 0);
 
   const cambiarCobro = (cambio: Partial<Borrador["cobro"]>) =>
     setBorrador((previo) => ({ ...previo, cobro: { ...previo.cobro, ...cambio } }));
-
-  const cambiarPlan = (indice: number, cambio: Partial<Borrador["planes"][number]>) =>
-    setBorrador((previo) => ({
-      ...previo,
-      planes: previo.planes.map((plan, i) => (i === indice ? { ...plan, ...cambio } : plan)),
-    }));
 
   const guardar = () => {
     if (problema) return;
@@ -172,67 +155,16 @@ function Editor({
   return (
     <>
       <h3 className="mb-2 text-[13.5px] font-semibold text-ink">Cuotas</h3>
-      {borrador.planes.length === 0 && <p className="mb-3 text-[13px] text-muted">No ofrecés pago en cuotas.</p>}
-      <ul className="mb-3 space-y-3">
-        {borrador.planes.map((plan, indice) => (
-          <li key={indice} className="grid grid-cols-[1fr_1fr_auto] items-end gap-3">
-            <div>
-              <label htmlFor={`plan-${indice}-cuotas`} className={LABEL}>
-                Cantidad de cuotas
-              </label>
-              <input
-                id={`plan-${indice}-cuotas`}
-                inputMode="numeric"
-                value={plan.cuotas}
-                placeholder="3"
-                onChange={(e) => cambiarPlan(indice, { cuotas: e.target.value })}
-                className={INPUT}
-              />
-            </div>
-            <div>
-              <label htmlFor={`plan-${indice}-recargo`} className={LABEL}>
-                Recargo (%)
-              </label>
-              <input
-                id={`plan-${indice}-recargo`}
-                inputMode="numeric"
-                value={plan.recargo}
-                placeholder="0 = sin interés"
-                onChange={(e) => cambiarPlan(indice, { recargo: e.target.value })}
-                className={INPUT}
-              />
-            </div>
-            <Button
-              variant="ghost"
-              size="md"
-              aria-label={`Quitar el plan ${indice + 1}`}
-              onClick={() => setBorrador((previo) => ({ ...previo, planes: previo.planes.filter((_, i) => i !== indice) }))}
-            >
-              Quitar
-            </Button>
-          </li>
-        ))}
-      </ul>
-      {borrador.planes.length < MAX_PLANES_CUOTAS && (
-        <Button
-          variant="secondary"
-          size="md"
-          onClick={() => setBorrador((previo) => ({ ...previo, planes: [...previo.planes, { cuotas: "", recargo: "0" }] }))}
-        >
-          Agregar plan de cuotas
-        </Button>
-      )}
-      <p className="mt-2 text-[12.5px] leading-[1.5] text-muted">
-        De {MIN_CUOTAS} a {MAX_CUOTAS} cuotas. El recargo se suma al total del pedido; con 0% es sin interés. Las
-        cuotas son sólo para pedidos en pesos.
+      <p className="text-[12.5px] leading-[1.5] text-muted">
+        Las cuotas se configuran en cada producto, en{" "}
+        <Link href="/productos" className="font-semibold text-primary-hover underline">
+          Productos
+        </Link>
+        : hasta cuántas, con un % de recargo o con un precio para cada una. Son sólo para productos en pesos.
+        {mpConectado
+          ? " Para que las cuotas sin interés no le cobren interés al cliente, activalas también en tu cuenta de Mercado Pago (el costo lo absorbés vos, como en Mercado Libre)."
+          : " Sin Mercado Pago conectado, las cuotas se coordinan por WhatsApp: tu asistente informa el total y vos cobrás."}
       </p>
-      {haySinInteres && (
-        <p className="mt-2 rounded-md bg-warning-subtle px-3 py-2 text-[12.5px] leading-[1.5] text-warning-text">
-          {mpConectado
-            ? "Para que las cuotas sin interés no le cobren interés al cliente, activalas también en tu cuenta de Mercado Pago (el costo lo absorbés vos, como en Mercado Libre)."
-            : "Sin Mercado Pago conectado, las cuotas se coordinan por WhatsApp: tu asistente informa el total y vos cobrás."}
-        </p>
-      )}
 
       <h3 className="mt-5 mb-2 text-[13.5px] font-semibold text-ink">Efectivo</h3>
       <div className="max-w-[220px]">

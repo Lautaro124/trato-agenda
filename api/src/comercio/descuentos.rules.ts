@@ -6,7 +6,7 @@
  * - Un descuento es de un producto (el de su formulario), de una categoría o
  *   de todo el catálogo; el alcance sale de `productoId` y `categoria`.
  * - Es un porcentaje (1 a PORCENTAJE_MAX) o un monto fijo en centavos.
- * - Si a una variante le tocan varios, se aplica el que más le descuenta al
+ * - Si a un producto le tocan varios, se aplica el que más le descuenta al
  *   cliente. Nunca se suman: no hay ninguna regla que diga que se acumulan.
  * - Un descuento que dejaría el precio en $ 0 (o menos) no aplica: Mercado
  *   Pago no cobra un ítem de precio cero, y regalar algo no es un descuento.
@@ -118,7 +118,7 @@ export function etiquetaDescuento(descuento: Pick<DescuentoParaAplicar, 'tipo' |
 }
 
 /**
- * El descuento que se aplica a una variante: de los vigentes que le tocan, el
+ * El descuento que se aplica a un producto: de los vigentes que le tocan, el
  * que más descuenta; a igual monto, el más específico (producto, categoría,
  * catálogo) y después el id, para que siempre gane el mismo. Null si ninguno.
  */
@@ -223,13 +223,15 @@ export function problemaDeDescuento(datos: {
 /** Productos con descuento propio que `ver_descuentos` lista enteros; el resto se cuenta. */
 export const MAX_DESCUENTOS_LISTADO = 20;
 
-/** Un producto activo con los precios de lista de sus variantes que tienen stock. */
+/** Un producto activo con su precio de lista. */
 export type ProductoParaDescuentos = {
   id: string;
   nombre: string;
   categoria: string | null;
   moneda?: string;
-  preciosConStock: number[];
+  precioCentavos: number;
+  /** Si hoy se puede comprar (hay stock, descontadas las reservas). */
+  conStock: boolean;
 };
 
 /** Una promo de catálogo o de categoría que hoy le toca a algo que se puede comprar. */
@@ -246,12 +248,9 @@ export type ProductoConDescuento = {
   nombre: string;
   /** Ausente = pesos. */
   moneda?: string;
-  /** Precio final de la variante con descuento más barata. */
+  /** Lo que se cobra, con el descuento. */
   precioFinalCentavos: number;
-  /** Precio de lista de esa misma variante. */
   precioListaCentavos: number;
-  /** true si las variantes con stock no cuestan todas lo mismo ("desde $X"). */
-  variosPrecios: boolean;
   aplicado: DescuentoAplicado;
 };
 
@@ -282,7 +281,7 @@ export function descuentosParaElCliente(
   productos: ProductoParaDescuentos[],
   ahora: Date = new Date(),
 ): DescuentosVigentes {
-  const conStock = productos.filter((producto) => producto.preciosConStock.length > 0);
+  const conStock = productos.filter((producto) => producto.conStock);
 
   const promociones = descuentos
     .filter(
@@ -292,7 +291,7 @@ export function descuentosParaElCliente(
         conStock.some(
           (producto) =>
             aplicaA(descuento, producto) &&
-            producto.preciosConStock.some((precio) => montoDeDescuento(descuento, precio) > 0),
+            montoDeDescuento(descuento, producto.precioCentavos) > 0,
         ),
     )
     .sort(
@@ -313,24 +312,15 @@ export function descuentosParaElCliente(
       (descuento) => descuento.productoId === producto.id && descuentoVigente(descuento, ahora),
     );
     if (!propio) return [];
-    const finales = producto.preciosConStock.map((precio) => ({
-      precio,
-      aplicado: mejorDescuento(descuentos, producto, precio, ahora),
-    }));
-    const conDescuento = finales
-      .filter((final): final is { precio: number; aplicado: DescuentoAplicado } => final.aplicado !== null)
-      .sort((a, b) => a.aplicado.precioFinalCentavos - b.aplicado.precioFinalCentavos);
-    if (conDescuento.length === 0) return [];
-    const [masBarata] = conDescuento;
-    const precioDe = (final: (typeof finales)[number]) => final.aplicado?.precioFinalCentavos ?? final.precio;
+    const aplicado = mejorDescuento(descuentos, producto, producto.precioCentavos, ahora);
+    if (!aplicado) return [];
     return [
       {
         nombre: producto.nombre,
         moneda: monedaDe(producto.moneda),
-        precioFinalCentavos: masBarata.aplicado.precioFinalCentavos,
-        precioListaCentavos: masBarata.precio,
-        variosPrecios: finales.some((final) => precioDe(final) !== precioDe(finales[0])),
-        aplicado: masBarata.aplicado,
+        precioFinalCentavos: aplicado.precioFinalCentavos,
+        precioListaCentavos: producto.precioCentavos,
+        aplicado,
       },
     ];
   });

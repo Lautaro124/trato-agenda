@@ -184,11 +184,13 @@ describe('problemaDeDescuento', () => {
 });
 
 describe('descuentosParaElCliente', () => {
-  const producto = (id: string, categoria: string | null, preciosConStock: number[]) => ({
+  /** `precio` null = sin stock. */
+  const producto = (id: string, categoria: string | null, precio: number | null) => ({
     id,
     nombre: `Producto ${id}`,
     categoria,
-    preciosConStock,
+    precioCentavos: precio ?? 100_000,
+    conStock: precio !== null,
   });
 
   it('lista las promos vigentes que tocan algo con stock, primero las de todo el catálogo', () => {
@@ -200,7 +202,7 @@ describe('descuentosParaElCliente', () => {
         descuento({ id: 'pausada', categoria: 'Mates', nombre: 'Pausada', activo: false }),
         descuento({ id: 'vencida', nombre: 'Vencida', hasta: finDeVigencia('2026-10-01') }),
       ],
-      [producto('p-mate', 'Mates', [1_000_000]), producto('p-termo', 'Termos', [])],
+      [producto('p-mate', 'Mates', 1_000_000), producto('p-termo', 'Termos', null)],
       AHORA,
     );
     expect(resultado.promociones).toEqual([
@@ -214,7 +216,7 @@ describe('descuentosParaElCliente', () => {
   it('una promo que dejaría todo en $ 0 no se ofrece', () => {
     const resultado = descuentosParaElCliente(
       [descuento({ id: 'todo', nombre: 'Regalo', tipo: 'monto', valor: 5_000_000 })],
-      [producto('p-mate', 'Mates', [1_000_000])],
+      [producto('p-mate', 'Mates', 1_000_000)],
       AHORA,
     );
     expect(hayDescuentosVigentes(resultado)).toBe(false);
@@ -228,9 +230,9 @@ describe('descuentosParaElCliente', () => {
         descuento({ id: 'propio-termo', productoId: 'p-termo', valor: 30 }),
       ],
       [
-        producto('p-mate', 'Mates', [1_500_000, 1_000_000]),
-        producto('p-termo', 'Termos', []),
-        producto('p-bombilla', null, [200_000]),
+        producto('p-mate', 'Mates', 1_000_000),
+        producto('p-termo', 'Termos', null),
+        producto('p-bombilla', null, 200_000),
       ],
       AHORA,
     );
@@ -239,7 +241,6 @@ describe('descuentosParaElCliente', () => {
       nombre: 'Producto p-mate',
       precioFinalCentavos: 800_000,
       precioListaCentavos: 1_000_000,
-      variosPrecios: true,
       aplicado: { descuentoId: 'todo', etiqueta: '20% off', nombre: 'Aniversario' },
     });
   });
@@ -247,14 +248,14 @@ describe('descuentosParaElCliente', () => {
   it('un descuento propio vencido no hace figurar al producto', () => {
     const resultado = descuentosParaElCliente(
       [descuento({ id: 'propio', productoId: 'p-mate', hasta: finDeVigencia('2026-10-01') })],
-      [producto('p-mate', 'Mates', [1_000_000])],
+      [producto('p-mate', 'Mates', 1_000_000)],
       AHORA,
     );
     expect(hayDescuentosVigentes(resultado)).toBe(false);
   });
 
   it(`lista hasta ${MAX_DESCUENTOS_LISTADO} productos y cuenta el resto`, () => {
-    const productos = Array.from({ length: MAX_DESCUENTOS_LISTADO + 3 }, (_, indice) => producto(`p${indice}`, null, [100_000]));
+    const productos = Array.from({ length: MAX_DESCUENTOS_LISTADO + 3 }, (_, indice) => producto(`p${indice}`, null, 100_000));
     const resultado = descuentosParaElCliente(
       productos.map((p) => descuento({ id: `d-${p.id}`, productoId: p.id })),
       productos,

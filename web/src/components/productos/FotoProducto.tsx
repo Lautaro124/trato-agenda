@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/cn";
 import {
   FORMATOS_FOTO,
   quitarImagenProducto,
@@ -34,11 +35,57 @@ export async function guardarConFoto(
 }
 
 const AYUDA_FOTO = "el asistente la manda si el cliente la pide";
+const FORMATO_INVALIDO = "La foto tiene que ser JPG, PNG o WebP.";
 
 /**
- * La foto que el asistente le manda al cliente (con stock, cuando la pide; a
- * pedido, sola al mostrar el producto). Con el
- * producto ya creado se sube y se quita al toque, sin esperar al "Guardar"
+ * El recuadro de la foto, que además acepta un archivo arrastrado encima. Es
+ * un atajo: el botón de elegir sigue siendo la vía principal, con teclado y
+ * lector de pantalla.
+ */
+function ZonaDeSoltar({
+  onArchivo,
+  deshabilitada = false,
+  children,
+}: Readonly<{ onArchivo: (archivo: File | undefined) => void; deshabilitada?: boolean; children: React.ReactNode }>) {
+  const [encima, setEncima] = useState(false);
+  const traeArchivos = (e: React.DragEvent) => !deshabilitada && e.dataTransfer.types.includes("Files");
+
+  return (
+    <div
+      onDragOver={(e) => {
+        if (!traeArchivos(e)) return;
+        e.preventDefault();
+        setEncima(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEncima(false);
+      }}
+      onDrop={(e) => {
+        setEncima(false);
+        if (!traeArchivos(e)) return;
+        e.preventDefault();
+        onArchivo(e.dataTransfer.files[0]);
+      }}
+      className={cn(
+        "relative flex flex-col gap-3 rounded-lg border p-4 transition-colors",
+        encima ? "border-dashed border-primary bg-primary-subtle" : "border-line",
+      )}
+    >
+      {children}
+      {encima && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-primary-subtle/90 text-[15px] font-bold text-[var(--color-primitive-coral-700)]"
+        >
+          Soltá la foto acá
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * La foto que el asistente le manda al cliente. Con el producto ya creado se sube y se quita al toque, sin esperar al "Guardar"
  * del formulario. En uno nuevo (todavía sin id) se elige igual y queda
  * pendiente: el editor la sube apenas guarda (`guardarConFoto`).
  */
@@ -48,7 +95,6 @@ export function FotoProducto({
   onCambio,
   pendiente,
   onPendiente,
-  ayuda = AYUDA_FOTO,
 }: Readonly<{
   productoId: string | null;
   imagenActualizada: string | null;
@@ -56,8 +102,6 @@ export function FotoProducto({
   /** La foto elegida en un producto que todavía no se guardó. */
   pendiente: File | null;
   onPendiente: (archivo: File | null) => void;
-  /** Cuándo la manda el asistente: de stock, si el cliente la pide; a medida, sola. */
-  ayuda?: string;
 }>) {
   const entrada = useRef<HTMLInputElement>(null);
   const [version, setVersion] = useState(imagenActualizada);
@@ -77,7 +121,7 @@ export function FotoProducto({
     };
   }, [productoId, recargasUso]);
 
-  if (!productoId) return <FotoPendiente archivo={pendiente} onCambio={onPendiente} ayuda={ayuda} />;
+  if (!productoId) return <FotoPendiente archivo={pendiente} onCambio={onPendiente} />;
 
   const cambiar = (accion: Promise<void>, nuevaVersion: string | null) => {
     setOcupado(true);
@@ -92,18 +136,27 @@ export function FotoProducto({
       .finally(() => setOcupado(false));
   };
 
+  const recibir = (archivo: File | undefined) => {
+    if (!archivo) return;
+    if (!FORMATOS_FOTO.split(",").includes(archivo.type)) {
+      setError(FORMATO_INVALIDO);
+      return;
+    }
+    cambiar(subirImagenProducto(productoId, archivo), new Date().toISOString());
+  };
+
   const alElegir = (e: React.ChangeEvent<HTMLInputElement>) => {
     const archivo = e.target.files?.[0];
     e.target.value = "";
-    if (archivo) cambiar(subirImagenProducto(productoId, archivo), new Date().toISOString());
+    recibir(archivo);
   };
 
   const sinLugar = !version && uso !== null && uso.usadas >= uso.maximo;
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-line p-4">
+    <ZonaDeSoltar onArchivo={recibir} deshabilitada={ocupado || sinLugar}>
       <p className="text-[13.5px] font-bold text-ink">
-        Foto <span className="font-normal text-muted">({ayuda})</span>
+        Foto <span className="font-normal text-muted">({AYUDA_FOTO})</span>
       </p>
       <div className="flex items-center gap-4">
         <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-md bg-sunken">
@@ -150,7 +203,7 @@ export function FotoProducto({
         </div>
       </div>
       <p className="text-[12px] text-muted">
-        JPG, PNG o WebP · una por producto
+        JPG, PNG o WebP · una por producto · podés arrastrarla acá
         {uso && ` · ${uso.usadas} de ${uso.maximo} fotos`}
       </p>
       {sinLugar && (
@@ -163,7 +216,7 @@ export function FotoProducto({
           {error}
         </p>
       )}
-    </div>
+    </ZonaDeSoltar>
   );
 }
 
@@ -171,8 +224,7 @@ export function FotoProducto({
 function FotoPendiente({
   archivo,
   onCambio,
-  ayuda,
-}: Readonly<{ archivo: File | null; onCambio: (archivo: File | null) => void; ayuda: string }>) {
+}: Readonly<{ archivo: File | null; onCambio: (archivo: File | null) => void }>) {
   const entrada = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const vista = useMemo(() => (archivo ? URL.createObjectURL(archivo) : null), [archivo]);
@@ -182,22 +234,26 @@ function FotoPendiente({
     return () => URL.revokeObjectURL(vista);
   }, [vista]);
 
-  const alElegir = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const elegido = e.target.files?.[0];
-    e.target.value = "";
+  const recibir = (elegido: File | undefined) => {
     if (!elegido) return;
     if (!FORMATOS_FOTO.split(",").includes(elegido.type)) {
-      setError("La foto tiene que ser JPG, PNG o WebP.");
+      setError(FORMATO_INVALIDO);
       return;
     }
     setError(null);
     onCambio(elegido);
   };
 
+  const alElegir = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const elegido = e.target.files?.[0];
+    e.target.value = "";
+    recibir(elegido);
+  };
+
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-line p-4">
+    <ZonaDeSoltar onArchivo={recibir}>
       <p className="text-[13.5px] font-bold text-ink">
-        Foto <span className="font-normal text-muted">({ayuda})</span>
+        Foto <span className="font-normal text-muted">({AYUDA_FOTO})</span>
       </p>
       <div className="flex items-center gap-4">
         <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-md bg-sunken">
@@ -227,12 +283,12 @@ function FotoPendiente({
           )}
         </div>
       </div>
-      <p className="text-[12px] text-muted">JPG, PNG o WebP · una por producto · se sube al guardar</p>
+      <p className="text-[12px] text-muted">JPG, PNG o WebP · una por producto · podés arrastrarla acá · se sube al guardar</p>
       {error && (
         <p role="alert" className="text-[12.5px] text-danger-text">
           {error}
         </p>
       )}
-    </div>
+    </ZonaDeSoltar>
   );
 }
