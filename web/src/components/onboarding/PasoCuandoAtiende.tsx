@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FilaInterruptor } from "@/components/ui/FilaInterruptor";
 import { conCorte, sinCorte, type SemanaState } from "@/app/contanos/useSemana";
 import { HORARIOS_TIPICOS, HORAS_ATENCION } from "@/lib/horario-atencion";
 import { cruzaMedianoche, DIAS_SEMANA, NOMBRE_DIA, type DiaEnPantalla, type SemanaEnPantalla } from "@/lib/local";
@@ -110,25 +111,12 @@ export function PasoCuandoAtiende({
 
   return (
     <div className="flex flex-col gap-5">
-      <label className="flex cursor-pointer items-center gap-3.5 rounded-md border border-line bg-page px-3.5 py-3">
-        <span className="flex flex-1 flex-col gap-0.5">
-          <span id="atender-siempre" className="text-[14px] font-semibold text-ink">
-            Atender todos los días, todo el día
-          </span>
-          <span id="atender-siempre-ayuda" className="text-[13px] leading-[1.5] text-ink-secondary">
-            {siempre ? "Contesta a cualquier hora, sin límite de horario." : "Apagado: elegí los días y el horario."}
-          </span>
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={siempre}
-          onChange={(e) => onSiempre(e.target.checked)}
-          aria-labelledby="atender-siempre"
-          aria-describedby="atender-siempre-ayuda"
-          className="relative h-7 w-12 flex-none cursor-pointer appearance-none rounded-full bg-line-strong transition-colors before:absolute before:top-[3px] before:left-[3px] before:size-[22px] before:rounded-full before:bg-card before:shadow-sm before:transition-[left] checked:bg-primary checked:before:left-[23px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-semantic-border-focus)]"
-        />
-      </label>
+      <FilaInterruptor
+        titulo="Atender todos los días, todo el día"
+        ayuda={siempre ? "Contesta a cualquier hora, sin límite de horario." : "Apagado: elegí los días y el horario."}
+        checked={siempre}
+        onChange={onSiempre}
+      />
 
       {!siempre && (
         <>
