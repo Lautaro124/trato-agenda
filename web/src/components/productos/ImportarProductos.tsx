@@ -104,7 +104,7 @@ export function ImportarProductos({ onCerrar, onImportado }: { onCerrar: () => v
         <div>
           <h2 className="font-display text-[18px] font-bold text-ink">Importar desde una planilla</h2>
           <p className="text-[13px] text-ink-secondary">
-            Una fila por variante (talle, color…). Las filas con el mismo código son el mismo producto. Si el código ya
+            Una fila por producto: un talle o un color distinto es otro producto, con su propio código. Si el código ya
             existe, se actualiza; lo que no está en la planilla no se toca. También podés subir el archivo de
             publicaciones que exportás de Mercado Libre, tal como viene.
           </p>

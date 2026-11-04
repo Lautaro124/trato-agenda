@@ -58,7 +58,7 @@ describe('CSV', () => {
             { etiqueta: 'Código postal', valor: '1414' },
             { etiqueta: 'Dirección', valor: '=Corrientes 1234; 2B' },
           ],
-          items: [{ cantidad: 2, nombreProducto: 'Mate', nombreVariante: '' }],
+          items: [{ cantidad: 2, nombreProducto: 'Mate' }],
         },
       ],
       new Date('2026-09-27T00:00:00Z'),

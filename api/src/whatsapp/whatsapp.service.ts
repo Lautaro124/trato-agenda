@@ -1,4 +1,4 @@
-import { tomarChat } from '../chats/atencion.js';
+import { chatEnAtencionHumana, guardarMensajeEnPausa, tomarChat } from '../chats/atencion.js';
 import {
   ConflictException,
   HttpException,
@@ -29,7 +29,6 @@ import { Observable, ReplaySubject, map } from 'rxjs';
 import { Limitador } from '../auth/limitador.js';
 import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
-import { PedidosAMedidaService } from '../comercio/pedidos-a-medida.service.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
@@ -206,7 +205,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly subscriptionService: SubscriptionService,
     private readonly imagenes: ImagenesService,
     private readonly notificaciones: NotificacionesService,
-    private readonly pedidos: PedidosAMedidaService,
     private readonly horarioAtencion: HorarioAtencionService,
   ) {
     this.baileysLogger = pino({
@@ -570,10 +568,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // marca leído, ni muestra "escribiendo…". El mensaje queda guardado para
     // que el dueño lo vea en Chats y el asistente al retomar. Va antes de la
     // suscripción y el horario: esas reglas frenan sólo al asistente.
-    if (await this.pedidos.enAtencionHumana(userId, remoteJid)) {
-      await this.pedidos
-        .guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'cliente')
-        .catch((error: unknown) =>
+    if (await chatEnAtencionHumana(this.prisma, userId, remoteJid)) {
+      await guardarMensajeEnPausa(this.prisma, userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA)).catch((error: unknown) =>
           this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
         );
       return;
@@ -795,9 +791,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * que las acompaña. Una que falla no corta nada: el texto sale igual.
    */
   private async enviarFotos(userId: string, sock: WASocket, remoteJid: string, imagenes: ImagenAEnviar[]): Promise<void> {
-    for (const { productoId, varianteId, leyenda } of imagenes) {
+    for (const { productoId, leyenda } of imagenes) {
       try {
-        const foto = await this.imagenes.paraEnviar(userId, productoId, varianteId);
+        const foto = await this.imagenes.paraEnviar(userId, productoId);
         if (!foto) continue;
         // Las del listado traen nombre y precio; las demás, el nombre de la base.
         await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: leyenda ?? foto.nombre });

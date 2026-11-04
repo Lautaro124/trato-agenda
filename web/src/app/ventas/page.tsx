@@ -203,7 +203,7 @@ function Historico() {
     };
   }, [recargas]);
 
-  /** El listado trae lo justo: el detalle (presupuestos, historial, chat) se pide al abrirlo. */
+  /** El listado trae lo justo: el detalle (historial, chat) se pide al abrirlo. */
   const abrir = (venta: Venta) => {
     obtenerVenta(venta.id)
       .then(setAbierta)

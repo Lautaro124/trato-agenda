@@ -100,10 +100,7 @@ export function TablaProductos({ performance }: { performance: Performance }) {
                 <tr key={producto.productoId} className="border-b border-line last:border-b-0">
                   <th scope="row" className="max-w-[240px] px-3 py-2.5 text-left font-normal">
                     <span className="block truncate font-semibold">{producto.nombre}</span>
-                    <span className="text-[12px] text-muted">
-                      {producto.codigo}
-                      {producto.aMedida && " · a medida"}
-                    </span>
+                    <span className="text-[12px] text-muted">{producto.codigo}</span>
                   </th>
                   <td className={CELDA}>{producto.vieron.toLocaleString("es-AR")}</td>
                   <td className={CELDA}>{producto.pidieron.toLocaleString("es-AR")}</td>

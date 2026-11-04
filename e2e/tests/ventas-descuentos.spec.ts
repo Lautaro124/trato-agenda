@@ -10,7 +10,8 @@ test.describe('descuentos del asistente de ventas', () => {
       data: {
         codigo: 'MATE-DESC',
         nombre: 'Mate de calabaza',
-        variantes: [{ precioCentavos: 1_000_000, stock: 5 }],
+        precioCentavos: 1_000_000,
+        stock: 5,
         descuento: { tipo: 'porcentaje', valor: 20 },
       },
     });
@@ -31,7 +32,8 @@ test.describe('descuentos del asistente de ventas', () => {
       data: {
         codigo: 'MATE-OFERTA',
         nombre: 'Mate de calabaza',
-        variantes: [{ precioCentavos: 1_000_000, stock: 5 }],
+        precioCentavos: 1_000_000,
+        stock: 5,
         descuento: { tipo: 'porcentaje', valor: 20 },
       },
     });

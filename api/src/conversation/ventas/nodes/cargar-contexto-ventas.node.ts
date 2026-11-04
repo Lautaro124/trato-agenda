@@ -14,8 +14,7 @@ import { pistaDeEmoji, reglasDeNaturalidad } from '../../graph/naturalidad.js';
 import { bloqueDeSaludo, memoriaDelCliente, yaSePresento } from '../../graph/saludo.js';
 import type { AgentConUser } from '../../graph/state.js';
 import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-historial.js';
-import { Prisma, type Agent, type Conversation } from '../../../generated/prisma/client.js';
-import type { PedidoAMedida } from '../../../comercio/pedidos-a-medida.service.js';
+import type { Agent, Conversation } from '../../../generated/prisma/client.js';
 import { bloqueAtencionHumana, ultimaAtencionHumana } from '../../graph/atencion-humana.js';
 import {
   bloqueCatalogo,
@@ -41,9 +40,6 @@ export type DepsContextoVentas = {
 
 const logger = new Logger('CargarContextoVentasNode');
 
-/** Pedidos a medida que entran al contexto: los abiertos más los últimos cerrados. */
-const PEDIDOS_A_MEDIDA_EN_CONTEXTO = 5;
-
 /**
  * Si el cliente ya eligió todo o sigue definiendo, según Jev. Sólo hace falta
  * cuando el comercio pide datos; null (sin Jev, primer mensaje o falla) deja
@@ -67,16 +63,12 @@ async function etapaDeCompra(
   }
 }
 
-/**
- * En ventas sí hay a quién derivar: derivar_consulta le avisa al dueño, y en
- * un pedido a medida derivar_a_persona le pasa el chat a alguien del equipo.
- */
-function naturalidadVentas(agent: Agent, aMedida: boolean): string {
+/** En ventas sí hay a quién derivar: derivar_consulta le avisa al dueño. */
+function naturalidadVentas(agent: Agent): string {
   const titular = agent.nombreTitular || 'este negocio';
   return reglasDeNaturalidad(
     titular,
-    'que si prefiere hablar con alguien del equipo, se lo pasás con derivar_consulta y le escribimos por este chat' +
-      (aMedida ? ' (si es por un pedido a medida, con derivar_a_persona, y sigue esa persona por este chat)' : ''),
+    'que si prefiere hablar con alguien del equipo, se lo pasás con derivar_consulta y le escribimos por este chat',
   );
 }
 
@@ -89,8 +81,6 @@ export function contextoFijoVentas(
     yaSePresento: boolean;
     etapa?: EtapaDeCompra | null;
     pistaEmoji?: string;
-    /** La cuenta tiene algún producto a medida: suma sus reglas. */
-    aMedida?: boolean;
   },
   ahora: Date = new Date(),
 ): string {
@@ -99,11 +89,10 @@ export function contextoFijoVentas(
   );
   const base = `Fecha y hora actual: ${fecha} (zona horaria ${TIMEZONE}).`;
   const presentacion = bloqueDeSaludo(agent, opciones.yaSePresento);
-  const aMedida = opciones.aMedida ?? false;
   const reglas =
-    `${reglasDeVenta(agent, opciones.mpConectado, opciones.etapa ?? null, aMedida)}\n\n` +
-    `${reglasDeAlcanceVentas(agent, esPropietario, aMedida)}\n\n` +
-    `${reglasDeEstiloVentas(agent)}${opciones.pistaEmoji ?? ''}\n\n${naturalidadVentas(agent, aMedida)}${presentacion}`;
+    `${reglasDeVenta(agent, opciones.mpConectado, opciones.etapa ?? null)}\n\n` +
+    `${reglasDeAlcanceVentas(agent, esPropietario)}\n\n` +
+    `${reglasDeEstiloVentas(agent)}${opciones.pistaEmoji ?? ''}\n\n${naturalidadVentas(agent)}${presentacion}`;
 
   if (esPropietario) {
     return (
@@ -141,8 +130,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
     const ventanaMs = deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS;
-    const [grupos, totalProductos, productosAMedida, cuentaMp, pedidos, etapa, pedidosAMedida, devolucion, filaCondiciones] =
-      await Promise.all([
+    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones] = await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
         where: { userId: state.ownerUserId, activo: true, categoria: { not: null } },
@@ -150,24 +138,14 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
         orderBy: { _count: { categoria: 'desc' } },
       }),
       deps.prisma.producto.count({ where: { userId: state.ownerUserId, activo: true } }),
-      // Una misma cuenta vende de stock y a medida: las reglas y herramientas de a medida, sólo si tiene alguno.
-      deps.prisma.producto.count({
-        where: { userId: state.ownerUserId, activo: true, solicitud: { not: Prisma.DbNull } },
-      }),
       deps.prisma.cuentaMercadoPago.findUnique({ where: { userId: state.ownerUserId }, select: { id: true } }),
       deps.prisma.venta.findMany({
-        where: { conversationId: conversation.id, tipo: 'stock' },
+        where: { conversationId: conversation.id },
         include: { items: true },
         orderBy: { createdAt: 'desc' },
         take: 3,
       }),
       etapaDeCompra(deps, agent, historial.visibles, conversation),
-      deps.prisma.venta.findMany({
-        where: { conversationId: conversation.id, tipo: 'a_medida' },
-        include: { items: true, presupuestos: { orderBy: { version: 'asc' } } },
-        orderBy: { createdAt: 'desc' },
-        take: PEDIDOS_A_MEDIDA_EN_CONTEXTO,
-      }) as Promise<PedidoAMedida[]>,
       ultimaAtencionHumana(deps.prisma, guardada, new Date(Date.now() - ventanaMs)),
       deps.prisma.condicionesPago.findUnique({ where: { userId: state.ownerUserId } }),
     ]);
@@ -175,8 +153,6 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     const condicionesPago = leerCondiciones(filaCondiciones);
     // El banco de pruebas del Home no cuenta para el módulo de performance.
     if (!state.esPropietario) await deps.registro?.tocarChat(state.ownerUserId, conversation.id, { etapaJev: etapa });
-    // Un pedido a medida en curso también cuenta: aunque el producto ya no esté, se puede aceptar o derivar.
-    const tieneAMedida = productosAMedida > 0 || pedidosAMedida.length > 0;
     const categorias = grupos.map((grupo) => ({ nombre: grupo.categoria as string, cantidad: grupo._count._all }));
 
     const atencionHumana = bloqueAtencionHumana(devolucion);
@@ -185,18 +161,15 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       conversation,
       mpConectado,
       condicionesPago,
-      pedidosAMedida,
-      tieneAMedida,
       bloqueSistema:
         `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, {
           mpConectado,
           yaSePresento: yaSePresento(historial.visibles),
           etapa,
           pistaEmoji: pistaDeEmoji(historial.visibles),
-          aMedida: tieneAMedida,
         })}\n\n` +
         `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n` +
-        `${bloquePedidos(agent, mpConectado, pedidos, new Date(), pedidosAMedida, tieneAMedida, condicionesPago)}` +
+        `${bloquePedidos(agent, mpConectado, pedidos, new Date(), condicionesPago)}` +
         (atencionHumana ? `\n\n${atencionHumana}` : ''),
     };
 

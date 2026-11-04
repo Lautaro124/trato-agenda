@@ -13,8 +13,6 @@ export const COLUMNAS = [
   "nombre",
   "descripcion",
   "categoria",
-  "variante",
-  "sku",
   "precio",
   "stock",
   "stock_minimo",
@@ -137,8 +135,6 @@ export const ETIQUETAS_COLUMNA: Record<string, string> = {
   nombre: "Nombre",
   descripcion: "Descripción",
   categoria: "Categoría",
-  variante: "Variante",
-  sku: "SKU",
   precio: "Precio",
   stock: "Stock",
   stock_minimo: "Stock mínimo",
@@ -192,7 +188,6 @@ export const ETIQUETAS_MERCADOLIBRE: Record<string, string> = {
   ...ETIQUETAS_COLUMNA,
   codigo: "Número de publicación",
   nombre: "Título",
-  variante: "Variantes",
   stock: "Stock en tu depósito",
 };
 
@@ -204,8 +199,10 @@ const ID_MERCADOLIBRE = /^M[A-Z]{2}\d{6,}$/;
  * columna (ITEM_ID, TITLE…) y las siguientes, títulos y ayudas hasta la
  * primera publicación. Esas filas se mandan vacías (la API las saltea) para
  * que el número de fila de cada error siga siendo el de la planilla. Cada
- * publicación (o variante) pasa a una fila de la plantilla: el número de
- * publicación es el código y el precio, el de promoción si lo tiene.
+ * publicación pasa a una fila de la plantilla: el número de publicación es el
+ * código y el precio, el de promoción si lo tiene. Una variante de una
+ * publicación es otro producto: su SKU (o la publicación y la variante) es el
+ * código, y el nombre lleva la variante.
  * Descripción y categoría no vienen y no se mandan, así no se pisan.
  */
 export function filasDeMercadoLibre(filas: unknown[][]): FilaPlanilla[] {
@@ -228,13 +225,13 @@ export function filasDeMercadoLibre(filas: unknown[][]): FilaPlanilla[] {
     if (i < primera) return {};
     const codigo = valor(fila, COLUMNAS_MERCADOLIBRE.codigo);
     const idVariante = valor(fila, COLUMNAS_MERCADOLIBRE.idVariante);
+    const variante = valor(fila, COLUMNAS_MERCADOLIBRE.variante);
+    const titulo = valor(fila, COLUMNAS_MERCADOLIBRE.nombre);
     // El SKU del vendedor si lo cargó; si no, uno estable que sale de la publicación y la variante.
-    const sku = (columnaSku && valor(fila, columnaSku)) || (idVariante ? `${codigo}-${idVariante}` : codigo);
+    const deVariante = codigo && idVariante ? (columnaSku && valor(fila, columnaSku)) || `${codigo}-${idVariante}` : "";
     return {
-      codigo,
-      nombre: valor(fila, COLUMNAS_MERCADOLIBRE.nombre),
-      variante: valor(fila, COLUMNAS_MERCADOLIBRE.variante),
-      sku: codigo ? sku : "",
+      codigo: deVariante || codigo,
+      nombre: variante ? `${titulo} – ${variante}`.slice(0, 120) : titulo,
       precio: valor(fila, COLUMNAS_MERCADOLIBRE.precioPromocion) || valor(fila, COLUMNAS_MERCADOLIBRE.precio),
       stock: valor(fila, COLUMNAS_MERCADOLIBRE.stock),
       moneda: valor(fila, COLUMNAS_MERCADOLIBRE.moneda),
@@ -282,10 +279,10 @@ export async function leerPlanilla(archivo: File): Promise<Planilla> {
 export function plantillaCsv(): string {
   const filas = [
     [...COLUMNAS],
-    ["REM-01", "Remera básica", "Algodón peinado, corte recto", "Remeras", "Talle M", "", "15000", "10", "2", "", "ARS"],
-    ["REM-01", "Remera básica", "Algodón peinado, corte recto", "Remeras", "Talle L", "", "15000", "4", "2", "", "ARS"],
-    ["MATE-01", "Mate de calabaza", "Curado, con virola de alpaca", "Mates", "", "", "8000", "", "", "si", ""],
-    ["AURI-01", "Auriculares inalámbricos", "Bluetooth, con estuche", "Tecnología", "", "", "25", "3", "", "", "USD"],
+    ["REM-01-M", "Remera básica talle M", "Algodón peinado, corte recto", "Remeras", "15000", "10", "2", "", "ARS"],
+    ["REM-01-L", "Remera básica talle L", "Algodón peinado, corte recto", "Remeras", "15000", "4", "2", "", "ARS"],
+    ["MATE-01", "Mate de calabaza", "Curado, con virola de alpaca", "Mates", "8000", "", "", "si", ""],
+    ["AURI-01", "Auriculares inalámbricos", "Bluetooth, con estuche", "Tecnología", "25", "3", "", "", "USD"],
   ];
   return (
     "\uFEFF" +

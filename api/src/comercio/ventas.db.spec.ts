@@ -7,7 +7,7 @@ import { RegistroPerformanceService } from '../performance/registro.service.js';
 import type { ConfigService } from '@nestjs/config';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
-import type { User } from '../generated/prisma/client.js';
+import { Prisma, type User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import type { SubscriptionService } from '../subscription/subscription.service.js';
@@ -18,9 +18,9 @@ import {
   type MercadoPagoClient,
 } from '../subscription/mercadopago.client.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
+import type { CuotasProducto } from './condiciones-pago.rules.js';
 import type { CuentaMercadoPagoService } from './cuenta-mercadopago.service.js';
-import { enAtencionHumana } from './pedido-a-medida.rules.js';
-import { MAX_PEDIDOS_PENDIENTES } from './ventas.rules.js';
+import { enAtencionHumana, MAX_PEDIDOS_PENDIENTES } from './ventas.rules.js';
 import { PedidoRechazadoError, VentasService } from './ventas.service.js';
 
 const config = { get: (clave: string) => (clave === 'API_PUBLIC_URL' ? 'https://api.test' : '') } as unknown as ConfigService<
@@ -48,7 +48,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     notificaciones.avisar.mock.calls.filter(([, aviso]) => (aviso as { tipo: string }).tipo === tipo);
   let ventas: VentasService;
 
-  const pedido = (items: Array<{ varianteId: string; cantidad: number }>, extra: Record<string, unknown> = {}) =>
+  const pedido = (items: Array<{ productoId: string; cantidad: number }>, extra: Record<string, unknown> = {}) =>
     ventas.crearPedido({
       userId: dueno.id,
       conversationId: null,
@@ -59,8 +59,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       ...extra,
     });
 
-  const stockDe = async (varianteId: string) =>
-    (await prisma.variante.findUniqueOrThrow({ where: { id: varianteId } })).stock;
+  const stockDe = async (productoId: string) =>
+    (await prisma.producto.findUniqueOrThrow({ where: { id: productoId } })).stock;
 
   beforeAll(async () => {
     prisma = crearPrismaDePrueba();
@@ -82,13 +82,14 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
           userId: dueno.id,
           codigo,
           nombre: `Producto ${codigo}`,
-          variantes: { create: [{ sku: codigo, precioCentavos, stock, stockMinimo }] },
+          precioCentavos,
+          stock,
+          stockMinimo,
         },
-        include: { variantes: true },
       });
-    mate = (await crear('MATE', 800_000, 1)).variantes[0].id;
-    termo = (await crear('TERMO', 4_500_050, 5, 3)).variantes[0].id;
-    sinControl = (await crear('BOMBILLA', 350_000, null)).variantes[0].id;
+    mate = (await crear('MATE', 800_000, 1)).id;
+    termo = (await crear('TERMO', 4_500_050, 5, 3)).id;
+    sinControl = (await crear('BOMBILLA', 350_000, null)).id;
     conversationId = (await prisma.conversation.create({ data: { userId: dueno.id, remoteJid: '5491122334455@s.whatsapp.net' } })).id;
   });
 
@@ -102,16 +103,16 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     await prisma.venta.deleteMany({ where: { userId: dueno.id } });
     await prisma.descuento.deleteMany({ where: { userId: dueno.id } });
     await prisma.condicionesPago.deleteMany({ where: { userId: dueno.id } });
-    await prisma.producto.updateMany({ where: { userId: dueno.id }, data: { cuotasMax: null } });
-    await prisma.variante.update({ where: { id: mate }, data: { stock: 1 } });
-    await prisma.variante.update({ where: { id: termo }, data: { stock: 5 } });
+    await prisma.producto.updateMany({ where: { userId: dueno.id }, data: { cuotas: Prisma.DbNull } });
+    await prisma.producto.update({ where: { id: mate }, data: { stock: 1 } });
+    await prisma.producto.update({ where: { id: termo }, data: { stock: 5 } });
   });
 
   it('crea el pedido con la foto de los productos, el total y la reserva', async () => {
     const venta = await pedido([
-      { varianteId: termo, cantidad: 2 },
-      { varianteId: sinControl, cantidad: 1 },
-      { varianteId: termo, cantidad: 1 },
+      { productoId: termo, cantidad: 2 },
+      { productoId: sinControl, cantidad: 1 },
+      { productoId: termo, cantidad: 1 },
     ]);
     expect(venta).toMatchObject({
       estado: 'pendiente_pago',
@@ -120,7 +121,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       telefonoCliente: '5491122334455',
       totalCentavos: 3 * 4_500_050 + 350_000,
     });
-    expect(venta.items.find((item) => item.varianteId === termo)).toMatchObject({
+    expect(venta.items.find((item) => item.productoId === termo)).toMatchObject({
       codigo: 'TERMO',
       cantidad: 3,
       precioUnitarioCentavos: 4_500_050,
@@ -129,15 +130,15 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     expect(avisosDeTipo('pedido_manual')).toEqual([[dueno.id, expect.objectContaining({ enlace: `/ventas?venta=${venta.id}` })]]);
     // Reservar no descuenta stock: eso pasa recién al pagar.
     expect(await stockDe(termo)).toBe(5);
-    expect(await ventas.reservadasPorVariante([termo])).toEqual(new Map([[termo, 3]]));
+    expect(await ventas.reservadasPorProducto([termo])).toEqual(new Map([[termo, 3]]));
   });
 
   it('guarda la entrega y los datos del cliente; sin datos la columna queda vacía', async () => {
-    const conDatos = await pedido([{ varianteId: sinControl, cantidad: 1 }], {
+    const conDatos = await pedido([{ productoId: sinControl, cantidad: 1 }], {
       entrega: 'envio',
       datosCliente: [{ etiqueta: 'Código postal', valor: '1414' }],
     });
-    const sinDatos = await pedido([{ varianteId: sinControl, cantidad: 1 }]);
+    const sinDatos = await pedido([{ productoId: sinControl, cantidad: 1 }]);
     expect(await prisma.venta.findUniqueOrThrow({ where: { id: conDatos.id } })).toMatchObject({
       entrega: 'envio',
       datosCliente: [{ etiqueta: 'Código postal', valor: '1414' }],
@@ -149,7 +150,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   });
 
   it('cobra con el mejor descuento vigente, sin sumarlos, y guarda la foto del precio de lista', async () => {
-    const productoTermo = (await prisma.variante.findUniqueOrThrow({ where: { id: termo } })).productoId;
+    const productoTermo = termo;
     await prisma.descuento.createMany({
       data: [
         // Termo: su 10% ($ 4.500,05) le gana a los $ 500 de todo el catálogo. La bombilla sólo tiene la promo.
@@ -160,17 +161,17 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       ],
     });
     const venta = await pedido([
-      { varianteId: termo, cantidad: 2 },
-      { varianteId: sinControl, cantidad: 1 },
+      { productoId: termo, cantidad: 2 },
+      { productoId: sinControl, cantidad: 1 },
     ]);
-    expect(venta.items.find((item) => item.varianteId === termo)).toMatchObject({
+    expect(venta.items.find((item) => item.productoId === termo)).toMatchObject({
       precioListaCentavos: 4_500_050,
       descuentoCentavos: 450_005,
       precioUnitarioCentavos: 4_050_045,
       subtotalCentavos: 2 * 4_050_045,
       descuentoEtiqueta: '10% off',
     });
-    expect(venta.items.find((item) => item.varianteId === sinControl)).toMatchObject({
+    expect(venta.items.find((item) => item.productoId === sinControl)).toMatchObject({
       precioListaCentavos: 350_000,
       precioUnitarioCentavos: 300_000,
       descuentoEtiqueta: '$ 500 off · Primera compra',
@@ -180,8 +181,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
   it('dos pedidos simultáneos por la última unidad: uno reserva y el otro se rechaza', async () => {
     const resultados = await Promise.allSettled([
-      pedido([{ varianteId: mate, cantidad: 1 }]),
-      pedido([{ varianteId: mate, cantidad: 1 }]),
+      pedido([{ productoId: mate, cantidad: 1 }]),
+      pedido([{ productoId: mate, cantidad: 1 }]),
     ]);
     expect(resultados.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     const rechazo = resultados.find((r) => r.status === 'rejected') as PromiseRejectedResult;
@@ -190,34 +191,33 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   });
 
   it('una reserva vencida ya no retiene stock', async () => {
-    await pedido([{ varianteId: mate, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
-    await expect(pedido([{ varianteId: mate, cantidad: 1 }])).resolves.toMatchObject({ estado: 'pendiente_pago' });
+    await pedido([{ productoId: mate, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
+    await expect(pedido([{ productoId: mate, cantidad: 1 }])).resolves.toMatchObject({ estado: 'pendiente_pago' });
   });
 
-  it('rechaza variantes de otro comercio o dadas de baja', async () => {
+  it('rechaza productos de otro comercio o dados de baja', async () => {
     const otro = await crearUsuarioDePrueba(prisma);
-    const ajena = await prisma.producto.create({
-      data: { userId: otro.id, codigo: 'X', nombre: 'Ajeno', variantes: { create: [{ sku: 'X', precioCentavos: 1, stock: 9 }] } },
-      include: { variantes: true },
+    const ajeno = await prisma.producto.create({
+      data: { userId: otro.id, codigo: 'X', nombre: 'Ajeno', precioCentavos: 1, stock: 9 },
     });
-    await expect(pedido([{ varianteId: ajena.variantes[0].id, cantidad: 1 }])).rejects.toThrow('ya no está en el catálogo');
+    await expect(pedido([{ productoId: ajeno.id, cantidad: 1 }])).rejects.toThrow('ya no está en el catálogo');
     await prisma.user.delete({ where: { id: otro.id } });
   });
 
   it(`una conversación no puede tener más de ${MAX_PEDIDOS_PENDIENTES} pedidos pendientes`, async () => {
     for (let i = 0; i < MAX_PEDIDOS_PENDIENTES; i++) {
-      await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      await pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId });
     }
-    await expect(pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId })).rejects.toThrow('pedidos sin pagar');
+    await expect(pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId })).rejects.toThrow('pedidos sin pagar');
     expect((await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId } })).nombreCliente).toBe('Juan');
   });
 
   it('pagar descuenta el stock una sola vez y avisa el stock bajo', async () => {
-    const venta = await pedido([{ varianteId: termo, cantidad: 2 }]);
+    const venta = await pedido([{ productoId: termo, cantidad: 2 }]);
 
     const primero = await ventas.marcarPagada(venta.id, { mpPaymentId: 'pago-1' });
     expect(primero).toMatchObject({ nueva: true, venta: { estado: 'pagada', mpPaymentId: 'pago-1', sinStockAlPagar: false } });
-    expect(primero?.stockBajo).toEqual([expect.objectContaining({ varianteId: termo, stock: 3 })]);
+    expect(primero?.stockBajo).toEqual([expect.objectContaining({ productoId: termo, stock: 3 })]);
     expect(await stockDe(termo)).toBe(3);
 
     const repetido = await ventas.marcarPagada(venta.id, { mpPaymentId: 'pago-1' });
@@ -226,8 +226,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   });
 
   it('si se paga con la reserva vencida y no hay stock, queda pagada y marcada', async () => {
-    const vieja = await pedido([{ varianteId: mate, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
-    const nueva = await pedido([{ varianteId: mate, cantidad: 1 }]);
+    const vieja = await pedido([{ productoId: mate, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
+    const nueva = await pedido([{ productoId: mate, cantidad: 1 }]);
     await ventas.marcarPagada(nueva.id);
 
     const resultado = await ventas.marcarPagada(vieja.id);
@@ -237,7 +237,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
   it('pedir por Mercado Pago sin cuenta conectada se rechaza sin reservar', async () => {
     cuentas.tokenDe.mockResolvedValue(null);
-    await expect(pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago' })).rejects.toThrow(
+    await expect(pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago' })).rejects.toThrow(
       'no conectó Mercado Pago',
     );
     expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(0);
@@ -247,7 +247,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
     mp.crearPreferencia.mockResolvedValue({ id: 'pref-1', init_point: 'https://mp/pagar' });
 
-    const venta = await pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago' });
+    const venta = await pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago' });
     expect(venta).toMatchObject({ mpPreferenceId: 'pref-1', linkPago: 'https://mp/pagar' });
     const [token, entrada] = mp.crearPreferencia.mock.calls[0];
     expect(token).toBe('TOKEN');
@@ -258,10 +258,10 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     });
 
     mp.crearPreferencia.mockRejectedValue(new MercadoPagoError('caído'));
-    await expect(pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago' })).rejects.toThrow(
+    await expect(pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago' })).rejects.toThrow(
       'No se pudo generar el link',
     );
-    expect(await ventas.reservadasPorVariante([termo])).toEqual(new Map([[termo, 1]]));
+    expect(await ventas.reservadasPorProducto([termo])).toEqual(new Map([[termo, 1]]));
   });
 
   it('un pedido en dólares se cobra a mano aunque haya Mercado Pago, y no se mezcla con uno en pesos', async () => {
@@ -271,23 +271,23 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
         codigo: 'AURI',
         nombre: 'Auriculares',
         moneda: 'USD',
-        variantes: { create: [{ sku: 'AURI', precioCentavos: 2_500, stock: 3 }] },
+        precioCentavos: 2_500,
+        stock: 3,
       },
-      include: { variantes: true },
     });
-    const varianteUsd = auriculares.variantes[0].id;
+    const productoUsd = auriculares.id;
     try {
       cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
 
-      const venta = await pedido([{ varianteId: varianteUsd, cantidad: 2 }], { medioPago: 'mercadopago' });
+      const venta = await pedido([{ productoId: productoUsd, cantidad: 2 }], { medioPago: 'mercadopago' });
       expect(venta).toMatchObject({ moneda: 'USD', medioPago: 'manual', totalCentavos: 5_000, linkPago: null });
       expect(mp.crearPreferencia).not.toHaveBeenCalled();
       expect(avisosDeTipo('pedido_manual')[0][1]).toMatchObject({ titulo: 'Pedido para cobrar: US$ 50' });
 
       await expect(
         pedido([
-          { varianteId: varianteUsd, cantidad: 1 },
-          { varianteId: termo, cantidad: 1 },
+          { productoId: productoUsd, cantidad: 1 },
+          { productoId: termo, cantidad: 1 },
         ]),
       ).rejects.toThrow('No se pueden mezclar productos en pesos y en dólares');
       expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(1);
@@ -300,7 +300,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   it('el webhook sólo marca pagada con un pago aprobado de esa venta por el monto exacto', async () => {
     cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
     mp.crearPreferencia.mockResolvedValue({ id: 'pref-2', init_point: 'https://mp/pagar' });
-    const venta = await pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago' });
+    const venta = await pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago' });
     const pago = { id: 555, status: 'approved', external_reference: venta.id, transaction_amount: 45000.5, currency_id: 'ARS' };
 
     mp.obtenerPago.mockResolvedValue({ ...pago, transaction_amount: 1 });
@@ -317,7 +317,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   it('si Mercado Pago rechaza el token del comercio, se desconecta y se le avisa', async () => {
     cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN-VIEJO', mpUserId: '777' });
     mp.crearPreferencia.mockRejectedValue(new MercadoPagoNoAutorizadoError('401'));
-    await expect(pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago' })).rejects.toThrow(
+    await expect(pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago' })).rejects.toThrow(
       'No se pudo generar el link',
     );
     expect(cuentas.desconectar).toHaveBeenCalledWith(dueno.id);
@@ -325,7 +325,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   });
 
   it('marcarla pagada a mano avisa el stock bajo pero no la venta', async () => {
-    const venta = await pedido([{ varianteId: termo, cantidad: 2 }]);
+    const venta = await pedido([{ productoId: termo, cantidad: 2 }]);
     notificaciones.avisar.mockClear();
     expect(await ventas.marcarPagadaPorElDueno(dueno.id, venta.id)).toMatchObject({ estado: 'pagada' });
     expect(avisosDeTipo('venta_pagada')).toHaveLength(0);
@@ -349,7 +349,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
     it('un pedido manual deja el chat en atención humana hasta que se paga, aunque venza la reserva', async () => {
       await configurar('transferencia');
-      const venta = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      const venta = await pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId });
       expect(venta).toMatchObject({ atencion: 'humana', motivoDerivacion: 'cobro_manual' });
       expect(await prisma.eventoVenta.count({ where: { ventaId: venta.id, tipo: 'derivacion', motivo: 'cobro_manual' } })).toBe(1);
       expect(avisosDeTipo('pedido_manual')[0][1]).toMatchObject({ cuerpo: expect.stringContaining('no contesta en ese chat') });
@@ -364,19 +364,19 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
     it('cancelarlo también le devuelve el chat al asistente', async () => {
       await configurar('transferencia');
-      const venta = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      const venta = await pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId });
       await prisma.venta.update({ where: { id: venta.id }, data: { estado: 'cancelada', canceladaAt: new Date() } });
       expect(await pausado(venta.id)).toBe(false);
     });
 
     it('sin cobro manual configurado, o con link de Mercado Pago, el asistente sigue', async () => {
-      const sinConfigurar = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId });
+      const sinConfigurar = await pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId });
       expect(sinConfigurar.atencion).toBe('asistente');
 
       await configurar('transferencia');
       cuentas.tokenDe.mockResolvedValue({ accessToken: 'tok', mpUserId: '1' });
       mp.crearPreferencia.mockResolvedValue({ id: 'pref', init_point: 'https://mp/pagar' });
-      const conLink = await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, medioPago: 'mercadopago' });
+      const conLink = await pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId, medioPago: 'mercadopago' });
       expect(conLink.atencion).toBe('asistente');
     });
   });
@@ -384,7 +384,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   it('la conciliación encuentra el pago aunque el webhook no haya llegado', async () => {
     cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
     mp.crearPreferencia.mockResolvedValue({ id: 'pref-3', init_point: 'https://mp/pagar' });
-    const venta = await pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago' });
+    const venta = await pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago' });
     mp.buscarPagos.mockResolvedValue([
       { id: 1, status: 'rejected', external_reference: venta.id, transaction_amount: 45000.5, currency_id: 'ARS' },
       { id: 2, status: 'approved', external_reference: venta.id, transaction_amount: 45000.5, currency_id: 'ARS' },
@@ -407,7 +407,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     const pedidoMp = async (extra: Record<string, unknown> = {}) => {
       cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
       mp.crearPreferencia.mockResolvedValue({ id: 'pref-aviso', init_point: 'https://mp/pagar' });
-      return pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago', conversationId, ...extra });
+      return pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago', conversationId, ...extra });
     };
 
     it('el webhook le avisa una sola vez, en el chat del pedido, aunque llegue repetido', async () => {
@@ -433,7 +433,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     });
 
     it('cuando el dueño lo marca pagado a mano, también', async () => {
-      const venta = await pedido([{ varianteId: termo, cantidad: 1 }], { conversationId });
+      const venta = await pedido([{ productoId: termo, cantidad: 1 }], { conversationId });
       await ventas.marcarPagadaPorElDueno(dueno.id, venta.id);
       expect(notificaciones.avisarAlCliente).toHaveBeenCalledWith(dueno.id, JID, expect.stringContaining('fue aprobado'));
     });
@@ -443,7 +443,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       mp.obtenerPago.mockResolvedValue(pagoDe(dePrueba.id, 902));
       await ventas.procesarPago('902', dePrueba.id);
 
-      const sinChat = await pedido([{ varianteId: termo, cantidad: 1 }]);
+      const sinChat = await pedido([{ productoId: termo, cantidad: 1 }]);
       await ventas.marcarPagadaPorElDueno(dueno.id, sinChat.id);
 
       expect(notificaciones.avisarAlCliente).not.toHaveBeenCalled();
@@ -464,7 +464,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
     const pedidoMp = async (extra: Record<string, unknown> = {}) => {
       cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
       mp.crearPreferencia.mockResolvedValue({ id: 'pref-recordatorio', init_point: 'https://mp/pagar' });
-      return pedido([{ varianteId: termo, cantidad: 1 }], { medioPago: 'mercadopago', conversationId, ahora: T, ...extra });
+      return pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago', conversationId, ahora: T, ...extra });
     };
 
     beforeEach(() => {
@@ -504,7 +504,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       const pagada = await pedidoMp();
       await ventas.marcarPagada(pagada.id);
       notificaciones.avisarAlCliente.mockClear();
-      await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, ahora: new Date(T.getTime() - 24 * 60 * 60_000 + 30 * 60_000) });
+      await pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId, ahora: new Date(T.getTime() - 24 * 60 * 60_000 + 30 * 60_000) });
       await pedidoMp({ dePrueba: true });
       await pedidoMp({ conversationId: null });
 
@@ -514,7 +514,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
     it('no le recuerda un pedido viejo si después pidió otro en el mismo chat', async () => {
       const vieja = await pedidoMp();
-      await pedido([{ varianteId: sinControl, cantidad: 1 }], { conversationId, ahora: enMinutos(5) });
+      await pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId, ahora: enMinutos(5) });
 
       expect(await ventas.recordarPagos(enMinutos(25))).toBe(0);
       expect((await prisma.venta.findUniqueOrThrow({ where: { id: vieja.id } })).recordatorioPagoAt).toBeNull();
@@ -551,12 +551,12 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   });
 
   it('vence las reservas pasadas de hora y cancela sólo lo que está sin pagar', async () => {
-    const vieja = await pedido([{ varianteId: sinControl, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
+    const vieja = await pedido([{ productoId: sinControl, cantidad: 1 }], { ahora: new Date(Date.now() - 25 * 60 * 60 * 1000) });
     // El barrido es global: en la base compartida puede vencer también reservas de otros specs.
     expect(await ventas.vencerReservas()).toBeGreaterThanOrEqual(1);
     expect((await prisma.venta.findUniqueOrThrow({ where: { id: vieja.id } })).estado).toBe('vencida');
 
-    const pagada = await pedido([{ varianteId: sinControl, cantidad: 1 }]);
+    const pagada = await pedido([{ productoId: sinControl, cantidad: 1 }]);
     await ventas.marcarPagada(pagada.id);
     expect(await ventas.cancelar(dueno.id, pagada.id)).toBeNull();
     expect(await ventas.cancelar(dueno.id, vieja.id)).toMatchObject({ estado: 'cancelada' });
@@ -564,16 +564,16 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
   describe('formas de pago (LAU-34)', () => {
     const condiciones = () =>
-      prisma.condicionesPago.create({
-        data: {
-          userId: dueno.id,
-          planesCuotas: [
-            { cuotas: 3, recargoPorcentaje: 0 },
-            { cuotas: 6, recargoPorcentaje: 15 },
-          ],
-          descuentoEfectivoPorcentaje: 10,
-        },
-      });
+      prisma.condicionesPago.create({ data: { userId: dueno.id, descuentoEfectivoPorcentaje: 10 } });
+    const conCuotas = (id: string, cuotas: CuotasProducto) => prisma.producto.update({ where: { id }, data: { cuotas } });
+    /** El termo sin control: $ 3.500 de lista; en 6 cuotas, $ 4.025 por unidad (15% más). */
+    const precioPorPlan: CuotasProducto = {
+      modo: 'precios',
+      planes: [
+        { cuotas: 3, totalCentavos: 350_000 },
+        { cuotas: 6, totalCentavos: 402_500 },
+      ],
+    };
 
     it('en efectivo aplica el descuento, lo deja a cobrar a mano y no lo suma a una promo mejor', async () => {
       await condiciones();
@@ -583,8 +583,8 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
       const venta = await pedido(
         [
-          { varianteId: mate, cantidad: 1 },
-          { varianteId: sinControl, cantidad: 1 },
+          { productoId: mate, cantidad: 1 },
+          { productoId: sinControl, cantidad: 1 },
         ],
         { medioPago: 'mercadopago', formaPago: 'efectivo' },
       );
@@ -595,18 +595,18 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
 
     it('el descuento en efectivo no se aplica con otro medio', async () => {
       await condiciones();
-      const venta = await pedido([{ varianteId: sinControl, cantidad: 2 }]);
+      const venta = await pedido([{ productoId: sinControl, cantidad: 2 }]);
       expect(venta).toMatchObject({ formaPago: null, totalCentavos: 700_000 });
       expect(venta.items[0].descuentoCentavos).toBe(0);
-      const enEfectivo = await pedido([{ varianteId: sinControl, cantidad: 2 }], { formaPago: 'efectivo' });
+      const enEfectivo = await pedido([{ productoId: sinControl, cantidad: 2 }], { formaPago: 'efectivo' });
       expect(enEfectivo.totalCentavos).toBe(630_000);
     });
 
-    it('en cuotas suma el recargo al total y al link, con el tope de cuotas', async () => {
-      await condiciones();
+    it('en cuotas con recargo lo suma al total y al link', async () => {
+      await conCuotas(sinControl, { modo: 'recargo', recargoPorcentaje: 15, planes: [3, 6] });
       cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
       mp.crearPreferencia.mockResolvedValue({ id: 'pref-1', init_point: 'https://mp/pagar' });
-      const venta = await pedido([{ varianteId: sinControl, cantidad: 2 }], {
+      const venta = await pedido([{ productoId: sinControl, cantidad: 2 }], {
         medioPago: 'mercadopago',
         formaPago: 'cuotas',
         cuotas: 6,
@@ -621,63 +621,73 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       expect(suma).toBe(805_000);
     });
 
-    it('sin plan configurado o en dólares rechaza el pedido en cuotas', async () => {
-      await expect(pedido([{ varianteId: sinControl, cantidad: 1 }], { formaPago: 'cuotas', cuotas: 3 })).rejects.toThrow(
-        PedidoRechazadoError,
+    it('con precio por plan cobra ese total aunque haya una promo', async () => {
+      await conCuotas(sinControl, precioPorPlan);
+      await prisma.descuento.create({
+        data: { userId: dueno.id, nombre: 'Termos', tipo: 'porcentaje', valor: 20, productoId: null, categoria: null },
+      });
+      const venta = await pedido([{ productoId: sinControl, cantidad: 1 }], { formaPago: 'cuotas', cuotas: 3 });
+      // El renglón queda con la promo ($ 2.800) y el plan completa hasta su total.
+      expect(venta.items[0].precioUnitarioCentavos).toBe(280_000);
+      expect(venta).toMatchObject({ recargoCentavos: 70_000, totalCentavos: 350_000 });
+    });
+
+    it('rechaza las cuotas de un producto en un pago, un plan que no tiene o un pedido en dólares', async () => {
+      await expect(pedido([{ productoId: sinControl, cantidad: 1 }], { formaPago: 'cuotas', cuotas: 3 })).rejects.toThrow(
+        'se vende en un pago',
       );
-      await condiciones();
-      await expect(pedido([{ varianteId: sinControl, cantidad: 1 }], { formaPago: 'cuotas', cuotas: 12 })).rejects.toThrow(
-        'Ese plan de cuotas no existe',
+      await conCuotas(sinControl, precioPorPlan);
+      await expect(pedido([{ productoId: sinControl, cantidad: 1 }], { formaPago: 'cuotas', cuotas: 12 })).rejects.toThrow(
+        'no hay plan de 12 cuotas',
       );
       expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(0);
     });
 
     it('cotiza cada forma de pago sin reservar nada', async () => {
       await condiciones();
-      const cotizacion = await ventas.cotizarFormasDePago(dueno.id, [{ varianteId: sinControl, cantidad: 2 }]);
+      await conCuotas(sinControl, precioPorPlan);
+      const cotizacion = await ventas.cotizarFormasDePago(dueno.id, [{ productoId: sinControl, cantidad: 2 }]);
       expect(cotizacion).toEqual({
         moneda: 'ARS',
         contadoCentavos: 700_000,
         efectivoCentavos: 630_000,
-        cuotasMax: null,
         planes: [
-          { cuotas: 3, recargoPorcentaje: 0, totalCentavos: 700_000, cuotaCentavos: 233_334 },
-          { cuotas: 6, recargoPorcentaje: 15, totalCentavos: 805_000, cuotaCentavos: 134_167 },
+          { cuotas: 3, recargoCentavos: 0, totalCentavos: 700_000, cuotaCentavos: 233_334 },
+          { cuotas: 6, recargoCentavos: 105_000, totalCentavos: 805_000, cuotaCentavos: 134_167 },
         ],
+        sinCuotas: null,
       });
       expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(0);
     });
 
-    it('con un producto de pocas cuotas manda su tope en la cotización y al reservar', async () => {
-      await condiciones();
-      await prisma.producto.updateMany({ where: { variantes: { some: { id: mate } } }, data: { cuotasMax: 3 } });
+    it('un pedido de varios productos sólo va en las cuotas que tienen todos', async () => {
+      await conCuotas(sinControl, precioPorPlan);
+      await conCuotas(mate, { modo: 'recargo', recargoPorcentaje: 0, planes: [3, 12] });
       const items = [
-        { varianteId: mate, cantidad: 1 },
-        { varianteId: sinControl, cantidad: 1 },
+        { productoId: mate, cantidad: 1 },
+        { productoId: sinControl, cantidad: 1 },
       ];
       const cotizacion = await ventas.cotizarFormasDePago(dueno.id, items);
-      expect(cotizacion.cuotasMax).toBe(3);
       expect(cotizacion.planes.map((plan) => plan.cuotas)).toEqual([3]);
-      await expect(pedido(items, { formaPago: 'cuotas', cuotas: 6 })).rejects.toThrow('el máximo es 3 cuotas');
+      await expect(pedido(items, { formaPago: 'cuotas', cuotas: 6 })).rejects.toThrow('Los que hay son de 3 cuotas');
       expect(await prisma.venta.count({ where: { userId: dueno.id } })).toBe(0);
       expect(await pedido(items, { formaPago: 'cuotas', cuotas: 3 })).toMatchObject({ cuotas: 3, recargoCentavos: 0 });
+
+      await prisma.producto.update({ where: { id: mate }, data: { cuotas: Prisma.DbNull } });
+      expect((await ventas.cotizarFormasDePago(dueno.id, items)).sinCuotas).toBe('sin_comun');
     });
 
-    it('en un pago con link no deja usar las cuotas sin interés de la cuenta de Mercado Pago', async () => {
+    it('en un pago con link no deja usar las cuotas de la cuenta de Mercado Pago', async () => {
       cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
       mp.crearPreferencia.mockResolvedValue({ id: 'pref-1', init_point: 'https://mp/pagar' });
-      // Sin planes ni tope: como antes de LAU-34, el link no limita las cuotas.
-      await pedido([{ varianteId: sinControl, cantidad: 1 }], { medioPago: 'mercadopago' });
-      expect(mp.crearPreferencia.mock.calls[0][1].maxCuotas).toBeUndefined();
-      // Con un producto de hasta 3 cuotas, el link también llega hasta 3.
-      await prisma.producto.updateMany({ where: { variantes: { some: { id: mate } } }, data: { cuotasMax: 3 } });
-      await pedido([{ varianteId: mate, cantidad: 1 }], { medioPago: 'mercadopago' });
-      expect(mp.crearPreferencia.mock.calls[1][1].maxCuotas).toBe(3);
-      // Con planes, las cuotas van por ellos: en un pago es en un pago.
-      await condiciones();
-      await pedido([{ varianteId: sinControl, cantidad: 1 }], { medioPago: 'mercadopago' });
-      expect(mp.crearPreferencia.mock.calls[2][1]).toMatchObject({ maxCuotas: 1 });
-      expect(mp.crearPreferencia.mock.calls[2][1].cuotas).toBeUndefined();
+      await pedido([{ productoId: sinControl, cantidad: 1 }], { medioPago: 'mercadopago' });
+      expect(mp.crearPreferencia.mock.calls[0][1]).toMatchObject({ maxCuotas: 1 });
+      // Aunque el producto tenga cuotas: van por su plan, con su recargo.
+      await conCuotas(sinControl, precioPorPlan);
+      await pedido([{ productoId: sinControl, cantidad: 1 }], { medioPago: 'mercadopago' });
+      expect(mp.crearPreferencia.mock.calls[1][1]).toMatchObject({ maxCuotas: 1 });
+      expect(mp.crearPreferencia.mock.calls[1][1].cuotas).toBeUndefined();
     });
+
   });
 });

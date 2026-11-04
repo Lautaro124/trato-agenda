@@ -20,38 +20,24 @@ export async function crearAgenteVentasPorApi(
   return { nombreTitular };
 }
 
-/**
- * Desde /productos, "Nuevo producto" y el tipo: devuelve el formulario de su
- * pantalla (/productos/nuevo/stock o /productos/nuevo/a-medida).
- */
-export async function nuevoProducto(page: Page, tipo: 'stock' | 'a-medida') {
+/** Desde /productos, "Nuevo producto": devuelve el formulario de alta (/productos/nuevo). */
+export async function nuevoProducto(page: Page) {
   await page.getByRole('link', { name: 'Nuevo producto', exact: true }).click();
-  await expect(page.getByRole('heading', { level: 1, name: '¿Qué querés cargar?' })).toBeVisible();
-  await page.getByRole('link', { name: tipo === 'stock' ? /^De stock/ : /^A medida/ }).click();
-  await page.waitForURL(`**/productos/nuevo/${tipo}`);
-  return page.getByRole('form', { name: tipo === 'stock' ? 'Nuevo producto de stock' : 'Nuevo producto a medida' });
+  await page.waitForURL('**/productos/nuevo');
+  return page.getByRole('form', { name: 'Nuevo producto' });
 }
 
-export type VarianteE2E = { id: string; nombre: string; precioCentavos: number; stock: number | null; disponible: boolean };
-export type PreguntaSolicitudE2E = {
-  texto: string;
-  sobre: 'tiene' | 'solicita';
-  opciones: string[];
-  textoLibre: boolean;
-  obligatoria: boolean;
-};
 export type ProductoE2E = {
   id: string;
   codigo: string;
   nombre: string;
-  variantes: VarianteE2E[];
-  solicitud?: { preguntas: PreguntaSolicitudE2E[] } | null;
-  precioReferenciaCentavos?: number | null;
-  materiales?: string[];
+  precioCentavos: number;
+  stock: number | null;
+  disponible: boolean;
   imagenActualizada?: string | null;
 };
 
-/** Un producto de variante única, cargado por API. */
+/** Un producto cargado por API. */
 export async function crearProductoPorApi(
   request: APIRequestContext,
   datos: {
@@ -71,7 +57,8 @@ export async function crearProductoPorApi(
       ...(datos.moneda ? { moneda: datos.moneda } : {}),
       descripcion: datos.descripcion ?? '',
       ...(datos.categoria ? { categoria: datos.categoria } : {}),
-      variantes: [{ precioCentavos: datos.precioCentavos, stock: datos.stock ?? null }],
+      precioCentavos: datos.precioCentavos,
+      stock: datos.stock ?? null,
     },
   });
   expect(res.status(), await res.text()).toBe(201);

@@ -109,10 +109,10 @@ export function aDescuentoPublico(descuento: Descuento, moneda: string = 'ARS'):
   };
 }
 
-/** El descuento que le toca a una variante, como lo ven el panel y la prueba de búsqueda. */
-export type DescuentoDeVariante = Pick<DescuentoAplicado, 'alcance' | 'etiqueta' | 'nombre' | 'hastaDia' | 'descuentoCentavos'>;
+/** El descuento que le toca a un producto, como lo ven el panel y la prueba de búsqueda. */
+export type DescuentoDeProducto = Pick<DescuentoAplicado, 'alcance' | 'etiqueta' | 'nombre' | 'hastaDia' | 'descuentoCentavos'>;
 
-export function aDescuentoDeVariante(aplicado: DescuentoAplicado | null): DescuentoDeVariante | null {
+export function aDescuentoDeProducto(aplicado: DescuentoAplicado | null): DescuentoDeProducto | null {
   if (!aplicado) return null;
   return {
     alcance: aplicado.alcance,

@@ -93,7 +93,7 @@ function RielPasos({ ob }: { ob: Onboarding }) {
           <p className="text-[11px] font-bold tracking-[0.08em] text-muted uppercase">Después, desde tu panel</p>
           <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
             <span className="[&>svg]:size-[15px]">{ICONO_BOLSA}</span>
-            Cargar tus productos, de stock o a medida
+            Cargar tus productos
           </p>
           <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

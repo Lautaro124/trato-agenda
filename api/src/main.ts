@@ -12,7 +12,7 @@ import type { Env } from './config/env.js';
 
 /** Body máximo de `POST /productos/importar` (el resto queda en el default de 100kb). */
 const LIMITE_IMPORTACION = '6mb';
-/** Y de `POST /importacion/confirmar`: diez productos revisados con sus variantes. */
+/** Y de `POST /importacion/confirmar`: diez productos revisados. */
 const LIMITE_CONFIRMAR_IMPORTACION = '1mb';
 
 async function bootstrap() {

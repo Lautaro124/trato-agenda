@@ -13,7 +13,6 @@ import {
   parsearMoneda,
   parsearPrecio,
   formatearMonto,
-  skuPorDefecto,
   stockBajo,
   textoBusquedaDe,
   unidadesDisponibles,
@@ -30,30 +29,20 @@ describe('normalizarTexto', () => {
 });
 
 describe('textoBusquedaDe', () => {
-  it('junta nombre, categoría, descripción, código y variantes normalizados', () => {
+  it('junta nombre, categoría, descripción y código normalizados', () => {
     const texto = textoBusquedaDe({
       codigo: 'REM-01',
       nombre: 'Remera Básica',
       descripcion: 'Algodón peinado',
       categoria: 'Remeras',
-      variantes: [
-        { sku: 'REM-01-M', nombre: 'Talle M' },
-        { sku: 'REM-01-L', nombre: '' },
-      ],
     });
-    expect(texto).toBe('remera basica | remeras | algodon peinado | rem-01 | talle m | rem-01-m | rem-01-l');
-  });
-
-  it('suma los materiales de un producto a medida', () => {
-    expect(
-      textoBusquedaDe({ codigo: 'PLAC', nombre: 'Placard', descripcion: '', categoria: null, variantes: [], materiales: ['Melamina', 'MDF'] }),
-    ).toBe('placard | plac | melamina | mdf');
+    expect(texto).toBe('remera basica | remeras | algodon peinado | rem-01');
   });
 
   it('omite la categoría y la descripción vacías', () => {
     expect(
-      textoBusquedaDe({ codigo: 'A1', nombre: 'Mate', descripcion: '', categoria: null, variantes: [{ sku: 'A1', nombre: '' }] }),
-    ).toBe('mate | a1 | a1');
+      textoBusquedaDe({ codigo: 'A1', nombre: 'Mate', descripcion: '', categoria: null }),
+    ).toBe('mate | a1');
   });
 });
 
@@ -79,7 +68,7 @@ describe('stock', () => {
     expect(hayStock({ ...sinControl, disponible: false })).toBe(false);
   });
 
-  it('una variante inactiva nunca tiene stock', () => {
+  it('un producto inactivo nunca tiene stock', () => {
     expect(hayStock({ ...conCantidad, activo: false })).toBe(false);
     expect(describirStock({ ...sinControl, activo: false })).toBe('sin stock');
   });
@@ -163,53 +152,37 @@ describe('normalizarColumna', () => {
   });
 });
 
-describe('skuPorDefecto', () => {
-  it('usa el código para la variante única y le suma la variante si hay', () => {
-    expect(skuPorDefecto('REM-01', '')).toBe('REM-01');
-    expect(skuPorDefecto('REM-01', 'Talle M / Rojo')).toBe('REM-01-talle-m-rojo');
-  });
-});
-
 describe('agruparFilasImportacion', () => {
   it('sin columna de descripción o categoría no las dice (no se pisan); vacías, sí', () => {
     const { productos } = agruparFilasImportacion([
-      { codigo: 'MLA1234567890', nombre: 'Sillón esquinero', variante: 'Gris', sku: 'MLA1234567890', precio: '651794.04', stock: '30', moneda: '$' },
+      { codigo: 'MLA1234567890', nombre: 'Sillón esquinero', precio: '651794.04', stock: '30', moneda: '$' },
       { codigo: 'MATE', nombre: 'Mate', descripcion: '', categoria: '', precio: '8000' },
     ]);
 
     expect(productos[0]).not.toHaveProperty('descripcion');
     expect(productos[0]).not.toHaveProperty('categoria');
-    expect(productos[0]).toMatchObject({ moneda: 'ARS', variantes: [{ sku: 'MLA1234567890', nombre: 'Gris', precioCentavos: 65_179_404, stock: 30 }] });
+    expect(productos[0]).toMatchObject({ moneda: 'ARS', precioCentavos: 65_179_404, stock: 30 });
     expect(productos[1]).toMatchObject({ descripcion: '', categoria: null });
   });
 
-  it('agrupa las variantes de un mismo código en un producto', () => {
+  it('cada fila es un producto con su precio y su stock', () => {
     const { productos, errores } = agruparFilasImportacion([
-      { Código: 'REM-01', Nombre: 'Remera', Categoría: 'Remeras', Variante: 'M', Precio: '15.000', Stock: '4' },
-      { Código: 'REM-01', Nombre: 'Otro nombre', Variante: 'L', Precio: '15.000', Stock: '' },
+      { Código: 'REM-01', Nombre: 'Remera', Categoría: 'Remeras', Precio: '15.000', Stock: '4' },
       { codigo: 'MATE', nombre: 'Mate de calabaza', precio: '8000', disponible: 'no' },
     ]);
 
     expect(errores).toEqual([]);
-    expect(productos).toHaveLength(2);
-    const [remera, mate] = productos;
-    expect(remera).toMatchObject({ codigo: 'REM-01', nombre: 'Remera', categoria: 'Remeras', filas: [1, 2] });
-    expect(remera.variantes).toEqual([
-      { sku: 'REM-01-m', nombre: 'M', precioCentavos: 1_500_000, stock: 4, stockMinimo: null, disponible: true },
-      { sku: 'REM-01-l', nombre: 'L', precioCentavos: 1_500_000, stock: null, stockMinimo: null, disponible: true },
-    ]);
-    expect(mate.variantes).toEqual([
-      { sku: 'MATE', nombre: '', precioCentavos: 800_000, stock: null, stockMinimo: null, disponible: false },
+    expect(productos).toEqual([
+      expect.objectContaining({ codigo: 'REM-01', nombre: 'Remera', categoria: 'Remeras', fila: 1, precioCentavos: 1_500_000, stock: 4, stockMinimo: null, disponible: true }),
+      expect.objectContaining({ codigo: 'MATE', fila: 2, precioCentavos: 800_000, stock: null, disponible: false }),
     ]);
   });
 
-  it('lee la moneda de la columna o del precio, y no deja mezclarlas en un producto', () => {
+  it('lee la moneda de la columna o del precio', () => {
     const { productos, errores } = agruparFilasImportacion([
       { codigo: 'A', nombre: 'Auriculares', precio: '25', moneda: 'USD' },
       { codigo: 'B', nombre: 'Bolso', precio: 'US$ 40' },
       { codigo: 'C', nombre: 'Cartera', precio: '1000' },
-      { codigo: 'D', nombre: 'Dron', variante: 'Chico', precio: '100', moneda: 'USD' },
-      { codigo: 'D', nombre: 'Dron', variante: 'Grande', precio: '200', moneda: 'ARS' },
       { codigo: 'E', nombre: 'Estuche', precio: '5', moneda: 'euros' },
     ]);
 
@@ -218,8 +191,7 @@ describe('agruparFilasImportacion', () => {
       ['B', 'USD'],
       ['C', undefined],
     ]);
-    expect(errores).toContainEqual(expect.objectContaining({ fila: 5, columna: 'moneda' }));
-    expect(errores).toContainEqual(expect.objectContaining({ fila: 6, columna: 'moneda' }));
+    expect(errores).toEqual([expect.objectContaining({ fila: 4, columna: 'moneda' })]);
   });
 
   it('ignora las filas vacías', () => {
@@ -231,20 +203,19 @@ describe('agruparFilasImportacion', () => {
     expect(productos).toHaveLength(1);
   });
 
-  it('reporta los errores por fila y descarta el producto entero', () => {
+  it('reporta los errores por fila y no importa esas filas', () => {
     const { productos, errores } = agruparFilasImportacion([
-      { codigo: 'REM', nombre: 'Remera', variante: 'M', precio: '100' },
-      { codigo: 'REM', nombre: 'Remera', variante: 'L', precio: 'caro' },
+      { codigo: 'REM', nombre: 'Remera', precio: 'caro' },
       { codigo: 'OK', nombre: 'Taza', precio: '50', stock: '-1' },
       { nombre: 'Sin código', precio: '10' },
+      { codigo: 'BIEN', nombre: 'Mate', precio: '10' },
     ]);
 
-    expect(productos).toEqual([]);
+    expect(productos.map((producto) => producto.codigo)).toEqual(['BIEN']);
     expect(errores).toEqual([
-      { fila: 1, mensaje: 'el producto REM no se importa porque otra de sus filas tiene errores' },
-      { fila: 2, columna: 'precio', mensaje: 'Precio inválido: «caro»' },
-      { fila: 3, columna: 'stock', mensaje: 'Tiene que ser un número entero (o vacío)' },
-      { fila: 4, columna: 'codigo', mensaje: 'Falta el código' },
+      { fila: 1, columna: 'precio', mensaje: 'Precio inválido: «caro»' },
+      { fila: 2, columna: 'stock', mensaje: 'Tiene que ser un número entero (o vacío)' },
+      { fila: 3, columna: 'codigo', mensaje: 'Falta el código' },
     ]);
   });
 
@@ -254,8 +225,8 @@ describe('agruparFilasImportacion', () => {
       { codigo: 'B', nombre: 'Otro', precio: '1234.5600000001' },
     ]);
     expect(errores).toEqual([]);
-    expect(productos[0].variantes[0]).toMatchObject({ precioCentavos: 1_500_000, stock: 10, stockMinimo: 1000 });
-    expect(productos[1].variantes[0].precioCentavos).toBe(123_456);
+    expect(productos[0]).toMatchObject({ precioCentavos: 1_500_000, stock: 10, stockMinimo: 1000 });
+    expect(productos[1].precioCentavos).toBe(123_456);
   });
 
   it('no adivina un stock con decimales', () => {
@@ -263,14 +234,17 @@ describe('agruparFilasImportacion', () => {
     expect(errores).toEqual([{ fila: 1, columna: 'stock', mensaje: 'Tiene que ser un número entero (o vacío)' }]);
   });
 
-  it('rechaza SKUs repetidos dentro del mismo producto', () => {
+  it('un código repetido no se adivina: no se importa ninguna de esas filas', () => {
     const { productos, errores } = agruparFilasImportacion([
-      { codigo: 'A', nombre: 'Algo', variante: 'M', sku: 'X', precio: '10' },
-      { codigo: 'A', nombre: 'Algo', variante: 'L', sku: 'X', precio: '10' },
+      { codigo: 'A', nombre: 'Algo', precio: '10' },
+      { codigo: 'A', nombre: 'Otra cosa', precio: '20' },
+      { codigo: 'B', nombre: 'Bien', precio: '30' },
     ]);
-    expect(productos).toEqual([]);
-    expect(errores[0]).toEqual({ fila: 1, mensaje: 'el producto A no se importa porque otra de sus filas tiene errores' });
-    expect(errores[1]).toEqual({ fila: 2, mensaje: 'SKU repetido en el producto A' });
+    expect(productos.map((producto) => producto.codigo)).toEqual(['B']);
+    expect(errores).toEqual([
+      { fila: 1, columna: 'codigo', mensaje: 'el código A está repetido en la planilla' },
+      { fila: 2, columna: 'codigo', mensaje: 'el código A está repetido en la planilla' },
+    ]);
   });
 });
 

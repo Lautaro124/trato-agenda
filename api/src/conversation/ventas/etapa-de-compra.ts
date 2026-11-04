@@ -1,9 +1,7 @@
 /**
  * En qué punto de la compra está el cliente, decidido por Jev y no por el
  * modelo de chat: con la regla de "cuando ya eligió todo", el modelo pedía
- * los datos de contacto y de envío apenas aparecía un producto, sobre todo
- * con productos a medida, donde todavía faltaba definir medidas o
- * terminación. Lo de acá es puro; la llamada la hace el nodo cargar_contexto.
+ * los datos de contacto y de envío apenas aparecía un producto. Lo de acá es puro; la llamada la hace el nodo cargar_contexto.
  */
 import type { BaseMessage } from '@langchain/core/messages';
 import type { EtapaDeCompra } from '../../comercio/datos-cliente.rules.js';

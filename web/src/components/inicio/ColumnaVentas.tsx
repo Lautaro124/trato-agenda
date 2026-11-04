@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { nombreDePlan, obtenerCondicionesPago, type CondicionesPago } from "@/lib/condiciones-pago";
+import { obtenerCondicionesPago, type CondicionesPago } from "@/lib/condiciones-pago";
 import { listarProductos } from "@/lib/productos";
 
 type WhatsappStatus = { linked: boolean };
@@ -38,14 +38,10 @@ export function ColumnaVentas() {
       .catch(() => setCondiciones(null));
   }, []);
 
-  const formasDePago = condiciones
-    ? [
-        ...condiciones.planesCuotas.map(nombreDePlan),
-        ...(condiciones.descuentoEfectivoPorcentaje === null
-          ? []
-          : [`${condiciones.descuentoEfectivoPorcentaje}% off en efectivo`]),
-      ]
-    : [];
+  const formasDePago =
+    condiciones && condiciones.descuentoEfectivoPorcentaje !== null
+      ? [`${condiciones.descuentoEfectivoPorcentaje}% off en efectivo`]
+      : [];
 
   const pasos: Paso[] = [
     {
@@ -69,11 +65,11 @@ export function ColumnaVentas() {
     },
     {
       hecho: formasDePago.length > 0,
-      titulo: "Definí cuotas y pago en efectivo",
+      titulo: "Definí el pago en efectivo",
       detalle:
         formasDePago.length > 0
           ? `Tu asistente ofrece: ${formasDePago.join(", ")}.`
-          : "Los planes de cuotas con su recargo y el descuento por pagar en efectivo. Sin esto, no ofrece ninguno.",
+          : "El descuento por pagar en efectivo. Las cuotas se configuran en cada producto.",
       href: "/cuenta#formas-de-pago",
       accion: formasDePago.length > 0 ? "Cambiar" : "Configurar",
     },

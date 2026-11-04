@@ -10,6 +10,7 @@ import { Limitador } from '../auth/limitador.js';
 import { MAX_BYTES_SUBIDA } from '../comercio/imagenes.rules.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
 import { ProductosService } from '../comercio/productos.service.js';
+import { LARGOS, normalizarTexto } from '../comercio/catalogo.rules.js';
 import type { Env } from '../config/env.js';
 import { resumenDeError } from '../agents/openrouter.client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -39,7 +40,6 @@ import {
   type ProductoExtraido,
   type ResultadoConfirmacion,
   type ResultadoExtraccion,
-  type TipoImportado,
 } from './modelo.js';
 import { leerSecciones, paginaParaIa, piezasDe } from './secciones.rules.js';
 import { revisarUrl } from './ssrf.rules.js';
@@ -97,10 +97,31 @@ function bloqueoDeMercadoLibre(error: unknown, motivo: string | null): unknown {
   return new ErrorDeImportacion('mercadolibre_no_disponible', `${motivo ?? 'sin_api'}+pagina_denegada`);
 }
 
-/** Cómo conviene cargar lo importado: con precio, de stock; si la página habla de cotizar, a medida; si no, lo elige el dueño. */
-function tipoSugerido(producto: ProductoExtraido): TipoImportado | null {
-  if (producto.avisos.includes('parece_a_medida')) return 'a_medida';
-  return producto.variantes.every((variante) => variante.precioCentavos !== null) ? 'stock' : null;
+/**
+ * Un producto de la página → uno por variante. Con una sola, queda igual; con
+ * varias, cada una lleva el nombre del producto y el suyo, y una clave de
+ * origen propia (la del producto más la variante) para reimportarla sin duplicar.
+ */
+function porVariante<T extends { producto: ProductoExtraido; clave: string }>(
+  encontrado: T,
+): Array<T & { sku: string | null; codigoPropio: string | null; precioCentavos: number | null }> {
+  const { producto } = encontrado;
+  if (producto.variantes.length <= 1) {
+    const [unica] = producto.variantes;
+    return [{ ...encontrado, sku: unica?.sku ?? null, codigoPropio: null, precioCentavos: unica?.precioCentavos ?? null }];
+  }
+  return producto.variantes.map((variante, indice) => {
+    const etiqueta = variante.nombre || variante.sku || `${indice + 1}`;
+    return {
+      ...encontrado,
+      producto: { ...producto, nombre: `${producto.nombre} – ${etiqueta}`.slice(0, LARGOS.nombre) },
+      clave: `${encontrado.clave}#${normalizarTexto(variante.sku || etiqueta).replace(/[^a-z0-9ñ]+/g, '-').slice(0, 60)}`,
+      sku: variante.sku,
+      // Separada, la variante se identifica por su SKU.
+      codigoPropio: variante.sku,
+      precioCentavos: variante.precioCentavos,
+    };
+  });
 }
 
 /** Corre `tarea` sobre cada elemento, de a `n` a la vez, en orden. */
@@ -385,6 +406,8 @@ export class ImportacionService {
   /**
    * Los productos encontrados → borradores para la vista previa: con su
    * clave de origen, un código libre, si ya está en el catálogo y la firma.
+   * Un producto con varias variantes en la página (talles, colores) da un
+   * borrador por variante: en el catálogo cada una es un producto.
    */
   private async borradores(userId: string, encontrados: Encontrado[]): Promise<BorradorProducto[]> {
     // El mismo producto dos veces (dos enlaces al mismo, o un listado que lo repite) va una sola.
@@ -397,47 +420,42 @@ export class ImportacionService {
       const origenUrl = seccion ? `${canonizarUrl(url)}#${seccion}` : canonizarUrl(url);
       if (!unicos.has(clave)) unicos.set(clave, { ...encontrado, clave, origenUrl });
     }
-    const lista = [...unicos.values()];
+    const lista = [...unicos.values()].flatMap(porVariante);
     if (lista.length === 0) return [];
 
-    const skus = lista.flatMap(({ producto }) => producto.variantes.map((variante) => variante.sku).filter((sku): sku is string => Boolean(sku)));
-    const [porOrigen, codigos, porSku] = await Promise.all([
+    const [porOrigen, codigos] = await Promise.all([
       this.prisma.producto.findMany({
         where: { userId, activo: true, origenId: { in: lista.map(({ clave }) => clave) } },
         select: { id: true, nombre: true, origenId: true, codigo: true },
       }),
       this.prisma.producto.findMany({ where: { userId }, select: { id: true, nombre: true, codigo: true, activo: true } }),
-      skus.length > 0
-        ? this.prisma.variante.findMany({
-            where: { activo: true, sku: { in: skus }, producto: { userId, activo: true } },
-            select: { sku: true, producto: { select: { id: true, nombre: true } } },
-          })
-        : Promise.resolve([]),
     ]);
     const usados = new Set(codigos.map((producto) => producto.codigo));
     const emitidaAt = new Date().toISOString();
     const clave = this.config.get('TOKEN_ENCRYPTION_KEY', { infer: true });
 
-    return lista.map(({ producto, fuente, clave: claveOrigen, origenUrl }) => {
+    return lista.map(({ producto, sku, codigoPropio, precioCentavos, fuente, clave: claveOrigen, origenUrl }) => {
       const mismoOrigen = porOrigen.find((existente) => existente.origenId === claveOrigen);
-      const sugerido = codigoSugerido(producto.nombre, producto.idExterno);
+      // Una variante separada no es la publicación entera: su id no la identifica.
+      const idPublicacion = producto.variantes.length > 1 ? null : producto.idExterno;
+      const sugerido = codigoPropio ?? codigoSugerido(producto.nombre, idPublicacion);
       // Un id de publicación es identidad: si ese código ya está, es el mismo producto. Un código armado
       // con el nombre, no: se busca uno libre.
-      const mismoCodigo = producto.idExterno ? codigos.find((existente) => existente.activo && existente.codigo === sugerido) : undefined;
-      const mismoSku = porSku.find((variante) => producto.variantes.some((propia) => propia.sku === variante.sku));
+      const mismoCodigo = idPublicacion ? codigos.find((existente) => existente.activo && existente.codigo === sugerido) : undefined;
+      const mismoSku = sku ? codigos.find((existente) => existente.activo && existente.codigo === sku) : undefined;
       const duplicado: DuplicadoDe | null = mismoOrigen
         ? { motivo: 'origen', productoId: mismoOrigen.id, nombre: mismoOrigen.nombre }
         : mismoCodigo
           ? { motivo: 'codigo', productoId: mismoCodigo.id, nombre: mismoCodigo.nombre }
           : mismoSku
-            ? { motivo: 'sku', productoId: mismoSku.producto.id, nombre: mismoSku.producto.nombre }
+            ? { motivo: 'sku', productoId: mismoSku.id, nombre: mismoSku.nombre }
             : null;
       const codigo = mismoOrigen?.codigo ?? (mismoCodigo ? sugerido : codigoLibre(sugerido, usados));
       usados.add(codigo);
-      const { idExterno: _id, url: _url, seccion: _seccion, ...resto } = producto;
+      const { idExterno: _id, url: _url, seccion: _seccion, variantes: _variantes, ...resto } = producto;
       return {
         ...resto,
-        tipoSugerido: tipoSugerido(producto),
+        precioCentavos,
         claveOrigen,
         origenUrl,
         fuente,
@@ -481,7 +499,6 @@ export class ImportacionService {
         resultados.push({
           claveOrigen: item.claveOrigen,
           ...guardado,
-          tipo: item.producto.tipo,
           foto: imagen ? await this.guardarFoto(userId, guardado.productoId, imagen) : 'sin_foto',
         });
       } catch (error) {

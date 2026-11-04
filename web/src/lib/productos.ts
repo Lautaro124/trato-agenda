@@ -1,25 +1,6 @@
+import type { CuotasProducto } from "./condiciones-pago";
 import { apiFetch } from "./api";
-import type { Descuento, DescuentoAGuardar, DescuentoDeVariante } from "./descuentos";
-import type { PoliticaCotizacion, Receta } from "./costos";
-import type { SolicitudADemanda } from "./solicitud";
-
-/** Espejo de `VariantePublica` en la API. Precio en centavos, como lo guarda la base. */
-export type Variante = {
-  id: string;
-  sku: string;
-  nombre: string;
-  precioCentavos: number;
-  /** null = el dueño no controla cantidad y vale `disponible`. */
-  stock: number | null;
-  disponible: boolean;
-  stockMinimo: number | null;
-  activo: boolean;
-  /** Lo que paga hoy el cliente, con el mejor descuento vigente. */
-  precioFinalCentavos: number;
-  descuento: DescuentoDeVariante | null;
-  /** Foto propia de una versión de precio fijo (producto a medida); null = sin foto. */
-  imagenActualizada: string | null;
-};
+import type { Descuento, DescuentoAGuardar, DescuentoDeProducto } from "./descuentos";
 
 /** Espejo de `ProductoPublico` en la API. */
 export type Producto = {
@@ -28,28 +9,28 @@ export type Producto = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
-  /** La moneda de los precios de todas sus variantes. */
+  /** La moneda de su precio. */
   moneda: Moneda;
   activo: boolean;
   updatedAt: string;
+  /** Precio en centavos, como lo guarda la base. */
+  precioCentavos: number;
+  /** null = el dueño no controla cantidad y vale `disponible`. */
+  stock: number | null;
+  disponible: boolean;
+  stockMinimo: number | null;
+  /** Lo que paga hoy el cliente, con el mejor descuento vigente. */
+  precioFinalCentavos: number;
+  /** El descuento que hoy le toca (el propio o una promo). */
+  descuentoAplicado: DescuentoDeProducto | null;
   /** true cuando el asistente ya lo encuentra también por significado. */
   indexado: boolean;
-  variantes: Variante[];
   /** El descuento propio del producto (vigente o no). */
   descuento: Descuento | null;
   /** Cuándo se subió la foto; null = sin foto. */
   imagenActualizada: string | null;
-  /** Las preguntas del producto a medida; null = no se hace a medida. */
-  solicitud: SolicitudADemanda | null;
-  /** Precio "desde" de un producto a medida, si el dueño puso uno. */
-  precioReferenciaCentavos: number | null;
-  /** Con qué materiales se hace el producto a medida ([] = no los cargó). */
-  materiales: string[];
-  /** Hasta cuántas cuotas se vende (1 = sólo en un pago; null = con todos los planes). */
-  cuotasMax: number | null;
-  /** La receta de cotización (null = no tiene: lo cotiza el dueño). */
-  receta: Receta | null;
-  politicaCotizacion: PoliticaCotizacion;
+  /** Las cuotas del producto; null = en un pago. */
+  cuotas: CuotasProducto | null;
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -62,7 +43,6 @@ export type ErrorDeFila = { fila: number; mensaje: string; columna?: string };
 export type ResumenImportacion = {
   nuevos: number;
   actualizados: number;
-  variantes: number;
   errores: ErrorDeFila[];
   totalErrores: number;
   confirmado: boolean;
@@ -77,65 +57,29 @@ export type ProductoEncontrado = {
   descripcion: string;
   /** Ausente = pesos. */
   moneda?: Moneda;
-  variantes: Array<{
-    varianteId: string;
-    sku: string;
-    nombre: string;
-    precioCentavos: number;
-    precioFinalCentavos: number;
-    descuento: DescuentoDeVariante | null;
-    hayStock: boolean;
-    stock: string;
-    /** Versión de precio fijo de un producto a medida con foto propia. */
-    tieneImagen?: boolean;
-  }>;
-  /** Producto a medida: se cotiza; sus variantes, si tiene, son versiones de precio fijo. */
-  aMedida?: boolean;
-  precioReferenciaCentavos?: number | null;
+  precioCentavos: number;
+  precioFinalCentavos: number;
+  descuento: DescuentoDeProducto | null;
+  hayStock: boolean;
+  stock: string;
 };
 
-type ProductoBaseAGuardar = {
+/** Body de alta/edición (`GuardarProductoDto`). */
+export type ProductoAGuardar = {
   codigo: string;
   nombre: string;
   descripcion: string;
   categoria: string | null;
-};
-
-/** Body de alta/edición en una cuenta con stock (`GuardarProductoDto`). */
-export type ProductoDeStockAGuardar = ProductoBaseAGuardar & {
   moneda: Moneda;
-  variantes: Array<{
-    sku?: string;
-    nombre: string;
-    precioCentavos: number;
-    stock: number | null;
-    disponible: boolean;
-    stockMinimo: number | null;
-  }>;
+  precioCentavos: number;
+  stock: number | null;
+  disponible: boolean;
+  stockMinimo: number | null;
   /** null lo borra. */
   descuento: DescuentoAGuardar | null;
-  /** Hasta cuántas cuotas se vende; null = con todos los planes de la cuenta. */
-  cuotasMax: number | null;
+  /** null = en un pago. */
+  cuotas: CuotasProducto | null;
 };
-
-/**
- * Body de un producto a medida: sin stock ni descuento. Sus
- * variantes son versiones de precio fijo que el cliente pide tal cual; el sku
- * de una ya guardada viaja para que siga siendo la misma (y conserve su foto).
- */
-export type ProductoAMedidaAGuardar = ProductoBaseAGuardar & {
-  variantes: Array<{ sku?: string; nombre: string; precioCentavos: number }>;
-  /** null = sin precio de referencia. */
-  precioReferenciaCentavos: number | null;
-  /** Las preguntas para hacer: pueden ser ninguna, pero la solicitud va siempre (es lo que lo hace a medida). */
-  solicitud: SolicitudADemanda;
-  materiales: string[];
-  /** null = sin receta. */
-  receta: Receta | null;
-  politicaCotizacion: PoliticaCotizacion;
-};
-
-export type ProductoAGuardar = ProductoDeStockAGuardar | ProductoAMedidaAGuardar;
 
 /** Error de la API con el mensaje que ya viene en español (409, 400). */
 export class ErrorDeApi extends Error {}
@@ -181,11 +125,12 @@ export function guardarProducto(producto: ProductoAGuardar, id?: string) {
   }).then((res) => json<Producto>(res));
 }
 
-export function actualizarVariante(
+/** La edición rápida de precio y stock desde la tarjeta del catálogo. */
+export function actualizarStock(
   id: string,
-  cambios: Partial<Pick<Variante, "precioCentavos" | "stock" | "disponible" | "stockMinimo">>,
+  cambios: Partial<Pick<Producto, "precioCentavos" | "stock" | "disponible" | "stockMinimo">>,
 ) {
-  return apiFetch(`/productos/variantes/${id}`, {
+  return apiFetch(`/productos/${encodeURIComponent(id)}/stock`, {
     method: "PATCH",
     headers: JSON_HEADERS,
     body: JSON.stringify(cambios),
@@ -253,14 +198,14 @@ export function unidades(cantidad: number): string {
 }
 
 /** "Sin stock", "Stock bajo", "12 unidades" o "Hay" — para la tabla del dueño, que sí ve cantidades. */
-export function etiquetaStock(variante: Pick<Variante, "stock" | "disponible" | "stockMinimo">): {
+export function etiquetaStock(producto: Pick<Producto, "stock" | "disponible" | "stockMinimo">): {
   texto: string;
   tono: "success" | "warning" | "danger";
 } {
-  if (variante.stock === null) {
-    return variante.disponible ? { texto: "Hay", tono: "success" } : { texto: "Sin stock", tono: "danger" };
+  if (producto.stock === null) {
+    return producto.disponible ? { texto: "Hay", tono: "success" } : { texto: "Sin stock", tono: "danger" };
   }
-  if (variante.stock === 0) return { texto: "Sin stock", tono: "danger" };
-  const bajo = variante.stockMinimo !== null && variante.stock <= variante.stockMinimo;
-  return bajo ? { texto: "Stock bajo", tono: "warning" } : { texto: unidades(variante.stock), tono: "success" };
+  if (producto.stock === 0) return { texto: "Sin stock", tono: "danger" };
+  const bajo = producto.stockMinimo !== null && producto.stock <= producto.stockMinimo;
+  return bajo ? { texto: "Stock bajo", tono: "warning" } : { texto: unidades(producto.stock), tono: "success" };
 }

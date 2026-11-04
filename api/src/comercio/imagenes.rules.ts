@@ -24,7 +24,7 @@ export const CALIDADES_JPEG = [75, 60, 45] as const;
 /** Peso máximo de lo que queda guardado. */
 export const MAX_BYTES_GUARDADA = 150 * 1024;
 
-/** Fotos por cuenta, entre las de productos y las de variantes fijas. Reemplazar una no suma. */
+/** Fotos por cuenta. Reemplazar una no suma. */
 export const MAX_IMAGENES_POR_CUENTA = 100;
 
 /** Fotos que el asistente puede mandar en una misma respuesta: tantas como productos muestra por mensaje. */

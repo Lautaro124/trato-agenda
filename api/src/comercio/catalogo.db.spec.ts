@@ -63,8 +63,8 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
     await productos.importar(
       dueno.id,
       [
-        { codigo: 'REM-01', nombre: 'Remera básica', categoria: 'Remeras', descripcion: 'Algodón peinado', variante: 'Talle M', precio: '15.000', stock: '4' },
-        { codigo: 'REM-01', nombre: 'Remera básica', variante: 'Talle L', precio: '15.000', stock: '0' },
+        { codigo: 'REM-01-M', nombre: 'Remera básica – Talle M', categoria: 'Remeras', descripcion: 'Algodón peinado', precio: '15.000', stock: '4' },
+        { codigo: 'REM-01-L', nombre: 'Remera básica – Talle L', categoria: 'Remeras', descripcion: 'Algodón peinado', precio: '15.000', stock: '0' },
         { codigo: 'MATE-01', nombre: 'Mate de calabaza', categoria: 'Mates', descripcion: 'Curado, con virola de alpaca', precio: '8.000' },
         { codigo: 'BOMB-01', nombre: 'Bombilla de acero', categoria: 'Mates', precio: '3.500', disponible: 'no' },
         { codigo: 'BUZO-01', nombre: 'Buzo canguro', categoria: 'Abrigo', descripcion: 'Frisa', precio: '32.000', stock: '2' },
@@ -85,21 +85,21 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
   describe('ABM e importación', () => {
     it('lista con paginado, filtro de categoría y búsqueda sin tildes', async () => {
       const todos = await productos.listar(dueno.id, {});
-      expect(todos.total).toBe(4);
-      expect(todos.productos.map((producto) => producto.codigo)).toEqual(['BOMB-01', 'BUZO-01', 'MATE-01', 'REM-01']);
+      expect(todos.total).toBe(5);
+      expect(todos.productos.map((producto) => producto.codigo)).toEqual(['BOMB-01', 'BUZO-01', 'MATE-01', 'REM-01-L', 'REM-01-M']);
 
       const mates = await productos.listar(dueno.id, { categoria: 'mates' });
       expect(mates.productos.map((producto) => producto.codigo)).toEqual(['BOMB-01', 'MATE-01']);
 
       const algodon = await productos.listar(dueno.id, { q: 'ALGODON' });
-      expect(algodon.productos.map((producto) => producto.codigo)).toEqual(['REM-01']);
+      expect(algodon.productos.map((producto) => producto.codigo)).toEqual(['REM-01-L', 'REM-01-M']);
     });
 
     it('agrupa categorías con su cantidad', async () => {
       expect(await productos.categorias(dueno.id)).toEqual([
         { nombre: 'Abrigo', cantidad: 1 },
         { nombre: 'Mates', cantidad: 2 },
-        { nombre: 'Remeras', cantidad: 1 },
+        { nombre: 'Remeras', cantidad: 2 },
       ]);
     });
 
@@ -113,27 +113,23 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
         ],
         false,
       );
-      expect(resumen).toMatchObject({ nuevos: 1, actualizados: 1, variantes: 2, totalErrores: 1, confirmado: false });
+      expect(resumen).toMatchObject({ nuevos: 1, actualizados: 1, totalErrores: 1, confirmado: false });
       expect((await productos.listar(dueno.id, { q: 'termo' })).total).toBe(0);
     });
 
-    it('re-importar actualiza por código y desactiva las variantes que ya no vienen', async () => {
+    it('re-importar actualiza por código el precio y el stock', async () => {
       await productos.importar(
         dueno.id,
-        [{ codigo: 'REM-01', nombre: 'Remera básica', categoria: 'Remeras', variante: 'Talle M', precio: '16.000', stock: '4' }],
+        [{ codigo: 'REM-01-M', nombre: 'Remera básica – Talle M', categoria: 'Remeras', precio: '16.000', stock: '4' }],
         true,
       );
-      const [remera] = (await productos.listar(dueno.id, { q: 'remera' })).productos;
-      expect(remera.variantes).toHaveLength(1);
-      expect(remera.variantes[0]).toMatchObject({ nombre: 'Talle M', precioCentavos: 1_600_000, stock: 4 });
+      const [remera] = (await productos.listar(dueno.id, { q: 'talle m' })).productos;
+      expect(remera).toMatchObject({ codigo: 'REM-01-M', precioCentavos: 1_600_000, stock: 4 });
 
       // Se vuelve a dejar como estaba para el resto de los specs.
       await productos.importar(
         dueno.id,
-        [
-          { codigo: 'REM-01', nombre: 'Remera básica', categoria: 'Remeras', descripcion: 'Algodón peinado', variante: 'Talle M', precio: '15.000', stock: '4' },
-          { codigo: 'REM-01', nombre: 'Remera básica', variante: 'Talle L', precio: '15.000', stock: '0' },
-        ],
+        [{ codigo: 'REM-01-M', nombre: 'Remera básica – Talle M', categoria: 'Remeras', descripcion: 'Algodón peinado', precio: '15.000', stock: '4' }],
         true,
       );
       await indexador.esperar();
@@ -141,9 +137,9 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
     });
 
     it('no deja dar de alta dos productos con el mismo código, pero reactiva uno borrado', async () => {
-      const dto = { codigo: 'TAZA-01', nombre: 'Taza', variantes: [{ precioCentavos: 500_000, stock: 3 }] };
+      const dto = { codigo: 'TAZA-01', nombre: 'Taza', precioCentavos: 500_000, stock: 3 };
       const creado = await productos.crear(dueno.id, dto);
-      expect(creado.variantes[0].sku).toBe('TAZA-01');
+      expect(creado).toMatchObject({ codigo: 'TAZA-01', precioCentavos: 500_000, stock: 3 });
       await expect(productos.crear(dueno.id, dto)).rejects.toBeInstanceOf(ConflictException);
 
       await productos.eliminar(dueno.id, creado.id);
@@ -155,7 +151,7 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
     });
 
     it('guarda la moneda, y al cambiarla borra un descuento de monto fijo en vez de reinterpretarlo', async () => {
-      const dto = { codigo: 'CAM-USD', nombre: 'Cámara', variantes: [{ precioCentavos: 100_000, stock: 2 }] };
+      const dto = { codigo: 'CAM-USD', nombre: 'Cámara', precioCentavos: 100_000, stock: 2 };
       const creado = await productos.crear(dueno.id, { ...dto, descuento: { tipo: 'monto', valor: 10_000 } });
       expect(creado).toMatchObject({ moneda: 'ARS', descuento: { tipo: 'monto', etiqueta: '$ 100 off' } });
 
@@ -172,28 +168,42 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(conPorcentaje.descuento).toMatchObject({ tipo: 'porcentaje' });
       expect(otraVez).toMatchObject({ moneda: 'ARS', descuento: { tipo: 'porcentaje' } });
 
-      await expect(
-        productos.crear(dueno.id, { codigo: 'MED-USD', nombre: 'Mesa', moneda: 'USD', solicitud: { preguntas: [] } }),
-      ).rejects.toThrow('se cotizan en pesos');
       await productos.eliminar(dueno.id, creado.id);
     });
 
-    it('edita una variante sólo si es del dueño', async () => {
-      const [remera] = (await productos.listar(dueno.id, { q: 'remera' })).productos;
-      const talleM = remera.variantes.find((variante) => variante.nombre === 'Talle M')!;
-      await expect(productos.actualizarVariante(otroDueno.id, talleM.id, { stock: 99 })).rejects.toThrow();
-      const editado = await productos.actualizarVariante(dueno.id, talleM.id, { stock: 5 });
-      expect(editado.variantes.find((variante) => variante.id === talleM.id)?.stock).toBe(5);
-      await productos.actualizarVariante(dueno.id, talleM.id, { stock: 4 });
+    it('guarda las cuotas validadas contra el precio, la importación no las pisa y null las borra', async () => {
+      const dto = { codigo: 'SIL-CUO', nombre: 'Silla', precioCentavos: 100_000, stock: 2 };
+      const cuotas = { modo: 'precios', planes: [{ cuotas: 6, totalCentavos: 120_000 }] };
+      const creado = await productos.crear(dueno.id, { ...dto, cuotas });
+      expect(creado.cuotas).toEqual(cuotas);
+
+      await expect(
+        productos.actualizar(dueno.id, creado.id, { ...dto, cuotas: { modo: 'precios', planes: [{ cuotas: 6, totalCentavos: 90_000 }] } }),
+      ).rejects.toThrow('no puede ser menor que el precio');
+      await expect(productos.actualizar(dueno.id, creado.id, { ...dto, moneda: 'USD', cuotas })).rejects.toThrow('dólares');
+
+      // Sin el campo (la importación) quedan como estaban.
+      expect((await productos.actualizar(dueno.id, creado.id, dto)).cuotas).toEqual(cuotas);
+      // Si el precio sube por encima del plan, el plan deja de ofrecerse.
+      expect((await productos.actualizar(dueno.id, creado.id, { ...dto, precioCentavos: 130_000 })).cuotas).toBeNull();
+      expect((await productos.actualizar(dueno.id, creado.id, { ...dto, cuotas: null })).cuotas).toBeNull();
+
+      await productos.eliminar(dueno.id, creado.id);
     });
 
-    it('el export de Mercado Libre reconoce lo que ya está por número de publicación, origen o SKU, sin duplicar', async () => {
+    it('edita precio y stock sólo si es del dueño', async () => {
+      const [remera] = (await productos.listar(dueno.id, { q: 'talle m' })).productos;
+      await expect(productos.actualizarStock(otroDueno.id, remera.id, { stock: 99 })).rejects.toThrow();
+      const editado = await productos.actualizarStock(dueno.id, remera.id, { stock: 5 });
+      expect(editado.stock).toBe(5);
+      await productos.actualizarStock(dueno.id, remera.id, { stock: 4 });
+    });
+
+    it('el export de Mercado Libre reconoce lo que ya está por número de publicación u origen, sin duplicar', async () => {
       const vendedor = await crearUsuarioDePrueba(prisma);
       const deMl = (codigo: string, extra: Record<string, string> = {}) => ({
         codigo,
         nombre: `Sillón ${codigo}`,
-        variante: 'Gris',
-        sku: codigo,
         precio: '651794.04',
         stock: '30',
         moneda: '$',
@@ -204,45 +214,24 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
         nombre: 'Sillón por código',
         descripcion: 'Chenille antidesgarro',
         categoria: 'Sillones',
-        variantes: [{ precioCentavos: 100 }],
+        precioCentavos: 100,
       });
       // Importado por enlace con el código ya usado: quedó "-2" y lo identifica su origen.
-      const porEnlace = await productos.crear(vendedor.id, { codigo: 'MLA1000000002-2', nombre: 'Sillón por enlace', variantes: [{ precioCentavos: 100 }] });
+      const porEnlace = await productos.crear(vendedor.id, { codigo: 'MLA1000000002-2', nombre: 'Sillón por enlace', precioCentavos: 100 });
       await prisma.producto.update({ where: { id: porEnlace.id }, data: { origenId: 'ml:MLA1000000002' } });
-      await productos.crear(vendedor.id, { codigo: 'SILLON-MANO', nombre: 'Sillón a mano', variantes: [{ sku: 'SKU-PROPIO', precioCentavos: 100 }] });
 
-      const filas = [
-        {},
-        deMl('MLA1000000001'),
-        deMl('MLA1000000002'),
-        deMl('MLA1000000003', { sku: 'SKU-PROPIO' }),
-        deMl('MLA1000000004'),
-      ];
+      const filas = [{}, deMl('MLA1000000001'), deMl('MLA1000000002'), deMl('MLA1000000004')];
       const vista = await productos.importar(vendedor.id, filas, false);
-      expect(vista).toMatchObject({ nuevos: 1, actualizados: 3, totalErrores: 0 });
+      expect(vista).toMatchObject({ nuevos: 1, actualizados: 2, totalErrores: 0 });
 
       await productos.importar(vendedor.id, filas, true);
       // Volver a subir el mismo archivo no crea nada.
-      expect(await productos.importar(vendedor.id, filas, false)).toMatchObject({ nuevos: 0, actualizados: 4 });
+      expect(await productos.importar(vendedor.id, filas, false)).toMatchObject({ nuevos: 0, actualizados: 3 });
 
       const guardados = await prisma.producto.findMany({ where: { userId: vendedor.id, activo: true }, orderBy: { codigo: 'asc' } });
-      expect(guardados.map((producto) => producto.codigo)).toEqual(['MLA1000000001', 'MLA1000000002-2', 'MLA1000000004', 'SILLON-MANO']);
+      expect(guardados.map((producto) => producto.codigo)).toEqual(['MLA1000000001', 'MLA1000000002-2', 'MLA1000000004']);
       // Lo que el export no trae queda como estaba.
       expect(guardados[0]).toMatchObject({ nombre: 'Sillón MLA1000000001', descripcion: 'Chenille antidesgarro', categoria: 'Sillones' });
-    });
-
-    it('dos publicaciones que caen en el mismo producto no se importan', async () => {
-      const vendedor = await crearUsuarioDePrueba(prisma);
-      await productos.crear(vendedor.id, { codigo: 'MLA2000000001', nombre: 'Sofá', variantes: [{ sku: 'SOFA', precioCentavos: 100 }] });
-      const resumen = await productos.importar(
-        vendedor.id,
-        [
-          { codigo: 'MLA2000000001', nombre: 'Sofá', sku: 'MLA2000000001', precio: '10' },
-          { codigo: 'MLA2000000002', nombre: 'Sofá', sku: 'SOFA', precio: '10' },
-        ],
-        false,
-      );
-      expect(resumen).toMatchObject({ nuevos: 0, actualizados: 0, totalErrores: 2 });
     });
   });
 
@@ -259,7 +248,8 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
         nombre: 'Buzo canguro con capucha',
         categoria: 'Abrigo',
         descripcion: 'Frisa',
-        variantes: [{ precioCentavos: 3_200_000, stock: 2 }],
+        precioCentavos: 3_200_000,
+        stock: 2,
       });
       await indexador.esperar();
       await indexador.pasada();
@@ -276,7 +266,7 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
     });
 
     it('encuentra plurales por stemming', async () => {
-      expect(await nombres('remeras')).toContain('Remera básica');
+      expect(await nombres('remeras')).toContain('Remera básica – Talle M');
     });
 
     it('tolera errores de tipeo', async () => {
@@ -304,19 +294,16 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       expect(await nombres('taza')).not.toContain('Taza grande');
     });
 
-    it('describe el stock de cada variante, descontando reservas', async () => {
-      const [remera] = await busqueda.buscar(dueno.id, 'REM-01');
-      const talleM = remera.variantes.find((variante) => variante.nombre === 'Talle M')!;
-      expect(talleM).toMatchObject({ precioCentavos: 1_500_000, hayStock: true, stock: 'disponible' });
-      expect(remera.variantes.find((variante) => variante.nombre === 'Talle L')).toMatchObject({
-        hayStock: false,
-        stock: 'sin stock',
-      });
+    it('describe el stock de cada producto, descontando reservas', async () => {
+      const [talleM] = await busqueda.buscar(dueno.id, 'REM-01-M');
+      expect(talleM).toMatchObject({ codigo: 'REM-01-M', precioCentavos: 1_500_000, hayStock: true, stock: 'disponible' });
+      const [talleL] = await busqueda.buscar(dueno.id, 'REM-01-L');
+      expect(talleL).toMatchObject({ hayStock: false, stock: 'sin stock' });
 
-      const [conReservas] = await busqueda.buscar(dueno.id, 'REM-01', {
-        reservadas: new Map([[talleM.varianteId, 2]]),
+      const [conReservas] = await busqueda.buscar(dueno.id, 'REM-01-M', {
+        reservadas: new Map([[talleM.productoId, 2]]),
       });
-      expect(conReservas.variantes.find((variante) => variante.nombre === 'Talle M')?.stock).toBe('quedan 2 unidades');
+      expect(conReservas.stock).toBe('quedan 2 unidades');
     });
 
     it('una consulta vacía no busca nada', async () => {
@@ -329,16 +316,16 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       const dto = {
         codigo: 'TAZA-DTO',
         nombre: 'Taza con descuento',
-        variantes: [{ precioCentavos: 1_000_000 }],
+        precioCentavos: 1_000_000,
         descuento: { tipo: 'porcentaje' as const, valor: 20, desde: null, hasta: '2099-12-31' },
       };
       const creado = await productos.crear(dueno.id, dto);
       expect(creado.descuento).toMatchObject({ alcance: 'producto', tipo: 'porcentaje', valor: 20, activo: true, hasta: '2099-12-31' });
-      expect(creado.variantes[0]).toMatchObject({ precioCentavos: 1_000_000, precioFinalCentavos: 800_000 });
+      expect(creado).toMatchObject({ precioCentavos: 1_000_000, precioFinalCentavos: 800_000 });
 
       await productos.importar(dueno.id, [{ codigo: 'TAZA-DTO', nombre: 'Taza con descuento', precio: '12.000' }], true);
       const reimportado = await productos.obtener(dueno.id, creado.id);
-      expect(reimportado.variantes[0]).toMatchObject({ precioCentavos: 1_200_000, precioFinalCentavos: 960_000 });
+      expect(reimportado).toMatchObject({ precioCentavos: 1_200_000, precioFinalCentavos: 960_000 });
 
       const sinDescuento = await productos.actualizar(dueno.id, creado.id, { ...dto, descuento: null });
       expect(sinDescuento.descuento).toBeNull();
@@ -355,182 +342,14 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       });
       try {
         const [mate] = await busqueda.buscar(dueno.id, 'MATE-01');
-        expect(mate.variantes[0]).toMatchObject({ precioCentavos: 800_000, precioFinalCentavos: 720_000 });
-        expect(mate.variantes[0].descuento).toMatchObject({ etiqueta: '10% off', nombre: 'Semana del mate', alcance: 'categoria' });
+        expect(mate).toMatchObject({ precioCentavos: 800_000, precioFinalCentavos: 720_000 });
+        expect(mate.descuento).toMatchObject({ etiqueta: '10% off', nombre: 'Semana del mate', alcance: 'categoria' });
 
         const [buzo] = await busqueda.buscar(dueno.id, 'BUZO-01');
-        expect(buzo.variantes[0]).toMatchObject({ precioFinalCentavos: buzo.variantes[0].precioCentavos, descuento: null });
+        expect(buzo).toMatchObject({ precioFinalCentavos: buzo.precioCentavos, descuento: null });
       } finally {
         await prisma.descuento.deleteMany({ where: { id: { in: promos.map((promo) => promo.id) } } });
       }
-    });
-  });
-
-  describe('productos a medida', () => {
-    let taller: User;
-    const solicitud = {
-      preguntas: [
-        { texto: '¿De qué color?', sobre: 'solicita' as const, opciones: ['Blanco', 'Negro'], textoLibre: false, obligatoria: true },
-        { texto: '¿Qué medida tiene el hueco?', sobre: 'tiene' as const, opciones: [], textoLibre: true, obligatoria: true },
-      ],
-    };
-    const dto = { codigo: 'CORT-01', nombre: 'Cortina a medida', precioReferenciaCentavos: 5_000_000, solicitud };
-
-    beforeAll(async () => {
-      taller = await crearUsuarioDePrueba(prisma);
-      await prisma.agent.create({
-        data: {
-          userId: taller.id,
-          tipoAsistente: 'ventas',
-          nombreBot: 'Lu',
-          descripcion: 'Cortinas',
-          tipoUso: 'comercio',
-          systemPrompt: 'Tomá pedidos.',
-          allowedActions: ['buscar_productos'],
-          horaDesde: '00:00',
-          horaHasta: '23:59',
-        },
-      });
-    });
-
-    afterAll(async () => {
-      await prisma.user.deleteMany({ where: { id: taller.id } });
-    });
-
-    it('se guarda sin variantes, con sus preguntas y el precio "desde", y la búsqueda lo encuentra', async () => {
-      const creado = await productos.crear(taller.id, dto);
-      expect(creado.variantes).toEqual([]);
-      expect(creado.precioReferenciaCentavos).toBe(5_000_000);
-      // En el orden en que el dueño las cargó.
-      expect(creado.solicitud?.preguntas.map((pregunta) => pregunta.texto)).toEqual(['¿De qué color?', '¿Qué medida tiene el hueco?']);
-      expect(creado.materiales).toEqual([]);
-
-      const [encontrado] = await busqueda.buscar(taller.id, 'CORT-01');
-      expect(encontrado).toMatchObject({ nombre: 'Cortina a medida', aMedida: true, precioReferenciaCentavos: 5_000_000, variantes: [] });
-
-      const sinPrecio = await productos.actualizar(taller.id, creado.id, { ...dto, precioReferenciaCentavos: null });
-      expect(sinPrecio.precioReferenciaCentavos).toBeNull();
-    });
-
-    it('las preguntas son opcionales y los materiales lo hacen encontrable', async () => {
-      const placard = await productos.crear(taller.id, {
-        codigo: 'PLAC-01',
-        nombre: 'Placard',
-        solicitud: { preguntas: [] },
-        materiales: [' Melamina ', 'melamina', 'Roble macizo'],
-      });
-      expect(placard.solicitud).toEqual({ preguntas: [] });
-      expect(placard.materiales).toEqual(['Melamina', 'Roble macizo']);
-
-      const [encontrado] = await busqueda.buscar(taller.id, 'roble macizo');
-      expect(encontrado).toMatchObject({ productoId: placard.id, aMedida: true, materiales: ['Melamina', 'Roble macizo'], preguntas: [] });
-
-      // Sin materiales en el body, un producto a medida queda sin materiales (como el precio "desde").
-      const sinMateriales = await productos.actualizar(taller.id, placard.id, {
-        codigo: 'PLAC-01',
-        nombre: 'Placard',
-        solicitud: { preguntas: [] },
-      });
-      expect(sinMateriales.materiales).toEqual([]);
-    });
-
-    it('guarda variantes fijas con precio y sin stock, y la búsqueda las trae', async () => {
-      const mesa = await productos.crear(taller.id, {
-        ...dto,
-        codigo: 'MESA-01',
-        nombre: 'Mesa ratona',
-        variantes: [
-          { nombre: 'Roble 1,20 m', precioCentavos: 18_000_000 },
-          { nombre: 'Paraíso 1,00 m', precioCentavos: 15_000_000, disponible: false },
-        ],
-      });
-      expect(mesa.variantes.map((v) => [v.nombre, v.precioCentavos, v.stock, v.disponible])).toEqual([
-        ['Roble 1,20 m', 18_000_000, null, true],
-        ['Paraíso 1,00 m', 15_000_000, null, true],
-      ]);
-
-      const [encontrado] = await busqueda.buscar(taller.id, 'MESA-01');
-      expect(encontrado).toMatchObject({ productoId: mesa.id, aMedida: true });
-      expect(encontrado.variantes.map((v) => v.nombre)).toEqual(['Roble 1,20 m', 'Paraíso 1,00 m']);
-
-      // Reenviando el sku, la variante (y su foto) sigue siendo la misma.
-      const editado = await productos.actualizar(taller.id, mesa.id, {
-        ...dto,
-        codigo: 'MESA-01',
-        nombre: 'Mesa ratona',
-        variantes: [{ sku: mesa.variantes[0].sku, nombre: 'Roble 1,30 m', precioCentavos: 19_000_000 }],
-      });
-      expect(editado.variantes.map((v) => [v.id, v.nombre])).toEqual([[mesa.variantes[0].id, 'Roble 1,30 m']]);
-    });
-
-    it('rechaza variantes con stock o sin nombre y descuento, y la planilla no pisa uno a medida', async () => {
-      await expect(
-        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ nombre: 'Chica', precioCentavos: 100, stock: 3 }] }),
-      ).rejects.toThrow(/no lleva stock/);
-      await expect(
-        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', variantes: [{ precioCentavos: 100 }] }),
-      ).rejects.toThrow(/nombre de cada versión/);
-      await expect(
-        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', descuento: { tipo: 'porcentaje', valor: 10 } }),
-      ).rejects.toThrow(/no lleva descuento/);
-      // Sin solicitud ni variantes es uno de stock sin precio.
-      await expect(productos.crear(taller.id, { codigo: 'CORT-02', nombre: 'Sin preguntas' })).rejects.toThrow(/precio/);
-      await expect(
-        productos.crear(taller.id, { ...dto, codigo: 'CORT-02', solicitud: { preguntas: [{ ...solicitud.preguntas[0], opciones: ['Blanco'] }] } }),
-      ).rejects.toThrow(/una sola opción/);
-      const resumen = await productos.importar(taller.id, [{ codigo: 'CORT-01', nombre: 'Algo', precio: '1' }], true);
-      expect(resumen.errores).toEqual([expect.objectContaining({ fila: 1, mensaje: expect.stringMatching(/es a medida/) })]);
-      const [cortina] = await busqueda.buscar(taller.id, 'CORT-01');
-      expect(cortina).toMatchObject({ aMedida: true, variantes: [] });
-    });
-
-    it('un producto de stock pasa a medida (pierde sus variantes) y vuelve a stock sin lo de a medida', async () => {
-      // Cargado como de stock (o por planilla): queda con su variante, que se edita suelta.
-      const viejo = await prisma.producto.create({
-        data: {
-          userId: taller.id,
-          codigo: 'CORT-VIEJA',
-          nombre: 'Cortina vieja',
-          textoBusqueda: 'cortina vieja',
-          variantes: { create: { sku: 'CORT-VIEJA', nombre: '', precioCentavos: 100_000, stock: 3 } },
-        },
-        include: { variantes: true },
-      });
-
-      await productos.actualizarVariante(taller.id, viejo.variantes[0].id, { stock: 9 });
-      expect((await prisma.variante.findUniqueOrThrow({ where: { id: viejo.variantes[0].id } })).stock).toBe(9);
-
-      const aMedida = await productos.actualizar(taller.id, viejo.id, {
-        ...dto,
-        codigo: 'CORT-VIEJA',
-        materiales: ['Lino'],
-        variantes: [{ nombre: 'Chica', precioCentavos: 90_000 }],
-      });
-      expect(aMedida.variantes.map((variante) => variante.nombre)).toEqual(['Chica']);
-      expect(aMedida.solicitud?.preguntas).toHaveLength(2);
-      // Las versiones de un producto a medida no se editan sueltas.
-      await expect(productos.actualizarVariante(taller.id, aMedida.variantes[0].id, { precioCentavos: 1 })).rejects.toThrow(
-        /es a medida/,
-      );
-
-      const deStock = await productos.actualizar(taller.id, viejo.id, {
-        codigo: 'CORT-VIEJA',
-        nombre: 'Cortina vieja',
-        variantes: [{ precioCentavos: 100_000, stock: 3 }],
-      });
-      expect(deStock).toMatchObject({ solicitud: null, precioReferenciaCentavos: null, materiales: [] });
-    });
-
-    it('un producto de stock no acepta materiales ni precio de referencia, y la misma cuenta carga uno a medida', async () => {
-      await expect(
-        productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], materiales: ['Roble'] }),
-      ).rejects.toThrow(/de stock/);
-      await expect(
-        productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa', variantes: [{ precioCentavos: 100 }], precioReferenciaCentavos: 100 }),
-      ).rejects.toThrow(/de stock/);
-      await expect(productos.crear(dueno.id, { codigo: 'MESA-STOCK', nombre: 'Mesa' })).rejects.toThrow(/precio/);
-      const aMedida = await productos.crear(dueno.id, { codigo: 'MESA-MEDIDA', nombre: 'Mesa a medida', solicitud });
-      expect(aMedida.solicitud).not.toBeNull();
     });
   });
 });

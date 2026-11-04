@@ -41,7 +41,7 @@ test.describe('pedido sin Mercado Pago (cobro a coordinar)', () => {
     await page.getByRole('alertdialog', { name: '¿Marcar el pedido como pagado?' }).getByRole('button', { name: 'Marcar pagada' }).click();
     await expect(detalle.getByText('Pagada', { exact: true })).toBeVisible();
     await expect(detalle.getByText('Pagada el')).toBeVisible();
-    expect((await productoPorApi(context.request, producto.id)).variantes[0].stock).toBe(1);
+    expect((await productoPorApi(context.request, producto.id)).stock).toBe(1);
   });
 
   test('el dueño cancela un pedido y la reserva se libera', async ({ page, context, usuarioDev }) => {

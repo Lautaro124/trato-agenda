@@ -17,7 +17,7 @@ const VENTA = {
   reservaVenceAt: new Date('2026-09-26T17:42:00-03:00'),
   sinStockAlPagar: false,
   dePrueba: false,
-  items: [{ nombreProducto: 'Mate', nombreVariante: '', cantidad: 2, subtotalCentavos: 1_600_000 }],
+  items: [{ nombreProducto: 'Mate', cantidad: 2, subtotalCentavos: 1_600_000 }],
 };
 
 describe('avisos', () => {
@@ -42,11 +42,11 @@ describe('avisos', () => {
     );
   });
 
-  it('stock bajo y agotado comparten la clave de la variante', () => {
-    const bajo = avisoStock({ varianteId: 'v-1', nombreProducto: 'Remera', nombreVariante: 'Talle M', stock: 2 });
-    const agotado = avisoStock({ varianteId: 'v-1', nombreProducto: 'Remera', nombreVariante: 'Talle M', stock: 0 });
-    expect(bajo).toMatchObject({ tipo: 'stock_bajo', titulo: 'Stock bajo: Remera (Talle M)', clave: 'stock:v-1' });
-    expect(agotado).toMatchObject({ tipo: 'stock_agotado', titulo: 'Sin stock: Remera (Talle M)', clave: 'stock:v-1' });
+  it('stock bajo y agotado comparten la clave del producto', () => {
+    const bajo = avisoStock({ productoId: 'p-1', nombreProducto: 'Remera Talle M', stock: 2 });
+    const agotado = avisoStock({ productoId: 'p-1', nombreProducto: 'Remera Talle M', stock: 0 });
+    expect(bajo).toMatchObject({ tipo: 'stock_bajo', titulo: 'Stock bajo: Remera Talle M', clave: 'stock:p-1' });
+    expect(agotado).toMatchObject({ tipo: 'stock_agotado', titulo: 'Sin stock: Remera Talle M', clave: 'stock:p-1' });
   });
 
   it('una consulta derivada recorta lo que escribió el cliente', () => {

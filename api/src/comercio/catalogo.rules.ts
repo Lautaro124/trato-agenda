@@ -9,13 +9,10 @@ import { createHash } from 'node:crypto';
 /** Tope de productos/filas de una importación. Un catálogo más grande se sube en partes. */
 export const MAX_FILAS_IMPORTACION = 5_000;
 
-/** Tope de variantes por producto (talles × colores de un mismo artículo). */
-export const MAX_VARIANTES = 50;
-
 /** Tope de precio, en pesos. El mismo orden de magnitud que PRECIO_MAX de los turnos. */
 export const PRECIO_MAX_PESOS = 100_000_000;
 
-/** Tope de stock por variante: más que eso es casi seguro un error de tipeo. */
+/** Tope de stock por producto: más que eso es casi seguro un error de tipeo. */
 export const STOCK_MAX = 1_000_000;
 
 /** Con esto o menos unidades el asistente dice "quedan pocas" en vez de "hay". */
@@ -26,8 +23,6 @@ export const LARGOS = {
   nombre: 120,
   descripcion: 500,
   categoria: 60,
-  variante: 60,
-  sku: 60,
 } as const;
 
 /**
@@ -53,25 +48,12 @@ export type ProductoParaIndexar = {
   nombre: string;
   descripcion: string;
   categoria: string | null;
-  variantes: Array<{ sku: string; nombre: string }>;
-  /** Los materiales de un producto a medida: "placard de melamina" lo encuentra. */
-  materiales?: readonly string[];
 };
 
 /** Todo lo buscable de un producto en un solo texto normalizado. */
 export function textoBusquedaDe(producto: ProductoParaIndexar): string {
-  const variantes = producto.variantes
-    .flatMap((variante) => [variante.nombre, variante.sku])
-    .filter((parte) => parte.length > 0);
   return normalizarTexto(
-    [
-      producto.nombre,
-      producto.categoria ?? '',
-      producto.descripcion,
-      producto.codigo,
-      ...variantes,
-      ...(producto.materiales ?? []),
-    ]
+    [producto.nombre, producto.categoria ?? '', producto.descripcion, producto.codigo]
       .filter((parte) => parte.length > 0)
       .join(' | '),
   );
@@ -89,7 +71,7 @@ export function hashTexto(texto: string): string {
 
 // --- Stock -----------------------------------------------------------------
 
-export type VarianteConStock = {
+export type ConStock = {
   stock: number | null;
   disponible: boolean;
   activo: boolean;
@@ -99,34 +81,34 @@ export type VarianteConStock = {
  * Unidades que se pueden vender ya descontadas las reservas vigentes. `null`
  * cuando el dueño no controla cantidad (vale el switch `disponible`).
  */
-export function unidadesDisponibles(variante: VarianteConStock, reservadas = 0): number | null {
-  if (variante.stock === null) return null;
-  return Math.max(variante.stock - reservadas, 0);
+export function unidadesDisponibles(producto: ConStock, reservadas = 0): number | null {
+  if (producto.stock === null) return null;
+  return Math.max(producto.stock - reservadas, 0);
 }
 
 /** true si alcanza para vender `cantidad` unidades. */
-export function hayStock(variante: VarianteConStock, cantidad = 1, reservadas = 0): boolean {
-  if (!variante.activo) return false;
-  const unidades = unidadesDisponibles(variante, reservadas);
-  return unidades === null ? variante.disponible : unidades >= cantidad;
+export function hayStock(producto: ConStock, cantidad = 1, reservadas = 0): boolean {
+  if (!producto.activo) return false;
+  const unidades = unidadesDisponibles(producto, reservadas);
+  return unidades === null ? producto.disponible : unidades >= cantidad;
 }
 
 /**
  * Lo que el asistente puede decir del stock. A propósito no expone la cantidad
  * exacta salvo cuando quedan pocas: es información del negocio.
  */
-export function describirStock(variante: VarianteConStock, reservadas = 0): string {
-  if (!hayStock(variante, 1, reservadas)) return 'sin stock';
-  const unidades = unidadesDisponibles(variante, reservadas);
+export function describirStock(producto: ConStock, reservadas = 0): string {
+  if (!hayStock(producto, 1, reservadas)) return 'sin stock';
+  const unidades = unidadesDisponibles(producto, reservadas);
   if (unidades !== null && unidades <= ULTIMAS_UNIDADES) {
     return unidades === 1 ? 'queda 1 unidad' : `quedan ${unidades} unidades`;
   }
   return 'disponible';
 }
 
-/** true si la variante quedó en o por debajo de su mínimo (y lo tiene definido). */
-export function stockBajo(variante: { stock: number | null; stockMinimo: number | null }): boolean {
-  return variante.stock !== null && variante.stockMinimo !== null && variante.stock <= variante.stockMinimo;
+/** true si el producto quedó en o por debajo de su mínimo (y lo tiene definido). */
+export function stockBajo(producto: { stock: number | null; stockMinimo: number | null }): boolean {
+  return producto.stock !== null && producto.stockMinimo !== null && producto.stock <= producto.stockMinimo;
 }
 
 // --- Precios -----------------------------------------------------------------
@@ -143,9 +125,8 @@ export function formatearCentavos(centavos: number): string {
 }
 
 /**
- * Monedas en las que se puede cargar un producto. Todo lo que no es del
- * catálogo de stock (a medida, presupuestos, costos, la suscripción) sigue
- * en pesos.
+ * Monedas en las que se puede cargar un producto. Lo que no es del catálogo
+ * (la suscripción) sigue en pesos.
  */
 export const MONEDAS = ['ARS', 'USD'] as const;
 export type Moneda = (typeof MONEDAS)[number];
@@ -218,8 +199,6 @@ export const COLUMNAS_IMPORTACION = [
   'nombre',
   'descripcion',
   'categoria',
-  'variante',
-  'sku',
   'precio',
   'stock',
   'stock_minimo',
@@ -234,15 +213,6 @@ export function normalizarColumna(nombre: string): string {
   return normalizarTexto(nombre).replace(/[^a-z0-9ñ]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
-export type VarianteImportada = {
-  sku: string;
-  nombre: string;
-  precioCentavos: number;
-  stock: number | null;
-  stockMinimo: number | null;
-  disponible: boolean;
-};
-
 export type ProductoImportado = {
   codigo: string;
   nombre: string;
@@ -251,9 +221,12 @@ export type ProductoImportado = {
   categoria?: string | null;
   /** Sólo si la planilla la dice (columna o "US$" en el precio); si no, no se toca. */
   moneda?: Moneda;
-  variantes: VarianteImportada[];
-  /** Números de fila (1 = primera fila de datos) de donde salió, para los errores. */
-  filas: number[];
+  precioCentavos: number;
+  stock: number | null;
+  stockMinimo: number | null;
+  disponible: boolean;
+  /** Número de fila (1 = primera fila de datos) de donde salió, para los errores. */
+  fila: number;
 };
 
 /** `columna` dice qué campo de la planilla arreglar; sin ella el error es de la fila o del producto entero. */
@@ -320,24 +293,7 @@ export function esIdMercadoLibre(codigo: string): boolean {
   return /^M[A-Z]{2}\d{6,}$/.test(codigo);
 }
 
-/** SKU por defecto: el código si es la variante única, o código + variante. */
-export function skuPorDefecto(codigo: string, variante: string): string {
-  if (!variante) return codigo;
-  const sufijo = normalizarTexto(variante).replace(/[^a-z0-9ñ]+/g, '-').replace(/^-+|-+$/g, '');
-  return `${codigo}-${sufijo}`.slice(0, LARGOS.sku);
-}
-
-type FilaParseada = {
-  fila: number;
-  codigo: string;
-  nombre: string;
-  descripcion: string | undefined;
-  categoria: string | null | undefined;
-  moneda: Moneda | undefined;
-  variante: VarianteImportada;
-};
-
-function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParseada | ErrorDeFila[] {
+function parsearFila(crudo: Record<string, unknown>, numero: number): ProductoImportado | ErrorDeFila[] {
   const fila = normalizarFila(crudo);
   const errores: Array<{ columna: ColumnaImportacion; mensaje: string }> = [];
   const error = (columna: ColumnaImportacion, mensaje: string) => errores.push({ columna, mensaje });
@@ -346,8 +302,6 @@ function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParsea
   const nombre = celda(fila, 'nombre');
   const descripcion = celda(fila, 'descripcion');
   const categoria = celda(fila, 'categoria');
-  const variante = celda(fila, 'variante');
-  const sku = celda(fila, 'sku') || skuPorDefecto(codigo, variante);
 
   if (!codigo) error('codigo', 'Falta el código');
   else if (codigo.length > LARGOS.codigo) error('codigo', `Máximo ${LARGOS.codigo} caracteres`);
@@ -357,8 +311,6 @@ function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParsea
   if (descripcion.length > LARGOS.descripcion)
     error('descripcion', `Máximo ${LARGOS.descripcion} caracteres`);
   if (categoria.length > LARGOS.categoria) error('categoria', `Máximo ${LARGOS.categoria} caracteres`);
-  if (variante.length > LARGOS.variante) error('variante', `Máximo ${LARGOS.variante} caracteres`);
-  if (sku.length > LARGOS.sku) error('sku', `Máximo ${LARGOS.sku} caracteres`);
 
   const precioTexto = celda(fila, 'precio');
   const precioCentavos = precioTexto ? parsearPrecio(precioTexto) : null;
@@ -381,32 +333,24 @@ function parsearFila(crudo: Record<string, unknown>, numero: number): FilaParsea
     fila: numero,
     codigo,
     nombre,
-    descripcion: 'descripcion' in fila ? descripcion : undefined,
-    categoria: 'categoria' in fila ? categoria || null : undefined,
-    moneda,
-    variante: {
-      sku,
-      nombre: variante,
-      precioCentavos: precioCentavos as number,
-      stock: stock as number | null,
-      stockMinimo: stockMinimo as number | null,
-      disponible: disponible as boolean,
-    },
+    ...('descripcion' in fila && { descripcion }),
+    ...('categoria' in fila && { categoria: categoria || null }),
+    ...(moneda !== undefined && { moneda }),
+    precioCentavos: precioCentavos as number,
+    stock: stock as number | null,
+    stockMinimo: stockMinimo as number | null,
+    disponible: disponible as boolean,
   };
 }
 
 /**
- * Filas de una planilla (una por variante) → productos con sus variantes.
- *
- * Las filas con el mismo `codigo` son variantes del mismo producto: nombre,
- * descripción y categoría salen de la primera. Si alguna fila de un producto
- * tiene errores, se descarta el producto entero en vez de importarlo con
- * variantes de menos.
+ * Filas de una planilla (una por producto) → productos. Un código repetido no
+ * se adivina: no se importa ninguna de esas filas.
  */
 export function agruparFilasImportacion(filas: Array<Record<string, unknown>>): ResultadoImportacion {
   const errores: ErrorDeFila[] = [];
   const porCodigo = new Map<string, ProductoImportado>();
-  const conErrores = new Set<string>();
+  const repetidos = new Set<string>();
 
   filas.forEach((crudo, indice) => {
     const numero = indice + 1;
@@ -414,56 +358,23 @@ export function agruparFilasImportacion(filas: Array<Record<string, unknown>>): 
     if (Object.values(crudo).every((valor) => String(valor ?? '').trim() === '')) return;
 
     const parseada = parsearFila(crudo, numero);
-    const codigo = celda(normalizarFila(crudo), 'codigo');
     if (Array.isArray(parseada)) {
       errores.push(...parseada);
-      if (codigo) conErrores.add(codigo);
       return;
     }
-
-    const existente = porCodigo.get(parseada.codigo);
-    if (!existente) {
-      porCodigo.set(parseada.codigo, {
-        codigo: parseada.codigo,
-        nombre: parseada.nombre,
-        ...(parseada.descripcion !== undefined && { descripcion: parseada.descripcion }),
-        ...(parseada.categoria !== undefined && { categoria: parseada.categoria }),
-        ...(parseada.moneda !== undefined && { moneda: parseada.moneda }),
-        variantes: [parseada.variante],
-        filas: [numero],
-      });
+    if (porCodigo.has(parseada.codigo)) {
+      errores.push({ fila: numero, mensaje: `el código ${parseada.codigo} está repetido en la planilla`, columna: 'codigo' });
+      repetidos.add(parseada.codigo);
       return;
     }
-
-    if (existente.variantes.some((variante) => variante.sku === parseada.variante.sku)) {
-      errores.push({ fila: numero, mensaje: `SKU repetido en el producto ${parseada.codigo}` });
-      conErrores.add(parseada.codigo);
-      return;
-    }
-    if (parseada.moneda !== undefined && existente.moneda !== undefined && parseada.moneda !== existente.moneda) {
-      errores.push({ fila: numero, mensaje: `las variantes del producto ${parseada.codigo} tienen que estar en la misma moneda`, columna: 'moneda' });
-      conErrores.add(parseada.codigo);
-      return;
-    }
-    if (existente.moneda === undefined && parseada.moneda !== undefined) existente.moneda = parseada.moneda;
-    if (existente.variantes.length >= MAX_VARIANTES) {
-      errores.push({ fila: numero, mensaje: `el producto ${parseada.codigo} tiene más de ${MAX_VARIANTES} variantes` });
-      conErrores.add(parseada.codigo);
-      return;
-    }
-    existente.variantes.push(parseada.variante);
-    existente.filas.push(numero);
+    porCodigo.set(parseada.codigo, parseada);
   });
 
-  const productos = [...porCodigo.values()].filter((producto) => !conErrores.has(producto.codigo));
-  for (const producto of porCodigo.values()) {
-    if (conErrores.has(producto.codigo)) {
-      errores.push({
-        fila: producto.filas[0],
-        mensaje: `el producto ${producto.codigo} no se importa porque otra de sus filas tiene errores`,
-      });
-    }
+  for (const codigo of repetidos) {
+    const primero = porCodigo.get(codigo) as ProductoImportado;
+    errores.push({ fila: primero.fila, mensaje: `el código ${codigo} está repetido en la planilla`, columna: 'codigo' });
   }
+  const productos = [...porCodigo.values()].filter((producto) => !repetidos.has(producto.codigo));
   errores.sort((a, b) => a.fila - b.fila);
   return { productos, errores };
 }
@@ -516,4 +427,13 @@ export function consultaTsquery(consulta: string): string | null {
   return unicas.length > 0
     ? unicas.map((palabra) => (/^\d+$/.test(palabra) ? palabra : `${palabra}:*`)).join(' | ')
     : null;
+}
+
+export function esObjeto(valor: unknown): valor is Record<string, unknown> {
+  return typeof valor === 'object' && valor !== null && !Array.isArray(valor);
+}
+
+/** Un texto del dueño en una sola línea: un salto de línea en el prompt se lee como otra regla. */
+export function enUnaLinea(texto: string): string {
+  return texto.replace(/\s+/g, ' ').trim();
 }

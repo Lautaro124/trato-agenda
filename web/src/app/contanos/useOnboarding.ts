@@ -148,8 +148,7 @@ export type Atencion = "individual" | "grupal" | "ambas";
  * que ofrece sale del catálogo, que se carga en /productos. Los dos piden
  * cuándo atiende el asistente por WhatsApp (LAU-29), que no es la franja de turnos.
  * Sí pregunta por el local a la calle, para contestar dónde queda y si se retira.
- * Su paso "datos" (qué le pide al cliente, envíos) es opcional. Si vende con
- * stock o a medida no se pregunta: lo dice cada producto al cargarlo.
+ * Su paso "datos" (qué le pide al cliente, envíos) es opcional.
  */
 export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> = {
   agenda: [

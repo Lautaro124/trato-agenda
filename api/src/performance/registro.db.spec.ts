@@ -18,7 +18,7 @@ describe.skipIf(!hayBaseDePrueba)('registro de performance (Postgres)', () => {
 
   const conversacion = (userId: string, remoteJid = `54911${String(++numero).padStart(8, '0')}@s.whatsapp.net`) =>
     prisma.conversation.create({ data: { userId, remoteJid } });
-  const producto = (userId: string, codigo: string) => prisma.producto.create({ data: { userId, codigo, nombre: codigo } });
+  const producto = (userId: string, codigo: string) => prisma.producto.create({ data: { userId, codigo, nombre: codigo, precioCentavos: 100 } });
   const etapa = () => prisma.etapaChat.findUnique({ where: { conversationId: chat.id } });
 
   beforeAll(async () => {
@@ -66,24 +66,14 @@ describe.skipIf(!hayBaseDePrueba)('registro de performance (Postgres)', () => {
     expect(await etapa()).toMatchObject({ etapa: 'vio_productos' });
   });
 
-  it('un pedido por variantes se anota en su producto', async () => {
-    const variante = await prisma.variante.create({
-      data: { productoId: termo.id, sku: 'TERMO-1L', nombre: '1 litro', precioCentavos: 100_000 },
-    });
-    await registro.registrarPedidoDeVariantes(dueno.id, chat.id, [variante.id, 'no-existe']);
-
-    const intereses = await prisma.interesProducto.findMany({ where: { conversationId: chat.id } });
-    expect(intereses.map((interes) => [interes.productoId, interes.tipo])).toEqual([[termo.id, 'pidio']]);
-  });
-
   it('una venta pagada lleva el chat a pagado; una de prueba o sin chat no hace nada', async () => {
     await registro.avanzarPorVenta({ userId: dueno.id, conversationId: chat.id, dePrueba: true }, 'pagado');
     expect(await etapa()).toBeNull();
 
     await registro.avanzarPorVenta({ userId: dueno.id, conversationId: null, dePrueba: false }, 'pagado');
-    await registro.avanzarPorVenta({ userId: dueno.id, conversationId: chat.id, dePrueba: false }, 'cotizado');
+    await registro.avanzarPorVenta({ userId: dueno.id, conversationId: chat.id, dePrueba: false }, 'pedido');
     await registro.avanzarPorVenta({ userId: dueno.id, conversationId: chat.id, dePrueba: false }, 'pagado');
-    await registro.avanzarPorVenta({ userId: dueno.id, conversationId: chat.id, dePrueba: false }, 'cotizado');
+    await registro.avanzarPorVenta({ userId: dueno.id, conversationId: chat.id, dePrueba: false }, 'pedido');
     expect(await etapa()).toMatchObject({ etapa: 'pagado' });
   });
 

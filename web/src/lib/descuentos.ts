@@ -22,8 +22,8 @@ export type Descuento = {
   etiqueta: string;
 };
 
-/** Espejo de `DescuentoDeVariante`: el que hoy le toca a una variante. */
-export type DescuentoDeVariante = {
+/** Espejo de `DescuentoDeProducto`: el que hoy le toca a un producto. */
+export type DescuentoDeProducto = {
   alcance: AlcanceDescuento;
   etiqueta: string;
   nombre: string;
@@ -85,12 +85,12 @@ export function diaCorto(dia: string): string {
 }
 
 /** "20% off · hasta el 31/10". */
-export function descripcionDescuento(descuento: Pick<DescuentoDeVariante, "etiqueta" | "hastaDia">): string {
+export function descripcionDescuento(descuento: Pick<DescuentoDeProducto, "etiqueta" | "hastaDia">): string {
   return descuento.hastaDia ? `${descuento.etiqueta} · hasta el ${diaCorto(descuento.hastaDia)}` : descuento.etiqueta;
 }
 
 /** De dónde sale el descuento que se está aplicando. */
-export function origenDescuento(descuento: Pick<DescuentoDeVariante, "alcance" | "nombre">): string {
+export function origenDescuento(descuento: Pick<DescuentoDeProducto, "alcance" | "nombre">): string {
   if (descuento.alcance === "producto") return "Descuento del producto";
   const promo = descuento.nombre ? `Promo “${descuento.nombre}”` : "Promo";
   return descuento.alcance === "categoria" ? `${promo} de la categoría` : `${promo} de todo el catálogo`;

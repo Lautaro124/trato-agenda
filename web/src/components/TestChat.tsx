@@ -10,13 +10,13 @@ import { useSession } from "@/lib/session";
  * el asistente de ventas, como le llega al cliente: imagen con el nombre al pie
  * (las del listado, también con el precio).
  */
-type FotoProducto = { productoId: string; varianteId?: string; nombre: string; version: string };
+type FotoProducto = { productoId: string; nombre: string; version: string };
 
 type Mensaje = { role: "agent" | "user"; text: string; foto?: FotoProducto };
 
 type Respuesta = {
   reply: string;
-  imagenes?: Array<{ productoId: string; nombre: string; varianteId?: string; leyenda?: string }>;
+  imagenes?: Array<{ productoId: string; nombre: string; leyenda?: string }>;
 };
 
 /**
@@ -143,7 +143,7 @@ export function TestChat() {
               <figure className="flex flex-col gap-1.5">
                 {/* eslint-disable-next-line @next/next/no-img-element -- viene de la API con la cookie de sesión; el optimizador de Next no la tiene */}
                 <img
-                  src={urlImagenProducto(m.foto.productoId, m.foto.version, m.foto.varianteId)}
+                  src={urlImagenProducto(m.foto.productoId, m.foto.version)}
                   alt={`Foto de ${m.foto.nombre}`}
                   className="max-h-60 w-auto rounded-md object-contain"
                 />

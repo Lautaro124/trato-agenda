@@ -19,13 +19,12 @@ const ESQUEMA = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['nombre', 'descripcion', 'foto', 'aMedida'],
+          required: ['nombre', 'descripcion', 'foto'],
           properties: {
             nombre: { type: 'string' },
             descripcion: { type: 'string' },
             /** El número de la foto ("[foto 3]" → 3), o -1 si no tiene. */
             foto: { type: 'integer' },
-            aMedida: { type: 'boolean' },
           },
         },
       },
@@ -39,8 +38,8 @@ const SISTEMA = [
   'Un producto es algo que el negocio vende (un modelo, una línea, un artículo), no una sección institucional,',
   'una reseña, un medio de pago, un envío ni un beneficio.',
   'Para cada producto devolvé: nombre (corto, como lo nombra la página), descripcion (medidas, materiales y',
-  'opciones que dice la página, sin precios ni montos), foto (el número N de la marca "[foto N]" que corresponde',
-  'a ese producto, o -1 si no hay) y aMedida (true si la página dice que se hace a medida, se cotiza o se personaliza).',
+  'opciones que dice la página, sin precios ni montos) y foto (el número N de la marca "[foto N]" que corresponde',
+  'a ese producto, o -1 si no hay).',
   'No inventes nada que no esté en el texto. Si no hay productos, devolvé una lista vacía.',
 ].join(' ');
 
@@ -96,13 +95,12 @@ export function productosDeRespuesta(contenido: string | null, imagenes: string[
   const salida: ProductoExtraido[] = [];
   for (const crudo of lista.slice(0, MAX_PRODUCTOS_LISTADO_WEB)) {
     if (typeof crudo !== 'object' || crudo === null) continue;
-    const { nombre, descripcion, foto, aMedida } = crudo as Record<string, unknown>;
+    const { nombre, descripcion, foto } = crudo as Record<string, unknown>;
     const imagen = typeof foto === 'number' && Number.isInteger(foto) && foto >= 0 && foto < imagenes.length ? imagenes[foto] : null;
     const producto = productoDeSeccion(
       typeof nombre === 'string' ? nombre : '',
       typeof descripcion === 'string' ? descripcion : '',
       imagen,
-      aMedida === true,
     );
     if (producto && !salida.some((otro) => otro.seccion === producto.seccion)) salida.push(producto);
   }

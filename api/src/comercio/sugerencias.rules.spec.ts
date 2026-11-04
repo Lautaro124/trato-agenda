@@ -15,8 +15,7 @@ const producto = (nombre: string, categoria: string | null): ProductoPanorama =>
   nombre,
   categoria,
   descripcion: '',
-  precioDesdeCentavos: 100,
-  variosPrecios: false,
+  precioFinalCentavos: 100,
 });
 
 describe('agruparPorCategoria', () => {

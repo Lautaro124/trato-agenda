@@ -35,7 +35,7 @@ export class FiltrosPerformanceQuery {
 export type ConteosConversion = {
   /** Chats nuevos del período. */
   chats: number;
-  /** De esos, los que hicieron un pedido o una solicitud. */
+  /** De esos, los que hicieron un pedido. */
   conPedido: number;
   /** Pedidos de esos chats, en la moneda pedida. */
   pedidos: number;
@@ -79,7 +79,6 @@ export type ProductoPerformance = {
   productoId: string;
   codigo: string;
   nombre: string;
-  aMedida: boolean;
   /** Chats nuevos del período que lo vieron, lo pidieron y lo pagaron. */
   vieron: number;
   pidieron: number;

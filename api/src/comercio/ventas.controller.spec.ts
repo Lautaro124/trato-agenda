@@ -3,7 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import { describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
-import type { PedidosAMedidaService } from './pedidos-a-medida.service.js';
+import type { AtencionPedidosService } from './atencion-pedidos.service.js';
 import { VentasController } from './ventas.controller.js';
 import type { HistoricoVentasService } from './historico.service.js';
 import { RangoInvalidoError } from './historico.rules.js';
@@ -30,7 +30,7 @@ function crear() {
     controller: new VentasController(
       ventas as unknown as VentasService,
       historico as unknown as HistoricoVentasService,
-      pedidos as unknown as PedidosAMedidaService,
+      pedidos as unknown as AtencionPedidosService,
       config,
     ),
     ventas,

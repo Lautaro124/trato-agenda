@@ -50,9 +50,8 @@ export default function ProductosPage() {
 }
 
 /**
- * El catálogo: productos de stock y a medida juntos. Cada uno se carga y se
- * edita en su propia pantalla (/productos/nuevo, /productos/[id]); la
- * planilla y las promociones son sólo de stock. `?importar=1` abre la planilla.
+ * El catálogo. Cada producto se carga y se edita en su propia pantalla
+ * (/productos/nuevo, /productos/[id]). `?importar=1` abre la planilla.
  */
 function Catalogo() {
   const router = useRouter();
@@ -133,8 +132,8 @@ function Catalogo() {
               Tus productos
             </h1>
             <p className="text-sm leading-[1.6] text-ink-secondary">
-              Lo que tu asistente puede vender: lo de stock, con precio, stock y descuentos por variante, y lo que hacés a
-              medida, con lo que le pregunta al cliente para que lo presupuestes. Los cambios valen desde el próximo mensaje.
+              Lo que tu asistente puede vender, cada uno con su precio, stock y descuento. Los cambios valen desde el
+              próximo mensaje.
             </p>
           </div>
           <div data-tutorial="cargar-productos" className="flex flex-wrap gap-2">
@@ -165,8 +164,7 @@ function Catalogo() {
               <div className="rounded-lg border border-dashed border-line-strong bg-card p-6 text-center">
                 <p className="mb-1 font-semibold text-ink">Todavía no cargaste productos</p>
                 <p className="mb-4 text-sm text-ink-secondary">
-                  Cargalos de a uno, de stock o a medida. Si tenés muchos de stock, lo más rápido es subir tu lista en una
-                  planilla (CSV o Excel).
+                  Cargalos de a uno o, si tenés muchos, subí tu lista en una planilla (CSV o Excel).
                 </p>
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button variant="secondary" onClick={() => setImportando(true)}>

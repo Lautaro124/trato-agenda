@@ -96,8 +96,7 @@ describe('catalogo.rules (propiedades)', () => {
         const { productos, errores } = agruparFilasImportacion(filas);
         const filasConError = new Set(errores.map((error) => error.fila));
         for (const producto of productos) {
-          for (const fila of producto.filas) expect(filasConError.has(fila)).toBe(false);
-          expect(new Set(producto.variantes.map((v) => v.sku)).size).toBe(producto.variantes.length);
+          expect(filasConError.has(producto.fila)).toBe(false);
         }
       }),
       SEMILLA,

@@ -89,31 +89,16 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     });
   });
 
-  it('a los 12 meses un pedido a medida pierde lo que escribió el cliente y las notas, pero no el producto ni el total', async () => {
+  it('a los 12 meses un pedido derivado pierde las notas, pero no el total', async () => {
     const crear = (createdAt: Date) =>
       prisma.venta.create({
         data: {
           userId: dueno.id,
-          tipo: 'a_medida',
-          estado: 'cotizado',
           nombreCliente: 'Ana',
           totalCentavos: 500_000,
           detalleDerivacion: 'Quiere que la llamen al 11 5555 5555',
           notaDevolucion: 'Le pasé el precio por teléfono',
-          solicitud: {
-            productoId: 'p1',
-            nombreProducto: 'Placard',
-            respuestas: [{ pregunta: 'Dirección de instalación', respuesta: 'Corrientes 1234' }],
-            resumen: 'Placard para la casa de Ana',
-            variante: { id: 'v1', nombre: 'Blanco 2 puertas', precioCentavos: 400_000, cantidad: 1 },
-            cambios: 'Que tenga la manija de Ana',
-          },
           createdAt,
-          presupuestos: {
-            create: [
-              { version: 1, origen: 'dueno', estado: 'enviado', renglones: [], totalCentavos: 500_000, nota: 'Para Ana' },
-            ],
-          },
         },
       });
     const vieja = await crear(pasado(DIAS_RETENCION_DATOS_CLIENTE));
@@ -122,7 +107,7 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     await servicio['anonimizarVentas'](AHORA);
 
     const [trasVieja, trasNueva] = await Promise.all(
-      [vieja.id, nueva.id].map((id) => prisma.venta.findUniqueOrThrow({ where: { id }, include: { presupuestos: true } })),
+      [vieja.id, nueva.id].map((id) => prisma.venta.findUniqueOrThrow({ where: { id } })),
     );
     expect(trasVieja).toMatchObject({
       nombreCliente: null,
@@ -130,20 +115,7 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
       notaDevolucion: null,
       totalCentavos: 500_000,
     });
-    // Queda qué producto y qué versión era; lo que escribió el cliente (también los cambios), no.
-    expect(trasVieja.solicitud).toEqual({
-      productoId: 'p1',
-      nombreProducto: 'Placard',
-      respuestas: [],
-      resumen: '',
-      variante: { id: 'v1', nombre: 'Blanco 2 puertas', precioCentavos: 400_000, cantidad: 1 },
-    });
-    expect(trasVieja.presupuestos[0]).toMatchObject({ nota: null, totalCentavos: 500_000 });
-    expect(trasNueva).toMatchObject({
-      detalleDerivacion: 'Quiere que la llamen al 11 5555 5555',
-      solicitud: { resumen: 'Placard para la casa de Ana' },
-    });
-    expect(trasNueva.presupuestos[0].nota).toBe('Para Ana');
+    expect(trasNueva).toMatchObject({ detalleDerivacion: 'Quiere que la llamen al 11 5555 5555' });
   });
 
   it('borra los avisos leídos a los 90 días y los no leídos a los 12 meses', async () => {
@@ -179,7 +151,7 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     const conversation = await prisma.conversation.create({
       data: { userId: dueno.id, remoteJid: '5491100000001@s.whatsapp.net' },
     });
-    const producto = await prisma.producto.create({ data: { userId: dueno.id, codigo: 'PERF', nombre: 'Mate' } });
+    const producto = await prisma.producto.create({ data: { userId: dueno.id, codigo: 'PERF', nombre: 'Mate', precioCentavos: 100 } });
     const viejo = pasado(DIAS_RETENCION_DATOS_CLIENTE);
     await prisma.etapaChat.create({
       data: { userId: dueno.id, conversationId: conversation.id, etapa: 'pagado', ultimaActividadAt: viejo },

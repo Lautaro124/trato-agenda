@@ -36,7 +36,6 @@ const BLOQUES = new Set([
 ]);
 /** Fotos que son parte del diseño y no de un producto. */
 const DECORATIVAS = /(logo|icon|favicon|sprite|placeholder|avatar|badge|flag|loader|spinner|pixel)/i;
-const A_MEDIDA = /(a\s+medida|medidas?\s+a\s+pedido|a\s+pedido|por\s+encargo|cotiz|presupuest|personaliz)/i;
 
 export type Pieza =
   | { tipo: 'encabezado'; nivel: number; texto: string }
@@ -203,7 +202,7 @@ export function claveDeSeccion(nombre: string): string {
 }
 
 /** Una sección (de la heurística o de la IA) → producto sin precio, con el mismo saneamiento que el resto. */
-export function productoDeSeccion(nombreCrudo: string, descripcionCruda: string, imagen: string | null, aMedida: boolean): ProductoExtraido | null {
+export function productoDeSeccion(nombreCrudo: string, descripcionCruda: string, imagen: string | null): ProductoExtraido | null {
   const nombre = textoSeguro(nombreCrudo, { largo: LARGOS.nombre, sinMontos: true });
   if (nombre.length < 2) return null;
   const descripcion = textoSeguro(descripcionCruda, { largo: LARGOS.descripcion, multilinea: true, sinMontos: true });
@@ -211,7 +210,6 @@ export function productoDeSeccion(nombreCrudo: string, descripcionCruda: string,
   if (!descripcion) avisos.push('sin_descripcion');
   else if (descripcionCruda.length > LARGOS.descripcion) avisos.push('descripcion_recortada');
   if (!imagen) avisos.push('sin_imagen');
-  if (aMedida || A_MEDIDA.test(`${nombreCrudo}\n${descripcionCruda}`)) avisos.push('parece_a_medida');
   return {
     nombre,
     descripcion,
@@ -242,7 +240,7 @@ export function leerSecciones(piezas: Pieza[]): { productos: ProductoExtraido[];
   }
   if (mejores.length < 2) return { productos: [], recortado: false };
   const productos = mejores
-    .map((tarjeta) => productoDeSeccion(tarjeta.nombre, unirTextos(tarjeta.textos), tarjeta.imagen, false))
+    .map((tarjeta) => productoDeSeccion(tarjeta.nombre, unirTextos(tarjeta.textos), tarjeta.imagen))
     .filter((producto): producto is ProductoExtraido => producto !== null);
   // Dos secciones con el mismo nombre serían la misma clave: queda la primera.
   const unicos = productos.filter((producto, indice) => productos.findIndex((otro) => otro.seccion === producto.seccion) === indice);

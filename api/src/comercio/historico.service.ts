@@ -4,7 +4,7 @@ import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { MONEDAS, type Moneda } from './catalogo.rules.js';
 import { diasEntre, MAX_FILAS_CSV, rangoDeDias, ventasACsv, type Rango } from './historico.rules.js';
-import type { Atencion } from './pedido-a-medida.rules.js';
+import type { Atencion } from './ventas.rules.js';
 import type { EstadoVenta } from './ventas.rules.js';
 import { aVentaPublica, type VentaPublica } from './ventas.types.js';
 
@@ -35,8 +35,6 @@ export type TotalesHistorico = {
   /** Lo que está reservado esperando pago (pendientes vigentes). */
   pendienteCentavos: number;
   pendientes: number;
-  /** Pedidos a medida que esperan precio (solicitados o a cotizar): no suman plata. */
-  porCotizar: number;
 };
 
 export type ListadoVentas = {
@@ -80,7 +78,7 @@ export class HistoricoVentasService {
     const moneda = filtros.moneda ?? 'ARS';
     const base: Prisma.VentaWhereInput = { AND: [periodo, { moneda }] };
 
-    const [ventas, total, pagadas, pendientes, porCotizar, monedas] = await Promise.all([
+    const [ventas, total, pagadas, pendientes, monedas] = await Promise.all([
       this.prisma.venta.findMany({
         where,
         include: { items: true },
@@ -99,7 +97,6 @@ export class HistoricoVentasService {
         _sum: { totalCentavos: true },
         _count: { _all: true },
       }),
-      this.prisma.venta.count({ where: { AND: [base, { estado: { in: ['solicitado', 'a_cotizar'] } }] } }),
       this.prisma.venta.groupBy({ by: ['moneda'], where: periodo }),
     ]);
 
@@ -118,7 +115,6 @@ export class HistoricoVentasService {
         ticketPromedioCentavos: pagadas._count._all > 0 ? Math.round(cobrado / pagadas._count._all) : 0,
         pendienteCentavos: pendientes._sum.totalCentavos ?? 0,
         pendientes: pendientes._count._all,
-        porCotizar,
       },
     };
   }
@@ -206,9 +202,6 @@ export class HistoricoVentasService {
         break;
       case 'pagada':
       case 'cancelada':
-      case 'solicitado':
-      case 'a_cotizar':
-      case 'cotizado':
         condiciones.push({ estado: filtros.estado });
         break;
     }
@@ -223,7 +216,6 @@ export class HistoricoVentasService {
           ...(digitos.length >= 4 ? [{ telefonoCliente: { contains: digitos } }] : []),
           { items: { some: { nombreProducto: { contains: q, mode: 'insensitive' } } } },
           { items: { some: { codigo: { equals: q, mode: 'insensitive' } } } },
-          { solicitud: { path: ['nombreProducto'], string_contains: q, mode: 'insensitive' } },
         ],
       });
     }

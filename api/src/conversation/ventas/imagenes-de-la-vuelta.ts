@@ -10,21 +10,15 @@ import type { BaseMessage } from '@langchain/core/messages';
 export const HERRAMIENTA_IMAGEN = 'enviar_imagen_producto';
 
 /**
- * `varianteId` sólo cuando va la foto propia de una variante fija; si no, la
- * del producto. `leyenda` es el pie de foto cuando no alcanza con el nombre:
- * las del listado de ver_catalogo van con nombre y precio.
+ * `leyenda` es el pie de foto cuando no alcanza con el nombre: las del
+ * listado de ver_catalogo van con nombre y precio.
  */
-export type ImagenAEnviar = { productoId: string; nombre: string; varianteId?: string; leyenda?: string };
+export type ImagenAEnviar = { productoId: string; nombre: string; leyenda?: string };
 
 function esImagenAEnviar(valor: unknown): valor is ImagenAEnviar {
   if (typeof valor !== 'object' || valor === null) return false;
-  const { productoId, nombre, varianteId, leyenda } = valor as Record<string, unknown>;
-  return (
-    typeof productoId === 'string' &&
-    typeof nombre === 'string' &&
-    (varianteId === undefined || typeof varianteId === 'string') &&
-    (leyenda === undefined || typeof leyenda === 'string')
-  );
+  const { productoId, nombre, leyenda } = valor as Record<string, unknown>;
+  return typeof productoId === 'string' && typeof nombre === 'string' && (leyenda === undefined || typeof leyenda === 'string');
 }
 
 /** El `artifact` de un ToolMessage: una foto (enviar_imagen_producto) o varias (el listado de ver_catalogo). */
@@ -33,9 +27,9 @@ function imagenesDelArtifact(artifact: unknown): ImagenAEnviar[] {
   return esImagenAEnviar(artifact) ? [artifact] : [];
 }
 
-/** Qué foto es: la del producto o la de una de sus variantes. */
-export function claveDeFoto(foto: { productoId: string; varianteId?: string }): string {
-  return foto.varianteId ? `${foto.productoId}/${foto.varianteId}` : foto.productoId;
+/** Qué foto es: la del producto. */
+export function claveDeFoto(foto: { productoId: string }): string {
+  return foto.productoId;
 }
 
 /** Las fotos mandadas en estos mensajes, en orden y sin repetir. */
@@ -61,8 +55,7 @@ export function imagenesDeLaVuelta(messages: BaseMessage[]): ImagenAEnviar[] {
 
 /**
  * Las fotos que ya le llegaron al cliente en la parte de la charla que ve el
- * modelo: las de a medida el asistente las manda solo, y mandar dos veces la misma
- * es ruido.
+ * modelo: el asistente las manda solo, y mandar dos veces la misma es ruido.
  */
 export function fotosMandadas(messages: BaseMessage[]): Set<string> {
   return new Set(fotosDe(messages).map(claveDeFoto));
