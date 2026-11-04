@@ -121,7 +121,7 @@ test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
     expect(await cuotasDe('LAVARROPAS-E2E')).toEqual({ modo: 'precios', planes: [{ cuotas: 12, totalCentavos: 52_000_000 }] });
 
     // Al volver a editarlo, se ve lo guardado.
-    await page.getByRole('listitem').filter({ hasText: 'Lavarropas' }).getByRole('link', { name: 'Editar' }).click();
+    await page.getByRole('button', { name: 'Editar Lavarropas' }).click();
     await expect(page.getByRole('switch', { name: 'Ofrecer cuotas' })).toBeChecked();
     await expect(page.getByRole('button', { name: '12 cuotas', pressed: true, exact: true })).toBeVisible();
     await expect(page.getByLabel('Total en 12 cuotas')).toHaveValue('520.000');
