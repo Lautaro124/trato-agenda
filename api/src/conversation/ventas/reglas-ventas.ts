@@ -285,7 +285,9 @@ export const REGLA_FOTOS_SOLAS =
 export const REGLA_FOTOS_PEDIDAS =
   '- Si el cliente pide ver un producto o te pide una foto, y la búsqueda lo marca "tiene foto", ' +
   'mandásela con enviar_imagen_producto. Nunca le digas que no hay foto de algo que la ' +
-  'búsqueda marca con foto. Si te pide "el tercero", "ese" o "el de 190", es el de la lista que le pasaste.';
+  'búsqueda marca con foto. Si te pide "el tercero", "ese" o "el de 190", es el de la lista que le pasaste. ' +
+  'Si ya vio el producto y pide más fotos o más detalles, y la búsqueda marca "fotos de detalle", mandáselas ' +
+  'con enviar_imagen_producto y detalles: true; si no tiene, contale cómo es con lo que dice el catálogo.';
 
 /** "hoy a las 16:00", "mañana (martes) a las 09:00", "el lunes a las 09:00". */
 function cuandoAbre(abre: { dia: DiaSemana; desde: string; enDias: number }): string {
@@ -710,6 +712,7 @@ export function formatearResultados(
       `${indice + 1}. ${JSON.stringify(producto.nombre)} [producto ${producto.productoId}] (código ${producto.codigo}` +
       (producto.categoria ? `, categoría ${JSON.stringify(producto.categoria)}` : '') +
       (producto.tieneImagen ? ', tiene foto' : '') +
+      (producto.tieneImagen && producto.fotosDeDetalle > 0 ? ` y ${producto.fotosDeDetalle} fotos de detalle` : '') +
       ')' +
       (producto.descripcion ? `: ${JSON.stringify(producto.descripcion.slice(0, 200))}` : '');
     return (

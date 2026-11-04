@@ -791,9 +791,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * que las acompaña. Una que falla no corta nada: el texto sale igual.
    */
   private async enviarFotos(userId: string, sock: WASocket, remoteJid: string, imagenes: ImagenAEnviar[]): Promise<void> {
-    for (const { productoId, leyenda } of imagenes) {
+    for (const { productoId, imagenId, leyenda } of imagenes) {
       try {
-        const foto = await this.imagenes.paraEnviar(userId, productoId);
+        const foto = await this.imagenes.paraEnviar(userId, productoId, imagenId);
         if (!foto) continue;
         // Las del listado traen nombre y precio; las demás, el nombre de la base.
         await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: leyenda ?? foto.nombre });

@@ -27,8 +27,8 @@ test.describe('fotos de productos', () => {
     await page.getByRole('button', { name: 'Editar Mate de calabaza' }).click();
     const editor = page.getByRole('form', { name: 'Editar producto' });
     await expect(editor).toContainText('0 de 100 fotos');
-    await editor.getByLabel('Elegir foto del producto').setInputFiles({ name: 'mate.png', mimeType: 'image/png', buffer: PNG });
-    await expect(editor.getByRole('img', { name: 'Foto del producto' })).toBeVisible();
+    await editor.getByLabel('Agregar fotos del producto').setInputFiles({ name: 'mate.png', mimeType: 'image/png', buffer: PNG });
+    await expect(editor.getByRole('img', { name: 'Foto principal del producto' })).toBeVisible();
     await expect(editor).toContainText('1 de 100 fotos');
 
     // Lo que se guardó es el JPEG que generó la API, no el PNG que se subió.
@@ -41,7 +41,7 @@ test.describe('fotos de productos', () => {
     // Un GIF no pasa, y el error se ve en el editor.
     await page.getByRole('button', { name: 'Editar Mate de calabaza' }).click();
     await editor
-      .getByLabel('Elegir foto del producto')
+      .getByLabel('Agregar fotos del producto')
       .setInputFiles({ name: 'mate.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') });
     await expect(editor.getByRole('alert')).toContainText('JPG, PNG o WebP');
     await editor.getByRole('button', { name: 'Cancelar' }).click();
@@ -59,6 +59,46 @@ test.describe('fotos de productos', () => {
     expect(quitar.status()).toBe(204);
     const uso = (await (await context.request.get(`${API_URL}/productos/imagenes/uso`)).json()) as { usadas: number };
     expect(uso.usadas).toBe(0);
+  });
+
+  test('hasta 4 fotos: la primera es la principal, se puede cambiar, y el resto sale cuando piden más detalles', async ({
+    page,
+    context,
+    usuarioDev,
+  }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    const termo = await crearProductoPorApi(context.request, { codigo: 'FOTO-4', nombre: 'Termo de acero', precioCentavos: 1_500_000, stock: 2 });
+
+    await page.goto(`/productos/${termo.id}`);
+    const editor = page.getByRole('form', { name: 'Editar producto' });
+    const fotos = Array.from({ length: 5 }, (_, i) => ({ name: `termo-${i}.png`, mimeType: 'image/png', buffer: PNG }));
+    // Cinco de una: entran cuatro y avisa por qué.
+    await editor.getByLabel('Agregar fotos del producto').setInputFiles(fotos);
+    await expect(editor).toContainText('4 de 4');
+    await expect(editor.getByRole('alert')).toContainText('hasta 4 fotos');
+    await expect(editor.getByRole('img', { name: 'Foto 4 del producto' })).toBeVisible();
+
+    const antes = (await (await context.request.get(`${API_URL}/productos/${termo.id}`)).json()) as { imagenes: Array<{ id: string }> };
+    await editor.getByRole('button', { name: 'Hacer principal la foto 3' }).click();
+    await expect
+      .poll(async () => ((await (await context.request.get(`${API_URL}/productos/${termo.id}`)).json()) as { imagenes: Array<{ id: string }> }).imagenes.map((f) => f.id))
+      .toEqual([antes.imagenes[2].id, antes.imagenes[0].id, antes.imagenes[1].id, antes.imagenes[3].id]);
+
+    await editor.getByRole('button', { name: 'Quitar la foto 4' }).click();
+    await expect(editor).toContainText('3 de 4');
+
+    // Las de detalle salen por su id; la API no deja pasar de 4.
+    const detalle = await context.request.get(`${API_URL}/productos/${termo.id}/imagenes/${antes.imagenes[0].id}`);
+    expect(detalle.headers()['content-type']).toBe('image/jpeg');
+    const cuarta = await context.request.post(`${API_URL}/productos/${termo.id}/imagenes`, {
+      multipart: { imagen: { name: 'otra.png', mimeType: 'image/png', buffer: PNG } },
+    });
+    expect(cuarta.ok(), await cuarta.text()).toBe(true);
+    const respuesta = await context.request.post(`${API_URL}/productos/${termo.id}/imagenes`, {
+      multipart: { imagen: { name: 'otra.png', mimeType: 'image/png', buffer: PNG } },
+    });
+    expect(respuesta.status()).toBe(409);
   });
 
   test('"¿qué tenés?" manda solas las fotos de la lista, con nombre y precio, y el texto nombra sólo el resto', async ({

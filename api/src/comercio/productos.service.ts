@@ -14,6 +14,7 @@ import { normalizarCuotasProducto, type CuotasProducto } from './condiciones-pag
 import { finDeVigencia, inicioDeVigencia, problemaDeDescuento, type TipoDescuento } from './descuentos.rules.js';
 import { descuentosActivos, type DescuentoProductoDto } from './descuentos.types.js';
 import { normalizarPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
+import { ORDEN_FOTOS } from './imagenes.service.js';
 import { IndexadorService } from './indexador.service.js';
 import {
   aProductoPublico,
@@ -24,8 +25,8 @@ import {
   type ResumenImportacion,
 } from './productos.types.js';
 
-/** De la foto sólo hace falta saber si está y de cuándo es: nunca traer los bytes a un listado. */
-const SIN_BYTES = { select: { updatedAt: true } } as const;
+/** De las fotos sólo hace falta cuáles son y de cuándo: nunca traer los bytes a un listado. */
+const SIN_BYTES = { select: { id: true, updatedAt: true }, orderBy: ORDEN_FOTOS } as const;
 
 /** Productos por página en el panel. */
 export const POR_PAGINA = 25;
@@ -115,7 +116,7 @@ export class ProductosService {
       this.prisma.producto.count({ where }),
       this.prisma.producto.findMany({
         where,
-        include: { descuento: true, imagen: SIN_BYTES },
+        include: { descuento: true, imagenes: SIN_BYTES },
         orderBy: [{ nombre: 'asc' }, { codigo: 'asc' }],
         skip: (pagina - 1) * POR_PAGINA,
         take: POR_PAGINA,
@@ -186,7 +187,7 @@ export class ProductosService {
 
   /**
    * Baja lógica: deja de venderse, pero las ventas que lo nombran siguen
-   * intactas. La foto sí se borra, para que no ocupe lugar ni cupo.
+   * intactas. Las fotos sí se borran, para que no ocupen lugar ni cupo.
    */
   async eliminar(userId: string, id: string): Promise<void> {
     await this.buscarPropio(userId, id);
@@ -200,7 +201,7 @@ export class ProductosService {
     const [producto, promociones] = await Promise.all([
       this.prisma.producto.findFirst({
         where: { id, userId },
-        include: { descuento: true, imagen: SIN_BYTES },
+        include: { descuento: true, imagenes: SIN_BYTES },
       }),
       descuentosActivos(this.prisma, userId, []),
     ]);

@@ -10,15 +10,21 @@ import type { BaseMessage } from '@langchain/core/messages';
 export const HERRAMIENTA_IMAGEN = 'enviar_imagen_producto';
 
 /**
+ * Sin `imagenId` es la foto principal del producto; con él, una de detalle.
  * `leyenda` es el pie de foto cuando no alcanza con el nombre: las del
  * listado de ver_catalogo van con nombre y precio.
  */
-export type ImagenAEnviar = { productoId: string; nombre: string; leyenda?: string };
+export type ImagenAEnviar = { productoId: string; imagenId?: string; nombre: string; leyenda?: string };
 
 function esImagenAEnviar(valor: unknown): valor is ImagenAEnviar {
   if (typeof valor !== 'object' || valor === null) return false;
-  const { productoId, nombre, leyenda } = valor as Record<string, unknown>;
-  return typeof productoId === 'string' && typeof nombre === 'string' && (leyenda === undefined || typeof leyenda === 'string');
+  const { productoId, imagenId, nombre, leyenda } = valor as Record<string, unknown>;
+  return (
+    typeof productoId === 'string' &&
+    typeof nombre === 'string' &&
+    (imagenId === undefined || typeof imagenId === 'string') &&
+    (leyenda === undefined || typeof leyenda === 'string')
+  );
 }
 
 /** El `artifact` de un ToolMessage: una foto (enviar_imagen_producto) o varias (el listado de ver_catalogo). */
@@ -27,9 +33,9 @@ function imagenesDelArtifact(artifact: unknown): ImagenAEnviar[] {
   return esImagenAEnviar(artifact) ? [artifact] : [];
 }
 
-/** Qué foto es: la del producto. */
-export function claveDeFoto(foto: { productoId: string }): string {
-  return foto.productoId;
+/** Qué foto es: la principal del producto o una de sus fotos de detalle. */
+export function claveDeFoto(foto: { productoId: string; imagenId?: string }): string {
+  return foto.imagenId ? `${foto.productoId}#${foto.imagenId}` : foto.productoId;
 }
 
 /** Las fotos mandadas en estos mensajes, en orden y sin repetir. */

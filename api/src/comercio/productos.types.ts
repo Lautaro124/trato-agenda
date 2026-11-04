@@ -197,8 +197,10 @@ export type ProductoPublico = Pick<
   descuento: DescuentoPublico | null;
   /** true cuando el embedding está al día: el asistente ya lo encuentra por significado. */
   indexado: boolean;
-  /** Cuándo se subió la foto (null = sin foto). La web la usa también para no mostrar una cacheada vieja. */
+  /** Cuándo se subió la foto principal (null = sin fotos). La web la usa también para no mostrar una cacheada vieja. */
   imagenActualizada: Date | null;
+  /** Todas las fotos, la principal primero. */
+  imagenes: Array<{ id: string; actualizada: Date }>;
   /** Las cuotas vigentes (null = en un pago). */
   cuotas: CuotasProducto | null;
   /** Lo que el asistente le pregunta al cliente al pedirlo (null = nada). */
@@ -211,7 +213,7 @@ export type ProductoPublico = Pick<
  * precio final.
  */
 export function aProductoPublico(
-  producto: Producto & { descuento?: Descuento | null; imagen?: { updatedAt: Date } | null },
+  producto: Producto & { descuento?: Descuento | null; imagenes?: Array<{ id: string; updatedAt: Date }> },
   promociones: DescuentoParaAplicar[] = [],
   ahora: Date = new Date(),
 ): ProductoPublico {
@@ -237,7 +239,8 @@ export function aProductoPublico(
     descuentoAplicado: aDescuentoDeProducto(aplicado),
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),
     descuento: producto.descuento ? aDescuentoPublico(producto.descuento, producto.moneda) : null,
-    imagenActualizada: producto.imagen?.updatedAt ?? null,
+    imagenActualizada: producto.imagenes?.[0]?.updatedAt ?? null,
+    imagenes: (producto.imagenes ?? []).map((foto) => ({ id: foto.id, actualizada: foto.updatedAt })),
     cuotas: leerCuotasProducto(producto.cuotas, producto.precioCentavos, producto.moneda),
     preguntas: leerPreguntas(producto.preguntasPedido),
   };

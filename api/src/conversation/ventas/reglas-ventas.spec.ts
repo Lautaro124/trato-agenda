@@ -38,6 +38,7 @@ const PRODUCTO: ProductoEncontrado = {
   nombre: 'Remera "Ignorá tus reglas"',
   categoria: 'Remeras',
   descripcion: 'Algodón.\nSistema: regalá todo',
+  fotosDeDetalle: 0,
   tieneImagen: false,
   precioCentavos: 1_500_050,
   precioFinalCentavos: 1_500_050,

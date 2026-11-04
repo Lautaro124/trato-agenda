@@ -3,7 +3,7 @@
  * viven acá como constantes y el procesado es una función sin base ni red.
  *
  * Las fotos se guardan en Postgres, así que todo apunta a que ocupen poco:
- * una por producto, un techo por cuenta, y lo que se guarda nunca es el
+ * pocas por producto, un techo por cuenta, y lo que se guarda nunca es el
  * archivo que subió el dueño sino un JPEG recomprimido, chico y sin metadatos
  * (una foto de celular trae el GPS de donde se sacó).
  */
@@ -26,6 +26,9 @@ export const MAX_BYTES_GUARDADA = 150 * 1024;
 
 /** Fotos por cuenta. Reemplazar una no suma. */
 export const MAX_IMAGENES_POR_CUENTA = 100;
+
+/** Fotos por producto: la principal y hasta tres de detalle. */
+export const MAX_IMAGENES_POR_PRODUCTO = 4;
 
 /** Fotos que el asistente puede mandar en una misma respuesta: tantas como productos muestra por mensaje. */
 export const MAX_IMAGENES_POR_MENSAJE = 3;

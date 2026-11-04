@@ -126,14 +126,17 @@ Pendiente:
 
 ## Fotos de productos (2026-10-09, LAU-10)
 
-El dueño sube una foto por producto y el asistente de ventas se la manda al
-cliente que la pide (`enviar_imagen_producto`). Superficie nueva y cómo está
-cubierta:
+El dueño sube hasta 4 fotos por producto (2026-11-04: la principal y hasta
+tres de detalle) y el asistente de ventas se las manda al cliente
+(`enviar_imagen_producto`; con `detalles: true`, las de detalle). Superficie y
+cómo está cubierta:
 
-- **Subida** (`PUT /productos/:id/imagen`, multipart con `FileInterceptor` de
-  `@nestjs/platform-express`): multer en memoria con tope de 2 MB, un solo
-  archivo y ningún otro campo; el producto tiene que ser del `userId` de la
-  sesión (404 si no) y el chequeo de `Origin` de `main.ts` cubre el `PUT`.
+- **Subida** (`PUT /productos/:id/imagen` para la principal, `POST
+  /productos/:id/imagenes` y `PUT /productos/:id/imagenes/:imagenId`,
+  multipart con `FileInterceptor` de `@nestjs/platform-express`): multer en
+  memoria con tope de 2 MB, un solo archivo y ningún otro campo; el producto
+  tiene que ser del `userId` de la sesión y la foto, de ese producto (404 si
+  no). El chequeo de `Origin` de `main.ts` cubre `POST`, `PUT` y `DELETE`.
 - **Validación por contenido, no por nombre**: `formatoPorFirma`
   (`comercio/imagenes.rules.ts`) mira los primeros bytes y sólo deja pasar
   JPEG, PNG y WebP antes de entregarle el archivo a sharp, que sabe leer
@@ -142,19 +145,24 @@ cubierta:
   descompresión.
 - **Nunca se guarda ni se sirve lo que subió el dueño**: se recomprime a JPEG
   de 800 px, ≤ 150 KB y **sin metadatos** (EXIF con GPS, ICC). `GET
-  /productos/:id/imagen` responde siempre `image/jpeg` con las cabeceras de
-  seguridad globales (`nosniff`, CSP `default-src 'none'`).
-- **Tope de almacenamiento**: una foto por producto y 100 productos con foto
-  por cuenta, contados en una transacción con `SELECT … FOR UPDATE` sobre el
-  `User` (`imagenes.db.spec.ts` prueba dos subidas simultáneas por el último
-  lugar). Tabla aparte (`ImagenProducto`) para que ningún listado lea los
-  bytes. Dar de baja el producto borra su foto; la baja de cuenta, por cascada.
+  /productos/:id/imagen` y `GET /productos/:id/imagenes/:imagenId` responden
+  siempre `image/jpeg` con las cabeceras de seguridad globales (`nosniff`,
+  CSP `default-src 'none'`).
+- **Tope de almacenamiento**: 4 fotos por producto
+  (`MAX_IMAGENES_POR_PRODUCTO`) y 100 fotos por cuenta, contadas en una
+  transacción con `SELECT … FOR UPDATE` sobre el `User` y después sobre el
+  `Producto` (`imagenes.db.spec.ts` prueba dos subidas simultáneas por el
+  último lugar). Tabla aparte (`ImagenProducto`) para que ningún listado lea
+  los bytes. Dar de baja el producto borra sus fotos; la baja de cuenta, por
+  cascada.
 - **El modelo no elige qué bytes salen**: la herramienta recibe sólo un
-  `productoId`; el nodo `catalogo` comprueba que sea un producto activo del
-  dueño con foto y deja en el `ToolMessage` un `artifact` con id y nombre
-  (nunca los bytes, que no llegan al checkpoint). `WhatsappService` vuelve a
-  leer la foto filtrando por dueño y producto activo antes de mandarla. Tope
-  de 2 fotos por respuesta (`MAX_IMAGENES_POR_MENSAJE`). Una foto que falla se
+  `productoId` (y `detalles`, nunca un id de foto); el nodo `catalogo` comprueba que sea un producto activo del
+  dueño con foto y deja en el `ToolMessage` un `artifact` con ids y nombre
+  (nunca los bytes, que no llegan al checkpoint); los ids de las fotos de
+  detalle salen de la base, no del modelo. `WhatsappService` vuelve a leer
+  cada foto filtrando por dueño, producto activo y, si es de detalle, su id
+  antes de mandarla. Tope de 3 fotos pedidas por respuesta
+  (`MAX_IMAGENES_POR_MENSAJE`); las de detalle van solas. Una foto que falla se
   loguea con ids y el texto sale igual.
 
 ## Importación rápida de productos (2026-10-21, LAU-31)

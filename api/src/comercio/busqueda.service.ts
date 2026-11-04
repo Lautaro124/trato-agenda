@@ -75,8 +75,10 @@ export type ProductoEncontrado = {
    * que se pidió, y así se le presenta al modelo.
    */
   soloParecido?: boolean;
-  /** Si tiene foto para mandarle al cliente (enviar_imagen_producto). */
+  /** Si tiene foto principal para mandarle al cliente (enviar_imagen_producto). */
   tieneImagen: boolean;
+  /** Cuántas fotos de detalle tiene además de la principal (enviar_imagen_producto con `detalles`). */
+  fotosDeDetalle: number;
 };
 
 export type OpcionesBusqueda = {
@@ -217,7 +219,7 @@ export class BusquedaService {
       this.prisma.producto.findMany({
         where: { id: { in: ids }, userId, activo: true },
         // Sólo si existe: los bytes nunca vienen en una búsqueda.
-        include: { imagen: { select: { id: true } } },
+        include: { _count: { select: { imagenes: true } } },
       }),
       descuentosActivos(this.prisma, userId, ids),
     ]);
@@ -243,7 +245,8 @@ export class BusquedaService {
           categoria: producto.categoria,
           descripcion: producto.descripcion,
           moneda: monedaDe(producto.moneda),
-          tieneImagen: producto.imagen !== null,
+          tieneImagen: producto._count.imagenes > 0,
+          fotosDeDetalle: Math.max(0, producto._count.imagenes - 1),
           precioCentavos: producto.precioCentavos,
           precioFinalCentavos: descuento?.precioFinalCentavos ?? producto.precioCentavos,
           descuento,

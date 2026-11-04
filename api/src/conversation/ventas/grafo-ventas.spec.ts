@@ -38,6 +38,7 @@ const MATE: ProductoEncontrado = {
   categoria: 'Mates',
   descripcion: 'Curado, con virola de alpaca',
   tieneImagen: false,
+  fotosDeDetalle: 0,
   precioCentavos: 800_000,
   precioFinalCentavos: 800_000,
   descuento: null,
@@ -590,7 +591,7 @@ describe('grafo de ventas', () => {
         tieneImagen: true,
       }));
       const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: PRODUCTOS_CON_FOTO, categoria: null, restantes: 0 });
-      const imagenes = { estadoDeFoto: vi.fn().mockResolvedValue({ nombre: 'Termo', tieneFoto: true, deVariante: false }) };
+      const imagenes = { estadoDeFoto: vi.fn().mockResolvedValue({ nombre: 'Termo', tieneFoto: true, detalles: [] }) };
       const llm = crearModelo([
         llamada('ver_catalogo', {}),
         llamada('enviar_imagen_producto', { productoId: 'p-termo' }, 'c2'),
@@ -718,7 +719,9 @@ describe('grafo de ventas', () => {
 
   describe('enviar_imagen_producto', () => {
     const MATE_CON_FOTO = { ...MATE, tieneImagen: true };
-    const conFoto = (estado: { nombre: string; tieneFoto: boolean } | null = { nombre: MATE.nombre, tieneFoto: true }) => ({
+    const conFoto = (
+      estado: { nombre: string; tieneFoto: boolean; detalles: readonly string[] } | null = { nombre: MATE.nombre, tieneFoto: true, detalles: [] },
+    ) => ({
       estadoDeFoto: vi.fn().mockResolvedValue(estado),
     });
 
@@ -753,7 +756,7 @@ describe('grafo de ventas', () => {
 
     it('sin foto, o de un producto ajeno, no manda nada y le dice al modelo qué contestar', async () => {
       for (const [estado, texto] of [
-        [{ nombre: MATE.nombre, tieneFoto: false }, 'no tiene foto'],
+        [{ nombre: MATE.nombre, tieneFoto: false, detalles: [] }, 'no tiene foto'],
         [null, 'no está en el catálogo'],
       ] as const) {
         const llm = crearModelo([llamada('enviar_imagen_producto', { productoId: 'p-1' }), new AIMessage('.')]);
@@ -766,7 +769,7 @@ describe('grafo de ventas', () => {
     });
 
     it(`no manda más de ${MAX_IMAGENES_POR_MENSAJE} fotos por respuesta ni repite una`, async () => {
-      const imagenes = { estadoDeFoto: vi.fn(async (_userId: string, id: string) => ({ nombre: `Producto ${id}`, tieneFoto: true })) };
+      const imagenes = { estadoDeFoto: vi.fn(async (_userId: string, id: string) => ({ nombre: `Producto ${id}`, tieneFoto: true, detalles: [] })) };
       const llm = crearModelo([
         new AIMessage({
           content: '',
@@ -791,6 +794,47 @@ describe('grafo de ventas', () => {
         expect.stringContaining('ya sale con esta respuesta'),
         expect.stringContaining('que es el máximo'),
       ]);
+    });
+
+    it('la búsqueda avisa cuántas fotos de detalle tiene el producto', async () => {
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('Tengo el mate.')]);
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm,
+        busqueda: { buscar: vi.fn().mockResolvedValue([{ ...MATE_CON_FOTO, fotosDeDetalle: 2 }]) },
+      });
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain('tiene foto y 2 fotos de detalle)');
+    });
+
+    it('con detalles manda las fotos de detalle, no la principal, y van solas en la respuesta', async () => {
+      const imagenes = conFoto({ nombre: MATE.nombre, tieneFoto: true, detalles: ['img-2', 'img-3'] });
+      const llm = crearModelo([
+        new AIMessage({
+          content: '',
+          tool_calls: [
+            { id: 'd1', name: 'enviar_imagen_producto', args: { productoId: 'p-1', detalles: true } },
+            { id: 'd2', name: 'enviar_imagen_producto', args: { productoId: 'p-2' } },
+          ],
+        }),
+        new AIMessage('Ahí van más fotos.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
+
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([
+        { productoId: 'p-1', imagenId: 'img-2', nombre: 'Mate de calabaza' },
+        { productoId: 'p-1', imagenId: 'img-3', nombre: 'Mate de calabaza' },
+      ]);
+      expect(resultadoDe(resultado.messages, 'enviar_imagen_producto').content).toContain('le llegan 2 fotos más');
+      const rechazo = toolMessages(resultado.messages).find((mensaje) => mensaje.tool_call_id === 'd2');
+      expect(rechazo?.content).toContain('que es el máximo');
+    });
+
+    it('sin fotos de detalle no manda nada y le dice que cuente cómo es', async () => {
+      const llm = crearModelo([llamada('enviar_imagen_producto', { productoId: 'p-1', detalles: true }), new AIMessage('.')]);
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes: conFoto() });
+      expect(resultadoDe(resultado.messages, 'enviar_imagen_producto').content).toContain('no tiene más fotos que la principal');
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([]);
     });
 
     function grafoConDosMensajes(imagenes: Pick<ImagenesService, 'estadoDeFoto'>, llm: BaseChatModel) {

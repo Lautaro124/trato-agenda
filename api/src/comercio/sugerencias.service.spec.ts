@@ -14,10 +14,11 @@ type Fila = {
   stock: number | null;
   disponible: boolean;
   activo: boolean;
+  _count: { imagenes: number };
 };
 
 function fila(id: string, categoria: string | null, precioCentavos = 1000, stock: number | null = 5): Fila {
-  return { id, nombre: `Producto ${id}`, categoria, descripcion: '', precioCentavos, stock, disponible: true, activo: true };
+  return { id, nombre: `Producto ${id}`, categoria, descripcion: '', precioCentavos, stock, disponible: true, activo: true, _count: { imagenes: 0 } };
 }
 
 function crear(

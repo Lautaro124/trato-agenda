@@ -42,13 +42,18 @@ export type Producto = {
   indexado: boolean;
   /** El descuento propio del producto (vigente o no). */
   descuento: Descuento | null;
-  /** Cuándo se subió la foto; null = sin foto. */
+  /** Cuándo se subió la foto principal; null = sin fotos. */
   imagenActualizada: string | null;
+  /** Todas las fotos, la principal primero. */
+  imagenes: FotoDeProducto[];
   /** Las cuotas del producto; null = en un pago. */
   cuotas: CuotasProducto | null;
   /** Lo que el asistente le pregunta al cliente al pedirlo; null = nada. */
   preguntas: PreguntaProducto[] | null;
 };
+
+/** Una foto del producto (sin los bytes): `actualizada` evita mostrar una cacheada vieja. */
+export type FotoDeProducto = { id: string; actualizada: string };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
 

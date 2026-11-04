@@ -180,6 +180,22 @@ export function validarLlamadaVentas(
     if (!productoId || productoId.length > MAX_LARGO_ID) {
       return { ok: false, motivo: 'Falta el id del producto: usá el que figura entre corchetes en la búsqueda.' };
     }
+    if (args.detalles === true) {
+      // Las fotos de detalle son hasta MAX_IMAGENES_POR_MENSAJE - 1: van solas en la respuesta.
+      const clave = `${productoId}#detalles`;
+      if (historial.fotosEnElMensaje.has(clave)) {
+        return { ok: false, motivo: 'Esas fotos ya salen con esta respuesta: no las pidas de nuevo.' };
+      }
+      if (historial.fotosPedidas > 0) {
+        return {
+          ok: false,
+          motivo: 'Las fotos de detalle van solas: mandá esta respuesta con lo que ya pediste y ofrecele las demás después.',
+        };
+      }
+      historial.fotosEnElMensaje.add(clave);
+      historial.fotosPedidas = MAX_IMAGENES_POR_MENSAJE;
+      return { ok: true, operacion: { ...llamada, args: { productoId, detalles: true } } };
+    }
     const clave = claveDeFoto({ productoId });
     const fotos = historial.fotosEnElMensaje;
     if (fotos.has(clave)) {
