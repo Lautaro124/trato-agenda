@@ -94,7 +94,7 @@ function crearServicio(opciones: {
 
   const config = {
     get: (clave: string) =>
-      clave === 'SUSCRIPCION_PRECIO_ARS' ? 20000 : clave === 'SUSCRIPCION_PRECIO_PRO_ARS' ? 59000 : 'http://localhost:3000',
+      clave === 'SUSCRIPCION_PRECIO_ARS' ? 75000 : 'http://localhost:3000',
   } as unknown as ConfigService<Env, true>;
   const notificaciones = { avisar: vi.fn().mockResolvedValue(null) } as unknown as NotificacionesService;
 
@@ -113,19 +113,19 @@ describe('SubscriptionService', () => {
   it('el checkout guarda el preapproval y devuelve el init_point', async () => {
     const { service, mercadoPago, filas } = crearServicio({ creadoHaceDias: 2 });
 
-    const { initPoint } = await service.crearCheckout(USUARIO, 'basico');
+    const { initPoint } = await service.crearCheckout(USUARIO);
 
     expect(initPoint).toBe('https://mp/checkout');
     expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({
       externalReference: 'user-1',
       backUrl: 'http://localhost:3000/plan?volviendo=1',
-      montoPorMes: 20000,
+      montoPorMes: 75000,
     });
     expect(filas.get('user-1')).toMatchObject({
       mpPreapprovalId: 'pre-1',
       estado: 'pendiente',
-      plan: 'basico',
-      montoCentavos: 2_000_000,
+      plan: 'unico',
+      montoCentavos: 7_500_000,
     });
   });
 
@@ -133,9 +133,9 @@ describe('SubscriptionService', () => {
     const { service, prisma, mercadoPago } = crearServicio({ creadoHaceDias: 2 });
     const sinEmail = { ...USUARIO, email: null };
 
-    await expect(service.crearCheckout(sinEmail, 'basico')).rejects.toThrow('Falta el email');
+    await expect(service.crearCheckout(sinEmail)).rejects.toThrow('Falta el email');
 
-    await service.crearCheckout(sinEmail, 'basico', 'nuevo@ejemplo.com');
+    await service.crearCheckout(sinEmail, 'nuevo@ejemplo.com');
     expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { email: 'nuevo@ejemplo.com' } });
     expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({ payerEmail: 'nuevo@ejemplo.com' });
   });
@@ -143,14 +143,14 @@ describe('SubscriptionService', () => {
   it('no deja usar para pagar el email de otra cuenta', async () => {
     const { service, mercadoPago } = crearServicio({ creadoHaceDias: 2, emailsTomados: ['ajeno@ejemplo.com'] });
 
-    await expect(service.crearCheckout({ ...USUARIO, email: null }, 'basico', 'ajeno@ejemplo.com')).rejects.toThrow('otra cuenta');
+    await expect(service.crearCheckout({ ...USUARIO, email: null }, 'ajeno@ejemplo.com')).rejects.toThrow('otra cuenta');
     expect(mercadoPago.crearPreapproval).not.toHaveBeenCalled();
   });
 
   it('con email propio ignora el que venga en el body', async () => {
     const { service, prisma, mercadoPago } = crearServicio({ creadoHaceDias: 2 });
 
-    await service.crearCheckout(USUARIO, 'basico', 'otro@ejemplo.com');
+    await service.crearCheckout(USUARIO, 'otro@ejemplo.com');
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({ payerEmail: 'dueño@ejemplo.com' });
   });
@@ -206,45 +206,45 @@ describe('SubscriptionService', () => {
     expect((await aTiempo.service.estadoPublico('user-1')).diasRestantes).toBe(1);
   });
 
-  it('el checkout del Pro cobra el precio del Pro y lo guarda en la fila', async () => {
+  it('el checkout cobra el precio del plan único y lo guarda en la fila', async () => {
     const { service, mercadoPago, filas } = crearServicio({ creadoHaceDias: 2 });
 
-    await service.crearCheckout(USUARIO, 'pro');
+    await service.crearCheckout(USUARIO);
 
     expect(vi.mocked(mercadoPago.crearPreapproval).mock.calls[0][0]).toMatchObject({
-      montoPorMes: 59000,
-      reason: 'Trato — plan Pro',
+      montoPorMes: 75000,
+      reason: 'Trato — plan Trato',
     });
-    expect(filas.get('user-1')).toMatchObject({ plan: 'pro', montoCentavos: 5_900_000 });
+    expect(filas.get('user-1')).toMatchObject({ plan: 'unico', montoCentavos: 7_500_000 });
   });
 
-  describe('cambio de plan con una suscripción activa', () => {
+  describe('re-suscripción con una suscripción activa (plan viejo)', () => {
     function pagandoBasico() {
       const ctx = crearServicio({ creadoHaceDias: 40, suscripcion: { estado: 'activa' } });
-      ctx.filas.set('user-1', { ...ctx.filas.get('user-1'), mpPreapprovalId: 'pre-viejo', plan: 'basico' } as Record<string, unknown>);
+      ctx.filas.set('user-1', { ...ctx.filas.get('user-1'), mpPreapprovalId: 'pre-viejo', plan: 'unico' } as Record<string, unknown>);
       return ctx;
     }
 
     it('el checkout no toca la suscripción vigente ni cancela nada: deja el nuevo pendiente', async () => {
       const { service, mercadoPago, filas } = pagandoBasico();
 
-      await service.crearCheckout(USUARIO, 'pro');
+      await service.crearCheckout(USUARIO);
 
       expect(mercadoPago.cancelarPreapproval).not.toHaveBeenCalled();
       expect(filas.get('user-1')).toMatchObject({
         estado: 'activa',
-        plan: 'basico',
+        plan: 'unico',
         mpPreapprovalId: 'pre-viejo',
         mpPreapprovalPendienteId: 'pre-1',
-        planPendiente: 'pro',
+        planPendiente: 'unico',
       });
     });
 
     it('repetir el checkout cancela el pendiente abandonado, para que no cobre dos veces', async () => {
       const { service, mercadoPago, filas } = pagandoBasico();
-      filas.set('user-1', { ...filas.get('user-1'), mpPreapprovalPendienteId: 'pre-abandonado', planPendiente: 'pro' } as Record<string, unknown>);
+      filas.set('user-1', { ...filas.get('user-1'), mpPreapprovalPendienteId: 'pre-abandonado', planPendiente: 'unico' } as Record<string, unknown>);
 
-      await service.crearCheckout(USUARIO, 'pro');
+      await service.crearCheckout(USUARIO);
 
       expect(mercadoPago.cancelarPreapproval).toHaveBeenCalledWith('pre-abandonado');
       expect(filas.get('user-1')).toMatchObject({ mpPreapprovalPendienteId: 'pre-1' });
@@ -260,7 +260,7 @@ describe('SubscriptionService', () => {
 
     it('cancelar baja también el cambio de plan pendiente', async () => {
       const { service, mercadoPago, filas } = pagandoBasico();
-      filas.set('user-1', { ...filas.get('user-1'), mpPreapprovalPendienteId: 'pre-pend', planPendiente: 'pro' } as Record<string, unknown>);
+      filas.set('user-1', { ...filas.get('user-1'), mpPreapprovalPendienteId: 'pre-pend', planPendiente: 'unico' } as Record<string, unknown>);
 
       await service.cancelar('user-1');
 
@@ -271,16 +271,16 @@ describe('SubscriptionService', () => {
 
     it('cuando el nuevo se autoriza, se adopta con su plan y se cancela el anterior', async () => {
       const { service, mercadoPago, filas } = pagandoBasico();
-      await service.crearCheckout(USUARIO, 'pro');
+      await service.crearCheckout(USUARIO);
 
       await service.sincronizarDesdeMp('pre-1');
 
       expect(mercadoPago.cancelarPreapproval).toHaveBeenCalledWith('pre-viejo');
       expect(filas.get('user-1')).toMatchObject({
         estado: 'activa',
-        plan: 'pro',
+        plan: 'unico',
         mpPreapprovalId: 'pre-1',
-        montoCentavos: 5_900_000,
+        montoCentavos: 7_500_000,
         mpPreapprovalPendienteId: null,
         planPendiente: null,
       });
@@ -288,7 +288,7 @@ describe('SubscriptionService', () => {
 
     it('si abandona el pago del nuevo, sigue con el plan que tenía', async () => {
       const { service, mercadoPago, filas } = pagandoBasico();
-      await service.crearCheckout(USUARIO, 'pro');
+      await service.crearCheckout(USUARIO);
       vi.mocked(mercadoPago.obtenerPreapproval).mockResolvedValueOnce({
         id: 'pre-1',
         status: 'cancelled',
@@ -297,12 +297,12 @@ describe('SubscriptionService', () => {
 
       await service.sincronizarDesdeMp('pre-1');
 
-      expect(filas.get('user-1')).toMatchObject({ estado: 'activa', plan: 'basico', mpPreapprovalId: 'pre-viejo', planPendiente: null });
+      expect(filas.get('user-1')).toMatchObject({ estado: 'activa', plan: 'unico', mpPreapprovalId: 'pre-viejo', planPendiente: null });
     });
 
     it('el webhook "cancelled" del preapproval viejo no pisa al nuevo', async () => {
       const { service, mercadoPago, filas } = pagandoBasico();
-      filas.set('user-1', { ...filas.get('user-1'), mpPreapprovalId: 'pre-nuevo', plan: 'pro' } as Record<string, unknown>);
+      filas.set('user-1', { ...filas.get('user-1'), mpPreapprovalId: 'pre-nuevo', plan: 'unico' } as Record<string, unknown>);
       vi.mocked(mercadoPago.obtenerPreapproval).mockResolvedValueOnce({
         id: 'pre-viejo',
         status: 'cancelled',
@@ -311,28 +311,25 @@ describe('SubscriptionService', () => {
 
       await service.sincronizarDesdeMp('pre-viejo');
 
-      expect(filas.get('user-1')).toMatchObject({ estado: 'activa', mpPreapprovalId: 'pre-nuevo', plan: 'pro' });
+      expect(filas.get('user-1')).toMatchObject({ estado: 'activa', mpPreapprovalId: 'pre-nuevo', plan: 'unico' });
     });
   });
 
-  it('el precio público lista los dos planes con su tope de chats', () => {
+  it('el precio público lista el plan único con su tope de chats', () => {
     const { service } = crearServicio({ creadoHaceDias: 2 });
 
     expect(service.precioPublico()).toEqual({
       moneda: 'ARS',
-      planes: [
-        { id: 'basico', nombre: 'Básico', chats: 1500, monto: 20000 },
-        { id: 'pro', nombre: 'Pro', chats: 4500, monto: 59000 },
-      ],
+      planes: [{ id: 'unico', nombre: 'Trato', chats: 4500, monto: 75000 }],
     });
   });
 
   it('el estado público trae el uso del mes contra el tope del plan', async () => {
-    const pagandoPro = crearServicio({ creadoHaceDias: 40, suscripcion: { estado: 'activa' }, chatsDelMes: 3100 });
-    pagandoPro.filas.set('user-1', { ...pagandoPro.filas.get('user-1'), plan: 'pro' } as Record<string, unknown>);
+    const pagando = crearServicio({ creadoHaceDias: 40, suscripcion: { estado: 'activa' }, chatsDelMes: 3100 });
+    pagando.filas.set('user-1', { ...pagando.filas.get('user-1'), plan: 'unico' } as Record<string, unknown>);
     const enPrueba = crearServicio({ creadoHaceDias: 2, chatsDelMes: 12 });
 
-    expect((await pagandoPro.service.estadoPublico('user-1'))).toMatchObject({ plan: 'pro', uso: { chats: 3100, limite: 4500 } });
+    expect((await pagando.service.estadoPublico('user-1'))).toMatchObject({ plan: 'unico', uso: { chats: 3100, limite: 4500 } });
     expect((await enPrueba.service.estadoPublico('user-1'))).toMatchObject({ plan: null, uso: { chats: 12, limite: 4500 } });
   });
 
@@ -346,35 +343,31 @@ describe('SubscriptionService', () => {
     }
 
     it('por debajo del 80 % no avisa', async () => {
-      const { service, notificaciones } = pagando('basico', 1199);
+      const { service, notificaciones } = pagando('unico', 3599);
       await service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(notificaciones.avisar).not.toHaveBeenCalled();
     });
 
     it('al 80 % avisa, una sola vez en el mes aunque ya lo haya leído', async () => {
-      const primera = pagando('basico', 1200);
+      const primera = pagando('unico', 3600);
       await primera.service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(primera.notificaciones.avisar).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({ tipo: 'cupo_chats', clave: 'cupo_chats:80:2026-10' }),
       );
 
-      const repetida = pagando('basico', 1300, ['cupo_chats:80:2026-10']);
+      const repetida = pagando('unico', 3700, ['cupo_chats:80:2026-10']);
       await repetida.service.avisarSiLlegaAlTope('user-1', AHORA);
       expect(repetida.notificaciones.avisar).not.toHaveBeenCalled();
     });
 
-    it('al tope avisa con otra clave, y el Pro tiene 4.500', async () => {
-      const basico = pagando('basico', 1500);
-      await basico.service.avisarSiLlegaAlTope('user-1', AHORA);
-      expect(basico.notificaciones.avisar).toHaveBeenCalledWith(
+    it('al tope avisa con otra clave', async () => {
+      const ctx = pagando('unico', 4500);
+      await ctx.service.avisarSiLlegaAlTope('user-1', AHORA);
+      expect(ctx.notificaciones.avisar).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({ clave: 'cupo_chats:100:2026-10' }),
       );
-
-      const pro = pagando('pro', 2500);
-      await pro.service.avisarSiLlegaAlTope('user-1', AHORA);
-      expect(pro.notificaciones.avisar).not.toHaveBeenCalled();
     });
   });
 
@@ -382,7 +375,7 @@ describe('SubscriptionService', () => {
     const { service, filas } = crearServicio({ creadoHaceDias: 2, suscripcion: { estado: 'pendiente' } });
     filas.set('user-1', { ...filas.get('user-1'), montoCentavos: 1_500_000 } as Record<string, unknown>);
 
-    expect((await service.estadoPublico('user-1')).monto).toBe(20000);
+    expect((await service.estadoPublico('user-1')).monto).toBe(75000);
   });
 
   it('una suscripción activa muestra lo que efectivamente paga', async () => {

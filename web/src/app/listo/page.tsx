@@ -47,7 +47,7 @@ export default function ListoPage() {
 
   const yaVinculado = yaVinculoWhatsapp(user);
   const hasta = suscripcion ? formatearFechaCorta(suscripcion.pruebaHasta) : null;
-  // El precio sale de la API (SUSCRIPCION_PRECIO_ARS, el del plan Básico); hasta que llega, no se inventa uno.
+  // El precio sale de la API (SUSCRIPCION_PRECIO_ARS); hasta que llega, no se inventa uno.
   const precio = suscripcion ? formatearMonto(suscripcion.monto, suscripcion.moneda) : null;
 
   return (

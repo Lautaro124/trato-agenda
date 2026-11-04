@@ -1,13 +1,13 @@
 import { API_URL } from '../entorno';
 import { expect, test } from './fixtures';
 
-/** Igual que `formatearMonto` en la web: "$ 20.000". */
+/** Igual que `formatearMonto` en la web: "$ 75.000". */
 function formatear(monto: number, moneda: string): string {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: moneda, maximumFractionDigits: 0 }).format(monto);
 }
 
 test.describe('precio del plan', () => {
-  test('la landing y /plan muestran los dos planes con los precios de la API', async ({ page, context, usuarioDev }) => {
+  test('la landing y /plan muestran el plan único con el precio de la API', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     const res = await context.request.get(`${API_URL}/suscripcion/precio`);
     expect(res.ok(), await res.text()).toBe(true);
@@ -15,7 +15,8 @@ test.describe('precio del plan', () => {
       moneda: string;
       planes: Array<{ id: string; nombre: string; chats: number; monto: number }>;
     };
-    expect(planes.map((p) => p.id)).toEqual(['basico', 'pro']);
+    expect(planes).toHaveLength(1);
+    expect(planes[0].monto).toBe(75000);
 
     await page.goto('/');
     for (const plan of planes) {
@@ -24,7 +25,7 @@ test.describe('precio del plan', () => {
 
     await page.goto('/plan');
     for (const plan of planes) {
-      await expect(page.getByRole('radio', { name: `Plan ${plan.nombre}` })).toContainText(formatear(plan.monto, moneda));
+      await expect(page.getByText(formatear(plan.monto, moneda), { exact: true }).first()).toBeVisible();
     }
   });
 });

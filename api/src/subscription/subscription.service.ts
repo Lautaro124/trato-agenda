@@ -9,14 +9,11 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { MercadoPagoClient, type Preapproval, type PreapprovalStatus } from './mercadopago.client.js';
 import { huellasDeIdentidad, inicioDePrueba } from './prueba-consumida.js';
 import {
-  PLANES,
-  IDS_DE_PLAN,
+  PLAN,
   estadoDeCupo,
   estadoDeSuscripcion,
-  limiteDeChats,
   rangoDelMes,
   type EstadoSuscripcion,
-  type PlanId,
 } from './subscription.rules.js';
 import { aSuscripcionPublica, type PrecioPublico, type SuscripcionPublica } from './subscription.types.js';
 
@@ -24,7 +21,7 @@ import { aSuscripcionPublica, type PrecioPublico, type SuscripcionPublica } from
 const PREFIJO_JID_DE_PRUEBA = 'web-test:';
 
 /** Texto que la persona ve en el checkout y en su resumen de Mercado Pago. */
-const razonDelPlan = (plan: PlanId): string => `Trato — plan ${PLANES[plan].nombre}`;
+const RAZON_DEL_PLAN = `Trato — plan ${PLAN.nombre}`;
 
 /** Mercado Pago habla de preapprovals; nosotros de suscripciones. */
 const ESTADO_POR_STATUS: Record<PreapprovalStatus, string> = {
@@ -49,20 +46,14 @@ export class SubscriptionService {
   async estadoPublico(userId: string): Promise<SuscripcionPublica> {
     const { estado, suscripcion } = await this.resolver(userId);
     const chats = await this.chatsDelMes(userId);
-    const limite = limiteDeChats(estado.estado === 'activa' ? suscripcion?.plan : null);
-    return aSuscripcionPublica(estado, suscripcion, this.precio('basico'), { chats, limite });
+    return aSuscripcionPublica(estado, suscripcion, this.precio(), { chats, limite: PLAN.chats });
   }
 
-  /** Los precios de los planes, sin sesión: la landing los lee de acá para no hardcodearlos. */
+  /** El precio del plan, sin sesión: la landing los lee de acá para no hardcodearlos. */
   precioPublico(): PrecioPublico {
     return {
       moneda: 'ARS',
-      planes: IDS_DE_PLAN.map((id) => ({
-        id,
-        nombre: PLANES[id].nombre,
-        chats: PLANES[id].chats,
-        monto: this.precio(id),
-      })),
+      planes: [{ id: PLAN.id, nombre: PLAN.nombre, chats: PLAN.chats, monto: this.precio() }],
     };
   }
 
@@ -92,13 +83,10 @@ export class SubscriptionService {
    * resultado ni le importa si falla.
    */
   async avisarSiLlegaAlTope(userId: string, ahora: Date = new Date()): Promise<void> {
-    const { estado, suscripcion } = await this.resolver(userId);
-    const plan = estado.estado === 'activa' ? (suscripcion?.plan ?? null) : null;
-    const cupo = estadoDeCupo({ usados: await this.chatsDelMes(userId, ahora), plan });
+    const cupo = estadoDeCupo({ usados: await this.chatsDelMes(userId, ahora) });
     if (!cupo.cercano) return;
 
     const aviso = avisoCupoDeChats({
-      plan,
       usados: cupo.usados,
       limite: cupo.limite,
       superado: cupo.superado,
@@ -143,13 +131,13 @@ export class SubscriptionService {
    * Mercado Pago exige el email de quien paga: una cuenta creada sólo con
    * WhatsApp no lo tiene, así que /plan lo pide y acá queda guardado.
    */
-  async crearCheckout(user: User, plan: PlanId, email?: string): Promise<{ initPoint: string }> {
+  async crearCheckout(user: User, email?: string): Promise<{ initPoint: string }> {
     const frontendUrl = this.config.get('FRONTEND_URL', { infer: true });
-    const monto = this.precio(plan);
+    const monto = this.precio();
     const payerEmail = await this.emailDelPagador(user, email);
 
     const preapproval = await this.mercadoPago.crearPreapproval({
-      reason: razonDelPlan(plan),
+      reason: RAZON_DEL_PLAN,
       externalReference: user.id,
       payerEmail,
       backUrl: `${frontendUrl}/plan?volviendo=1`,
@@ -172,7 +160,7 @@ export class SubscriptionService {
       await this.cancelarSinFrenar(anterior.mpPreapprovalPendienteId, user.id);
       await this.prisma.subscription.update({
         where: { userId: user.id },
-        data: { mpPreapprovalPendienteId: preapproval.id, planPendiente: plan },
+        data: { mpPreapprovalPendienteId: preapproval.id, planPendiente: PLAN.id },
       });
       return { initPoint: preapproval.init_point };
     }
@@ -184,7 +172,7 @@ export class SubscriptionService {
 
     const datos = {
       estado: ESTADO_POR_STATUS[preapproval.status],
-      plan,
+      plan: PLAN.id,
       mpPreapprovalId: preapproval.id,
       mpStatus: preapproval.status,
       montoCentavos: Math.round(monto * 100),
@@ -245,7 +233,7 @@ export class SubscriptionService {
 
     await this.prisma.subscription.upsert({
       where: { userId },
-      create: { userId, montoCentavos: Math.round(this.precio('basico') * 100), moneda: 'ARS', ...datos },
+      create: { userId, montoCentavos: Math.round(this.precio() * 100), moneda: 'ARS', ...datos },
       update: datos,
     });
 
@@ -267,16 +255,15 @@ export class SubscriptionService {
     }
     if (preapproval.status !== 'authorized') return;
 
-    const plan: PlanId = fila.planPendiente === 'pro' ? 'pro' : 'basico';
     const anteriorId = fila.mpPreapprovalId;
     await this.prisma.subscription.update({
       where: { userId },
       data: {
         estado: 'activa',
-        plan,
+        plan: PLAN.id,
         mpPreapprovalId: preapproval.id,
         mpStatus: preapproval.status,
-        montoCentavos: Math.round(this.precio(plan) * 100),
+        montoCentavos: Math.round(this.precio() * 100),
         proximoCobroAt: preapproval.next_payment_date ? new Date(preapproval.next_payment_date) : null,
         ultimoPagoAt: new Date(),
         canceladaAt: null,
@@ -285,7 +272,7 @@ export class SubscriptionService {
       },
     });
     if (anteriorId && anteriorId !== preapproval.id) await this.cancelarSinFrenar(anteriorId, userId);
-    this.logger.log(`Suscripción de ${userId} cambió al plan "${plan}".`);
+    this.logger.log(`Suscripción de ${userId} cambió al plan "${PLAN.id}".`);
   }
 
   async cancelar(userId: string): Promise<SuscripcionPublica> {
@@ -348,9 +335,7 @@ export class SubscriptionService {
     };
   }
 
-  private precio(plan: PlanId): number {
-    return plan === 'pro'
-      ? this.config.get('SUSCRIPCION_PRECIO_PRO_ARS', { infer: true })
-      : this.config.get('SUSCRIPCION_PRECIO_ARS', { infer: true });
+  private precio(): number {
+    return this.config.get('SUSCRIPCION_PRECIO_ARS', { infer: true });
   }
 }
