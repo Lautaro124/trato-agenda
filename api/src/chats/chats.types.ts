@@ -1,5 +1,5 @@
 import { IsBoolean, IsOptional, IsString, IsUUID, Length, MaxLength } from 'class-validator';
-import { LARGO_MAX_NOTA } from '../comercio/pedido-a-medida.rules.js';
+import { LARGO_MAX_NOTA } from '../comercio/ventas.rules.js';
 import type { MensajePublico } from '../comercio/ventas.types.js';
 import type { AtencionChat } from './atencion.js';
 
@@ -19,7 +19,7 @@ export type ChatResumen = {
   teEspera: boolean;
   /** Contexto del negocio: el próximo turno (agenda) o el pedido abierto (ventas). */
   turno: { inicio: Date } | null;
-  pedido: { estado: string; tipo: string } | null;
+  pedido: { estado: string } | null;
 };
 
 export type ListaChats = {

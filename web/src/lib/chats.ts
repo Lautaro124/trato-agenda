@@ -4,7 +4,7 @@ import { ETIQUETA_ESTADO, type EstadoVenta } from "./ventas";
 
 /** Tope de un mensaje desde el panel. Copia de LARGO_MAX_MENSAJE_PANEL en api/src/chats/chats.types.ts. */
 export const LARGO_MAX_MENSAJE = 1000;
-/** Tope de la nota al devolver el chat. Copia de LARGO_MAX_NOTA en api/src/comercio/pedido-a-medida.rules.ts. */
+/** Tope de la nota al devolver el chat. Copia de LARGO_MAX_NOTA en api/src/comercio/ventas.rules.ts. */
 export const LARGO_MAX_NOTA = 500;
 
 /** "asistente": contesta el bot. "humana": contestás vos. */
@@ -26,7 +26,7 @@ export type ChatResumen = {
   ultimo: Omit<MensajeChat, "id"> | null;
   teEspera: boolean;
   turno: { inicio: string } | null;
-  pedido: { estado: string; tipo: string } | null;
+  pedido: { estado: string } | null;
 };
 
 export type ListaChats = {
@@ -129,7 +129,7 @@ export function contextoDe(chat: Pick<ChatResumen, "turno" | "pedido">): string 
   }
   if (chat.pedido) {
     const estado = ETIQUETA_ESTADO[chat.pedido.estado as EstadoVenta] ?? chat.pedido.estado;
-    return `${chat.pedido.tipo === "a_medida" ? "Pedido a medida" : "Pedido"} · ${estado.toLowerCase()}`;
+    return `Pedido · ${estado.toLowerCase()}`;
   }
   return null;
 }

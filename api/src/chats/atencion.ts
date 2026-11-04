@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from '../generated/prisma/client.js';
-import { LARGO_MAX_NOTA } from '../comercio/pedido-a-medida.rules.js';
-import { enUnaLinea } from '../comercio/solicitud.rules.js';
+import { LARGO_MAX_NOTA } from '../comercio/ventas.rules.js';
+import { enUnaLinea } from '../comercio/catalogo.rules.js';
 
 /**
  * Quién contesta un chat (LAU-81). Es un único estado por conversación:
@@ -66,4 +66,19 @@ export async function chatEnAtencionHumana(db: Db, userId: string, remoteJid: st
     select: { atencion: true },
   });
   return conversation?.atencion === 'humana';
+}
+
+/**
+ * Guarda lo que escribe el cliente mientras el asistente está callado: es lo
+ * que ve el panel y lo que el asistente lee al retomar.
+ */
+export async function guardarMensajeEnPausa(db: Db, userId: string, remoteJid: string, texto: string): Promise<void> {
+  const conversation = await db.conversation.findUnique({
+    where: { userId_remoteJid: { userId, remoteJid } },
+    select: { id: true },
+  });
+  if (!conversation) return;
+  await db.message.create({
+    data: { conversationId: conversation.id, role: 'user', content: { content: texto, enAtencionHumana: true } },
+  });
 }

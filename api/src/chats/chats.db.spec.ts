@@ -65,10 +65,10 @@ describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
     const dueno = await crearUsuarioDePrueba(prisma);
     const jid = '5491100000004@s.whatsapp.net';
     const chat = await chatCon(dueno.id, jid, [
-      { role: 'user', content: { content: 'quiero algo a medida' }, createdAt: new Date('2026-11-02T10:00:00Z') },
+      { role: 'user', content: { content: 'quiero un mate' }, createdAt: new Date('2026-11-02T10:00:00Z') },
     ]);
     const venta = await prisma.venta.create({
-      data: { userId: dueno.id, conversationId: chat.id, tipo: 'a_medida', estado: 'solicitado', atencion: 'humana' },
+      data: { userId: dueno.id, conversationId: chat.id, estado: 'pendiente_pago', atencion: 'humana' },
     });
     const whatsapp = crearWhatsapp();
     const service = new ChatsService(prisma, whatsapp as unknown as WhatsappService);
@@ -81,7 +81,7 @@ describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
     const devuelto = await service.cambiarAtencion(dueno.id, chat.id, { humana: false, contestar: true, nota: 'ofrecele  el jueves' });
 
     expect(devuelto).toMatchObject({ contesta: true, chat: { atencion: 'asistente' } });
-    expect(whatsapp.contestarPendientes).toHaveBeenCalledWith(dueno.id, jid, 'quiero algo a medida\n¿y?');
+    expect(whatsapp.contestarPendientes).toHaveBeenCalledWith(dueno.id, jid, 'quiero un mate\n¿y?');
     const guardado = await prisma.conversation.findUniqueOrThrow({ where: { id: chat.id } });
     expect(guardado).toMatchObject({ atencion: 'asistente', notaDevolucion: 'ofrecele el jueves' });
     expect(await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).toMatchObject({ atencion: 'asistente' });
