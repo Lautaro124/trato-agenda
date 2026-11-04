@@ -5,7 +5,15 @@
  * mandar algo que va a rechazar.
  */
 
+import { MENSAJE_COBRO_SUGERIDO, VARIABLES_MENSAJE_COBRO } from "./condiciones-pago";
+
 export type ClaveMensaje = "saludo" | "linkPago" | "sinProductos" | "pagoAprobado" | "horarioOcupado";
+/**
+ * El mensaje del cobro por "otro canal" también se edita en /asistente, pero no
+ * es de `Agent.mensajes`: vive en las condiciones de pago (PUT /condiciones-pago).
+ */
+export const CLAVE_COBRO = "cobroOtroCanal";
+export type ClaveItem = ClaveMensaje | typeof CLAVE_COBRO;
 export type ModoMensaje = "auto" | "propio";
 export type MensajeConfigurado = { modo: ModoMensaje; texto: string };
 export type MensajesAgente = Partial<Record<ClaveMensaje, MensajeConfigurado>>;
@@ -14,7 +22,7 @@ export type TipoAsistente = "agenda" | "ventas";
 export const MAX_CARACTERES_MENSAJE = 400;
 
 export type DefinicionMensaje = {
-  clave: ClaveMensaje;
+  clave: ClaveItem;
   nombre: string;
   descripcion: string;
   /** Cuándo se manda, en una frase. */
@@ -31,6 +39,25 @@ export type DefinicionMensaje = {
   ejemploAuto: string;
   /** Hoy ya es un texto fijo (no lo redacta el modelo). */
   fijo: boolean;
+  /** No hay modo automático: siempre se manda el texto del dueño. */
+  soloPropio?: boolean;
+};
+
+/** El mensaje que se manda cuando el pedido se cobra por otro canal (sólo ventas). */
+export const MENSAJE_COBRO_OTRO_CANAL: DefinicionMensaje = {
+  clave: CLAVE_COBRO,
+  nombre: "Cobro por otro canal",
+  descripcion: "Cuando el pedido se cobra sin link",
+  cuando:
+    "Se manda cuando el cliente cierra un pedido que no va con link de Mercado Pago. Después, tu asistente deja el chat en tus manos hasta que marques el pedido pagado o lo canceles en Ventas.",
+  variables: [...VARIABLES_MENSAJE_COBRO],
+  obligatorias: [],
+  recomendadas: [],
+  sugerido: MENSAJE_COBRO_SUGERIDO,
+  ejemploCliente: "No, nada más. Soy Sofía",
+  ejemploAuto: MENSAJE_COBRO_SUGERIDO,
+  fijo: true,
+  soloPropio: true,
 };
 
 /** Nombre legible de cada dato, para los botones del editor. */

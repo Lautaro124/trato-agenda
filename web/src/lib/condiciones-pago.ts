@@ -14,6 +14,9 @@ export const RECARGO_MAX_PORCENTAJE = 100;
 export const LARGO_MAX_TITULAR = 80;
 export const LARGO_MAX_MENSAJE_COBRO = 400;
 export const VARIABLES_MENSAJE_COBRO = ["nombre", "total", "detalle"] as const;
+/** Con lo que arranca "Otro canal" si el dueño todavía no escribió el suyo. */
+export const MENSAJE_COBRO_SUGERIDO =
+  "¡Gracias {nombre}! Anotamos tu pedido ({detalle}) por {total}. Te escribimos enseguida para coordinar el cobro.";
 const ALIAS = /^[a-z0-9.-]{6,20}$/;
 const CBU = /^\d{22}$/;
 

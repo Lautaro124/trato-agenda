@@ -47,24 +47,26 @@ export function EditorMensaje({
         <p className="text-sm leading-[1.6] text-ink-secondary">{definicion.cuando}</p>
       </div>
 
-      <div role="group" aria-label="Quién escribe este mensaje" className="grid grid-cols-2 gap-1 rounded-md bg-sunken p-1">
-        <button
-          type="button"
-          aria-pressed={!propio}
-          onClick={() => onCambio({ ...mensaje, modo: "auto" })}
-          className={cn(SEGMENTO, propio ? SEGMENTO_INACTIVO : SEGMENTO_ACTIVO)}
-        >
-          {definicion.fijo ? "Mensaje estándar" : `Lo escribe ${nombreBot}`}
-        </button>
-        <button
-          type="button"
-          aria-pressed={propio}
-          onClick={() => onCambio({ modo: "propio", texto: mensaje.texto.trim() ? mensaje.texto : definicion.sugerido })}
-          className={cn(SEGMENTO, propio ? SEGMENTO_ACTIVO : SEGMENTO_INACTIVO)}
-        >
-          Mi mensaje
-        </button>
-      </div>
+      {!definicion.soloPropio && (
+        <div role="group" aria-label="Quién escribe este mensaje" className="grid grid-cols-2 gap-1 rounded-md bg-sunken p-1">
+          <button
+            type="button"
+            aria-pressed={!propio}
+            onClick={() => onCambio({ ...mensaje, modo: "auto" })}
+            className={cn(SEGMENTO, propio ? SEGMENTO_INACTIVO : SEGMENTO_ACTIVO)}
+          >
+            {definicion.fijo ? "Mensaje estándar" : `Lo escribe ${nombreBot}`}
+          </button>
+          <button
+            type="button"
+            aria-pressed={propio}
+            onClick={() => onCambio({ modo: "propio", texto: mensaje.texto.trim() ? mensaje.texto : definicion.sugerido })}
+            className={cn(SEGMENTO, propio ? SEGMENTO_ACTIVO : SEGMENTO_INACTIVO)}
+          >
+            Mi mensaje
+          </button>
+        </div>
+      )}
 
       {!propio ? (
         <p className="rounded-md border border-dashed border-line-strong bg-page p-4 text-sm leading-[1.6] text-ink-secondary">

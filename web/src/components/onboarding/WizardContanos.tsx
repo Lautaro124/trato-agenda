@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { AYUDA_POR_PASO, type Onboarding } from "@/app/contanos/useOnboarding";
+import { ControlesCobroManual } from "@/components/cuenta/ControlesCobroManual";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -349,6 +350,25 @@ function ContenidoDelPaso({
             bajada="Opcional. Si hacés envíos o necesitás algo más que el nombre (un email, el DNI), el asistente se lo pide antes de cerrar el pedido. Lo podés saltear y cambiar después desde Cuenta."
           />
           <EditorDatosCliente datos={ob.datosCliente} puedeRetirar={ob.local.tieneLocal && ob.local.retiroEnLocal} />
+        </>
+      );
+
+    case "cobro":
+      return (
+        <>
+          <Pregunta
+            tituloRef={tituloRef}
+            titulo="¿Cómo cobrás los pedidos sin link de pago?"
+            bajada="Si el cliente no paga con Mercado Pago (dólares, efectivo o prefiere transferir), tu asistente le indica cómo pagarte. Los totales los calcula Trato."
+          />
+          <div className="max-w-[640px]">
+            <ControlesCobroManual cobro={ob.cobro} onCambio={ob.cambiarCobro} conMensaje={false} />
+            {ob.problemaCobro && ob.cobro.modo === "transferencia" && (ob.cobro.alias || ob.cobro.titular) && (
+              <p role="alert" className="mt-3 text-[13px] text-danger-text">
+                {ob.problemaCobro}
+              </p>
+            )}
+          </div>
         </>
       );
 

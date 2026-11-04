@@ -10,11 +10,14 @@ import { VistaPreviaMensaje } from "@/components/asistente/VistaPreviaMensaje";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { guardarCondicionesPago, obtenerCondicionesPago } from "@/lib/condiciones-pago";
 import {
+  CLAVE_COBRO,
+  MENSAJE_COBRO_OTRO_CANAL,
   datosDeEjemplo,
   mensajesDe,
   validarMensaje,
-  type ClaveMensaje,
+  type ClaveItem,
   type MensajeConfigurado,
   type MensajesAgente,
   type TipoAsistente,
@@ -73,74 +76,118 @@ export default function AsistentePage() {
 }
 
 function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (agent: AgentGuardado) => void }) {
-  const definiciones = useMemo(() => mensajesDe(agent.tipoAsistente ?? "agenda"), [agent.tipoAsistente]);
+  const esVentas = agent.tipoAsistente === "ventas";
   const guardados = agent.mensajes ?? {};
   const [borrador, setBorrador] = useState<MensajesAgente>(guardados);
-  const [seleccion, setSeleccion] = useState<ClaveMensaje>(definiciones[0].clave);
+  // Con el cobro en "Otro canal" hay un mensaje más (de las condiciones de pago, no de Agent.mensajes).
+  // null = no aplica (no vende, o el cobro es otro): el ítem no aparece.
+  const [cobroGuardado, setCobroGuardado] = useState<string | null>(null);
+  const [cobroBorrador, setCobroBorrador] = useState("");
+  const definiciones = useMemo(
+    () => [
+      ...mensajesDe(agent.tipoAsistente ?? "agenda"),
+      ...(cobroGuardado === null ? [] : [MENSAJE_COBRO_OTRO_CANAL]),
+    ],
+    [agent.tipoAsistente, cobroGuardado],
+  );
+  const [seleccion, setSeleccion] = useState<ClaveItem>(definiciones[0].clave);
   // En el celular se ve la lista o un mensaje, nunca los dos.
   const [abiertoEnMovil, setAbiertoEnMovil] = useState(false);
   useTutorial("asistente");
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ texto: string; tono: "ok" | "error" } | null>(null);
 
+  useEffect(() => {
+    if (!esVentas) return;
+    obtenerCondicionesPago()
+      .then(({ cobroManual }) => {
+        if (cobroManual?.modo !== "otro_canal") return;
+        setCobroGuardado(cobroManual.mensaje);
+        setCobroBorrador(cobroManual.mensaje);
+      })
+      // Sin condiciones no hay ítem: el resto de los mensajes se edita igual.
+      .catch(() => undefined);
+  }, [esVentas]);
+
   const nombreBot = agent.nombreBot || "Tu asistente";
   const datos = datosDeEjemplo(nombreBot, agent.nombreTitular || "Tu negocio");
 
   const filas = definiciones.map((definicion) => {
-    const mensaje = borrador[definicion.clave] ?? AUTOMATICO;
+    const mensaje =
+      definicion.clave === CLAVE_COBRO
+        ? { modo: "propio" as const, texto: cobroBorrador }
+        : (borrador[definicion.clave] ?? AUTOMATICO);
     return { definicion, mensaje, validacion: validarMensaje(definicion, mensaje) };
   });
   const actual = filas.find((fila) => fila.definicion.clave === seleccion) ?? filas[0];
 
-  const cambiadas = filas.filter(({ definicion, mensaje }) => {
+  const cambiadas = filas.flatMap(({ definicion, mensaje }) => {
+    if (definicion.clave === CLAVE_COBRO) return [];
     const antes = guardados[definicion.clave] ?? AUTOMATICO;
-    return antes.modo !== mensaje.modo || antes.texto !== mensaje.texto;
+    return antes.modo !== mensaje.modo || antes.texto !== mensaje.texto ? [{ clave: definicion.clave, mensaje }] : [];
   });
+  const cobroCambiado = cobroGuardado !== null && cobroBorrador.trim() !== cobroGuardado;
+  const hayCambios = cambiadas.length > 0 || cobroCambiado;
   const hayErrores = filas.some((fila) => fila.validacion.error);
-  const puedeGuardar = cambiadas.length > 0 && !hayErrores && !guardando;
+  const puedeGuardar = hayCambios && !hayErrores && !guardando;
 
   // Cerrar la pestaña con cambios sin guardar pide confirmación.
   useEffect(() => {
-    if (cambiadas.length === 0) return;
+    if (!hayCambios) return;
     const avisar = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", avisar);
     return () => window.removeEventListener("beforeunload", avisar);
-  }, [cambiadas.length]);
+  }, [hayCambios]);
 
-  const cambiar = (clave: ClaveMensaje, mensaje: MensajeConfigurado) => {
+  const cambiar = (clave: ClaveItem, mensaje: MensajeConfigurado) => {
     setAviso(null);
+    if (clave === CLAVE_COBRO) {
+      setCobroBorrador(mensaje.texto);
+      return;
+    }
     setBorrador((anterior) => ({ ...anterior, [clave]: mensaje }));
   };
 
-  const guardar = () => {
+  const guardar = async () => {
     setGuardando(true);
     setAviso(null);
-    const cuerpo = Object.fromEntries(cambiadas.map(({ definicion, mensaje }) => [definicion.clave, mensaje]));
-    apiFetch("/agents/me/mensajes", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cuerpo),
-    })
-      .then(async (res) => {
+    try {
+      if (cambiadas.length > 0) {
+        const cuerpo = Object.fromEntries(cambiadas.map(({ clave, mensaje }) => [clave, mensaje]));
+        const res = await apiFetch("/agents/me/mensajes", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cuerpo),
+        });
         if (res.status === 400) {
           const { message } = (await res.json()) as { message?: string };
           throw new Error(typeof message === "string" ? message : "Revisá los mensajes marcados.");
         }
         if (!res.ok) throw new Error("No pudimos guardar los cambios. Probá de nuevo.");
-        return res.json() as Promise<AgentGuardado>;
-      })
-      .then((guardado) => {
+        const guardado = (await res.json()) as AgentGuardado;
         onGuardado(guardado);
         setBorrador(guardado.mensajes ?? {});
-        setAviso({ texto: `Guardado. ${nombreBot} los usa desde el próximo mensaje.`, tono: "ok" });
-      })
-      .catch((error: Error) => setAviso({ texto: error.message, tono: "error" }))
-      .finally(() => setGuardando(false));
+      }
+      if (cobroCambiado) {
+        const { cobroManual } = await guardarCondicionesPago({
+          cobroManual: { modo: "otro_canal", mensaje: cobroBorrador },
+        });
+        const mensaje = cobroManual?.modo === "otro_canal" ? cobroManual.mensaje : cobroBorrador.trim();
+        setCobroGuardado(mensaje);
+        setCobroBorrador(mensaje);
+      }
+      setAviso({ texto: `Guardado. ${nombreBot} los usa desde el próximo mensaje.`, tono: "ok" });
+    } catch (error) {
+      setAviso({ texto: error instanceof Error ? error.message : "No pudimos guardar los cambios. Probá de nuevo.", tono: "error" });
+    } finally {
+      setGuardando(false);
+    }
   };
 
   const descartar = () => {
     setAviso(null);
     setBorrador(guardados);
+    setCobroBorrador(cobroGuardado ?? "");
   };
 
   const estado = aviso && (
@@ -165,10 +212,10 @@ function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (ag
           </div>
           <div className="hidden items-center gap-3 md:flex">
             {estado}
-            <Button variant="secondary" onClick={descartar} disabled={cambiadas.length === 0 || guardando}>
+            <Button variant="secondary" onClick={descartar} disabled={!hayCambios || guardando}>
               Descartar
             </Button>
-            <Button onClick={guardar} disabled={!puedeGuardar}>
+            <Button onClick={() => void guardar()} disabled={!puedeGuardar}>
               {guardando ? "Guardando…" : "Guardar cambios"}
             </Button>
           </div>
@@ -235,11 +282,11 @@ function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (ag
       <div
         className={cn(
           "fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-10 flex-col gap-2 border-t border-line bg-card px-4 py-3 md:hidden",
-          abiertoEnMovil || cambiadas.length > 0 ? "flex" : "hidden",
+          abiertoEnMovil || hayCambios ? "flex" : "hidden",
         )}
       >
         {estado}
-        <Button fullWidth onClick={guardar} disabled={!puedeGuardar}>
+        <Button fullWidth onClick={() => void guardar()} disabled={!puedeGuardar}>
           {guardando ? "Guardando…" : "Guardar"}
         </Button>
       </div>

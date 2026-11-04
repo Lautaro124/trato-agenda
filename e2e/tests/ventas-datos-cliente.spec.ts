@@ -40,6 +40,8 @@ test.describe('datos que el asistente de ventas le pide al cliente', () => {
     await expect(page.getByText('¿Te lo envío o lo retirás?', { exact: false })).toHaveCount(0);
     await botonContinuar(page).click();
 
+    // Cobro sin link: se deja en "coordinar por el chat".
+    await botonContinuar(page).click();
     await pasarHorarioAtencion(page);
     await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
     await page.getByRole('button', { name: 'Vincular WhatsApp' }).click();
