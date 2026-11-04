@@ -25,7 +25,7 @@ export type Suscripcion = {
   uso: { chats: number; limite: number };
 };
 
-export type PlanId = "basico" | "pro";
+export type PlanId = "unico";
 
 type SuscripcionValue = {
   suscripcion: Suscripcion | null;
@@ -89,12 +89,11 @@ export function useSuscripcion(): SuscripcionValue {
 
 export type PlanPublico = { id: PlanId; nombre: string; chats: number; monto: number };
 
-/** Espejo de `PrecioPublico` en la API: los planes y sus precios, sin sesión. */
+/** Espejo de `PrecioPublico` en la API: el plan y su precio, sin sesión. */
 export type PrecioPlan = { moneda: string; planes: PlanPublico[] };
 
 /**
- * Los precios de los planes tal como los fijan SUSCRIPCION_PRECIO_ARS (Básico)
- * y SUSCRIPCION_PRECIO_PRO_ARS en la API. Los usan la landing, que no tiene
+ * El precio del plan tal como lo fija SUSCRIPCION_PRECIO_ARS en la API. Lo usan la landing, que no tiene
  * sesión, y /plan; `null` mientras carga o si la API no responde, para no
  * mostrar nunca un número inventado.
  */
@@ -115,7 +114,7 @@ export function usePrecioPlan(): PrecioPlan | null {
   return precio;
 }
 
-/** "$20.000", como se escribe en Argentina. */
+/** "$75.000", como se escribe en Argentina. */
 export function formatearMonto(monto: number, moneda = "ARS"): string {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",

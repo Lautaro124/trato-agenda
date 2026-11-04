@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import type { Subscription } from '../generated/prisma/client.js';
-import { IDS_DE_PLAN, planVigente, type EstadoSuscripcion, type PlanId } from './subscription.rules.js';
+import { planVigente, type EstadoSuscripcion, type PlanId } from './subscription.rules.js';
 
 /** Lo único que el frontend ve de la suscripción. */
 export type SuscripcionPublica = {
@@ -36,7 +36,7 @@ export function aSuscripcionPublica(
   uso: { chats: number; limite: number },
 ): SuscripcionPublica {
   const pagando = estado.estado === 'activa' && suscripcion !== null;
-  const plan = planVigente(estado, suscripcion?.plan);
+  const plan = planVigente(estado);
   return {
     estado: estado.estado,
     diasRestantes: estado.diasRestantes,
@@ -49,11 +49,8 @@ export function aSuscripcionPublica(
   };
 }
 
-/** Body de POST /suscripcion/checkout: el plan es obligatorio; el email sólo hace falta si la cuenta no tiene uno. */
+/** Body de POST /suscripcion/checkout: el email sólo hace falta si la cuenta no tiene uno. */
 export class CheckoutDto {
-  @IsIn(IDS_DE_PLAN)
-  plan!: PlanId;
-
   @IsOptional()
   @IsEmail()
   @MaxLength(120)
