@@ -18,6 +18,7 @@ import type { SugerenciasService } from '../../../comercio/sugerencias.service.j
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { RegistroPerformanceService } from '../../../performance/registro.service.js';
+import type { Agent } from '../../../generated/prisma/client.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
@@ -64,11 +65,15 @@ type Resultado = string | { texto: string; imagen: ImagenAEnviar | ImagenAEnviar
  * foto, cada una con su nombre y precio al pie. Las que ya le llegaron en la
  * charla no se repiten.
  */
-export function fotosDelListado(catalogo: ResultadoCatalogo, yaMandadas: ReadonlySet<string>): ImagenAEnviar[] {
+export function fotosDelListado(
+  catalogo: ResultadoCatalogo,
+  yaMandadas: ReadonlySet<string>,
+  agent?: Pick<Agent, 'mensajes'>,
+): ImagenAEnviar[] {
   if (catalogo.tipo !== 'listado' || catalogo.restantes > 0 || catalogo.productos.length > MAX_PRODUCTOS_LISTADO) return [];
   return catalogo.productos
     .filter((producto) => producto.tieneImagen && !yaMandadas.has(claveDeFoto({ productoId: producto.productoId })))
-    .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeProducto(producto) }));
+    .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeProducto(producto, agent) }));
 }
 
 /** Sólo lo que escribió el cliente dentro de la ventana, en texto: es lo único que se le pasa a Jev. */
@@ -294,7 +299,11 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const catalogo = await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria);
         if (catalogo.tipo === 'listado') await registrar.vistos(state, catalogo.productos.map((producto) => producto.productoId));
-        const fotos = fotosDelListado(catalogo, fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)));
+        const fotos = fotosDelListado(
+          catalogo,
+          fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)),
+          state.contexto.agent,
+        );
         const texto = formatearCatalogo(catalogo, state.contexto.agent, new Set(fotos.map((foto) => foto.productoId)));
         if (catalogo.tipo === 'vacio') return texto;
         const conOferta = await ofrecer(texto);

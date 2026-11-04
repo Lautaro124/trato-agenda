@@ -344,6 +344,21 @@ export class ActualizarMensajesDto {
   @ValidateNested()
   @Type(() => MensajeDto)
   horarioOcupado?: MensajeDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MensajeDto)
+  listadoProductos?: MensajeDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MensajeDto)
+  detalleProducto?: MensajeDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MensajeDto)
+  pieDeFoto?: MensajeDto;
 }
 
 /** Vista pública del agente: nunca incluye el systemPrompt (config interna del bot). */

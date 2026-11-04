@@ -21,7 +21,14 @@ export function VistaPreviaMensaje({
   className?: string;
 }) {
   const propio = mensaje.modo === "propio";
-  const partes = partesDelTexto(propio ? mensaje.texto : definicion.ejemploAuto, datos);
+  const texto = propio ? mensaje.texto : definicion.ejemploAuto;
+  // Un formato por producto se ve repetido, uno por línea, como llega en una lista.
+  const partes = definicion.porProducto
+    ? definicion.porProducto.flatMap((producto, indice) => [
+        ...(indice > 0 ? [{ texto: "\n", dato: false }] : []),
+        ...partesDelTexto(texto, { ...datos, ...producto }),
+      ])
+    : partesDelTexto(texto, datos);
   const nota = propio
     ? "Lo resaltado se completa con los datos de cada cliente."
     : definicion.fijo
@@ -49,6 +56,15 @@ export function VistaPreviaMensaje({
             {definicion.ejemploCliente}
           </div>
           <div className="max-w-[86%] self-end rounded-[12px_4px_12px_12px] bg-[#d9f3e2] px-3 py-2 text-sm text-ink shadow-sm">
+            {definicion.conFoto && (
+              <div
+                role="img"
+                aria-label="Foto del producto"
+                className="mb-2 grid aspect-[4/3] w-[220px] max-w-full place-items-center rounded-[8px] bg-sunken text-[13px] font-semibold text-ink-secondary"
+              >
+                Foto
+              </div>
+            )}
             <p className="whitespace-pre-line [overflow-wrap:anywhere]">
               {partes.map((parte, indice) =>
                 parte.dato ? (

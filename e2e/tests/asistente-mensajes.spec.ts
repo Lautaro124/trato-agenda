@@ -54,6 +54,40 @@ test.describe('mensajes personalizados del asistente', () => {
     await expect(page.getByText(/exactamente este mensaje.*"Gracias Ana\. Pagalo acá: https?:\/\/\S+"/)).toBeVisible();
   });
 
+  test('el dueño elige cómo se ve cada producto en la lista y el catálogo sale con ese formato', async ({
+    page,
+    context,
+    usuarioDev,
+  }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    await crearProductoPorApi(context.request, { codigo: 'MATE-LST', nombre: 'Mate de calabaza', precioCentavos: 800_000, stock: 5 });
+
+    await page.goto('/asistente');
+    await page.getByRole('navigation', { name: 'Mensajes' }).getByRole('button', { name: /Lista de productos/ }).click();
+    await page.getByRole('button', { name: 'Mi mensaje' }).click();
+
+    // Sin el precio la línea no dice cuánto sale: no deja guardar.
+    const texto = page.getByLabel('Texto del mensaje');
+    await texto.fill('• {producto}');
+    await expect(page.getByRole('alert').filter({ hasText: 'Falta el dato' })).toContainText('Precio');
+    await expect(page.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled();
+
+    // La vista previa repite el formato para cada producto de ejemplo.
+    await texto.fill('• {producto} → {precio}');
+    const vista = page.getByRole('complementary', { name: 'Vista previa' });
+    await expect(vista).toContainText('• Yerba 1 kg → $ 5.000');
+    await expect(vista).toContainText('• Bombilla de acero → $ 3.500');
+
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Guardado' })).toBeVisible();
+
+    // El listado del chat de prueba llega con las líneas que armó el código con el formato del dueño.
+    await page.goto('/inicio');
+    await escribirEnChat(page, 'qué tenés');
+    await expect(page.getByText('• Mate de calabaza → $ 8.000')).toBeVisible();
+  });
+
   test('en el celular se elige un mensaje, se edita y se guarda desde abajo @movil', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);

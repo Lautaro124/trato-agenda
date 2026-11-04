@@ -26,6 +26,25 @@ describe('normalizarMensajes', () => {
     expect(resultado).toEqual({ error: 'Al mensaje le falta {link}.' });
   });
 
+  it('los formatos de producto exigen {producto} y {precio}, y son sólo de ventas', () => {
+    for (const clave of ['listadoProductos', 'detalleProducto', 'pieDeFoto']) {
+      expect(normalizarMensajes('ventas', { [clave]: { modo: 'propio', texto: '{producto}' } })).toEqual({
+        error: 'Al mensaje le falta {precio}.',
+      });
+      expect(normalizarMensajes('ventas', { [clave]: { modo: 'propio', texto: '*{producto}* · {precio}' } })).toEqual({
+        mensajes: { [clave]: { modo: 'propio', texto: '*{producto}* · {precio}' } },
+      });
+      expect(normalizarMensajes('agenda', { [clave]: { modo: 'auto', texto: '' } })).toHaveProperty('error');
+    }
+    // La descripción va en la ficha, no en la línea de una lista ni al pie de la foto.
+    expect(
+      normalizarMensajes('ventas', { detalleProducto: { modo: 'propio', texto: '{producto} {precio}\n{descripcion}' } }),
+    ).not.toHaveProperty('error');
+    expect(
+      normalizarMensajes('ventas', { pieDeFoto: { modo: 'propio', texto: '{producto} {precio} {descripcion}' } }),
+    ).toEqual({ error: '{descripcion} no es un dato que se pueda completar en ese mensaje.' });
+  });
+
   it('rechaza un dato que ese mensaje no conoce', () => {
     const resultado = normalizarMensajes('agenda', { saludo: { modo: 'propio', texto: 'Hola {link}' } });
     expect(resultado).toEqual({ error: '{link} no es un dato que se pueda completar en ese mensaje.' });
