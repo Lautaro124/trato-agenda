@@ -12,6 +12,7 @@ import {
   type Ranking,
 } from './catalogo.rules.js';
 import { leerCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
+import { leerPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
 import { mejorDescuento, type DescuentoAplicado } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
@@ -59,6 +60,8 @@ export type ProductoEncontrado = {
   descuento: DescuentoAplicado | null;
   /** En cuántas cuotas se vende; null o ausente = en un pago. */
   cuotas?: CuotasProducto | null;
+  /** Lo que hay que preguntarle al cliente al pedirlo; null o ausente = nada. */
+  preguntas?: PreguntaProducto[] | null;
   hayStock: boolean;
   /** "disponible" | "quedan N unidades" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
   stock: string;
@@ -245,6 +248,7 @@ export class BusquedaService {
           precioFinalCentavos: descuento?.precioFinalCentavos ?? producto.precioCentavos,
           descuento,
           cuotas: leerCuotasProducto(producto.cuotas, producto.precioCentavos, producto.moneda),
+          preguntas: leerPreguntas(producto.preguntasPedido),
           hayStock: hayStock(producto, 1, reservadasProducto),
           stock: describirStock(producto, reservadasProducto),
           unidades: unidadesDisponibles(producto, reservadasProducto),

@@ -9,6 +9,7 @@ import type { HistoricoVentasService } from '../../../comercio/historico.service
 import type { ImagenesService } from '../../../comercio/imagenes.service.js';
 import { RangoInvalidoError } from '../../../comercio/historico.rules.js';
 import { leerDatosDeVenta, leerEntrega } from '../../../comercio/datos-cliente.rules.js';
+import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
@@ -150,6 +151,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         remoteJid: state.remoteJid,
         nombreCliente: String(args.nombreCliente),
         items: args.items as ItemPedido[],
+        respuestas: Array.isArray(args.respuestas) ? (args.respuestas as RespuestaDelModelo[]) : [],
         medioPago,
         formaPago: esFormaDePago(args.formaPago) ? args.formaPago : null,
         cuotas: typeof args.cuotas === 'number' ? args.cuotas : null,

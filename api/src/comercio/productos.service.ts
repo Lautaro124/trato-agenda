@@ -13,6 +13,7 @@ import {
 import { normalizarCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
 import { finDeVigencia, inicioDeVigencia, problemaDeDescuento, type TipoDescuento } from './descuentos.rules.js';
 import { descuentosActivos, type DescuentoProductoDto } from './descuentos.types.js';
+import { normalizarPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
 import { IndexadorService } from './indexador.service.js';
 import {
   aProductoPublico,
@@ -58,6 +59,8 @@ type ProductoAGuardar = {
   descuento?: DescuentoAGuardar | null;
   /** Las cuotas, ya validadas (null = en un pago); undefined (la importación) no las toca. */
   cuotas?: CuotasProducto | null;
+  /** Las preguntas al pedir, ya validadas (null = ninguna); undefined (la importación) no las toca. */
+  preguntas?: PreguntaProducto[] | null;
   /** De dónde se importó (LAU-31); undefined no lo toca. */
   origen?: { id: string; url: string };
 };
@@ -401,6 +404,9 @@ export class ProductosService {
       ...(datos.moneda !== undefined && { moneda: datos.moneda }),
       // Sólo si vino: la importación no lo manda y no tiene que pisarlo.
       ...(datos.cuotas !== undefined && { cuotas: datos.cuotas === null ? Prisma.DbNull : datos.cuotas }),
+      ...(datos.preguntas !== undefined && {
+        preguntasPedido: datos.preguntas === null ? Prisma.DbNull : datos.preguntas,
+      }),
       ...(datos.origen !== undefined && { origenId: datos.origen.id, origenUrl: datos.origen.url, importadoAt: new Date() }),
     };
     const producto = id
@@ -443,7 +449,7 @@ export class ProductosService {
 /** DTO del formulario → la misma forma que sale de una importación. */
 export function desdeDto(
   dto: Pick<GuardarProductoDto, 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'moneda' | 'precioCentavos'> &
-    Partial<Pick<GuardarProductoDto, 'stock' | 'stockMinimo' | 'disponible' | 'descuento' | 'cuotas'>>,
+    Partial<Pick<GuardarProductoDto, 'stock' | 'stockMinimo' | 'disponible' | 'descuento' | 'cuotas' | 'preguntas'>>,
 ): ProductoAGuardar {
   return {
     codigo: dto.codigo.trim(),
@@ -457,7 +463,15 @@ export function desdeDto(
     disponible: dto.disponible ?? true,
     descuento: dto.descuento === undefined ? undefined : dto.descuento && descuentoDesdeDto(dto.descuento),
     cuotas: dto.cuotas === undefined ? undefined : cuotasDesdeDto(dto.cuotas, dto.precioCentavos, dto.moneda ?? 'ARS'),
+    preguntas: dto.preguntas === undefined ? undefined : preguntasDesdeDto(dto.preguntas),
   };
+}
+
+/** Las preguntas del formulario, validadas. */
+function preguntasDesdeDto(entrada: unknown): PreguntaProducto[] | null {
+  const resultado = normalizarPreguntas(entrada);
+  if ('error' in resultado) throw new BadRequestException(resultado.error);
+  return resultado.preguntas;
 }
 
 /** Las cuotas del formulario, validadas contra el precio y la moneda del mismo formulario. */

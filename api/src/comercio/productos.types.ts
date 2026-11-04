@@ -18,6 +18,7 @@ import {
 import type { Descuento, Producto } from '../generated/prisma/client.js';
 import { hashTexto, LARGOS, monedaDe, MONEDAS, type ErrorDeFila, type Moneda, MAX_FILAS_IMPORTACION, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { leerCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
+import { MAX_PREGUNTAS_POR_PRODUCTO, leerPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import {
   aDescuentoDeProducto,
@@ -63,6 +64,17 @@ export class GuardarProductoDto {
   @ValidateIf((_, valor) => valor !== null)
   @IsObject()
   cuotas?: Record<string, unknown> | null;
+
+  /**
+   * Las preguntas al pedir (PreguntaProducto[]; null o [] = ninguna; ausente
+   * no las toca). La forma la valida normalizarPreguntas.
+   */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsArray()
+  @ArrayMaxSize(MAX_PREGUNTAS_POR_PRODUCTO)
+  @IsObject({ each: true })
+  preguntas?: Array<Record<string, unknown>> | null;
 
   @IsInt()
   @Min(0)
@@ -189,6 +201,8 @@ export type ProductoPublico = Pick<
   imagenActualizada: Date | null;
   /** Las cuotas vigentes (null = en un pago). */
   cuotas: CuotasProducto | null;
+  /** Lo que el asistente le pregunta al cliente al pedirlo (null = nada). */
+  preguntas: PreguntaProducto[] | null;
 };
 
 /**
@@ -225,6 +239,7 @@ export function aProductoPublico(
     descuento: producto.descuento ? aDescuentoPublico(producto.descuento, producto.moneda) : null,
     imagenActualizada: producto.imagen?.updatedAt ?? null,
     cuotas: leerCuotasProducto(producto.cuotas, producto.precioCentavos, producto.moneda),
+    preguntas: leerPreguntas(producto.preguntasPedido),
   };
 }
 

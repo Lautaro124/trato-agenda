@@ -47,6 +47,8 @@ export type Venta = {
     precioListaCentavos: number | null;
     descuentoCentavos: number;
     descuentoEtiqueta: string | null;
+    /** Lo que contestó el cliente a las preguntas del producto. */
+    respuestas: Array<{ pregunta: string; respuesta: string }>;
   }>;
 };
 

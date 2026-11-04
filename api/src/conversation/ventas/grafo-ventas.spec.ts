@@ -882,6 +882,7 @@ describe('grafo de ventas', () => {
         nombreCliente: 'Juan',
         // Los renglones repetidos llegan juntos.
         items: [{ productoId: 'p-1', cantidad: 2 }],
+        respuestas: [],
         medioPago: 'mercadopago',
         // Sin forma de pago elegida, es en un pago.
         formaPago: null,

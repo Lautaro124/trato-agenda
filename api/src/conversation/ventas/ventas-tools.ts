@@ -47,6 +47,20 @@ const datosClienteDelPedido = z
   .optional()
   .describe('Sólo los datos que las reglas de venta te piden pedirle al cliente, con lo que te dio.');
 
+const respuestasDelPedido = z
+  .array(
+    z.object({
+      productoId: z.string().describe('El id [producto …] del producto al que responde.'),
+      pregunta: z.number().int().describe('El número de la pregunta en "preguntas al pedirlo" de ese producto (desde 1).'),
+      respuesta: z.string().describe('Lo que contestó el cliente; en las de opciones, una de las opciones tal cual.'),
+    }),
+  )
+  .optional()
+  .describe(
+    'Sólo si algún producto trae "preguntas al pedirlo": las respuestas del cliente, una por pregunta, una sola ' +
+      'vez por producto aunque pida varias unidades.',
+  );
+
 export const esquemaCrearPedido = z.object({
   nombreCliente: z
     .string()
@@ -78,6 +92,7 @@ export const esquemaCrearPedido = z.object({
     ),
   entrega: entregaDelPedido,
   datosCliente: datosClienteDelPedido,
+  respuestas: respuestasDelPedido,
 });
 
 export const esquemaEnviarImagen = z.object({

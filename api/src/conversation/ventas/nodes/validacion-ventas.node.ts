@@ -8,6 +8,7 @@ import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
 import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
+import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
 import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
@@ -52,6 +53,17 @@ export type HistorialValidacion = {
  * El id tiene que haber salido de una búsqueda de esta charla: uno recordado
  * de antes de la ventana o inventado es un producto que nadie le mostró.
  */
+/** Las respuestas que mandó el modelo con la forma esperada; las malformadas se descartan (el servicio exige las obligatorias). */
+function respuestasDe(crudas: unknown): RespuestaDelModelo[] {
+  if (!Array.isArray(crudas)) return [];
+  return crudas.flatMap((cruda: unknown) => {
+    const { productoId, pregunta, respuesta } = (cruda ?? {}) as Record<string, unknown>;
+    return typeof productoId === 'string' && Number.isInteger(pregunta) && typeof respuesta === 'string'
+      ? [{ productoId, pregunta: pregunta as number, respuesta }]
+      : [];
+  });
+}
+
 function productosNoVistos(items: ItemPedido[], historial: HistorialValidacion): string | null {
   return items.some((item) => !historial.productosVistos.has(item.productoId))
     ? 'Hay productos que no salieron de ninguna búsqueda de esta charla. Buscá cada producto con ' +
@@ -217,6 +229,7 @@ export function validarLlamadaVentas(
           cuotas: args.formaPago === 'cuotas' ? args.cuotas : undefined,
           entrega: datos.entrega,
           datosCliente: datos.datos,
+          respuestas: respuestasDe(args.respuestas),
         },
       },
     };

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { mensajePropio } from '../agents/mensajes.rules.js';
 import type { Env } from '../config/env.js';
 import type { ItemVenta, Prisma, Venta } from '../generated/prisma/client.js';
+import { leerPreguntas, validarRespuestas, type RespuestaDelModelo } from './preguntas-producto.rules.js';
 import { avisoMercadoPagoDesconectado, avisoPedidoManual, avisoStock, avisoVentaPagada } from '../notificaciones/avisos.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { RegistroPerformanceService } from '../performance/registro.service.js';
@@ -82,6 +83,8 @@ export type CrearPedidoInput = {
   remoteJid: string | null;
   nombreCliente: string;
   items: ItemPedido[];
+  /** Lo que contestó el cliente a las preguntas de los productos; se valida contra las que tienen hoy. */
+  respuestas?: RespuestaDelModelo[];
   medioPago: MedioDePago;
   /** Efectivo (con su descuento) o cuotas (con su recargo); sin ella, contado. */
   formaPago?: FormaDePago | null;
@@ -125,6 +128,8 @@ type ProductoBloqueado = {
   moneda: string;
   /** Las cuotas guardadas, sin validar (leerCuotasProducto). */
   cuotas: unknown;
+  /** Las preguntas guardadas, sin validar (leerPreguntas). */
+  preguntasPedido: unknown;
 };
 
 /** Lo que hace falta de un producto para ponerle precio a un renglón. */
@@ -426,7 +431,7 @@ export class VentasService {
     // Orden fijo de bloqueo (por id): dos pedidos con los mismos productos no se traban entre sí.
     const productos = await tx.$queryRaw<ProductoBloqueado[]>`
       SELECT p."id", p."codigo", p."nombre", p."precioCentavos", p."stock", p."disponible", p."activo",
-             p."categoria", p."moneda", p."cuotas"
+             p."categoria", p."moneda", p."cuotas", p."preguntasPedido"
       FROM "Producto" p
       WHERE p."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo"
       ORDER BY p."id"
@@ -449,6 +454,12 @@ export class VentasService {
     }
     // Las cuotas salen de la misma lectura que los precios, no de la cotización.
     const cuotasDe = cuotasPorProducto(productos);
+    // Las preguntas también salen de la lectura bloqueada: se responden las que el dueño tiene hoy.
+    const respondidas = validarRespuestas(
+      productos.map((producto) => ({ id: producto.id, nombre: producto.nombre, preguntas: leerPreguntas(producto.preguntasPedido) })),
+      input.respuestas ?? [],
+    );
+    if ('error' in respondidas) throw new PedidoRechazadoError(respondidas.error);
     const problemaDePago = problemaDeFormaDePago(condiciones, formaPago, cuotas, moneda, [...cuotasDe.values()]);
     if (problemaDePago) throw new PedidoRechazadoError(problemaDePago);
 
@@ -483,7 +494,12 @@ export class VentasService {
       input.userId,
       productos.map((producto) => producto.id),
     );
-    const renglones = renglonesConPrecio(items, porId, descuentosDe(descuentos, condiciones, formaPago), moneda, ahora);
+    const renglones = renglonesConPrecio(items, porId, descuentosDe(descuentos, condiciones, formaPago), moneda, ahora).map(
+      (renglon) => {
+        const respuestas = respondidas.porProducto.get(renglon.productoId) ?? [];
+        return { ...renglon, ...(respuestas.length > 0 && { respuestas }) };
+      },
+    );
     const subtotal = sumaDe(renglones);
     const recargo = cuotas !== null ? recargoDelPedido(renglones, cuotasDe, cuotas) : 0;
 

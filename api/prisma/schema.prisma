@@ -452,17 +452,21 @@ model Producto {
   /// de `textoBusqueda`, el indexador lo recalcula.
   embeddingHash String?
 
-  itemsVenta ItemVenta[]
-  intereses  InteresProducto[]
-  preguntas  PreguntaChat[]
+  itemsVenta      ItemVenta[]
+  intereses       InteresProducto[]
+  preguntas       PreguntaChat[]
   /// El descuento propio del producto (del formulario), si tiene.
-  descuento  Descuento?
+  descuento       Descuento?
   /// La foto que el asistente le manda al cliente cuando la pide (una sola).
-  imagen     ImagenProducto?
+  imagen          ImagenProducto?
   /// Cuotas del producto (LAU-34): { modo: "recargo", recargoPorcentaje, planes: [3, 6] }
   /// o { modo: "precios", planes: [{ cuotas, totalCentavos }] }; null = en un pago.
   /// Reglas en comercio/condiciones-pago.rules.ts.
-  cuotas     Json?
+  cuotas          Json?
+  /// Lo que el asistente le pregunta al cliente al pedirlo (talle, color…):
+  /// [{ texto, tipo: "opciones" | "texto", opciones, obligatoria }]; null =
+  /// no pregunta nada. Reglas en comercio/preguntas-producto.rules.ts.
+  preguntasPedido Json?
 
   /// Importación rápida (LAU-31): de dónde salió el producto, como clave
   /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
@@ -669,6 +673,9 @@ model ItemVenta {
   descuentoCentavos      Int     @default(0)
   /// Cómo se llamaba el descuento aplicado ("20% off", "Semana del mate").
   descuentoEtiqueta      String?
+  /// Lo que contestó el cliente a las preguntas del producto, copiado al pedir:
+  /// [{ pregunta, respuesta }]. Null = el producto no preguntaba nada.
+  respuestas             Json?
 
   @@index([productoId])
   @@index([ventaId])

@@ -25,6 +25,7 @@ import {
   type ProductoConDescuento,
   type PromocionVigente,
 } from '../../comercio/descuentos.rules.js';
+import { describirPreguntas } from '../../comercio/preguntas-producto.rules.js';
 import {
   detalleDeRenglones,
   estadoVisible,
@@ -244,6 +245,9 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean, etapa: EtapaDe
     `- Para vender: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, ` +
     `cantidad y precio) y preguntale "${cierre}". No le pidas que confirme el pedido ni le repitas el resumen ` +
     `para que diga que sí.\n` +
+    `- Si el producto trae "preguntas al pedirlo", hacéselas al cliente (una por mensaje, con sus opciones si las ` +
+    `tiene) antes de crear el pedido, y mandá lo que contestó en \`respuestas\`. Las obligatorias no se pueden ` +
+    `saltear; las opcionales, si dice que no quiere, no las mandes. Nunca contestes por él ni inventes opciones.\n` +
     `- Si quiere algo más, buscalo y volvé a hacerle la misma pregunta. Cuando te diga que no ("no", "nada más", ` +
     `"eso es todo"), llamá crear_pedido con todo lo que eligió en esta charla y ${entrega}. Si no sabés su ` +
     `nombre, preguntáselo en ese momento, antes de crear el pedido.\n` +
@@ -710,7 +714,8 @@ export function formatearResultados(
       (producto.descripcion ? `: ${JSON.stringify(producto.descripcion.slice(0, 200))}` : '');
     return (
       `${cabecera}\n   - precio: ${precioParaElModelo(producto, producto.moneda)}, ${producto.stock}` +
-      (producto.cuotas ? `\n   - cuotas: ${describirCuotas(producto.cuotas, producto.moneda)}` : '')
+      (producto.cuotas ? `\n   - cuotas: ${describirCuotas(producto.cuotas, producto.moneda)}` : '') +
+      (producto.preguntas ? `\n   - preguntas al pedirlo: ${describirPreguntas(producto.preguntas)}` : '')
     );
   };
   const coinciden = productos.filter((producto) => !producto.soloParecido);

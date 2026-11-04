@@ -1,4 +1,19 @@
 import type { CuotasProducto } from "./condiciones-pago";
+
+/** Espejo de `PreguntaProducto` en la API (comercio/preguntas-producto.rules.ts). */
+export type PreguntaProducto = {
+  texto: string;
+  tipo: "opciones" | "texto";
+  /** Vacío en las de texto libre. */
+  opciones: string[];
+  obligatoria: boolean;
+};
+
+export const MAX_PREGUNTAS = 5;
+export const MIN_OPCIONES = 2;
+export const MAX_OPCIONES = 12;
+export const LARGO_PREGUNTA = 120;
+export const LARGO_OPCION = 40;
 import { apiFetch } from "./api";
 import type { Descuento, DescuentoAGuardar, DescuentoDeProducto } from "./descuentos";
 
@@ -31,6 +46,8 @@ export type Producto = {
   imagenActualizada: string | null;
   /** Las cuotas del producto; null = en un pago. */
   cuotas: CuotasProducto | null;
+  /** Lo que el asistente le pregunta al cliente al pedirlo; null = nada. */
+  preguntas: PreguntaProducto[] | null;
 };
 
 export type ListadoProductos = { productos: Producto[]; total: number; pagina: number; porPagina: number };
@@ -79,6 +96,8 @@ export type ProductoAGuardar = {
   descuento: DescuentoAGuardar | null;
   /** null = en un pago. */
   cuotas: CuotasProducto | null;
+  /** null = no pregunta nada. */
+  preguntas: PreguntaProducto[] | null;
 };
 
 /** Error de la API con el mensaje que ya viene en español (409, 400). */

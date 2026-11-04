@@ -14,6 +14,7 @@ import {
   type TipoDescuento,
 } from "@/lib/descuentos";
 import { armarCuotas, cuotasDesdeProducto, SeccionCuotas, type CuotasEnEdicion } from "@/components/productos/SeccionCuotas";
+import { armarPreguntas, preguntasDesdeProducto, SeccionPreguntas, type PreguntaEnEdicion } from "@/components/productos/SeccionPreguntas";
 import {
   centavosParaInput,
   ErrorDeApi,
@@ -107,6 +108,7 @@ export function EditorProducto({
   const [descripcion, setDescripcion] = useState(productoInicial?.descripcion ?? "");
   const [moneda, setMoneda] = useState<Moneda>(productoInicial?.moneda ?? "ARS");
   const [cuotas, setCuotas] = useState<CuotasEnEdicion>(() => cuotasDesdeProducto(productoInicial?.cuotas));
+  const [preguntas, setPreguntas] = useState<PreguntaEnEdicion[]>(() => preguntasDesdeProducto(productoInicial?.preguntas));
   const [precio, setPrecio] = useState(productoInicial ? centavosParaInput(productoInicial.precioCentavos) : "");
   const [stock, setStock] = useState(productoInicial?.stock == null ? "" : String(productoInicial.stock));
   const [stockMinimo, setStockMinimo] = useState(
@@ -126,6 +128,7 @@ export function EditorProducto({
       descripcion,
       moneda,
       cuotas,
+      preguntas,
       precio,
       stock,
       stockMinimo,
@@ -154,6 +157,8 @@ export function EditorProducto({
     if (typeof descuentoArmado === "string") return descuentoArmado;
     const cuotasArmadas = armarCuotas(cuotas, precioCentavos, moneda);
     if (typeof cuotasArmadas === "string") return cuotasArmadas;
+    const preguntasArmadas = armarPreguntas(preguntas);
+    if (typeof preguntasArmadas === "string") return preguntasArmadas;
     return {
       codigo: codigo.trim(),
       nombre: nombre.trim(),
@@ -161,6 +166,7 @@ export function EditorProducto({
       descripcion: descripcion.trim(),
       moneda,
       cuotas: cuotasArmadas,
+      preguntas: preguntasArmadas,
       precioCentavos,
       stock: unidades,
       // Sin cantidad cargada no hay mínimo que vigilar.
@@ -386,6 +392,8 @@ export function EditorProducto({
           onCambio={(cambios) => setCuotas((actual) => ({ ...actual, ...cambios }))}
         />
       )}
+
+      <SeccionPreguntas preguntas={preguntas} onCambio={setPreguntas} />
     </PantallaProducto>
   );
 }

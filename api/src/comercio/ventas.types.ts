@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import type { EventoVenta, ItemVenta, Message, Venta } from '../generated/prisma/client.js';
+import { leerRespuestas, type RespuestaGuardada } from './preguntas-producto.rules.js';
 import { MONEDAS, type Moneda } from './catalogo.rules.js';
 import { leerDatosDeVenta, leerEntrega, type DatoCliente, type Entrega } from './datos-cliente.rules.js';
 import {
@@ -56,7 +57,10 @@ export type VentaPublica = Pick<
       | 'precioListaCentavos'
       | 'descuentoCentavos'
       | 'descuentoEtiqueta'
-    >
+    > & {
+      /** Lo que contestó el cliente a las preguntas del producto; vacío si no tenía. */
+      respuestas: RespuestaGuardada[];
+    }
   >;
 };
 
@@ -96,6 +100,7 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
       precioListaCentavos: item.precioListaCentavos,
       descuentoCentavos: item.descuentoCentavos,
       descuentoEtiqueta: item.descuentoEtiqueta,
+      respuestas: leerRespuestas(item.respuestas),
     })),
   };
 }
