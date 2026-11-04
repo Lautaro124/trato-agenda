@@ -8,7 +8,6 @@ export const CLAVES_TUTORIAL = [
   "chat",
   "chats",
   "productos",
-  "costos",
   "ventas",
   "rendimiento",
   "asistente",
@@ -138,18 +137,6 @@ const PASOS: Record<Exclude<ClaveTutorial, "inicio">, Paso[]> = {
       texto: "Fijate qué encuentra tu asistente cuando un cliente pregunta algo, y armá promociones por producto o categoría.",
     },
   ],
-  costos: [
-    {
-      objetivo: "insumos",
-      titulo: "Tus materiales",
-      texto: "Lo que te cuesta cada material. Con esto y la receta de cada producto a medida se calcula el presupuesto.",
-    },
-    {
-      objetivo: "config-cotizacion",
-      titulo: "Cómo cotiza",
-      texto: "Lo que se suma a cada presupuesto. La cuenta la hace el sistema: tu asistente nunca inventa un precio.",
-    },
-  ],
   ventas: [
     {
       objetivo: "te-esperan",
@@ -207,3 +194,34 @@ const PASOS: Record<Exclude<ClaveTutorial, "inicio">, Paso[]> = {
 export function pasosDe(clave: ClaveTutorial, user: Usuario): Paso[] {
   return clave === "inicio" ? pasosInicio(user) : PASOS[clave];
 }
+
+/**
+ * Recorrido de la sección Cuotas del producto. No es una pantalla propia: lo
+ * abre el botón «Ver tutorial» de la sección, así que no figura en
+ * `CLAVES_TUTORIAL` ni se guarda como visto.
+ */
+export const PASOS_CUOTAS: Paso[] = [
+  {
+    objetivo: "cuotas-activar",
+    titulo: "Ofrecé cuotas",
+    texto:
+      "Prendé el interruptor para que tu asistente ofrezca pagar este producto en cuotas. Apagado, el cliente paga en un solo pago.",
+  },
+  {
+    objetivo: "cuotas-modo",
+    titulo: "Elegí cómo las cobrás",
+    texto:
+      "Con recargo ponés un solo porcentaje para todas las cuotas. Con precio por cuota escribís vos el total de cada plan.",
+  },
+  {
+    objetivo: "cuotas-planes",
+    titulo: "Marcá las cantidades",
+    texto: "Tocá las cuotas que ofrecés. Si necesitás otra cantidad, de 2 a 24, agregala en «Otra cantidad».",
+  },
+  {
+    objetivo: "cuotas-vista",
+    titulo: "Revisá lo que ve tu cliente",
+    texto:
+      "Acá se calcula cuánto paga por mes y el total, sobre el precio con descuento. En un pedido con varios productos sólo valen las cuotas que tienen todos.",
+  },
+];

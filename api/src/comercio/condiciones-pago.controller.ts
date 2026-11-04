@@ -1,8 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
-  IsArray,
   IsIn,
   IsInt,
   IsOptional,
@@ -19,27 +17,11 @@ import type { User } from '../generated/prisma/client.js';
 import {
   LARGO_MAX_MENSAJE_COBRO,
   LARGO_MAX_TITULAR,
-  MAX_CUOTAS,
   MODOS_COBRO_MANUAL,
-  MAX_PLANES_CUOTAS,
-  MIN_CUOTAS,
-  RECARGO_MAX_PORCENTAJE,
   type CondicionesPago,
 } from './condiciones-pago.rules.js';
 import { CondicionesInvalidasError, CondicionesPagoService } from './condiciones-pago.service.js';
 import { PORCENTAJE_MAX } from './descuentos.rules.js';
-
-export class PlanCuotasDto {
-  @IsInt()
-  @Min(MIN_CUOTAS)
-  @Max(MAX_CUOTAS)
-  cuotas!: number;
-
-  @IsInt()
-  @Min(0)
-  @Max(RECARGO_MAX_PORCENTAJE)
-  recargoPorcentaje!: number;
-}
 
 /** La forma la termina de validar normalizarCobroManual; acá sólo los topes. */
 export class CobroManualDto {
@@ -63,12 +45,6 @@ export class CobroManualDto {
 }
 
 export class CondicionesPagoDto {
-  @IsArray()
-  @ArrayMaxSize(MAX_PLANES_CUOTAS)
-  @ValidateNested({ each: true })
-  @Type(() => PlanCuotasDto)
-  planesCuotas!: PlanCuotasDto[];
-
   @ValidateIf((_, valor) => valor !== null)
   @IsInt()
   @Min(1)
@@ -82,7 +58,7 @@ export class CondicionesPagoDto {
   cobroManual?: CobroManualDto | null;
 }
 
-/** Cuotas, descuento en efectivo y cobro sin link del comercio (LAU-34). */
+/** Descuento en efectivo y cobro sin link del comercio (LAU-34); las cuotas van por producto. */
 @Controller('condiciones-pago')
 @UseGuards(JwtAuthGuard)
 export class CondicionesPagoController {
