@@ -525,7 +525,7 @@ export class ImportacionService {
         timeoutMs: TIMEOUT_PAGINA_MS,
         hostsDePrueba: this.hosts,
       });
-      await this.imagenes.guardar(userId, productoId, descarga.cuerpo);
+      await this.imagenes.guardarPrincipal(userId, productoId, descarga.cuerpo);
       return 'guardada';
     } catch (error) {
       if (error instanceof HttpException && error.getStatus() === HttpStatus.CONFLICT) return 'limite';

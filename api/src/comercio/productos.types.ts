@@ -18,6 +18,7 @@ import {
 import type { Descuento, Producto } from '../generated/prisma/client.js';
 import { hashTexto, LARGOS, monedaDe, MONEDAS, type ErrorDeFila, type Moneda, MAX_FILAS_IMPORTACION, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { leerCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
+import { MAX_PREGUNTAS_POR_PRODUCTO, leerPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 import {
   aDescuentoDeProducto,
@@ -63,6 +64,17 @@ export class GuardarProductoDto {
   @ValidateIf((_, valor) => valor !== null)
   @IsObject()
   cuotas?: Record<string, unknown> | null;
+
+  /**
+   * Las preguntas al pedir (PreguntaProducto[]; null o [] = ninguna; ausente
+   * no las toca). La forma la valida normalizarPreguntas.
+   */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsArray()
+  @ArrayMaxSize(MAX_PREGUNTAS_POR_PRODUCTO)
+  @IsObject({ each: true })
+  preguntas?: Array<Record<string, unknown>> | null;
 
   @IsInt()
   @Min(0)
@@ -185,10 +197,14 @@ export type ProductoPublico = Pick<
   descuento: DescuentoPublico | null;
   /** true cuando el embedding está al día: el asistente ya lo encuentra por significado. */
   indexado: boolean;
-  /** Cuándo se subió la foto (null = sin foto). La web la usa también para no mostrar una cacheada vieja. */
+  /** Cuándo se subió la foto principal (null = sin fotos). La web la usa también para no mostrar una cacheada vieja. */
   imagenActualizada: Date | null;
+  /** Todas las fotos, la principal primero. */
+  imagenes: Array<{ id: string; actualizada: Date }>;
   /** Las cuotas vigentes (null = en un pago). */
   cuotas: CuotasProducto | null;
+  /** Lo que el asistente le pregunta al cliente al pedirlo (null = nada). */
+  preguntas: PreguntaProducto[] | null;
 };
 
 /**
@@ -197,7 +213,7 @@ export type ProductoPublico = Pick<
  * precio final.
  */
 export function aProductoPublico(
-  producto: Producto & { descuento?: Descuento | null; imagen?: { updatedAt: Date } | null },
+  producto: Producto & { descuento?: Descuento | null; imagenes?: Array<{ id: string; updatedAt: Date }> },
   promociones: DescuentoParaAplicar[] = [],
   ahora: Date = new Date(),
 ): ProductoPublico {
@@ -223,8 +239,10 @@ export function aProductoPublico(
     descuentoAplicado: aDescuentoDeProducto(aplicado),
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),
     descuento: producto.descuento ? aDescuentoPublico(producto.descuento, producto.moneda) : null,
-    imagenActualizada: producto.imagen?.updatedAt ?? null,
+    imagenActualizada: producto.imagenes?.[0]?.updatedAt ?? null,
+    imagenes: (producto.imagenes ?? []).map((foto) => ({ id: foto.id, actualizada: foto.updatedAt })),
     cuotas: leerCuotasProducto(producto.cuotas, producto.precioCentavos, producto.moneda),
+    preguntas: leerPreguntas(producto.preguntasPedido),
   };
 }
 

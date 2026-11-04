@@ -6,9 +6,11 @@ import { ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import type { BusquedaService } from '../../../comercio/busqueda.service.js';
 import type { HistoricoVentasService } from '../../../comercio/historico.service.js';
-import type { ImagenesService } from '../../../comercio/imagenes.service.js';
+import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
+import type { EstadoDeFoto, ImagenesService } from '../../../comercio/imagenes.service.js';
 import { RangoInvalidoError } from '../../../comercio/historico.rules.js';
 import { leerDatosDeVenta, leerEntrega } from '../../../comercio/datos-cliente.rules.js';
+import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
@@ -150,6 +152,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         remoteJid: state.remoteJid,
         nombreCliente: String(args.nombreCliente),
         items: args.items as ItemPedido[],
+        respuestas: Array.isArray(args.respuestas) ? (args.respuestas as RespuestaDelModelo[]) : [],
         medioPago,
         formaPago: esFormaDePago(args.formaPago) ? args.formaPago : null,
         cuotas: typeof args.cuotas === 'number' ? args.cuotas : null,
@@ -242,6 +245,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     if (!foto.tieneFoto) {
       return `${nombre} no tiene foto. Decíselo al cliente y contale cómo es con lo que dice el catálogo.`;
     }
+    if (args.detalles === true) return enviarDetalles(state, productoId, foto);
     const imagen: ImagenAEnviar = { productoId, nombre: foto.nombre };
     await registrar.vistos(state, [productoId]);
     return {
@@ -249,6 +253,29 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         `Listo: la foto de ${nombre} le llega al cliente junto con tu respuesta. No la describas ni pegues ` +
         'links: seguí la charla (por ejemplo, preguntale si es lo que buscaba).',
       imagen,
+    };
+  }
+
+  /** Las fotos de detalle que todavía no le llegaron: la principal no, que sale al mostrar el producto. */
+  async function enviarDetalles(state: EstadoVentasValue, productoId: string, foto: EstadoDeFoto): Promise<Resultado> {
+    const nombre = JSON.stringify(foto.nombre);
+    if (foto.detalles.length === 0) {
+      return `${nombre} no tiene más fotos que la principal. Contale los detalles con lo que dice el catálogo.`;
+    }
+    const yaMandadas = fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0));
+    const imagenes: ImagenAEnviar[] = foto.detalles
+      .map((imagenId) => ({ productoId, imagenId, nombre: foto.nombre }))
+      .filter((imagen) => !yaMandadas.has(claveDeFoto(imagen)))
+      .slice(0, MAX_IMAGENES_POR_MENSAJE);
+    if (imagenes.length === 0) {
+      return `Ya le mandaste todas las fotos de ${nombre} en esta charla: no se las mandes de nuevo, seguí la conversación.`;
+    }
+    await registrar.vistos(state, [productoId]);
+    return {
+      texto:
+        `Listo: le llegan ${imagenes.length} fotos más de ${nombre} junto con tu respuesta. No las describas ni ` +
+        'pegues links: seguí la charla (por ejemplo, preguntale si tiene alguna duda).',
+      imagen: imagenes,
     };
   }
 

@@ -136,7 +136,7 @@ export class SugerenciasService {
         categoria: true,
         descripcion: true,
         moneda: true,
-        imagen: { select: { id: true } },
+        _count: { select: { imagenes: true } },
         precioCentavos: true,
         stock: true,
         disponible: true,
@@ -154,9 +154,9 @@ export class SugerenciasService {
       productos.map((producto) => producto.id),
     );
     return {
-      productos: productos.map(({ imagen, ...producto }) => ({
+      productos: productos.map(({ _count, ...producto }) => ({
         ...producto,
-        tieneImagen: imagen !== null,
+        tieneImagen: _count.imagenes > 0,
         conStock: hayStock(producto, 1, reservadas.get(producto.id) ?? 0),
       })),
       descuentos,

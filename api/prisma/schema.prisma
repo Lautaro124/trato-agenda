@@ -452,17 +452,22 @@ model Producto {
   /// de `textoBusqueda`, el indexador lo recalcula.
   embeddingHash String?
 
-  itemsVenta ItemVenta[]
-  intereses  InteresProducto[]
-  preguntas  PreguntaChat[]
+  itemsVenta      ItemVenta[]
+  intereses       InteresProducto[]
+  preguntas       PreguntaChat[]
   /// El descuento propio del producto (del formulario), si tiene.
-  descuento  Descuento?
-  /// La foto que el asistente le manda al cliente cuando la pide (una sola).
-  imagen     ImagenProducto?
+  descuento       Descuento?
+  /// Hasta MAX_IMAGENES_POR_PRODUCTO fotos; la de menor `orden` es la principal
+  /// (la que sale al mostrar el producto) y el resto, las de detalle.
+  imagenes        ImagenProducto[]
   /// Cuotas del producto (LAU-34): { modo: "recargo", recargoPorcentaje, planes: [3, 6] }
   /// o { modo: "precios", planes: [{ cuotas, totalCentavos }] }; null = en un pago.
   /// Reglas en comercio/condiciones-pago.rules.ts.
-  cuotas     Json?
+  cuotas          Json?
+  /// Lo que el asistente le pregunta al cliente al pedirlo (talle, color…):
+  /// [{ texto, tipo: "opciones" | "texto", opciones, obligatoria }]; null =
+  /// no pregunta nada. Reglas en comercio/preguntas-producto.rules.ts.
+  preguntasPedido Json?
 
   /// Importación rápida (LAU-31): de dónde salió el producto, como clave
   /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
@@ -516,15 +521,19 @@ model Descuento {
 
 /// La foto de un producto, ya recomprimida por la API (comercio/imagenes.rules.ts):
 /// JPEG de hasta 800 px y 150 KB, sin metadatos. Tabla aparte para que los
-/// listados y la búsqueda nunca arrastren los bytes. Una por producto y hasta
-/// `MAX_IMAGENES_POR_CUENTA` por cuenta, para que la base no crezca sin techo.
+/// listados y la búsqueda nunca arrastren los bytes. Hasta
+/// `MAX_IMAGENES_POR_PRODUCTO` por producto y `MAX_IMAGENES_POR_CUENTA` por
+/// cuenta, para que la base no crezca sin techo.
 model ImagenProducto {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  productoId String   @unique
+  productoId String
   producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  /// 0 = la principal; las demás, en el orden en que se muestran. Lo mantiene
+  /// ImagenesService (0..n-1, sin huecos), con el producto bloqueado.
+  orden      Int      @default(0)
 
   datos Bytes
   /// Tamaño de `datos`, para el uso de la cuenta sin leer los bytes.
@@ -536,6 +545,7 @@ model ImagenProducto {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+  @@index([productoId, orden])
 }
 
 /// Un pedido del asistente de ventas, desde que se reserva el stock hasta que
@@ -669,6 +679,9 @@ model ItemVenta {
   descuentoCentavos      Int     @default(0)
   /// Cómo se llamaba el descuento aplicado ("20% off", "Semana del mate").
   descuentoEtiqueta      String?
+  /// Lo que contestó el cliente a las preguntas del producto, copiado al pedir:
+  /// [{ pregunta, respuesta }]. Null = el producto no preguntaba nada.
+  respuestas             Json?
 
   @@index([productoId])
   @@index([ventaId])

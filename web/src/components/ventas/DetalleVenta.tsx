@@ -110,6 +110,15 @@ export function DetalleVenta({
                       </>
                     )}
                   </span>
+                  {item.respuestas.length > 0 && (
+                    <ul className="mt-1 text-[12.5px] text-ink-secondary">
+                      {item.respuestas.map((r) => (
+                        <li key={r.pregunta}>
+                          {r.pregunta} <span className="font-semibold text-ink">{r.respuesta}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </td>
                 <td className="py-2 text-right text-ink tabular-nums">{formatearMonto(item.subtotalCentavos, venta.moneda)}</td>
               </tr>

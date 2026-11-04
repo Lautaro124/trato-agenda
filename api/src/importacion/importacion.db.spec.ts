@@ -248,9 +248,9 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
     const [mate] = (await importacion.extraer(dueno.id, [`${base}/mate`])).productos;
     const primera = await importacion.confirmar(dueno.id, [confirmable(mate)]);
     expect(primera.resultados).toEqual([expect.objectContaining({ estado: 'creado', foto: 'guardada' })]);
-    const guardado = await prisma.producto.findFirstOrThrow({ where: { userId: dueno.id }, include: { imagen: true } });
+    const guardado = await prisma.producto.findFirstOrThrow({ where: { userId: dueno.id }, include: { imagenes: true } });
     expect(guardado).toMatchObject({ codigo: 'MATE-IMPERIAL', moneda: 'ARS', origenId: mate.claveOrigen, origenUrl: `${base}/mate` });
-    expect(guardado.imagen).not.toBeNull();
+    expect(guardado.imagenes).toHaveLength(1);
     expect(guardado).toMatchObject({ precioCentavos: 2_500_000, stock: null });
 
     const [otraVez] = (await importacion.extraer(dueno.id, [`${base}/mate?utm_source=ig`])).productos;

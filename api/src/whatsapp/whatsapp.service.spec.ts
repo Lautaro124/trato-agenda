@@ -449,7 +449,10 @@ describe('WhatsappService — mensajes de clientes', () => {
     const { service, conversationService, imagenes } = crearServicio();
     vi.mocked(conversationService.responder).mockResolvedValue({
       texto: '¿Es lo que buscabas?',
-      imagenes: [{ productoId: 'p-1', nombre: 'Mate' }],
+      imagenes: [
+        { productoId: 'p-1', nombre: 'Mate' },
+        { productoId: 'p-1', imagenId: 'img-2', nombre: 'Mate' },
+      ],
     });
     const datos = Buffer.from([0xff, 0xd8, 0xff]);
     vi.mocked(imagenes.paraEnviar).mockResolvedValue({ datos, nombre: 'Mate de calabaza' });
@@ -458,8 +461,13 @@ describe('WhatsappService — mensajes de clientes', () => {
     await recibirMensaje(service, sock);
     await vi.runAllTimersAsync();
 
-    expect(imagenes.paraEnviar).toHaveBeenCalledWith('user-1', 'p-1');
+    // La principal sin imagenId; la de detalle, por su id.
+    expect(vi.mocked(imagenes.paraEnviar).mock.calls).toEqual([
+      ['user-1', 'p-1', undefined],
+      ['user-1', 'p-1', 'img-2'],
+    ]);
     expect(sock.sendMessage.mock.calls).toEqual([
+      [JID, { image: datos, mimetype: 'image/jpeg', caption: 'Mate de calabaza' }],
       [JID, { image: datos, mimetype: 'image/jpeg', caption: 'Mate de calabaza' }],
       [JID, { text: '¿Es lo que buscabas?' }],
     ]);

@@ -12,6 +12,7 @@ import {
   type Ranking,
 } from './catalogo.rules.js';
 import { leerCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
+import { leerPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
 import { mejorDescuento, type DescuentoAplicado } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
@@ -59,6 +60,8 @@ export type ProductoEncontrado = {
   descuento: DescuentoAplicado | null;
   /** En cuántas cuotas se vende; null o ausente = en un pago. */
   cuotas?: CuotasProducto | null;
+  /** Lo que hay que preguntarle al cliente al pedirlo; null o ausente = nada. */
+  preguntas?: PreguntaProducto[] | null;
   hayStock: boolean;
   /** "disponible" | "quedan N unidades" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
   stock: string;
@@ -72,8 +75,10 @@ export type ProductoEncontrado = {
    * que se pidió, y así se le presenta al modelo.
    */
   soloParecido?: boolean;
-  /** Si tiene foto para mandarle al cliente (enviar_imagen_producto). */
+  /** Si tiene foto principal para mandarle al cliente (enviar_imagen_producto). */
   tieneImagen: boolean;
+  /** Cuántas fotos de detalle tiene además de la principal (enviar_imagen_producto con `detalles`). */
+  fotosDeDetalle: number;
 };
 
 export type OpcionesBusqueda = {
@@ -214,7 +219,7 @@ export class BusquedaService {
       this.prisma.producto.findMany({
         where: { id: { in: ids }, userId, activo: true },
         // Sólo si existe: los bytes nunca vienen en una búsqueda.
-        include: { imagen: { select: { id: true } } },
+        include: { _count: { select: { imagenes: true } } },
       }),
       descuentosActivos(this.prisma, userId, ids),
     ]);
@@ -240,11 +245,13 @@ export class BusquedaService {
           categoria: producto.categoria,
           descripcion: producto.descripcion,
           moneda: monedaDe(producto.moneda),
-          tieneImagen: producto.imagen !== null,
+          tieneImagen: producto._count.imagenes > 0,
+          fotosDeDetalle: Math.max(0, producto._count.imagenes - 1),
           precioCentavos: producto.precioCentavos,
           precioFinalCentavos: descuento?.precioFinalCentavos ?? producto.precioCentavos,
           descuento,
           cuotas: leerCuotasProducto(producto.cuotas, producto.precioCentavos, producto.moneda),
+          preguntas: leerPreguntas(producto.preguntasPedido),
           hayStock: hayStock(producto, 1, reservadasProducto),
           stock: describirStock(producto, reservadasProducto),
           unidades: unidadesDisponibles(producto, reservadasProducto),

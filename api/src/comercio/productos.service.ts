@@ -13,6 +13,8 @@ import {
 import { normalizarCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
 import { finDeVigencia, inicioDeVigencia, problemaDeDescuento, type TipoDescuento } from './descuentos.rules.js';
 import { descuentosActivos, type DescuentoProductoDto } from './descuentos.types.js';
+import { normalizarPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
+import { ORDEN_FOTOS } from './imagenes.service.js';
 import { IndexadorService } from './indexador.service.js';
 import {
   aProductoPublico,
@@ -23,8 +25,8 @@ import {
   type ResumenImportacion,
 } from './productos.types.js';
 
-/** De la foto sólo hace falta saber si está y de cuándo es: nunca traer los bytes a un listado. */
-const SIN_BYTES = { select: { updatedAt: true } } as const;
+/** De las fotos sólo hace falta cuáles son y de cuándo: nunca traer los bytes a un listado. */
+const SIN_BYTES = { select: { id: true, updatedAt: true }, orderBy: ORDEN_FOTOS } as const;
 
 /** Productos por página en el panel. */
 export const POR_PAGINA = 25;
@@ -58,6 +60,8 @@ type ProductoAGuardar = {
   descuento?: DescuentoAGuardar | null;
   /** Las cuotas, ya validadas (null = en un pago); undefined (la importación) no las toca. */
   cuotas?: CuotasProducto | null;
+  /** Las preguntas al pedir, ya validadas (null = ninguna); undefined (la importación) no las toca. */
+  preguntas?: PreguntaProducto[] | null;
   /** De dónde se importó (LAU-31); undefined no lo toca. */
   origen?: { id: string; url: string };
 };
@@ -112,7 +116,7 @@ export class ProductosService {
       this.prisma.producto.count({ where }),
       this.prisma.producto.findMany({
         where,
-        include: { descuento: true, imagen: SIN_BYTES },
+        include: { descuento: true, imagenes: SIN_BYTES },
         orderBy: [{ nombre: 'asc' }, { codigo: 'asc' }],
         skip: (pagina - 1) * POR_PAGINA,
         take: POR_PAGINA,
@@ -183,7 +187,7 @@ export class ProductosService {
 
   /**
    * Baja lógica: deja de venderse, pero las ventas que lo nombran siguen
-   * intactas. La foto sí se borra, para que no ocupe lugar ni cupo.
+   * intactas. Las fotos sí se borran, para que no ocupen lugar ni cupo.
    */
   async eliminar(userId: string, id: string): Promise<void> {
     await this.buscarPropio(userId, id);
@@ -197,7 +201,7 @@ export class ProductosService {
     const [producto, promociones] = await Promise.all([
       this.prisma.producto.findFirst({
         where: { id, userId },
-        include: { descuento: true, imagen: SIN_BYTES },
+        include: { descuento: true, imagenes: SIN_BYTES },
       }),
       descuentosActivos(this.prisma, userId, []),
     ]);
@@ -401,6 +405,7 @@ export class ProductosService {
       ...(datos.moneda !== undefined && { moneda: datos.moneda }),
       // Sólo si vino: la importación no lo manda y no tiene que pisarlo.
       ...(datos.cuotas !== undefined && { cuotas: datos.cuotas === null ? Prisma.DbNull : datos.cuotas }),
+      ...(datos.preguntas !== undefined && { preguntasPedido: datos.preguntas ?? Prisma.DbNull }),
       ...(datos.origen !== undefined && { origenId: datos.origen.id, origenUrl: datos.origen.url, importadoAt: new Date() }),
     };
     const producto = id
@@ -443,7 +448,7 @@ export class ProductosService {
 /** DTO del formulario → la misma forma que sale de una importación. */
 export function desdeDto(
   dto: Pick<GuardarProductoDto, 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'moneda' | 'precioCentavos'> &
-    Partial<Pick<GuardarProductoDto, 'stock' | 'stockMinimo' | 'disponible' | 'descuento' | 'cuotas'>>,
+    Partial<Pick<GuardarProductoDto, 'stock' | 'stockMinimo' | 'disponible' | 'descuento' | 'cuotas' | 'preguntas'>>,
 ): ProductoAGuardar {
   return {
     codigo: dto.codigo.trim(),
@@ -457,7 +462,15 @@ export function desdeDto(
     disponible: dto.disponible ?? true,
     descuento: dto.descuento === undefined ? undefined : dto.descuento && descuentoDesdeDto(dto.descuento),
     cuotas: dto.cuotas === undefined ? undefined : cuotasDesdeDto(dto.cuotas, dto.precioCentavos, dto.moneda ?? 'ARS'),
+    preguntas: dto.preguntas === undefined ? undefined : preguntasDesdeDto(dto.preguntas),
   };
+}
+
+/** Las preguntas del formulario, validadas. */
+function preguntasDesdeDto(entrada: unknown): PreguntaProducto[] | null {
+  const resultado = normalizarPreguntas(entrada);
+  if ('error' in resultado) throw new BadRequestException(resultado.error);
+  return resultado.preguntas;
 }
 
 /** Las cuotas del formulario, validadas contra el precio y la moneda del mismo formulario. */
