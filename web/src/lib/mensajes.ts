@@ -5,7 +5,23 @@
  * mandar algo que va a rechazar.
  */
 
-export type ClaveMensaje = "saludo" | "linkPago" | "sinProductos" | "pagoAprobado" | "horarioOcupado";
+import { MENSAJE_COBRO_SUGERIDO, VARIABLES_MENSAJE_COBRO } from "./condiciones-pago";
+
+export type ClaveMensaje =
+  | "saludo"
+  | "linkPago"
+  | "sinProductos"
+  | "pagoAprobado"
+  | "horarioOcupado"
+  | "listadoProductos"
+  | "detalleProducto"
+  | "pieDeFoto";
+/**
+ * El mensaje del cobro por "otro canal" también se edita en /asistente, pero no
+ * es de `Agent.mensajes`: vive en las condiciones de pago (PUT /condiciones-pago).
+ */
+export const CLAVE_COBRO = "cobroOtroCanal";
+export type ClaveItem = ClaveMensaje | typeof CLAVE_COBRO;
 export type ModoMensaje = "auto" | "propio";
 export type MensajeConfigurado = { modo: ModoMensaje; texto: string };
 export type MensajesAgente = Partial<Record<ClaveMensaje, MensajeConfigurado>>;
@@ -14,7 +30,7 @@ export type TipoAsistente = "agenda" | "ventas";
 export const MAX_CARACTERES_MENSAJE = 400;
 
 export type DefinicionMensaje = {
-  clave: ClaveMensaje;
+  clave: ClaveItem;
   nombre: string;
   descripcion: string;
   /** Cuándo se manda, en una frase. */
@@ -31,6 +47,29 @@ export type DefinicionMensaje = {
   ejemploAuto: string;
   /** Hoy ya es un texto fijo (no lo redacta el modelo). */
   fijo: boolean;
+  /** No hay modo automático: siempre se manda el texto del dueño. */
+  soloPropio?: boolean;
+  /** Es el formato de cada producto: la vista previa lo repite con estos datos, uno por línea. */
+  porProducto?: Record<string, string>[];
+  /** Va al pie de una foto: la vista previa muestra la foto arriba del texto. */
+  conFoto?: boolean;
+};
+
+/** El mensaje que se manda cuando el pedido se cobra por otro canal (sólo ventas). */
+export const MENSAJE_COBRO_OTRO_CANAL: DefinicionMensaje = {
+  clave: CLAVE_COBRO,
+  nombre: "Cobro por otro canal",
+  descripcion: "Cuando el pedido se cobra sin link",
+  cuando:
+    "Se manda cuando el cliente cierra un pedido que no va con link de Mercado Pago. Después, tu asistente deja el chat en tus manos hasta que marques el pedido pagado o lo canceles en Ventas.",
+  variables: [...VARIABLES_MENSAJE_COBRO],
+  obligatorias: [],
+  recomendadas: [],
+  sugerido: MENSAJE_COBRO_SUGERIDO,
+  ejemploCliente: "No, nada más. Soy Sofía",
+  ejemploAuto: MENSAJE_COBRO_SUGERIDO,
+  fijo: true,
+  soloPropio: true,
 };
 
 /** Nombre legible de cada dato, para los botones del editor. */
@@ -46,7 +85,19 @@ export const ETIQUETAS_VARIABLE: Record<string, string> = {
   busqueda: "Lo que buscó",
   horario_pedido: "Horario que pidió",
   sugerencia: "Horarios libres cercanos",
+  producto: "Nombre del producto",
+  precio: "Precio",
+  stock: "Stock",
+  descripcion: "Descripción",
+  categoria: "Categoría",
 };
+
+/** Productos inventados para la vista previa de la lista. */
+const PRODUCTOS_DE_EJEMPLO: Record<string, string>[] = [
+  { producto: "Yerba 1 kg", precio: "$ 5.000", stock: "disponible" },
+  { producto: "Mate de calabaza", precio: "$ 8.000 (con 20% off)", stock: "quedan 2 unidades" },
+  { producto: "Bombilla de acero", precio: "$ 3.500", stock: "disponible" },
+];
 
 const CUANDO_SALUDO =
   "Se manda una sola vez, cuando un cliente escribe por primera vez en la conversación. Después el asistente sigue la charla sin volver a saludar.";
@@ -137,6 +188,50 @@ export function mensajesDe(tipo: TipoAsistente): DefinicionMensaje[] {
       ejemploAuto: "¡Listo, {nombre}! Tu pago de {total} fue aprobado. {negocio} te escribe por acá para coordinar la entrega.",
       fijo: true,
     },
+    {
+      clave: "listadoProductos",
+      nombre: "Lista de productos",
+      descripcion: "Cómo se ve cada producto en una lista",
+      cuando:
+        "Es el formato de cada renglón cuando tu asistente muestra tres productos o más, o la lista de tu catálogo. Escribís cómo va un producto y se repite para cada uno; los precios salen siempre de tu catálogo.",
+      variables: ["producto", "precio", "stock"],
+      obligatorias: ["producto", "precio"],
+      recomendadas: [],
+      sugerido: "▪️ *{producto}* — {precio}",
+      ejemploCliente: "¿Qué tenés para el mate?",
+      ejemploAuto: "* *{producto}* · {precio}",
+      fijo: false,
+      porProducto: PRODUCTOS_DE_EJEMPLO,
+    },
+    {
+      clave: "detalleProducto",
+      nombre: "Ficha de un producto",
+      descripcion: "Cuando muestra un solo producto",
+      cuando:
+        "Se manda la primera vez que tu asistente le muestra al cliente un único producto, el que pidió. Después sigue la charla con sus palabras. El precio y el stock salen siempre de tu catálogo.",
+      variables: ["producto", "precio", "stock", "descripcion", "categoria"],
+      obligatorias: ["producto", "precio"],
+      recomendadas: [],
+      sugerido: "*{producto}*\n{descripcion}\n💲 {precio} · {stock}",
+      ejemploCliente: "¿Tenés yerba?",
+      ejemploAuto: "Sí, la {producto} la tenemos a {precio}. ¿Te la anoto?",
+      fijo: false,
+    },
+    {
+      clave: "pieDeFoto",
+      nombre: "Pie de foto",
+      descripcion: "El texto debajo de cada foto",
+      cuando:
+        "Va debajo de cada foto cuando tu asistente manda la lista de productos con sus fotos. Así el cliente ve qué es y cuánto sale sin que se lo repita en el texto.",
+      variables: ["producto", "precio"],
+      obligatorias: ["producto", "precio"],
+      recomendadas: [],
+      sugerido: "*{producto}*\n{precio}",
+      ejemploCliente: "¿Qué mates tenés?",
+      ejemploAuto: "{producto}\n{precio}",
+      fijo: true,
+      conFoto: true,
+    },
   ];
 }
 
@@ -154,6 +249,11 @@ export function datosDeEjemplo(nombreBot: string, nombreTitular: string): Record
     busqueda: "yerba orgánica",
     horario_pedido: "el jueves a las 14:00",
     sugerencia: "el jueves a las 14:30 o a las 16:00",
+    producto: "Yerba 1 kg",
+    precio: "$ 5.000",
+    stock: "disponible",
+    descripcion: "Yerba con palo, estacionada 24 meses.",
+    categoria: "Almacén",
   };
 }
 

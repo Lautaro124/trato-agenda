@@ -3,13 +3,16 @@ import { API_URL } from '../entorno';
 import { agenteActual, esperarRuta, expect, sufijo, test, visible } from './fixtures';
 import { botonContinuar, elegirAsistente, pasarHorarioAtencion, preguntaInicial } from './onboarding';
 
-async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string } = {}): Promise<string> {
+async function armarAsistenteDeVentas(
+  page: Page,
+  opciones: { direccion?: string; cobro?: 'Otro canal' } = {},
+): Promise<string> {
   const negocio = `Mates E2E ${sufijo()}`;
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
   // Ventas no pregunta turnos ni horarios ni cómo vende (eso lo dice cada producto), sí por el local y,
-  // opcional, por los datos del cliente, y cuándo atiende: seis pasos.
-  await expect(visible(page.getByText('Paso 2 de 6'))).toBeVisible();
+  // opcional, por los datos del cliente, por cómo cobra sin link y cuándo atiende: siete pasos.
+  await expect(visible(page.getByText('Paso 2 de 7'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
   await botonContinuar(page).click();
   // "Tu local": sin tocar nada queda "vendo sólo online".
@@ -25,6 +28,10 @@ async function armarAsistenteDeVentas(page: Page, opciones: { direccion?: string
   await botonContinuar(page).click();
   // Los datos del cliente se pueden saltear.
   await expect(visible(page.getByRole('heading', { name: '¿Le pedís datos a tus clientes?' }))).toBeVisible();
+  await botonContinuar(page).click();
+  // El cobro sin link: por defecto se coordina por el chat.
+  await expect(visible(page.getByRole('heading', { name: '¿Cómo cobrás los pedidos sin link de pago?' }))).toBeVisible();
+  if (opciones.cobro) await visible(page.getByRole('radio', { name: new RegExp(opciones.cobro) })).check();
   await botonContinuar(page).click();
   await pasarHorarioAtencion(page);
   await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
@@ -108,6 +115,27 @@ test.describe('onboarding de un comercio', () => {
       ],
       retiroEnLocal: true,
     });
+  });
+
+  test('elige cobrar por otro canal y edita el mensaje en la pestaña Asistente', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await armarAsistenteDeVentas(page, { cobro: 'Otro canal' });
+
+    const guardadas = await context.request.get(`${API_URL}/condiciones-pago`);
+    const { cobroManual } = (await guardadas.json()) as { cobroManual: { modo: string; mensaje: string } | null };
+    expect(cobroManual?.modo).toBe('otro_canal');
+    expect(cobroManual?.mensaje).toContain('{total}');
+
+    await page.goto('/asistente');
+    await visible(page.getByRole('button', { name: /Cobro por otro canal/ })).click();
+    await visible(page.getByLabel('Texto del mensaje')).fill('Gracias {nombre}, te escribo por Instagram para cobrar {total}.');
+    await visible(page.getByRole('button', { name: 'Guardar cambios' })).click();
+    await expect(visible(page.getByRole('status'))).toContainText('Guardado');
+
+    const nuevas = await context.request.get(`${API_URL}/condiciones-pago`);
+    expect(((await nuevas.json()) as { cobroManual: { mensaje: string } }).cobroManual.mensaje).toBe(
+      'Gracias {nombre}, te escribo por Instagram para cobrar {total}.',
+    );
   });
 
   test('@movil el mismo formulario, en el teléfono', async ({ page, usuarioDev }) => {

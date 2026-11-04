@@ -36,6 +36,8 @@ async function hastaCuandoAtiendeVentas(page: Page): Promise<void> {
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(`Mates E2E ${sufijo()}`);
+  // Local, datos del cliente y cobro sin link: los tres se pueden dejar como vienen.
+  await botonContinuar(page).click();
   await botonContinuar(page).click();
   await botonContinuar(page).click();
   await botonContinuar(page).click();

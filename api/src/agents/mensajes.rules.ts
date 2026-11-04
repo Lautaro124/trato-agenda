@@ -1,7 +1,8 @@
 /**
  * Mensajes que el dueño puede escribir a mano en vez de dejar que los redacte
  * el modelo: el saludo, el link de pago, "no hay más productos", el horario
- * ocupado y el pago recibido. Viven en `Agent.mensajes` (Json) y se aplican en
+ * ocupado, el pago recibido y, en ventas, el formato de los productos (cada
+ * línea de una lista, la ficha de uno solo y el pie de sus fotos). Viven en `Agent.mensajes` (Json) y se aplican en
  * tiempo de ejecución, así que no hace falta regenerar el system prompt.
  *
  * Todo acá es puro (sin base ni red), igual que agenda-rules.ts: lo usan el
@@ -13,7 +14,16 @@
 import type { Agent } from '../generated/prisma/client.js';
 import type { TipoAsistente } from './agent-catalog.js';
 
-export const CLAVES_MENSAJE = ['saludo', 'linkPago', 'sinProductos', 'pagoAprobado', 'horarioOcupado'] as const;
+export const CLAVES_MENSAJE = [
+  'saludo',
+  'linkPago',
+  'sinProductos',
+  'pagoAprobado',
+  'horarioOcupado',
+  'listadoProductos',
+  'detalleProducto',
+  'pieDeFoto',
+] as const;
 export type ClaveMensaje = (typeof CLAVES_MENSAJE)[number];
 
 export const MODOS_MENSAJE = ['auto', 'propio'] as const;
@@ -43,6 +53,14 @@ export const MENSAJES_POR_TIPO: Record<TipoAsistente, Partial<Record<ClaveMensaj
     linkPago: { variables: ['nombre', 'detalle', 'total', 'link', 'vence'], obligatorias: ['link'] },
     sinProductos: { variables: ['busqueda', 'negocio'], obligatorias: [] },
     pagoAprobado: { variables: ['nombre', 'total', 'detalle', 'negocio'], obligatorias: [] },
+    // Formatos de producto: los arma el código con los datos de la base (reglas-ventas.ts), así que el
+    // precio y el nombre son obligatorios: sin ellos la línea o la foto no dicen qué es ni cuánto sale.
+    listadoProductos: { variables: ['producto', 'precio', 'stock'], obligatorias: ['producto', 'precio'] },
+    detalleProducto: {
+      variables: ['producto', 'precio', 'stock', 'descripcion', 'categoria'],
+      obligatorias: ['producto', 'precio'],
+    },
+    pieDeFoto: { variables: ['producto', 'precio'], obligatorias: ['producto', 'precio'] },
   },
 };
 

@@ -70,7 +70,7 @@ export function ColumnaVentas() {
         formasDePago.length > 0
           ? `Tu asistente ofrece: ${formasDePago.join(", ")}.`
           : "El descuento por pagar en efectivo. Las cuotas se configuran en cada producto.",
-      href: "/cuenta#formas-de-pago",
+      href: "/productos",
       accion: formasDePago.length > 0 ? "Cambiar" : "Configurar",
     },
     {

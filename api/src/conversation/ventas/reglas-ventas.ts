@@ -636,6 +636,10 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
   );
 }
 
+/** Cómo se llaman en los resultados de búsqueda los formatos de producto del dueño ya armados. */
+const LINEA_PARA_LISTA = 'línea para una lista';
+const FICHA = 'ficha';
+
 /**
  * Mismo criterio que `reglasDeEstilo` de la agenda: formato de WhatsApp, no
  * markdown. Uno o dos productos se cuentan charlando; la lista queda para tres
@@ -643,6 +647,8 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
  * decide el código (pistaDeEmoji), no el modelo: solo, casi nunca ponía uno.
  */
 export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
+  const conFormatoLista = agent ? mensajePropio(agent, 'listadoProductos') !== null : false;
+  const conFicha = agent ? mensajePropio(agent, 'detalleProducto') !== null : false;
   return (
     'Estilo de los mensajes (es WhatsApp, no un mail):\n' +
     '- Mensajes cortos: de 1 a 5 líneas. Nada de párrafos largos.\n' +
@@ -650,14 +656,25 @@ export function reglasDeEstiloVentas(agent?: Pick<Agent, 'mensajes'>): string {
     '- Si mostrás uno o dos productos, contalos en una frase, como lo diría una persona, con el precio tal cual ' +
     'lo devolvió la búsqueda (por ejemplo: "La Silla Nórdica la tenemos en roble a $ 45.000 y en blanco a ' +
     '$ 42.000"). Nada de lista ni de viñetas para eso.\n' +
-    '- Recién con tres productos o más, uno por línea empezando con "* ": nombre y precio tal cual los devolvió la búsqueda. El formato es:\n' +
-    '  * *{producto}* · {precio}\n' +
-    '  * *{producto}* · {precio} (sin stock)\n' +
+    (conFicha
+      ? `- Si le mostrás un solo producto, que es el que pidió, y todavía no se lo mostraste en esta charla, ` +
+        `mandale su "${FICHA}" tal cual viene en la búsqueda (sin las comillas y sin cambiarle nada) en vez de ` +
+        'contarlo en una frase: eso está por encima de la regla anterior. Después, en otra línea, podés sumar una ' +
+        'pregunta corta.\n'
+      : '') +
+    (conFormatoLista
+      ? `- Recién con tres productos o más, uno por línea: usá la "${LINEA_PARA_LISTA}" de cada producto tal ` +
+        'cual viene en la búsqueda, sin las comillas y sin cambiarle el formato.\n'
+      : '- Recién con tres productos o más, uno por línea empezando con "* ": nombre y precio tal cual los devolvió la búsqueda. El formato es:\n' +
+        '  * *{producto}* · {precio}\n' +
+        '  * *{producto}* · {precio} (sin stock)\n') +
     `- Nunca muestres más de ${MAX_PRODUCTOS_POR_MENSAJE} productos en un mismo mensaje, aunque la búsqueda ` +
     'devuelva más: elegí los que mejor encajan con lo que pidió.\n' +
     '- Las únicas excepciones son lo que devuelven ver_catalogo y ver_descuentos: ahí sí mostrá la lista entera ' +
     'que te dan, una línea por producto, categoría o descuento empezando con "* ", sin numerar, y una frase corta ' +
-    'antes y otra después. Los productos que ver_catalogo marca "ya le llegó en foto" no van en la lista: el ' +
+    'antes y otra después' +
+    (conFormatoLista ? ' (los productos de ver_catalogo ya traen su formato: esos copialos tal cual)' : '') +
+    '. Los productos que ver_catalogo marca "ya le llegó en foto" no van en la lista: el ' +
     'cliente ya los recibió con su nombre y precio al pie.\n' +
     '- Emojis: como mucho uno por mensaje, que venga al caso, nunca al principio de una línea ni en cada producto.\n' +
     '- Una sola pregunta por mensaje, y no repitas lo que el cliente ya te dijo.' +
@@ -707,7 +724,12 @@ export function formatearResultados(
       '(sin inventar alternativas ni precios) y preguntale si busca otra cosa.'
     );
   }
+  // Con el formato del dueño, cada resultado trae su línea de lista y su ficha ya armadas por el código:
+  // el modelo elige cuál usar (reglasDeEstiloVentas) pero no escribe el precio.
+  const formatoLista = agent ? mensajePropio(agent, 'listadoProductos') : null;
+  const formatoFicha = agent ? mensajePropio(agent, 'detalleProducto') : null;
   const formatear = (producto: ProductoEncontrado, indice: number) => {
+    const datos = formatoLista || formatoFicha ? datosDeEncontrado(producto) : null;
     const cabecera =
       `${indice + 1}. ${JSON.stringify(producto.nombre)} [producto ${producto.productoId}] (código ${producto.codigo}` +
       (producto.categoria ? `, categoría ${JSON.stringify(producto.categoria)}` : '') +
@@ -718,7 +740,11 @@ export function formatearResultados(
     return (
       `${cabecera}\n   - precio: ${precioParaElModelo(producto, producto.moneda)}, ${producto.stock}` +
       (producto.cuotas ? `\n   - cuotas: ${describirCuotas(producto.cuotas, producto.moneda)}` : '') +
-      (producto.preguntas ? `\n   - preguntas al pedirlo: ${describirPreguntas(producto.preguntas)}` : '')
+      (producto.preguntas ? `\n   - preguntas al pedirlo: ${describirPreguntas(producto.preguntas)}` : '') +
+      (formatoLista && datos
+        ? `\n   - ${LINEA_PARA_LISTA}: ${JSON.stringify(completarPlantilla(formatoLista, datos))}`
+        : '') +
+      (formatoFicha && datos ? `\n   - ${FICHA}: ${JSON.stringify(completarPlantilla(formatoFicha, datos))}` : '')
     );
   };
   const coinciden = productos.filter((producto) => !producto.soloParecido);
@@ -765,10 +791,47 @@ export function precioParaElModelo(
 }
 
 /**
- * El pie de la foto de un producto del listado: el nombre y el mismo precio
- * que lleva su línea en formatearCatalogo, armado acá y no por el modelo.
+ * Lo que se completa en los formatos de producto que escribe el dueño
+ * (listadoProductos, detalleProducto, pieDeFoto). Todo sale de la base: el
+ * precio es el final, con el descuento dicho igual que en el listado.
  */
-export function leyendaDeProducto(producto: ProductoPanorama): string {
+type DatosDeProducto = { producto: string; precio: string; stock: string; descripcion: string; categoria: string };
+
+function datosDeEncontrado(producto: ProductoEncontrado): DatosDeProducto {
+  const centavos = producto.descuento ? producto.precioFinalCentavos : producto.precioCentavos;
+  return {
+    producto: producto.nombre,
+    precio:
+      formatearMonto(centavos, producto.moneda ?? 'ARS') +
+      (producto.descuento ? ` (con ${producto.descuento.etiqueta})` : ''),
+    stock: producto.stock,
+    descripcion: producto.descripcion,
+    categoria: producto.categoria ?? '',
+  };
+}
+
+/** ver_catalogo sólo lista productos con stock. */
+function datosDePanorama(producto: ProductoPanorama): DatosDeProducto {
+  return {
+    producto: producto.nombre,
+    precio:
+      formatearMonto(producto.precioFinalCentavos, producto.moneda) +
+      (producto.descuento ? ` (con ${producto.descuento})` : ''),
+    stock: 'disponible',
+    descripcion: producto.descripcion,
+    categoria: producto.categoria ?? '',
+  };
+}
+
+/**
+ * El pie de la foto de un producto del listado: el nombre y el mismo precio
+ * que lleva su línea en formatearCatalogo, armado acá y no por el modelo. Si
+ * el dueño escribió el suyo, va ese (siempre con {producto} y {precio}, que
+ * es lo que lineasQueRepitenFotos busca para no repetirlo en el texto).
+ */
+export function leyendaDeProducto(producto: ProductoPanorama, agent?: Pick<Agent, 'mensajes'>): string {
+  const propio = agent ? mensajePropio(agent, 'pieDeFoto') : null;
+  if (propio) return completarPlantilla(propio, datosDePanorama(producto));
   const precio = formatearMonto(producto.precioFinalCentavos, producto.moneda);
   return (
     `${producto.nombre}\n${precio}` +
@@ -776,12 +839,19 @@ export function leyendaDeProducto(producto: ProductoPanorama): string {
   );
 }
 
-function lineaDeProducto(producto: ProductoPanorama): string {
+/** Una línea del listado: los datos para que el modelo la arme, o ya armada con el formato del dueño. */
+function lineaDeProducto(producto: ProductoPanorama, formato: string | null): string {
+  if (formato) return `- ${JSON.stringify(completarPlantilla(formato, datosDePanorama(producto)))}`;
   return (
     `- ${JSON.stringify(producto.nombre)}: ${formatearMonto(producto.precioFinalCentavos, producto.moneda)}` +
     (producto.descuento ? ` (con ${producto.descuento})` : '')
   );
 }
+
+/** Lo que se agrega al listado cuando las líneas ya vienen con el formato del dueño. */
+const LINEAS_CON_FORMATO =
+  '\nCada línea entre comillas ya tiene el formato que eligió el negocio: copiala tal cual, sin el guion ni las ' +
+  'comillas y sin cambiarle nada.';
 
 function lineaDeCategoria(categoria: CategoriaPanorama): string {
   return `- ${JSON.stringify(categoria.nombre)} (${categoria.cantidad} ${categoria.cantidad === 1 ? 'producto' : 'productos'})`;
@@ -833,12 +903,14 @@ export function formatearCatalogo(
               'preguntale en una frase cuál le interesa'
             : 'los que dicen "ya le llegó en foto" los recibió con su nombre y precio al pie: no los repitas; ' +
               'nombrale sólo los otros, en este orden, y preguntale en una frase cuál le interesa';
+      const formato = agent ? mensajePropio(agent, 'listadoProductos') : null;
       const linea = (producto: ProductoPanorama) =>
-        lineaDeProducto(producto) + (conFoto.has(producto.productoId) ? ' (ya le llegó en foto)' : '');
+        lineaDeProducto(producto, formato) + (conFoto.has(producto.productoId) ? ' (ya le llegó en foto)' : '');
       const lista = resultado.productos.map(linea).join('\n');
       return (
         `Productos con stock${de} (${mostrale}, con el precio tal cual; "con X% off" significa que ese ` +
-        `precio ya tiene el descuento):\n${lista}${resto}`
+        `precio ya tiene el descuento):\n${lista}${resto}` +
+        (formato && sinFoto.length > 0 ? LINEAS_CON_FORMATO : '')
       );
     }
     case 'categorias':

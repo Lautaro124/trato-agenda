@@ -6,6 +6,7 @@ import { WizardContanos } from "@/components/onboarding/WizardContanos";
 import { SessionChip } from "@/components/SessionChip";
 import { Wordmark } from "@/components/Wordmark";
 import { apiFetch } from "@/lib/api";
+import { guardarCondicionesPago } from "@/lib/condiciones-pago";
 import { useRequireSession, yaVinculoWhatsapp } from "@/lib/session";
 import { useOnboarding } from "./useOnboarding";
 
@@ -72,6 +73,12 @@ export default function ContanosPage() {
       setError(mensajeDeError(res.status));
       setEnviando(false);
       return;
+    }
+
+    // El cobro sin link se guarda aparte, ya con el asistente creado. Si falla no
+    // se frena el alta: queda en "coordinar por el chat" y se cambia desde Cuenta.
+    if (ob.esVentas && ob.cobroManual) {
+      await guardarCondicionesPago({ cobroManual: ob.cobroManual }).catch(() => undefined);
     }
 
     // La sesión ya en memoria no sabe qué asistente eligió: la navegación depende de eso.
