@@ -3,31 +3,31 @@ import { expect, test } from './fixtures';
 import { crearAgenteVentasPorApi, nuevoProducto } from './ventas';
 
 test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
-  test('el descuento en efectivo se configura en Cuenta y queda guardado', async ({ page, context, usuarioDev }) => {
+  test('el descuento en efectivo se configura en Productos y queda guardado', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
+    await context.request.post(`${API_URL}/productos`, {
+      data: { codigo: 'MATE-E2E', nombre: 'Mate', precioCentavos: 100_000 },
+    });
 
-    // El paso del Home arranca pendiente y lleva a la sección de Cuenta.
+    // El paso del Home arranca pendiente y lleva a Productos.
     await page.goto('/inicio');
     const tienda = page.getByRole('region', { name: 'Tu tienda' });
     await expect(tienda.getByText('Definí el pago en efectivo (pendiente)')).toBeVisible();
     await tienda.getByRole('link', { name: 'Configurar' }).click();
-    await page.waitForURL('**/cuenta#formas-de-pago');
-    const seccion = page.getByRole('region', { name: 'Formas de pago' });
-    // Las cuotas ya no se arman acá: lleva a los productos.
-    await expect(seccion.getByText(/Las cuotas se configuran en cada producto/)).toBeVisible();
-    await expect(seccion.getByRole('link', { name: 'Productos' })).toHaveAttribute('href', '/productos');
+    await page.waitForURL('**/productos');
+    const grupo = page.getByRole('region', { name: 'Promociones' }).getByRole('group', { name: 'Descuento en efectivo' });
 
-    await seccion.getByLabel('Descuento en efectivo (%)').fill('10');
-    await seccion.getByRole('button', { name: 'Guardar formas de pago' }).click();
-    await expect(seccion.getByRole('status')).toHaveText('Listo: tu asistente ya ofrece estas formas de pago.');
+    await grupo.getByLabel('Descuento en efectivo (%)').fill('10');
+    await grupo.getByRole('button', { name: 'Guardar descuento' }).click();
+    await expect(grupo.getByRole('status')).toHaveText('Listo: tu asistente ya ofrece este descuento.');
 
     const res = await context.request.get(`${API_URL}/condiciones-pago`);
     expect(res.ok(), await res.text()).toBe(true);
     expect(await res.json()).toEqual({ descuentoEfectivoPorcentaje: 10, cobroManual: null });
 
     await page.reload();
-    await expect(seccion.getByLabel('Descuento en efectivo (%)')).toHaveValue('10');
+    await expect(grupo.getByLabel('Descuento en efectivo (%)')).toHaveValue('10');
 
     await page.goto('/inicio');
     await expect(tienda.getByText('Definí el pago en efectivo (hecho)')).toBeVisible();
@@ -66,6 +66,11 @@ test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
       modo: 'otro_canal',
       mensaje: 'Te cobramos {total} desde el 11-5555-0000, {nombre}.',
     });
+
+    // Guardar el cobro no pisa el descuento en efectivo, y al revés.
+    await context.request.put(`${API_URL}/condiciones-pago`, { data: { descuentoEfectivoPorcentaje: 15 } });
+    res = await context.request.get(`${API_URL}/condiciones-pago`);
+    expect(await res.json()).toMatchObject({ descuentoEfectivoPorcentaje: 15, cobroManual: { modo: 'otro_canal' } });
 
     // Un dato que no se completa solo lo rechaza también la API.
     const rechazo = await context.request.put(`${API_URL}/condiciones-pago`, {

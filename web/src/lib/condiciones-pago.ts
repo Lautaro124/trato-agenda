@@ -41,7 +41,7 @@ export function normalizarAlias(alias: string): string {
   return alias.replace(/\s+/g, "").toLowerCase();
 }
 
-function problemaDeCobroManual(cobro: CobroManual | null): string | null {
+export function problemaDeCobroManual(cobro: CobroManual | null): string | null {
   if (!cobro) return null;
   if (cobro.modo === "transferencia") {
     const alias = normalizarAlias(cobro.alias);
@@ -67,13 +67,12 @@ function esEntero(valor: number, min: number, max: number): boolean {
   return Number.isInteger(valor) && valor >= min && valor <= max;
 }
 
-/** El mismo motivo que daría la API, o null si se puede guardar. */
-export function problemaDeCondiciones(condiciones: CondicionesPago): string | null {
-  const efectivo = condiciones.descuentoEfectivoPorcentaje;
+/** El mismo motivo que daría la API, o null si se puede guardar (null = sin descuento). */
+export function problemaDeEfectivo(efectivo: number | null): string | null {
   if (efectivo !== null && !esEntero(efectivo, 1, PORCENTAJE_MAX)) {
     return `El descuento en efectivo tiene que ser de 1% a ${PORCENTAJE_MAX}%.`;
   }
-  return problemaDeCobroManual(condiciones.cobroManual);
+  return null;
 }
 
 /** Lo mismo que normalizarCuotasProducto en la API, o null si se puede guardar. */
@@ -109,7 +108,8 @@ export function obtenerCondicionesPago(): Promise<CondicionesPago> {
   return apiFetch("/condiciones-pago").then((res) => json<CondicionesPago>(res));
 }
 
-export function guardarCondicionesPago(condiciones: CondicionesPago): Promise<CondicionesPago> {
+/** Lo que no se manda queda como estaba: cada pantalla guarda lo suyo. */
+export function guardarCondicionesPago(condiciones: Partial<CondicionesPago>): Promise<CondicionesPago> {
   return apiFetch("/condiciones-pago", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

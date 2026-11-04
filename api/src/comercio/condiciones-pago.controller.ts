@@ -8,7 +8,6 @@ import {
   Max,
   MaxLength,
   Min,
-  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -45,11 +44,12 @@ export class CobroManualDto {
 }
 
 export class CondicionesPagoDto {
-  @ValidateIf((_, valor) => valor !== null)
+  /** null = sin descuento; sin el campo, queda el que estaba. */
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(PORCENTAJE_MAX)
-  descuentoEfectivoPorcentaje!: number | null;
+  descuentoEfectivoPorcentaje?: number | null;
 
   /** null = coordinar por el chat; sin el campo, queda el que estaba. */
   @IsOptional()

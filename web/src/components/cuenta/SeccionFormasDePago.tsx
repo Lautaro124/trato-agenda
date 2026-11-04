@@ -9,12 +9,11 @@ import {
   guardarCondicionesPago,
   LARGO_MAX_MENSAJE_COBRO,
   obtenerCondicionesPago,
-  problemaDeCondiciones,
+  problemaDeCobroManual,
   VARIABLES_MENSAJE_COBRO,
   type CobroManual,
   type CondicionesPago,
 } from "@/lib/condiciones-pago";
-import { PORCENTAJE_MAX } from "@/lib/descuentos";
 import { ErrorDeApi } from "@/lib/productos";
 import { cn } from "@/lib/cn";
 
@@ -30,14 +29,12 @@ type ModoBorrador = "chat" | CobroManual["modo"];
  * cambiar de opción no borra lo escrito.
  */
 type Borrador = {
-  efectivo: string;
   cobro: { modo: ModoBorrador; alias: string; titular: string; mensaje: string };
 };
 
 function aBorrador(condiciones: CondicionesPago): Borrador {
   const cobro = condiciones.cobroManual;
   return {
-    efectivo: condiciones.descuentoEfectivoPorcentaje === null ? "" : String(condiciones.descuentoEfectivoPorcentaje),
     cobro: {
       modo: cobro?.modo ?? "chat",
       alias: cobro?.modo === "transferencia" ? cobro.alias : "",
@@ -64,17 +61,9 @@ const MODOS_COBRO: Array<{ valor: ModoBorrador; texto: string; detalle: string }
   { valor: "otro_canal", texto: "Otro canal", detalle: "Le manda tu mensaje para cobrarle por otro lado." },
 ];
 
-function aCondiciones(borrador: Borrador): CondicionesPago {
-  const numero = (texto: string) => (texto.trim() === "" ? Number.NaN : Number(texto));
-  return {
-    descuentoEfectivoPorcentaje: borrador.efectivo.trim() === "" ? null : numero(borrador.efectivo),
-    cobroManual: aCobroManual(borrador.cobro),
-  };
-}
-
 /**
- * Cómo puede pagar el cliente (LAU-34): el descuento por pagar en efectivo y
- * el cobro sin link. Las cuotas son de cada producto (EditorProducto).
+ * Cómo puede pagar el cliente (LAU-34): el cobro sin link. El descuento en
+ * efectivo (Promociones) y las cuotas (EditorProducto) son del catálogo.
  */
 export function SeccionFormasDePago() {
   const [guardado, setGuardado] = useState<CondicionesPago | null>(null);
@@ -100,8 +89,7 @@ export function SeccionFormasDePago() {
     <section id="formas-de-pago" aria-label="Formas de pago" className="scroll-mt-20 rounded-lg border border-line bg-card p-5">
       <h2 className="mb-2 font-display text-[15px] font-bold text-ink">Formas de pago</h2>
       <p className="mb-4 text-[13.5px] leading-[1.6] text-ink-secondary">
-        El descuento en efectivo que ofrece tu asistente y cómo cobra los pedidos sin link. Los totales los calcula
-        Trato.
+        Cómo cobra tu asistente los pedidos sin link. Los totales los calcula Trato.
       </p>
       {guardado ? (
         // Se monta con lo guardado: el editor toma su estado inicial una sola vez.
@@ -126,8 +114,8 @@ function Editor({
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ texto: string; tono: "ok" | "error" } | null>(null);
 
-  const condiciones = aCondiciones(borrador);
-  const problema = problemaDeCondiciones(condiciones);
+  const cobroManual = aCobroManual(borrador.cobro);
+  const problema = problemaDeCobroManual(cobroManual);
   const hayCambios = huella(borrador) !== huella(aBorrador(guardado));
 
   const cambiarCobro = (cambio: Partial<Borrador["cobro"]>) =>
@@ -137,7 +125,7 @@ function Editor({
     if (problema) return;
     setGuardando(true);
     setAviso(null);
-    guardarCondicionesPago(condiciones)
+    guardarCondicionesPago({ cobroManual })
       .then((nuevas) => {
         onGuardado(nuevas);
         setBorrador(aBorrador(nuevas));
@@ -164,25 +152,6 @@ function Editor({
         {mpConectado
           ? " Para que las cuotas sin interés no le cobren interés al cliente, activalas también en tu cuenta de Mercado Pago (el costo lo absorbés vos, como en Mercado Libre)."
           : " Sin Mercado Pago conectado, las cuotas se coordinan por WhatsApp: tu asistente informa el total y vos cobrás."}
-      </p>
-
-      <h3 className="mt-5 mb-2 text-[13.5px] font-semibold text-ink">Efectivo</h3>
-      <div className="max-w-[220px]">
-        <label htmlFor="descuento-efectivo" className={LABEL}>
-          Descuento en efectivo (%)
-        </label>
-        <input
-          id="descuento-efectivo"
-          inputMode="numeric"
-          value={borrador.efectivo}
-          placeholder="Sin descuento"
-          onChange={(e) => setBorrador((previo) => ({ ...previo, efectivo: e.target.value }))}
-          className={INPUT}
-        />
-      </div>
-      <p className="mt-2 text-[12.5px] leading-[1.5] text-muted">
-        De 1% a {PORCENTAJE_MAX}%. Vale sólo pagando en efectivo y no se suma a tus promociones: se aplica el que más le
-        conviene al cliente.
       </p>
 
       <h3 className="mt-5 mb-1 text-[13.5px] font-semibold text-ink">Cobro sin link de pago</h3>
