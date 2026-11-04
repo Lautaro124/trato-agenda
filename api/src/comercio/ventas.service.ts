@@ -421,7 +421,8 @@ export class VentasService {
     const formaPago = input.formaPago ?? null;
     const cuotas = formaPago === 'cuotas' ? (input.cuotas ?? null) : null;
 
-    const ids = items.map((item) => item.productoId).sort();
+    // Por unidades de código, no por idioma: el orden sólo tiene que ser el mismo en todos los pedidos.
+    const ids = items.map((item) => item.productoId).sort((a, b) => Number(a > b) - Number(a < b));
     // Orden fijo de bloqueo (por id): dos pedidos con los mismos productos no se traban entre sí.
     const productos = await tx.$queryRaw<ProductoBloqueado[]>`
       SELECT p."id", p."codigo", p."nombre", p."precioCentavos", p."stock", p."disponible", p."activo",

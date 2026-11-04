@@ -50,7 +50,7 @@ SELECT
     THEN left(vs."sku", 53) || '-' || right(vs."id", 6)
     ELSE vs."sku"
   END,
-  left(vs."nombreProducto" || ' – ' || CASE WHEN vs."nombre" <> '' THEN vs."nombre" ELSE vs."sku" END, 120),
+  left(vs."nombreProducto" || ' – ' || CASE WHEN length(vs."nombre") > 0 THEN vs."nombre" ELSE vs."sku" END, 120),
   p."descripcion", p."categoria", p."moneda", p."activo",
   vs."precioCentavos", vs."stock", vs."disponible", vs."stockMinimo", p."cuotasMax",
   vs."createdAt", now()
@@ -68,7 +68,7 @@ FROM "Variante" v LEFT JOIN variantes_separadas vs ON vs."id" = v."id"
 WHERE i."varianteId" = v."id";
 
 UPDATE "ItemVenta" SET "nombreProducto" = "nombreProducto" || ' (' || "nombreVariante" || ')'
-WHERE "nombreVariante" <> '';
+WHERE length("nombreVariante") > 0;
 
 -- 6. El texto de búsqueda ya no lleva variantes ni SKUs: se recalcula (mismo
 -- formato que textoBusquedaDe) y el indexador rehace los embeddings al ver que
@@ -77,8 +77,9 @@ UPDATE "Producto"
 SET "textoBusqueda" = btrim(regexp_replace(lower(translate(
       concat_ws(' | ', nullif("nombre", ''), nullif("categoria", ''), nullif("descripcion", ''), nullif("codigo", '')),
       'ÁÉÍÓÚÜÀÈÌÒÙÂÊÎÔÛÄËÏÖáéíóúüàèìòùâêîôûäëïö',
-      'AEIOUUAEIOUAEIOUAEIOaeiouuaeiouaeiouaeio')), '\s+', ' ', 'g'));
-UPDATE "Producto" SET "busqueda" = to_tsvector('spanish', "textoBusqueda");
+      'AEIOUUAEIOUAEIOUAEIOaeiouuaeiouaeiouaeio')), '\s+', ' ', 'g'))
+WHERE "id" IS NOT NULL;
+UPDATE "Producto" SET "busqueda" = to_tsvector('spanish', "textoBusqueda") WHERE "id" IS NOT NULL;
 
 -- 7. Ya sin uso: las variantes.
 ALTER TABLE "Producto" ALTER COLUMN "precioCentavos" DROP DEFAULT;
