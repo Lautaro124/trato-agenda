@@ -166,15 +166,14 @@ con la config de cuenta).
   diaria idempotente (`retention.service.ts`).
 - Los eventos ya creados en el calendario del titular **no** se borran: son
   suyos. Está dicho así en `/privacidad`.
-- Pedidos a medida (LAU-24/26/27, `api/src/comercio/pedidos-a-medida.service.ts`):
-  sólo del asistente de ventas, nunca datos de Google. Al prompt llegan los
-  pedidos a medida de esa conversación (estado y total del presupuesto vigente,
-  `bloquePedidos`) y, después de que el dueño atendió el chat, lo que se
-  escribieron mientras tanto (`bloqueAtencionHumana`, como dato con
-  `JSON.stringify`). A los **12 meses** se borran las respuestas y el resumen
-  de lo que pidió el cliente, el motivo escrito de la derivación y las notas
-  (`anonimizarVentas`); los renglones y montos quedan. El borrado de cuenta se
-  lleva presupuestos, historial y materiales y costos por cascade.
+- Atención humana de pedidos (LAU-27, `api/src/comercio/atencion-pedidos.service.ts`):
+  sólo del asistente de ventas, nunca datos de Google. Después de que el dueño
+  atendió el chat, al prompt llega lo que se escribieron mientras tanto
+  (`bloqueAtencionHumana`, como dato con `JSON.stringify`). A los **12 meses**
+  se borran el motivo escrito de la derivación y las notas (`anonimizarVentas`);
+  los renglones y montos quedan. El borrado de cuenta se lleva el historial por
+  cascade. Los productos a medida, presupuestos y costos se quitaron
+  (migración `20261104120000_quitar_productos_a_medida`).
 - Sugerencias de mejora (LAU-14, `api/src/mejoras/`): el dueño manda texto
   (lista blanca, sin links ni archivos) que se copia a Linear con el id interno
   de la cuenta, sin teléfono ni email. Nunca datos de Google ni de clientes.

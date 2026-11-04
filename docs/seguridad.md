@@ -72,10 +72,10 @@ Lo que agrega superficie nueva y cómo está cubierto:
   desconecta la cuenta y avisa al dueño. El cuerpo de error de `/oauth/token`
   no se loguea.
 - **El precio nunca sale del modelo**: `crear_pedido` recibe sólo
-  `varianteId` + `cantidad`; la validación exige que la variante sea del dueño
-  y esté activa, y el total lo calcula el código desde la base.
-- **Reservas**: se toman en una transacción con `SELECT … FOR UPDATE` sobre las
-  variantes, así dos pedidos por la última unidad se serializan
+  `productoId` + `cantidad`; la validación exige que el producto sea del dueño
+  y esté activo, y el total lo calcula el código desde la base.
+- **Reservas**: se toman en una transacción con `SELECT … FOR UPDATE` sobre los
+  productos, así dos pedidos por la última unidad se serializan
   (`ventas.db.spec.ts` lo prueba). Topes para que un cliente no bloquee el
   stock: 2 pedidos pendientes por conversación, 10 renglones, 50 unidades por
   renglón, 30 minutos con link y 24 horas a coordinar.
@@ -203,7 +203,7 @@ pasa por `fetch-seguro.ts`:
   tercero y el asistente los lee en cada búsqueda. `textoSeguro`
   (`texto.rules.ts`) los deja en texto plano acotado y saca caracteres
   invisibles y bidi, la frase de "mandar tal cual", los marcadores internos
-  (`[producto …]`, `[variante …]`, `[pedido …]`) y, en las descripciones, los
+  (`[producto …]`, y los de mensajes viejos `[variante …]` y `[pedido …]`) y, en las descripciones, los
   montos: `preciosSinRespaldo` acepta cualquier monto de un resultado de
   búsqueda, y un "$ 1" en la descripción respaldaría un precio inventado. El
   dueño revisa y edita todo antes de confirmar.
@@ -426,7 +426,7 @@ como una secuencia que el proveedor rechaza para siempre. Ahora:
   Los mensajes de antes de este cambio no tienen marca y cuentan como viejos.
 - En ventas, `buscar_productos` tiene un tope de 3 por mensaje
   (`MAX_BUSQUEDAS_POR_MENSAJE`) para no agotar las vueltas, `crear_pedido` sólo
-  acepta variantes que salieron de una búsqueda visible, y el nodo
+  acepta productos que salieron de una búsqueda visible, y el nodo
   `verificar_respuesta` descarta una respuesta con un monto `$ …` que no sale del
   catálogo, de los pedidos ni de lo que escribió el cliente: el modelo la
   reescribe con una nota de corrección, y si insiste se contesta
