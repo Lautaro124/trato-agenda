@@ -109,7 +109,7 @@ test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
     await formulario.getByRole('switch', { name: 'Ofrecer cuotas' }).check();
     await formulario.getByRole('button', { name: '3 cuotas', pressed: true, exact: true }).click();
     await formulario.getByLabel('Otra cantidad').fill('12');
-    await formulario.getByRole('button', { name: 'Agregar' }).click();
+    await formulario.getByRole('button', { name: 'Agregar', exact: true }).click();
     await expect(formulario.getByRole('button', { name: '12 cuotas', pressed: true, exact: true })).toBeVisible();
     await formulario.getByText('Un precio por cuota', { exact: true }).click();
     await formulario.getByLabel('Total en 12 cuotas').fill('300.000');

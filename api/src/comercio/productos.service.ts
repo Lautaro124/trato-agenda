@@ -405,9 +405,7 @@ export class ProductosService {
       ...(datos.moneda !== undefined && { moneda: datos.moneda }),
       // Sólo si vino: la importación no lo manda y no tiene que pisarlo.
       ...(datos.cuotas !== undefined && { cuotas: datos.cuotas === null ? Prisma.DbNull : datos.cuotas }),
-      ...(datos.preguntas !== undefined && {
-        preguntasPedido: datos.preguntas === null ? Prisma.DbNull : datos.preguntas,
-      }),
+      ...(datos.preguntas !== undefined && { preguntasPedido: datos.preguntas ?? Prisma.DbNull }),
       ...(datos.origen !== undefined && { origenId: datos.origen.id, origenUrl: datos.origen.url, importadoAt: new Date() }),
     };
     const producto = id

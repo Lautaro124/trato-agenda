@@ -36,6 +36,52 @@ function esObjeto(valor: unknown): valor is Record<string, unknown> {
   return typeof valor === 'object' && valor !== null && !Array.isArray(valor);
 }
 
+type Resultado<T> = { valor: T } | { error: string };
+
+/** Espacios colapsados y sin bordes: como se guarda y se compara un texto del dueño. */
+function limpiar(texto: string): string {
+  return texto.trim().replace(/\s+/g, ' ');
+}
+
+/** Las opciones de una pregunta de opciones: sin vacías ni repetidas, dentro de los topes. */
+function normalizarOpciones(crudas: unknown, lugar: string): Resultado<string[]> {
+  if (!Array.isArray(crudas)) return { error: `${lugar} necesita opciones.` };
+  const opciones: string[] = [];
+  const vistas = new Set<string>();
+  for (const cruda of crudas) {
+    if (typeof cruda !== 'string') return { error: `${lugar} tiene una opción inválida.` };
+    const opcion = limpiar(cruda);
+    if (!opcion) continue;
+    if (opcion.length > LARGOS_PREGUNTA.opcion) {
+      return { error: `Una opción de ${lugar.toLowerCase()} tiene más de ${LARGOS_PREGUNTA.opcion} caracteres.` };
+    }
+    const clave = normalizarTexto(opcion);
+    if (vistas.has(clave)) return { error: `${lugar} tiene una opción repetida: ${opcion}.` };
+    vistas.add(clave);
+    opciones.push(opcion);
+  }
+  if (opciones.length < MIN_OPCIONES) return { error: `${lugar} necesita al menos ${MIN_OPCIONES} opciones.` };
+  if (opciones.length > MAX_OPCIONES) return { error: `${lugar} puede tener hasta ${MAX_OPCIONES} opciones.` };
+  return { valor: opciones };
+}
+
+/** Una pregunta del formulario; `textos` junta las ya vistas para no repetirlas. */
+function normalizarPregunta(cruda: unknown, lugar: string, textos: Set<string>): Resultado<PreguntaProducto> {
+  if (!esObjeto(cruda) || typeof cruda.texto !== 'string') return { error: `${lugar} no es válida.` };
+  const texto = limpiar(cruda.texto);
+  if (!texto) return { error: `${lugar} está vacía.` };
+  if (texto.length > LARGOS_PREGUNTA.texto) return { error: `${lugar} tiene más de ${LARGOS_PREGUNTA.texto} caracteres.` };
+  const claveTexto = normalizarTexto(texto);
+  if (textos.has(claveTexto)) return { error: `${lugar} está repetida.` };
+  textos.add(claveTexto);
+  if (!(TIPOS_PREGUNTA as readonly unknown[]).includes(cruda.tipo)) return { error: `${lugar} tiene un tipo inválido.` };
+  const tipo = cruda.tipo as TipoPregunta;
+  const obligatoria = cruda.obligatoria === true;
+  if (tipo !== 'opciones') return { valor: { texto, tipo, opciones: [], obligatoria } };
+  const opciones = normalizarOpciones(cruda.opciones, lugar);
+  return 'error' in opciones ? opciones : { valor: { texto, tipo, opciones: opciones.valor, obligatoria } };
+}
+
 /** Las preguntas del formulario, validadas; null o lista vacía = el producto no pregunta nada. */
 export function normalizarPreguntas(entrada: unknown): { preguntas: PreguntaProducto[] | null } | { error: string } {
   if (entrada === null || entrada === undefined) return { preguntas: null };
@@ -47,40 +93,9 @@ export function normalizarPreguntas(entrada: unknown): { preguntas: PreguntaProd
   const preguntas: PreguntaProducto[] = [];
   const textos = new Set<string>();
   for (const [indice, cruda] of entrada.entries()) {
-    const lugar = `La pregunta ${indice + 1}`;
-    if (!esObjeto(cruda) || typeof cruda.texto !== 'string') return { error: `${lugar} no es válida.` };
-    const texto = cruda.texto.trim().replace(/\s+/g, ' ');
-    if (!texto) return { error: `${lugar} está vacía.` };
-    if (texto.length > LARGOS_PREGUNTA.texto) return { error: `${lugar} tiene más de ${LARGOS_PREGUNTA.texto} caracteres.` };
-    const claveTexto = normalizarTexto(texto);
-    if (textos.has(claveTexto)) return { error: `${lugar} está repetida.` };
-    textos.add(claveTexto);
-    if (!(TIPOS_PREGUNTA as readonly unknown[]).includes(cruda.tipo)) return { error: `${lugar} tiene un tipo inválido.` };
-    const tipo = cruda.tipo as TipoPregunta;
-    const obligatoria = cruda.obligatoria === true;
-
-    let opciones: string[] = [];
-    if (tipo === 'opciones') {
-      if (!Array.isArray(cruda.opciones)) return { error: `${lugar} necesita opciones.` };
-      const vistas = new Set<string>();
-      for (const opcionCruda of cruda.opciones) {
-        if (typeof opcionCruda !== 'string') return { error: `${lugar} tiene una opción inválida.` };
-        const opcion = opcionCruda.trim().replace(/\s+/g, ' ');
-        if (!opcion) continue;
-        if (opcion.length > LARGOS_PREGUNTA.opcion) {
-          return { error: `Una opción de ${lugar.toLowerCase()} tiene más de ${LARGOS_PREGUNTA.opcion} caracteres.` };
-        }
-        const claveOpcion = normalizarTexto(opcion);
-        if (vistas.has(claveOpcion)) return { error: `${lugar} tiene una opción repetida: ${opcion}.` };
-        vistas.add(claveOpcion);
-        opciones.push(opcion);
-      }
-      if (opciones.length < MIN_OPCIONES) return { error: `${lugar} necesita al menos ${MIN_OPCIONES} opciones.` };
-      if (opciones.length > MAX_OPCIONES) return { error: `${lugar} puede tener hasta ${MAX_OPCIONES} opciones.` };
-    } else {
-      opciones = [];
-    }
-    preguntas.push({ texto, tipo, opciones, obligatoria });
+    const pregunta = normalizarPregunta(cruda, `La pregunta ${indice + 1}`, textos);
+    if ('error' in pregunta) return pregunta;
+    preguntas.push(pregunta.valor);
   }
   return { preguntas };
 }
@@ -126,9 +141,7 @@ export function validarRespuestas(
   productos: ProductoConPreguntas[],
   respuestas: RespuestaDelModelo[],
 ): { porProducto: Map<string, RespuestaGuardada[]> } | { error: string } {
-  const porProducto = new Map<string, RespuestaGuardada[]>();
   const dadas = new Map<string, Map<number, string>>();
-
   for (const respuesta of respuestas) {
     const producto = productos.find((candidato) => candidato.id === respuesta.productoId);
     if (!producto) return { error: 'Mandaste respuestas de un producto que no está en el pedido.' };
@@ -136,47 +149,58 @@ export function validarRespuestas(
     if (!pregunta) {
       return { error: `${JSON.stringify(producto.nombre)} no tiene la pregunta número ${respuesta.pregunta}.` };
     }
-    const texto = String(respuesta.respuesta ?? '').trim().replace(/\s+/g, ' ');
+    const texto = limpiar(String(respuesta.respuesta ?? ''));
     if (!texto) continue;
-    let valor = texto;
-    if (pregunta.tipo === 'opciones') {
-      const elegida = pregunta.opciones.find((opcion) => normalizarTexto(opcion) === normalizarTexto(texto));
-      if (!elegida) {
-        return {
-          error:
-            `${JSON.stringify(texto)} no es una opción de ${JSON.stringify(pregunta.texto)} ` +
-            `(${JSON.stringify(producto.nombre)}). Las opciones son: ${pregunta.opciones.join(', ')}. ` +
-            'Preguntale al cliente cuál prefiere.',
-        };
-      }
-      valor = elegida;
-    } else if (texto.length > LARGOS_PREGUNTA.respuesta) {
-      return { error: `La respuesta a ${JSON.stringify(pregunta.texto)} es muy larga (máximo ${LARGOS_PREGUNTA.respuesta} caracteres).` };
-    }
+    const valor = valorDeRespuesta(producto, pregunta, texto);
+    if ('error' in valor) return valor;
     const delProducto = dadas.get(producto.id) ?? new Map<number, string>();
-    delProducto.set(respuesta.pregunta, valor);
+    delProducto.set(respuesta.pregunta, valor.valor);
     dadas.set(producto.id, delProducto);
   }
 
+  const porProducto = new Map<string, RespuestaGuardada[]>();
   for (const producto of productos) {
-    const delProducto = dadas.get(producto.id) ?? new Map<number, string>();
-    const guardadas: RespuestaGuardada[] = [];
-    for (const [indice, pregunta] of (producto.preguntas ?? []).entries()) {
-      const valor = delProducto.get(indice + 1);
-      if (valor === undefined) {
-        if (pregunta.obligatoria) {
-          return {
-            error:
-              `Falta preguntarle al cliente ${JSON.stringify(pregunta.texto)} por ${JSON.stringify(producto.nombre)}` +
-              (pregunta.tipo === 'opciones' ? ` (opciones: ${pregunta.opciones.join(', ')})` : '') +
-              ': es obligatoria. Preguntáselo y volvé a crear el pedido con su respuesta.',
-          };
-        }
-        continue;
-      }
-      guardadas.push({ pregunta: pregunta.texto, respuesta: valor });
-    }
-    porProducto.set(producto.id, guardadas);
+    const guardadas = guardadasDe(producto, dadas.get(producto.id) ?? new Map<number, string>());
+    if ('error' in guardadas) return guardadas;
+    porProducto.set(producto.id, guardadas.valor);
   }
   return { porProducto };
+}
+
+/** Lo que se guarda de una respuesta: la opción con el texto del dueño, o el texto libre dentro del largo. */
+function valorDeRespuesta(producto: ProductoConPreguntas, pregunta: PreguntaProducto, texto: string): Resultado<string> {
+  if (pregunta.tipo !== 'opciones') {
+    return texto.length > LARGOS_PREGUNTA.respuesta
+      ? { error: `La respuesta a ${JSON.stringify(pregunta.texto)} es muy larga (máximo ${LARGOS_PREGUNTA.respuesta} caracteres).` }
+      : { valor: texto };
+  }
+  const elegida = pregunta.opciones.find((opcion) => normalizarTexto(opcion) === normalizarTexto(texto));
+  if (elegida) return { valor: elegida };
+  return {
+    error:
+      `${JSON.stringify(texto)} no es una opción de ${JSON.stringify(pregunta.texto)} ` +
+      `(${JSON.stringify(producto.nombre)}). Las opciones son: ${pregunta.opciones.join(', ')}. ` +
+      'Preguntale al cliente cuál prefiere.',
+  };
+}
+
+/** Las respuestas de un producto en el orden de sus preguntas, o la obligatoria que falta. */
+function guardadasDe(producto: ProductoConPreguntas, dadas: Map<number, string>): Resultado<RespuestaGuardada[]> {
+  const guardadas: RespuestaGuardada[] = [];
+  for (const [indice, pregunta] of (producto.preguntas ?? []).entries()) {
+    const valor = dadas.get(indice + 1);
+    if (valor !== undefined) {
+      guardadas.push({ pregunta: pregunta.texto, respuesta: valor });
+      continue;
+    }
+    if (pregunta.obligatoria) {
+      const opciones = pregunta.tipo === 'opciones' ? ` (opciones: ${pregunta.opciones.join(', ')})` : '';
+      return {
+        error:
+          `Falta preguntarle al cliente ${JSON.stringify(pregunta.texto)} por ${JSON.stringify(producto.nombre)}` +
+          `${opciones}: es obligatoria. Preguntáselo y volvé a crear el pedido con su respuesta.`,
+      };
+    }
+  }
+  return { valor: guardadas };
 }

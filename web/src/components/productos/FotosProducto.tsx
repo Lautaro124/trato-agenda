@@ -259,7 +259,7 @@ function GaleriaDeFotos({
                       className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-[1.5px] border-dashed border-line-strong bg-page p-1.5 text-ink-secondary hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <IconoMas />
-                      <span className="text-[12px] font-bold">{ocupado ? "Subiendo…" : "Agregar"}</span>
+                      <span className="text-[12px] font-bold">{ocupado ? "Subiendo…" : "Agregar foto"}</span>
                     </button>
                   </li>
                 );
@@ -348,13 +348,15 @@ export function FotosProducto({
     });
   };
 
+  const usoDeLaCuenta = uso ? ` · ${uso.usadas} de ${uso.maximo} fotos de la cuenta` : "";
+
   return (
     <GaleriaDeFotos
       fotos={fotos.map((foto) => ({ clave: foto.id, src: urlFotoProducto(productoId, foto.id, foto.actualizada) }))}
       ocupado={ocupado}
       sinLugarEnCuenta={uso !== null && uso.usadas >= uso.maximo}
       error={error}
-      pie={`JPG, PNG o WebP · podés arrastrarlas acá${uso ? ` · ${uso.usadas} de ${uso.maximo} fotos de la cuenta` : ""}`}
+      pie={`JPG, PNG o WebP · podés arrastrarlas acá${usoDeLaCuenta}`}
       onAgregar={agregar}
       onCambiar={(clave, archivo) =>
         esFormatoValido(archivo)
@@ -377,8 +379,7 @@ export function FotosPendientes({
 
   useEffect(() => () => vistas.forEach((vista) => URL.revokeObjectURL(vista)), [vistas]);
 
-  // La clave es la posición: los archivos no tienen id y dos pueden llamarse igual.
-  const indice = (clave: string) => Number(clave);
+  // La clave es la posición (`Number(clave)`): los archivos no tienen id y dos pueden llamarse igual.
 
   const agregar = (nuevos: File[]) => {
     if (nuevos.some((archivo) => !esFormatoValido(archivo))) return setError(FORMATO_INVALIDO);
@@ -398,13 +399,13 @@ export function FotosPendientes({
       onCambiar={(clave, archivo) => {
         if (!esFormatoValido(archivo)) return setError(FORMATO_INVALIDO);
         setError(null);
-        onCambio(archivos.map((actual, i) => (i === indice(clave) ? archivo : actual)));
+        onCambio(archivos.map((actual, i) => (i === Number(clave) ? archivo : actual)));
       }}
       onPrincipal={(clave) => {
-        const elegida = archivos[indice(clave)];
-        onCambio([elegida, ...archivos.filter((_, i) => i !== indice(clave))]);
+        const elegida = archivos[Number(clave)];
+        onCambio([elegida, ...archivos.filter((_, i) => i !== Number(clave))]);
       }}
-      onQuitar={(clave) => onCambio(archivos.filter((_, i) => i !== indice(clave)))}
+      onQuitar={(clave) => onCambio(archivos.filter((_, i) => i !== Number(clave)))}
     />
   );
 }

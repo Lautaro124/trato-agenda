@@ -235,7 +235,7 @@ export function SeccionPreguntas({
                 checked={pregunta.obligatoria}
                 onChange={(e) => cambiar(indice, { obligatoria: e.target.checked })}
                 className="size-[18px]"
-              />
+              />{" "}
               Obligatoria: el asistente no confirma el pedido sin esta respuesta
             </label>
           </div>
