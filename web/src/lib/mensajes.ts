@@ -14,8 +14,7 @@ export type ClaveMensaje =
   | "pagoAprobado"
   | "horarioOcupado"
   | "listadoProductos"
-  | "detalleProducto"
-  | "pieDeFoto";
+  | "detalleProducto";
 /**
  * El mensaje del cobro por "otro canal" también se edita en /asistente, pero no
  * es de `Agent.mensajes`: vive en las condiciones de pago (PUT /condiciones-pago).
@@ -23,7 +22,8 @@ export type ClaveMensaje =
 export const CLAVE_COBRO = "cobroOtroCanal";
 export type ClaveItem = ClaveMensaje | typeof CLAVE_COBRO;
 export type ModoMensaje = "auto" | "propio";
-export type MensajeConfigurado = { modo: ModoMensaje; texto: string };
+/** `fotos` sólo en la lista de productos: si sale con la foto de cada uno. Sin el campo, sale con fotos. */
+export type MensajeConfigurado = { modo: ModoMensaje; texto: string; fotos?: boolean };
 export type MensajesAgente = Partial<Record<ClaveMensaje, MensajeConfigurado>>;
 export type TipoAsistente = "agenda" | "ventas";
 
@@ -51,9 +51,17 @@ export type DefinicionMensaje = {
   soloPropio?: boolean;
   /** Es el formato de cada producto: la vista previa lo repite con estos datos, uno por línea. */
   porProducto?: Record<string, string>[];
-  /** Va al pie de una foto: la vista previa muestra la foto arriba del texto. */
-  conFoto?: boolean;
+  /**
+   * Se puede mandar con la foto de cada producto, y el texto va al pie de cada
+   * una. `pieEstandar` es el pie en automático: el modelo no escribe pies de foto.
+   */
+  fotos?: { pieEstandar: string };
 };
+
+/** Si ese mensaje sale con fotos: sólo los que las admiten, y salvo que el dueño las apague. */
+export function conFotos(definicion: DefinicionMensaje, mensaje: MensajeConfigurado): boolean {
+  return definicion.fotos !== undefined && mensaje.fotos !== false;
+}
 
 /** El mensaje que se manda cuando el pedido se cobra por otro canal (sólo ventas). */
 export const MENSAJE_COBRO_OTRO_CANAL: DefinicionMensaje = {
@@ -191,9 +199,9 @@ export function mensajesDe(tipo: TipoAsistente): DefinicionMensaje[] {
     {
       clave: "listadoProductos",
       nombre: "Lista de productos",
-      descripcion: "Cómo se ve cada producto en una lista",
+      descripcion: "Cómo se ve cada producto, con su foto o sin ella",
       cuando:
-        "Es el formato de cada renglón cuando tu asistente muestra tres productos o más, o la lista de tu catálogo. Escribís cómo va un producto y se repite para cada uno; los precios salen siempre de tu catálogo.",
+        "Se usa cuando tu asistente muestra tres productos o más, o la lista de tu catálogo. Escribís cómo va un producto y se repite para cada uno; los precios salen siempre de tu catálogo. Si mandás las fotos, el texto de cada producto va al pie de su foto.",
       variables: ["producto", "precio", "stock"],
       obligatorias: ["producto", "precio"],
       recomendadas: [],
@@ -202,6 +210,7 @@ export function mensajesDe(tipo: TipoAsistente): DefinicionMensaje[] {
       ejemploAuto: "* *{producto}* · {precio}",
       fijo: false,
       porProducto: PRODUCTOS_DE_EJEMPLO,
+      fotos: { pieEstandar: "{producto}\n{precio}" },
     },
     {
       clave: "detalleProducto",
@@ -216,21 +225,6 @@ export function mensajesDe(tipo: TipoAsistente): DefinicionMensaje[] {
       ejemploCliente: "¿Tenés yerba?",
       ejemploAuto: "Sí, la {producto} la tenemos a {precio}. ¿Te la anoto?",
       fijo: false,
-    },
-    {
-      clave: "pieDeFoto",
-      nombre: "Pie de foto",
-      descripcion: "El texto debajo de cada foto",
-      cuando:
-        "Va debajo de cada foto cuando tu asistente manda la lista de productos con sus fotos. Así el cliente ve qué es y cuánto sale sin que se lo repita en el texto.",
-      variables: ["producto", "precio"],
-      obligatorias: ["producto", "precio"],
-      recomendadas: [],
-      sugerido: "*{producto}*\n{precio}",
-      ejemploCliente: "¿Qué mates tenés?",
-      ejemploAuto: "{producto}\n{precio}",
-      fijo: true,
-      conFoto: true,
     },
   ];
 }

@@ -2,7 +2,8 @@
  * Mensajes que el dueño puede escribir a mano en vez de dejar que los redacte
  * el modelo: el saludo, el link de pago, "no hay más productos", el horario
  * ocupado, el pago recibido y, en ventas, el formato de los productos (cada
- * línea de una lista, la ficha de uno solo y el pie de sus fotos). Viven en `Agent.mensajes` (Json) y se aplican en
+ * línea de una lista, que también va al pie de sus fotos, y la ficha de uno
+ * solo). Viven en `Agent.mensajes` (Json) y se aplican en
  * tiempo de ejecución, así que no hace falta regenerar el system prompt.
  *
  * Todo acá es puro (sin base ni red), igual que agenda-rules.ts: lo usan el
@@ -22,14 +23,17 @@ export const CLAVES_MENSAJE = [
   'horarioOcupado',
   'listadoProductos',
   'detalleProducto',
-  'pieDeFoto',
 ] as const;
 export type ClaveMensaje = (typeof CLAVES_MENSAJE)[number];
 
 export const MODOS_MENSAJE = ['auto', 'propio'] as const;
 export type ModoMensaje = (typeof MODOS_MENSAJE)[number];
 
-export type MensajeConfigurado = { modo: ModoMensaje; texto: string };
+/**
+ * `fotos` sólo existe en la lista de productos: si el listado sale con la foto
+ * de cada producto que tiene una. Sin el campo, sale con fotos.
+ */
+export type MensajeConfigurado = { modo: ModoMensaje; texto: string; fotos?: boolean };
 export type MensajesAgente = Partial<Record<ClaveMensaje, MensajeConfigurado>>;
 
 /** Lo que entra cómodo en un mensaje de WhatsApp sin volverse un mail. */
@@ -40,6 +44,8 @@ type Definicion = {
   variables: readonly string[];
   /** Sin estos el mensaje no sirve (sin `{link}` el cliente no puede pagar). */
   obligatorias: readonly string[];
+  /** Admite elegir si va con fotos (`MensajeConfigurado.fotos`). */
+  conFotos?: true;
 };
 
 /** Qué mensajes se pueden personalizar en cada tipo de asistente, y con qué datos. */
@@ -55,12 +61,16 @@ export const MENSAJES_POR_TIPO: Record<TipoAsistente, Partial<Record<ClaveMensaj
     pagoAprobado: { variables: ['nombre', 'total', 'detalle', 'negocio'], obligatorias: [] },
     // Formatos de producto: los arma el código con los datos de la base (reglas-ventas.ts), así que el
     // precio y el nombre son obligatorios: sin ellos la línea o la foto no dicen qué es ni cuánto sale.
-    listadoProductos: { variables: ['producto', 'precio', 'stock'], obligatorias: ['producto', 'precio'] },
+    // El de la lista es también el pie de cada foto del listado.
+    listadoProductos: {
+      variables: ['producto', 'precio', 'stock'],
+      obligatorias: ['producto', 'precio'],
+      conFotos: true,
+    },
     detalleProducto: {
       variables: ['producto', 'precio', 'stock', 'descripcion', 'categoria'],
       obligatorias: ['producto', 'precio'],
     },
-    pieDeFoto: { variables: ['producto', 'precio'], obligatorias: ['producto', 'precio'] },
   },
 };
 
@@ -80,7 +90,7 @@ function esObjeto(valor: unknown): valor is Record<string, unknown> {
  */
 export function normalizarMensajes(
   tipo: TipoAsistente,
-  entrada: Record<string, { modo: string; texto: string }>,
+  entrada: Record<string, { modo: string; texto: string; fotos?: boolean }>,
 ): { mensajes: MensajesAgente } | { error: string } {
   const catalogo = MENSAJES_POR_TIPO[tipo];
   const mensajes: MensajesAgente = {};
@@ -88,6 +98,7 @@ export function normalizarMensajes(
     const definicion = (CLAVES_MENSAJE as readonly string[]).includes(clave) ? catalogo[clave as ClaveMensaje] : undefined;
     if (!definicion) return { error: `Tu asistente no tiene un mensaje "${clave}" para personalizar.` };
     if (!(MODOS_MENSAJE as readonly string[]).includes(valor.modo)) return { error: 'El modo del mensaje no es válido.' };
+    if (valor.fotos !== undefined && !definicion.conFotos) return { error: 'Ese mensaje no lleva fotos.' };
     const texto = valor.texto.replace(/\r\n?/g, '\n').trim();
     if (texto.length > MAX_CARACTERES_MENSAJE) {
       return { error: `Un mensaje puede tener como mucho ${MAX_CARACTERES_MENSAJE} caracteres.` };
@@ -100,7 +111,11 @@ export function normalizarMensajes(
       const faltante = definicion.obligatorias.find((variable) => !usadas.includes(variable));
       if (faltante) return { error: `Al mensaje le falta {${faltante}}.` };
     }
-    mensajes[clave as ClaveMensaje] = { modo: valor.modo as ModoMensaje, texto };
+    mensajes[clave as ClaveMensaje] = {
+      modo: valor.modo as ModoMensaje,
+      texto,
+      ...(valor.fotos !== undefined ? { fotos: valor.fotos } : {}),
+    };
   }
   return { mensajes };
 }
@@ -116,9 +131,18 @@ export function leerMensajes(agent: Pick<Agent, 'mensajes'>): MensajesAgente {
     const valor = agent.mensajes[clave];
     if (!esObjeto(valor) || typeof valor.texto !== 'string') continue;
     if (valor.modo !== 'auto' && valor.modo !== 'propio') continue;
-    mensajes[clave] = { modo: valor.modo, texto: valor.texto };
+    mensajes[clave] = {
+      modo: valor.modo,
+      texto: valor.texto,
+      ...(typeof valor.fotos === 'boolean' && MENSAJES_POR_TIPO.ventas[clave]?.conFotos ? { fotos: valor.fotos } : {}),
+    };
   }
   return mensajes;
+}
+
+/** Si el listado de productos sale con la foto de cada uno: sí, salvo que el dueño lo haya apagado. */
+export function listadoConFotos(agent: Pick<Agent, 'mensajes'>): boolean {
+  return leerMensajes(agent).listadoProductos?.fotos !== false;
 }
 
 /** El texto del dueño para esa clave, o null si la dejó en automático. */

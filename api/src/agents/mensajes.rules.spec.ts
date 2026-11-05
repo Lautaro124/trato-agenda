@@ -3,6 +3,7 @@ import {
   completarPlantilla,
   instruccionMandarTalCual,
   leerMensajes,
+  listadoConFotos,
   MAX_CARACTERES_MENSAJE,
   mensajePropio,
   normalizarMensajes,
@@ -27,7 +28,7 @@ describe('normalizarMensajes', () => {
   });
 
   it('los formatos de producto exigen {producto} y {precio}, y son sólo de ventas', () => {
-    for (const clave of ['listadoProductos', 'detalleProducto', 'pieDeFoto']) {
+    for (const clave of ['listadoProductos', 'detalleProducto']) {
       expect(normalizarMensajes('ventas', { [clave]: { modo: 'propio', texto: '{producto}' } })).toEqual({
         error: 'Al mensaje le falta {precio}.',
       });
@@ -36,13 +37,34 @@ describe('normalizarMensajes', () => {
       });
       expect(normalizarMensajes('agenda', { [clave]: { modo: 'auto', texto: '' } })).toHaveProperty('error');
     }
-    // La descripción va en la ficha, no en la línea de una lista ni al pie de la foto.
+    // La descripción va en la ficha, no en la línea de una lista (que también va al pie de la foto).
     expect(
       normalizarMensajes('ventas', { detalleProducto: { modo: 'propio', texto: '{producto} {precio}\n{descripcion}' } }),
     ).not.toHaveProperty('error');
     expect(
-      normalizarMensajes('ventas', { pieDeFoto: { modo: 'propio', texto: '{producto} {precio} {descripcion}' } }),
+      normalizarMensajes('ventas', { listadoProductos: { modo: 'propio', texto: '{producto} {precio} {descripcion}' } }),
     ).toEqual({ error: '{descripcion} no es un dato que se pueda completar en ese mensaje.' });
+    // El pie de foto ya no es un mensaje aparte: es la línea de la lista.
+    expect(normalizarMensajes('ventas', { pieDeFoto: { modo: 'auto', texto: '' } })).toHaveProperty('error');
+  });
+
+  it('sólo la lista de productos elige si va con fotos, y sin elegir sale con fotos', () => {
+    expect(normalizarMensajes('ventas', { listadoProductos: { modo: 'auto', texto: '', fotos: false } })).toEqual({
+      mensajes: { listadoProductos: { modo: 'auto', texto: '', fotos: false } },
+    });
+    expect(normalizarMensajes('ventas', { saludo: { modo: 'auto', texto: '', fotos: true } })).toEqual({
+      error: 'Ese mensaje no lleva fotos.',
+    });
+    expect(listadoConFotos({ mensajes: null })).toBe(true);
+    expect(listadoConFotos({ mensajes: { listadoProductos: { modo: 'auto', texto: '' } } })).toBe(true);
+    expect(listadoConFotos({ mensajes: { listadoProductos: { modo: 'auto', texto: '', fotos: false } } })).toBe(false);
+    // Un `fotos` que no es booleano, o en otro mensaje, no se lee.
+    expect(leerMensajes({ mensajes: { listadoProductos: { modo: 'auto', texto: '', fotos: 'no' } } })).toEqual({
+      listadoProductos: { modo: 'auto', texto: '' },
+    });
+    expect(leerMensajes({ mensajes: { saludo: { modo: 'auto', texto: '', fotos: false } } })).toEqual({
+      saludo: { modo: 'auto', texto: '' },
+    });
   });
 
   it('rechaza un dato que ese mensaje no conoce', () => {
