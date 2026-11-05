@@ -1042,17 +1042,24 @@ function primerNombre(nombre: string | null): string {
   return nombre?.trim().split(/\s+/)[0] ?? '';
 }
 
+function stockADemandaDueno(producto: ProductoEncontrado): string {
+  const plazo = describirAPedido(producto.plazoEntregaDias) ?? 'sin plazo de entrega cargado';
+  const marca = producto.hayStock ? 'marcado disponible' : 'marcado no disponible';
+  return `a demanda, ${plazo} (${marca})`;
+}
+
+function stockContadoDueno(producto: ProductoEncontrado): string {
+  const reservadas = producto.reservadas > 0 ? ` (+${producto.reservadas} reservadas)` : '';
+  const minimo = producto.stockMinimo === null ? '' : `, mínimo ${producto.stockMinimo}`;
+  return `${producto.unidades} disponibles${reservadas}${minimo}`;
+}
+
 /** Versión para el dueño: con las unidades exactas, lo reservado y el mínimo. */
 export function formatearStockDueno(consulta: string, productos: ProductoEncontrado[]): string {
   if (productos.length === 0) return `No hay productos para ${JSON.stringify(consulta)} en el catálogo.`;
   return productos
     .map((producto) => {
-      const unidades =
-        producto.unidades === null
-          ? `a demanda, ${describirAPedido(producto.plazoEntregaDias) ?? 'sin plazo de entrega cargado'} ` +
-            `(${producto.hayStock ? 'marcado disponible' : 'marcado no disponible'})`
-          : `${producto.unidades} disponibles${producto.reservadas > 0 ? ` (+${producto.reservadas} reservadas)` : ''}` +
-            (producto.stockMinimo !== null ? `, mínimo ${producto.stockMinimo}` : '');
+      const unidades = producto.unidades === null ? stockADemandaDueno(producto) : stockContadoDueno(producto);
       return `${JSON.stringify(producto.nombre)} (código ${producto.codigo}): ${precioParaElModelo(producto, producto.moneda)}, ${unidades}`;
     })
     .join('\n');

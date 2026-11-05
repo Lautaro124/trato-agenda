@@ -84,7 +84,8 @@ export type ConStock = {
 /** "a pedido, se entrega en 7 días": lo que se dice de un producto a demanda con plazo. */
 export function describirAPedido(plazoEntregaDias: number | null | undefined): string | null {
   if (plazoEntregaDias == null) return null;
-  return `a pedido, se entrega en ${plazoEntregaDias === 1 ? '1 día' : `${plazoEntregaDias} días`}`;
+  const dias = plazoEntregaDias === 1 ? '1 día' : `${plazoEntregaDias} días`;
+  return `a pedido, se entrega en ${dias}`;
 }
 
 /**

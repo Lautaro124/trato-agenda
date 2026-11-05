@@ -90,6 +90,30 @@ function entero(texto: string): number | null | "invalido" {
 }
 
 /**
+ * Con stock: unidades obligatorias y mínimo opcional. A demanda: sólo el plazo
+ * de entrega (sin unidades ni mínimo que vigilar).
+ */
+function armarDisponibilidad(
+  modo: ModoStock,
+  stock: string,
+  stockMinimo: string,
+  plazoEntrega: string,
+): Pick<ProductoAGuardar, "stock" | "stockMinimo" | "plazoEntregaDias"> | string {
+  if (modo === "demanda") {
+    const plazo = entero(plazoEntrega);
+    if (typeof plazo !== "number" || plazo < 1 || plazo > PLAZO_ENTREGA_MAX_DIAS) {
+      return `Poné en cuántos días lo entregás (de 1 a ${PLAZO_ENTREGA_MAX_DIAS}).`;
+    }
+    return { stock: null, stockMinimo: null, plazoEntregaDias: plazo };
+  }
+  const unidades = entero(stock);
+  const minimo = entero(stockMinimo);
+  if (unidades === "invalido" || minimo === "invalido") return "El stock tiene que ser un número entero.";
+  if (unidades === null) return "Poné cuántas unidades tenés en stock.";
+  return { stock: unidades, stockMinimo: minimo, plazoEntregaDias: null };
+}
+
+/**
  * Alta o edición completa de un producto, en su propia pantalla
  * (/productos/nuevo o /productos/[id]): datos, fotos, precio, stock y descuento.
  */
@@ -121,7 +145,7 @@ export function EditorProducto({
   const [precio, setPrecio] = useState(productoInicial ? centavosParaInput(productoInicial.precioCentavos) : "");
   // Un producto existente sin cantidad es a demanda; uno nuevo arranca con stock.
   const [modoStock, setModoStock] = useState<ModoStock>(
-    productoInicial && productoInicial.stock === null ? "demanda" : "stock",
+    productoInicial?.stock === null ? "demanda" : "stock",
   );
   const [stock, setStock] = useState(productoInicial?.stock == null ? "" : String(productoInicial.stock));
   const [plazoEntrega, setPlazoEntrega] = useState(
@@ -168,15 +192,8 @@ export function EditorProducto({
     if (nombre.trim().length < 2) return "Poné el nombre del producto.";
     const precioCentavos = leerCentavos(precio);
     if (precioCentavos === null) return "Revisá el precio.";
-    const conStock = modoStock === "stock";
-    const unidades = conStock ? entero(stock) : null;
-    const minimo = conStock ? entero(stockMinimo) : null;
-    if (unidades === "invalido" || minimo === "invalido") return "El stock tiene que ser un número entero.";
-    if (conStock && unidades === null) return "Poné cuántas unidades tenés en stock.";
-    const plazo = conStock ? null : entero(plazoEntrega);
-    if (!conStock && (plazo === null || plazo === "invalido" || plazo < 1 || plazo > PLAZO_ENTREGA_MAX_DIAS)) {
-      return `Poné en cuántos días lo entregás (de 1 a ${PLAZO_ENTREGA_MAX_DIAS}).`;
-    }
+    const disponibilidad = armarDisponibilidad(modoStock, stock, stockMinimo, plazoEntrega);
+    if (typeof disponibilidad === "string") return disponibilidad;
     const descuentoArmado = armarDescuento(descuento, precioCentavos);
     if (typeof descuentoArmado === "string") return descuentoArmado;
     const cuotasArmadas = armarCuotas(cuotas, precioCentavos, moneda);
@@ -192,10 +209,7 @@ export function EditorProducto({
       cuotas: cuotasArmadas,
       preguntas: preguntasArmadas,
       precioCentavos,
-      stock: unidades,
-      // A demanda no hay mínimo que vigilar; con stock no hay plazo.
-      stockMinimo: minimo,
-      plazoEntregaDias: plazo as number | null,
+      ...disponibilidad,
       disponible,
       descuento: descuentoArmado,
     };
