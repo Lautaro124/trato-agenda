@@ -63,7 +63,8 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
   vi.mocked(prisma.$transaction).mockImplementation(((fn: (tx: PrismaService) => Promise<unknown>) => fn(prisma)) as never);
 
   const config = {
-    get: (clave: string) => (clave === 'NODE_ENV' ? 'test' : 'clave-de-prueba'),
+    get: (clave: string) =>
+      clave === 'NODE_ENV' ? 'test' : clave === 'WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS' ? 30 : 'clave-de-prueba',
   } as unknown as ConfigService<Env, true>;
 
   const conversationService = { responder: vi.fn() } as unknown as ConversationService;
@@ -253,6 +254,7 @@ describe('WhatsappService — mensajes de clientes', () => {
       sendMessage: vi.fn().mockResolvedValue(undefined),
       readMessages: vi.fn().mockResolvedValue(undefined),
       sendPresenceUpdate: vi.fn().mockResolvedValue(undefined),
+      presenceSubscribe: vi.fn().mockResolvedValue(undefined),
     };
   }
 

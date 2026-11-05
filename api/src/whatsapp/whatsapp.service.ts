@@ -288,13 +288,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private versionWa: { version: WAVersion; hasta: number } | null = null;
   private consultandoVersion: Promise<WAVersion> | null = null;
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
-  private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
-    (_clave, items, cancelacion) => this.contestarRafaga(items, cancelacion),
-    // Sólo el userId: el JID del cliente es su teléfono y no va a los logs.
-    (clave, error) =>
-      this.logger.error(`Fallo procesando mensajes entrantes de ${clave.split('\n')[0]}`, error as Error),
-    (item) => item.texto.length,
-  );
+  private readonly rafagas: AgrupadorDeRafagas<MensajeEntrante>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -309,6 +303,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
     });
+    // En el constructor y no como campo: necesita la configuración ya inyectada.
+    this.rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
+      (_clave, items, cancelacion) => this.contestarRafaga(items, cancelacion),
+      // Sólo el userId: el JID del cliente es su teléfono y no va a los logs.
+      (clave, error) =>
+        this.logger.error(`Fallo procesando mensajes entrantes de ${clave.split('\n')[0]}`, error as Error),
+      (item) => item.texto.length,
+      Date.now,
+      this.config.get('WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS', { infer: true }) * 1000,
+    );
   }
 
   /** Al bootear la API, resumimos toda sesión que ya haya completado el pairing. */
@@ -611,6 +615,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Fallo procesando connection.update de ${userId}`, error as Error),
       );
     });
+    // "Escribiendo…" del cliente: demora la respuesta de una ráfaga que todavía espera.
+    sock.ev.on('presence.update', ({ id, presences }) => {
+      const estados = Object.values(presences).map((presencia) => presencia.lastKnownPresence);
+      if (estados.length === 0) return;
+      const escribe = estados.some((estado) => estado === 'composing' || estado === 'recording');
+      this.rafagas.escribiendo(`${userId}\n${id}`, escribe);
+    });
     sock.ev.on('messages.upsert', (upsert) => {
       this.handleMessagesUpsert(userId, sock, upsert).catch((error: unknown) =>
         this.logger.error(`Fallo procesando mensajes entrantes de ${userId}`, error as Error),
@@ -782,6 +793,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       if (this.sockets.get(userId) !== sock) return;
     }
 
+    // Para enterarse de si sigue escribiendo (presence.update). Si WhatsApp no avisa, queda el silencio fijo.
+    sock.presenceSubscribe(remoteJid).catch(() => undefined);
     this.rafagas.agregar(`${userId}\n${remoteJid}`, {
       userId,
       remoteJid,

@@ -113,6 +113,19 @@ describe('validateEnv', () => {
       expect(() => validateEnv({ ...BASE, HISTORIAL_IA_VENTANA: valor })).toThrow(/HISTORIAL_IA_VENTANA/);
     }
   });
+
+  it('el "escribiendo…" del cliente vence a los 30 s si no se configura', () => {
+    expect(validateEnv(BASE).WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS).toBe(30);
+    expect(validateEnv({ ...BASE, WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: '45' }).WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS).toBe(45);
+  });
+
+  it('no arranca con un vencimiento del "escribiendo…" fuera de rango', () => {
+    for (const valor of ['4', '301', '1.5', 'treinta', '-10']) {
+      expect(() => validateEnv({ ...BASE, WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: valor })).toThrow(
+        /WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS/,
+      );
+    }
+  });
 });
 
 describe('parsearDuracion', () => {
