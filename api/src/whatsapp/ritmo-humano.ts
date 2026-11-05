@@ -12,6 +12,21 @@
  * escribiendo (ver AgrupadorDeRafagas), así que la espera es generosa.
  */
 export const ESPERA_RAFAGA_MS = 6_000;
+
+/** Lo que "tarda en reaccionar" alguien después de escuchar un audio, además de su duración. */
+const REACCION_AUDIO_MIN_MS = 2_000;
+const REACCION_AUDIO_MAX_MS = 4_000;
+
+/**
+ * Cuánto retener un audio antes de sumarlo a la ráfaga, para que la respuesta
+ * llegue como si alguien lo hubiera escuchado entero: su duración más 2 a 4 s
+ * (`azar`, 0..1). Se descuenta ESPERA_RAFAGA_MS porque la ráfaga igual espera
+ * ese silencio después: un audio de 30 s se contesta a los ~32-34 s, no a los 38.
+ */
+export function esperaDeEscucha(segundos: number, azar = 0.5): number {
+  const reaccion = REACCION_AUDIO_MIN_MS + (REACCION_AUDIO_MAX_MS - REACCION_AUDIO_MIN_MS) * azar;
+  return Math.max(0, Math.round(segundos * 1000 + reaccion - ESPERA_RAFAGA_MS));
+}
 /** Tope de espera desde el primer mensaje de la ráfaga, para que alguien que escribe sin parar igual tenga respuesta. */
 export const MAXIMO_RAFAGA_MS = 20_000;
 /**
