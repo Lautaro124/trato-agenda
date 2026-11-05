@@ -20,6 +20,7 @@ import {
   MAX_CODIGOS_POR_CUENTA,
   MAX_CODIGOS_POR_NUMERO_HORA,
   NAVEGADOR_WHATSAPP,
+  PLAZO_DESCARGA_AUDIO_MS,
   WhatsappService,
 } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
@@ -267,6 +268,12 @@ describe('WhatsappService — mensajes de clientes', () => {
     });
   }
 
+  /** Dónde está el audio, como lo manda WhatsApp. */
+  const AUDIO_DE_WHATSAPP = {
+    url: 'https://mmg.whatsapp.net/v/t62.7117-24/123_n.enc?ccb=11-4&oh=01_Q5&oe=68&_nc_sid=5e03e0&mms3=true',
+    directPath: '/v/t62.7117-24/123_n.enc?ccb=11-4&oh=01_Q5&oe=68&_nc_sid=5e03e0',
+  };
+
   /** Dispara handleMessagesUpsert con una nota de voz de un cliente. */
   async function recibirAudio(service: WhatsappService, sock: unknown, audio: Record<string, unknown> = {}, id = 'a-1') {
     // El audio sólo se contesta si su socket sigue siendo el de la cuenta tras "escucharlo".
@@ -280,16 +287,16 @@ describe('WhatsappService — mensajes de clientes', () => {
       messages: [
         {
           key: { remoteJid: JID, fromMe: false, id },
-          message: { audioMessage: { mimetype: 'audio/ogg; codecs=opus', seconds: 10, ptt: true, ...audio } },
+          message: { audioMessage: { ...AUDIO_DE_WHATSAPP, mimetype: 'audio/ogg; codecs=opus', seconds: 10, ptt: true, ...audio } },
         },
       ],
     });
   }
 
   describe('audios', () => {
-    beforeEach(() =>
-      vi.mocked(downloadMediaMessage).mockReset().mockImplementation(async () => Readable.from([Buffer.from('opus')]) as never),
-    );
+    beforeEach(() => {
+      vi.mocked(downloadMediaMessage).mockReset().mockImplementation(async () => Readable.from([Buffer.from('opus')]) as never);
+    });
 
     it('transcribe la nota de voz y la contesta como un mensaje de texto', async () => {
       const { service, conversationService, transcripcion } = crearServicio();
@@ -335,7 +342,7 @@ describe('WhatsappService — mensajes de clientes', () => {
       ).handleMessagesUpsert('user-1', sock, {
         type: 'notify',
         messages: [
-          { key: { remoteJid: JID, fromMe: false, id: 'a-1' }, message: { audioMessage: { mimetype: 'audio/ogg', seconds: 90 } } },
+          { key: { remoteJid: JID, fromMe: false, id: 'a-1' }, message: { audioMessage: { ...AUDIO_DE_WHATSAPP, mimetype: 'audio/ogg', seconds: 90 } } },
           { key: { remoteJid: OTRO, fromMe: false, id: 'm-1' }, message: { conversation: 'hola' } },
         ],
       });
@@ -397,6 +404,95 @@ describe('WhatsappService — mensajes de clientes', () => {
 
       expect(transcripcion.transcribir).not.toHaveBeenCalled();
       expect(sock.sendMessage).toHaveBeenCalledExactlyOnceWith(JID, { text: AVISO_AUDIO_LARGO });
+    });
+
+    it('lo descarga del host de WhatsApp que trae el mensaje, fijado para el reintento', async () => {
+      const { service } = crearServicio();
+      const sock = socketDeChat();
+
+      const recepcion = recibirAudio(service, sock);
+      await vi.runAllTimersAsync();
+      await recepcion;
+
+      expect(downloadMediaMessage).toHaveBeenCalledWith(expect.anything(), 'stream', { host: 'mmg.whatsapp.net' }, expect.anything());
+    });
+
+    it.each([
+      ['otro contenido con media antes del audio', { documentMessage: { url: 'http://169.254.169.254/x' } }],
+      ['un wrapper efímero con otro contenido', { ephemeralMessage: { message: { documentMessage: { url: 'http://10.0.0.1/x' } } } }],
+    ])('con %s descarga sólo el audio validado', async (_caso, extra) => {
+      const { service } = crearServicio();
+      const sock = socketDeChat();
+      (service as unknown as { sockets: Map<string, unknown> }).sockets.set('user-1', sock);
+
+      const lote = (
+        service as unknown as { handleMessagesUpsert: (u: string, s: unknown, e: unknown) => Promise<void> }
+      ).handleMessagesUpsert('user-1', sock, {
+        type: 'notify',
+        messages: [
+          {
+            key: { remoteJid: JID, fromMe: false, id: 'a-1' },
+            message: { ...extra, audioMessage: { ...AUDIO_DE_WHATSAPP, mimetype: 'audio/ogg', seconds: 5 } },
+          },
+        ],
+      });
+      await vi.runAllTimersAsync();
+      await lote;
+
+      const [descargado] = vi.mocked(downloadMediaMessage).mock.calls[0]!;
+      expect(Object.keys(descargado.message!)).toEqual(['audioMessage']);
+      expect(descargado.message!.audioMessage).toMatchObject(AUDIO_DE_WHATSAPP);
+    });
+
+    it.each([
+      ['una url a la red interna', { url: 'http://169.254.169.254/latest/meta-data' }],
+      ['una url https de otro dominio', { url: 'https://evil.com/x.enc' }],
+      ['un dominio que sólo termina parecido', { url: 'https://evilwhatsapp.net/x.enc' }],
+      ['una url con otro puerto', { url: 'https://mmg.whatsapp.net:8443/x.enc' }],
+      ['un directPath que cambia el host', { directPath: '@evil.com/x.enc' }],
+      ['un directPath con barra invertida', { directPath: '/\\evil.com/x.enc' }],
+      ['un directPath que no es ruta', { directPath: 'evil.com/x.enc' }],
+      ['sin directPath', { directPath: undefined }],
+    ])('con %s ni lo descarga y avisa', async (_caso, media) => {
+      const { service, transcripcion } = crearServicio();
+      const sock = socketDeChat();
+
+      await recibirAudio(service, sock, media);
+      await vi.runAllTimersAsync();
+
+      expect(downloadMediaMessage).not.toHaveBeenCalled();
+      expect(transcripcion.transcribir).not.toHaveBeenCalled();
+      expect(sock.sendMessage).toHaveBeenCalledExactlyOnceWith(JID, { text: AVISO_AUDIO_FALLIDO });
+    });
+
+    it('si el servidor manda el audio de a gotas, corta la descarga al vencer el plazo y avisa', async () => {
+      const { service, transcripcion } = crearServicio();
+      const colgado = new Readable({ read() {} });
+      colgado.push(Buffer.from('op'));
+      vi.mocked(downloadMediaMessage).mockImplementation(async () => colgado as never);
+      const sock = socketDeChat();
+
+      const recepcion = recibirAudio(service, sock);
+      await vi.advanceTimersByTimeAsync(PLAZO_DESCARGA_AUDIO_MS + 1_000);
+      await vi.runAllTimersAsync();
+      await recepcion;
+
+      expect(colgado.destroyed).toBe(true);
+      expect(transcripcion.transcribir).not.toHaveBeenCalled();
+      expect(sock.sendMessage).toHaveBeenCalledExactlyOnceWith(JID, { text: AVISO_AUDIO_FALLIDO });
+    });
+
+    it('si el servidor no contesta, no espera más que el plazo', async () => {
+      const { service } = crearServicio();
+      vi.mocked(downloadMediaMessage).mockImplementation(() => new Promise(() => undefined));
+      const sock = socketDeChat();
+
+      const recepcion = recibirAudio(service, sock);
+      await vi.advanceTimersByTimeAsync(PLAZO_DESCARGA_AUDIO_MS + 1_000);
+      await vi.runAllTimersAsync();
+      await recepcion;
+
+      expect(sock.sendMessage).toHaveBeenCalledExactlyOnceWith(JID, { text: AVISO_AUDIO_FALLIDO });
     });
 
     it('si la transcripción falla, avisa que no pudo descargarlo', async () => {

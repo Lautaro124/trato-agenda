@@ -164,8 +164,58 @@ function aNumero(valor: number | { toNumber(): number } | null | undefined): num
   return typeof valor === 'number' ? valor : valor.toNumber();
 }
 
+/** Host de media de WhatsApp cuando el mensaje no trae `url`. */
+const HOST_MEDIA_WHATSAPP = 'mmg.whatsapp.net';
+
+/** Lo máximo que puede tardar la descarga de un audio, incluido el reintento por reupload. */
+export const PLAZO_DESCARGA_AUDIO_MS = 30_000;
+
+/**
+ * El host del que se puede bajar el audio, o undefined si el mensaje apunta a
+ * otro lado. `url` y `directPath` los arma el que manda el mensaje y Baileys
+ * los usa tal cual: sin esto, un cliente modificado haría que la API pida
+ * cualquier URL (red interna, metadata del proveedor…). Exige un `directPath`
+ * de ruta simple (sin `@`, `\`, `//` ni `:`, que cambiarían el host al
+ * concatenarlo) y, si viene `url`, que sea https de `*.whatsapp.net`.
+ */
+export function hostDeMedia(media: { url?: string | null; directPath?: string | null }): string | undefined {
+  if (!media.directPath || !/^\/(?!\/)[\w\-.~%/?=&+]*$/.test(media.directPath)) return undefined;
+  if (!media.url) return HOST_MEDIA_WHATSAPP;
+  try {
+    const url = new URL(media.url);
+    const esDeWhatsapp = url.protocol === 'https:' && !url.port && url.hostname.endsWith('.whatsapp.net');
+    return esDeWhatsapp && !url.username && !url.password ? url.hostname : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+type FlujoDeMedia = AsyncIterable<Buffer> & { destroy(): void };
+
+/**
+ * Abre la descarga y la junta con tope de bytes y de tiempo. Baileys no deja
+ * pasarle un AbortSignal: al vencer el plazo se destruye el stream (o el que
+ * llegue tarde), así un servidor que manda de a gotas no deja el chat trabado.
+ */
+async function descargarConTope(abrir: () => Promise<FlujoDeMedia>, max: number, plazoMs: number): Promise<Buffer | null> {
+  const descarga = abrir();
+  let timer: NodeJS.Timeout | undefined;
+  const vencimiento = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`La descarga del audio pasó ${plazoMs}ms.`)), plazoMs);
+  });
+  let flujo: FlujoDeMedia | undefined;
+  try {
+    flujo = await Promise.race([descarga, vencimiento]);
+    return await Promise.race([leerHasta(flujo, max), vencimiento]);
+  } finally {
+    clearTimeout(timer);
+    if (flujo) flujo.destroy();
+    else void descarga.then((tarde) => tarde.destroy(), () => undefined);
+  }
+}
+
 /** Junta el stream en memoria; null (y lo corta) si pasa de `max` bytes. */
-async function leerHasta(flujo: AsyncIterable<Buffer> & { destroy(): void }, max: number): Promise<Buffer | null> {
+async function leerHasta(flujo: FlujoDeMedia, max: number): Promise<Buffer | null> {
   const partes: Buffer[] = [];
   let total = 0;
   for await (const parte of flujo) {
@@ -642,16 +692,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return { aviso: AVISO_AUDIO_LARGO };
     }
     const formato = formatoDeAudio(audio.mimetype);
-    if (!formato) return { aviso: AVISO_AUDIO_FALLIDO };
+    const host = hostDeMedia(audio);
+    if (!formato || !host) return { aviso: AVISO_AUDIO_FALLIDO };
     try {
       // En stream y con tope: `seconds` y `fileLength` los declara el que manda y pueden mentir.
-      const flujo = await downloadMediaMessage(
-        mensaje,
-        'stream',
-        {},
-        { logger: this.baileysLogger, reuploadRequest: sock.updateMediaMessage },
+      // `host` fijo: el reintento por reupload no puede volver a sacarlo de `url`.
+      // Sólo el audio validado: Baileys descarga el primer contenido con media
+      // que encuentre (o el de adentro de un `ephemeralMessage`), y el
+      // remitente podría poner otro antes, sin validar.
+      const soloElAudio: WAMessage = { key: mensaje.key, message: { audioMessage: audio } };
+      const contenido = await descargarConTope(
+        () =>
+          downloadMediaMessage(soloElAudio, 'stream', { host }, { logger: this.baileysLogger, reuploadRequest: sock.updateMediaMessage }),
+        MAX_BYTES_AUDIO,
+        PLAZO_DESCARGA_AUDIO_MS,
       );
-      const contenido = await leerHasta(flujo, MAX_BYTES_AUDIO);
       if (!contenido) return { aviso: AVISO_AUDIO_LARGO };
       const texto = await this.transcripcion.transcribir(contenido, formato);
       return texto ? { texto: `${PREFIJO_AUDIO}${texto}`, escucharHasta } : { aviso: AVISO_AUDIO_FALLIDO };
