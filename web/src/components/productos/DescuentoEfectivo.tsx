@@ -26,13 +26,20 @@ export function DescuentoEfectivo() {
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ texto: string; tono: "ok" | "error" } | null>(null);
 
+  // Una respuesta de un efecto ya descartado (React corre el efecto dos veces en dev) no
+  // pisa lo que el dueño empezó a escribir.
   useEffect(() => {
+    const ctrl = { cancelado: false };
     obtenerCondicionesPago()
       .then((condiciones) => {
+        if (ctrl.cancelado) return;
         setGuardado(condiciones.descuentoEfectivoPorcentaje);
         setTexto(condiciones.descuentoEfectivoPorcentaje === null ? "" : String(condiciones.descuentoEfectivoPorcentaje));
       })
-      .catch(() => setAviso({ texto: "No pudimos cargar el descuento en efectivo.", tono: "error" }));
+      .catch(() => !ctrl.cancelado && setAviso({ texto: "No pudimos cargar el descuento en efectivo.", tono: "error" }));
+    return () => {
+      ctrl.cancelado = true;
+    };
   }, []);
 
   const porcentaje = leerPorcentaje(texto);
