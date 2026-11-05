@@ -191,6 +191,20 @@ describe.skipIf(!hayBaseDePrueba)('catálogo (Postgres real)', () => {
       await productos.eliminar(dueno.id, creado.id);
     });
 
+    it('a demanda guarda el plazo de entrega, la importación no lo pisa y con stock se borra', async () => {
+      const dto = { codigo: 'MESA-DEM', nombre: 'Mesa a medida', precioCentavos: 500_000, stock: null };
+      const creado = await productos.crear(dueno.id, { ...dto, plazoEntregaDias: 15 });
+      expect(creado.plazoEntregaDias).toBe(15);
+      // Sin el campo queda como estaba.
+      expect((await productos.actualizar(dueno.id, creado.id, dto)).plazoEntregaDias).toBe(15);
+      // Pasar a stock (desde el formulario o la edición rápida) lo borra.
+      expect((await productos.actualizar(dueno.id, creado.id, { ...dto, stock: 3, plazoEntregaDias: 15 })).plazoEntregaDias).toBeNull();
+      await productos.actualizar(dueno.id, creado.id, { ...dto, plazoEntregaDias: 10 });
+      expect((await productos.actualizarStock(dueno.id, creado.id, { stock: 2 })).plazoEntregaDias).toBeNull();
+
+      await productos.eliminar(dueno.id, creado.id);
+    });
+
     it('edita precio y stock sólo si es del dueño', async () => {
       const [remera] = (await productos.listar(dueno.id, { q: 'talle m' })).productos;
       await expect(productos.actualizarStock(otroDueno.id, remera.id, { stock: 99 })).rejects.toThrow();

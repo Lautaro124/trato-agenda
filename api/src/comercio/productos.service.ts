@@ -56,6 +56,8 @@ type ProductoAGuardar = {
   stock: number | null;
   stockMinimo: number | null;
   disponible: boolean;
+  /** A demanda: días de entrega. undefined (la importación) no lo toca; con stock se guarda null. */
+  plazoEntregaDias?: number | null;
   /** null lo borra; undefined (la importación) no lo toca. */
   descuento?: DescuentoAGuardar | null;
   /** Las cuotas, ya validadas (null = en un pago); undefined (la importación) no las toca. */
@@ -178,6 +180,8 @@ export class ProductosService {
       data: {
         ...(dto.precioCentavos !== undefined ? { precioCentavos: dto.precioCentavos } : {}),
         ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
+        // Con stock deja de ser a demanda: el plazo no aplica.
+        ...(dto.stock != null ? { plazoEntregaDias: null } : {}),
         ...(dto.disponible !== undefined ? { disponible: dto.disponible } : {}),
         ...(dto.stockMinimo !== undefined ? { stockMinimo: dto.stockMinimo } : {}),
       },
@@ -402,6 +406,10 @@ export class ProductosService {
       stock: datos.stock,
       stockMinimo: datos.stockMinimo,
       disponible: datos.disponible,
+      // El plazo es sólo de los productos a demanda: con stock se borra.
+      ...(datos.stock !== null
+        ? { plazoEntregaDias: null }
+        : datos.plazoEntregaDias !== undefined && { plazoEntregaDias: datos.plazoEntregaDias }),
       ...(datos.moneda !== undefined && { moneda: datos.moneda }),
       // Sólo si vino: la importación no lo manda y no tiene que pisarlo.
       ...(datos.cuotas !== undefined && { cuotas: datos.cuotas === null ? Prisma.DbNull : datos.cuotas }),
@@ -448,7 +456,7 @@ export class ProductosService {
 /** DTO del formulario → la misma forma que sale de una importación. */
 export function desdeDto(
   dto: Pick<GuardarProductoDto, 'codigo' | 'nombre' | 'descripcion' | 'categoria' | 'moneda' | 'precioCentavos'> &
-    Partial<Pick<GuardarProductoDto, 'stock' | 'stockMinimo' | 'disponible' | 'descuento' | 'cuotas' | 'preguntas'>>,
+    Partial<Pick<GuardarProductoDto, 'stock' | 'stockMinimo' | 'disponible' | 'plazoEntregaDias' | 'descuento' | 'cuotas' | 'preguntas'>>,
 ): ProductoAGuardar {
   return {
     codigo: dto.codigo.trim(),
@@ -460,6 +468,7 @@ export function desdeDto(
     stock: dto.stock ?? null,
     stockMinimo: dto.stockMinimo ?? null,
     disponible: dto.disponible ?? true,
+    plazoEntregaDias: dto.plazoEntregaDias,
     descuento: dto.descuento === undefined ? undefined : dto.descuento && descuentoDesdeDto(dto.descuento),
     cuotas: dto.cuotas === undefined ? undefined : cuotasDesdeDto(dto.cuotas, dto.precioCentavos, dto.moneda ?? 'ARS'),
     preguntas: dto.preguntas === undefined ? undefined : preguntasDesdeDto(dto.preguntas),

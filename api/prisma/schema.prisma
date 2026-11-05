@@ -429,10 +429,12 @@ model Producto {
 
   /// Precio en centavos, como `Subscription.montoCentavos`.
   precioCentavos Int
-  /// Unidades en stock. Null = el dueño no controla cantidad y vale `disponible`.
+  /// Unidades en stock. Null = producto a demanda: no se controla cantidad y vale `disponible`.
   stock          Int?
   /// Switch manual "hay / no hay", que sólo cuenta cuando `stock` es null.
   disponible     Boolean @default(true)
+  /// A demanda (`stock` null): en cuántos días se entrega. Con stock queda en null.
+  plazoEntregaDias Int?
   /// Con stock controlado: por debajo de esto se avisa al dueño.
   stockMinimo    Int?
 

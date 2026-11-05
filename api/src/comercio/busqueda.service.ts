@@ -63,12 +63,14 @@ export type ProductoEncontrado = {
   /** Lo que hay que preguntarle al cliente al pedirlo; null o ausente = nada. */
   preguntas?: PreguntaProducto[] | null;
   hayStock: boolean;
-  /** "disponible" | "quedan N unidades" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
+  /** "disponible" | "quedan N unidades" | "a pedido, se entrega en N días" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
   stock: string;
-  /** Unidades vendibles ya descontadas las reservas; null sin control de cantidad. Sólo para el dueño. */
+  /** Unidades vendibles ya descontadas las reservas; null a demanda (sin control de cantidad). Sólo para el dueño. */
   unidades: number | null;
   reservadas: number;
   stockMinimo: number | null;
+  /** A demanda: en cuántos días se entrega; null o ausente = no lo dijo (o tiene stock). */
+  plazoEntregaDias?: number | null;
   /**
    * true si sólo lo trajo la búsqueda por significado (embeddings): ninguna
    * palabra de la consulta aparece en el producto. Es "algo parecido", no lo
@@ -257,6 +259,7 @@ export class BusquedaService {
           unidades: unidadesDisponibles(producto, reservadasProducto),
           reservadas: reservadasProducto,
           stockMinimo: producto.stockMinimo,
+          plazoEntregaDias: producto.plazoEntregaDias,
         },
       ];
     });

@@ -131,8 +131,11 @@ describe('formatearStockDueno', () => {
     const texto = formatearStockDueno('remera', [PRODUCTO]);
     expect(texto).toContain('(código REM-01): $ 15.000,50, 10 disponibles');
     expect(formatearStockDueno('remera', [{ ...PRODUCTO, unidades: null, hayStock: false }])).toContain(
-      '$ 15.000,50, sin control de cantidad (marcado sin stock)',
+      '$ 15.000,50, a demanda, sin plazo de entrega cargado (marcado no disponible)',
     );
+    expect(
+      formatearStockDueno('remera', [{ ...PRODUCTO, unidades: null, hayStock: true, plazoEntregaDias: 7 }]),
+    ).toContain('$ 15.000,50, a demanda, a pedido, se entrega en 7 días (marcado disponible)');
   });
 });
 

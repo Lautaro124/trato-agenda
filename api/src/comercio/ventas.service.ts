@@ -123,6 +123,7 @@ type ProductoBloqueado = {
   precioCentavos: number;
   stock: number | null;
   disponible: boolean;
+  plazoEntregaDias: number | null;
   activo: boolean;
   categoria: string | null;
   moneda: string;
@@ -430,7 +431,7 @@ export class VentasService {
     const ids = items.map((item) => item.productoId).sort((a, b) => Number(a > b) - Number(a < b));
     // Orden fijo de bloqueo (por id): dos pedidos con los mismos productos no se traban entre sí.
     const productos = await tx.$queryRaw<ProductoBloqueado[]>`
-      SELECT p."id", p."codigo", p."nombre", p."precioCentavos", p."stock", p."disponible", p."activo",
+      SELECT p."id", p."codigo", p."nombre", p."precioCentavos", p."stock", p."disponible", p."plazoEntregaDias", p."activo",
              p."categoria", p."moneda", p."cuotas", p."preguntasPedido"
       FROM "Producto" p
       WHERE p."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo"

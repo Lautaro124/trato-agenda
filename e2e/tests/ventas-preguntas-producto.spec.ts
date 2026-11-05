@@ -20,6 +20,7 @@ test.describe('preguntas al pedir un producto', () => {
     await formulario.getByLabel('Código', { exact: true }).fill('REMERA-E2E');
     await formulario.getByLabel('Nombre', { exact: true }).fill('Remera básica');
     await formulario.getByLabel(/^Precio/).first().fill('18.500');
+    await formulario.getByLabel('Stock (unidades)').fill('10');
 
     const seccion = formulario.getByRole('region', { name: 'Preguntas al pedir' });
     await seccion.getByRole('button', { name: 'Agregar pregunta' }).click();

@@ -30,10 +30,12 @@ export type Producto = {
   updatedAt: string;
   /** Precio en centavos, como lo guarda la base. */
   precioCentavos: number;
-  /** null = el dueño no controla cantidad y vale `disponible`. */
+  /** null = a demanda: no se controla cantidad y vale `disponible`. */
   stock: number | null;
   disponible: boolean;
   stockMinimo: number | null;
+  /** A demanda: en cuántos días se entrega (null con stock o si no se cargó). */
+  plazoEntregaDias: number | null;
   /** Lo que paga hoy el cliente, con el mejor descuento vigente. */
   precioFinalCentavos: number;
   /** El descuento que hoy le toca (el propio o una promo). */
@@ -97,6 +99,8 @@ export type ProductoAGuardar = {
   stock: number | null;
   disponible: boolean;
   stockMinimo: number | null;
+  /** A demanda: días de entrega; con stock va null. */
+  plazoEntregaDias: number | null;
   /** null lo borra. */
   descuento: DescuentoAGuardar | null;
   /** null = en un pago. */
@@ -221,13 +225,16 @@ export function unidades(cantidad: number): string {
   return cantidad === 1 ? "1 unidad" : `${cantidad} unidades`;
 }
 
-/** "Sin stock", "Stock bajo", "12 unidades" o "Hay" — para la tabla del dueño, que sí ve cantidades. */
+/** Plazo de entrega máximo de un producto a demanda, en días (el mismo de la API, catalogo.rules.ts). */
+export const PLAZO_ENTREGA_MAX_DIAS = 365;
+
+/** "Sin stock", "Stock bajo", "12 unidades" o "A demanda" — para la tabla del dueño, que sí ve cantidades. */
 export function etiquetaStock(producto: Pick<Producto, "stock" | "disponible" | "stockMinimo">): {
   texto: string;
   tono: "success" | "warning" | "danger";
 } {
   if (producto.stock === null) {
-    return producto.disponible ? { texto: "Hay", tono: "success" } : { texto: "Sin stock", tono: "danger" };
+    return producto.disponible ? { texto: "A demanda", tono: "success" } : { texto: "Sin stock", tono: "danger" };
   }
   if (producto.stock === 0) return { texto: "Sin stock", tono: "danger" };
   const bajo = producto.stockMinimo !== null && producto.stock <= producto.stockMinimo;

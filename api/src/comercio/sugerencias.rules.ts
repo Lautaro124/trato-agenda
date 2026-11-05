@@ -42,6 +42,8 @@ export type ProductoPanorama = {
   tieneImagen?: boolean;
   /** "20% off", si tiene un descuento vigente. */
   descuento?: string | null;
+  /** A demanda: en cuántos días se entrega; null o ausente = tiene stock o no lo dijo. */
+  plazoEntregaDias?: number | null;
 };
 
 export type CategoriaPanorama = { nombre: string; cantidad: number };

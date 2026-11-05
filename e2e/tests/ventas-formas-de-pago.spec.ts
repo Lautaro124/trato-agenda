@@ -96,6 +96,7 @@ test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
     await formulario.getByLabel('Código', { exact: true }).fill('HELADERA-E2E');
     await formulario.getByLabel('Nombre', { exact: true }).fill('Heladera');
     await formulario.getByLabel(/^Precio/).first().fill('500.000');
+    await formulario.getByLabel('Stock (unidades)').fill('10');
     await expect(formulario.getByRole('switch', { name: 'Ofrecer cuotas' })).not.toBeChecked();
     await formulario.getByRole('switch', { name: 'Ofrecer cuotas' }).check();
     await expect(formulario.getByRole('button', { name: '3 cuotas', pressed: true, exact: true })).toBeVisible();
@@ -111,6 +112,7 @@ test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
     await formulario.getByLabel('Código', { exact: true }).fill('LAVARROPAS-E2E');
     await formulario.getByLabel('Nombre', { exact: true }).fill('Lavarropas');
     await formulario.getByLabel(/^Precio/).first().fill('400.000');
+    await formulario.getByLabel('Stock (unidades)').fill('10');
     await formulario.getByRole('switch', { name: 'Ofrecer cuotas' }).check();
     await formulario.getByRole('button', { name: '3 cuotas', pressed: true, exact: true }).click();
     await formulario.getByLabel('Otra cantidad').fill('12');

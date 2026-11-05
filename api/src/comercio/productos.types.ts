@@ -16,7 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import type { Descuento, Producto } from '../generated/prisma/client.js';
-import { hashTexto, LARGOS, monedaDe, MONEDAS, type ErrorDeFila, type Moneda, MAX_FILAS_IMPORTACION, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
+import { hashTexto, LARGOS, monedaDe, MONEDAS, type ErrorDeFila, type Moneda, MAX_FILAS_IMPORTACION, PLAZO_ENTREGA_MAX_DIAS, PRECIO_MAX_PESOS, STOCK_MAX } from './catalogo.rules.js';
 import { leerCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
 import { MAX_PREGUNTAS_POR_PRODUCTO, leerPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
@@ -81,7 +81,7 @@ export class GuardarProductoDto {
   @Max(PRECIO_MAX_PESOS * 100)
   precioCentavos!: number;
 
-  /** null = sin control de cantidad. */
+  /** null = a demanda (sin control de cantidad). */
   @IsOptional()
   @ValidateIf((_, valor) => valor !== null)
   @IsInt()
@@ -92,6 +92,17 @@ export class GuardarProductoDto {
   @IsOptional()
   @IsBoolean()
   disponible?: boolean;
+
+  /**
+   * A demanda: en cuántos días se entrega. Con `stock` se ignora (queda en
+   * null); ausente no lo toca.
+   */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null)
+  @IsInt()
+  @Min(1)
+  @Max(PLAZO_ENTREGA_MAX_DIAS)
+  plazoEntregaDias?: number | null;
 
   @IsOptional()
   @ValidateIf((_, valor) => valor !== null)
@@ -187,6 +198,7 @@ export type ProductoPublico = Pick<
   | 'stock'
   | 'disponible'
   | 'stockMinimo'
+  | 'plazoEntregaDias'
 > & {
   moneda: Moneda;
   /** Lo que paga hoy el cliente: `precioCentavos` menos el mejor descuento vigente. */
@@ -235,6 +247,7 @@ export function aProductoPublico(
     stock: producto.stock,
     disponible: producto.disponible,
     stockMinimo: producto.stockMinimo,
+    plazoEntregaDias: producto.plazoEntregaDias,
     precioFinalCentavos: aplicado?.precioFinalCentavos ?? producto.precioCentavos,
     descuentoAplicado: aDescuentoDeProducto(aplicado),
     indexado: producto.embeddingHash === hashTexto(producto.textoBusqueda),

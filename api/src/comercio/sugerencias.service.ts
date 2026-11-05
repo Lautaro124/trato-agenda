@@ -107,6 +107,7 @@ export class SugerenciasService {
           moneda: producto.moneda,
           descuento: descuento?.etiqueta ?? null,
           tieneImagen: producto.tieneImagen,
+          plazoEntregaDias: producto.stock === null ? producto.plazoEntregaDias : null,
         },
       ];
     });
@@ -140,6 +141,7 @@ export class SugerenciasService {
         precioCentavos: true,
         stock: true,
         disponible: true,
+        plazoEntregaDias: true,
         activo: true,
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],

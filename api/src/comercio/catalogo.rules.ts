@@ -14,6 +14,8 @@ export const PRECIO_MAX_PESOS = 100_000_000;
 
 /** Tope de stock por producto: más que eso es casi seguro un error de tipeo. */
 export const STOCK_MAX = 1_000_000;
+/** Plazo de entrega máximo de un producto a demanda, en días. */
+export const PLAZO_ENTREGA_MAX_DIAS = 365;
 
 /** Con esto o menos unidades el asistente dice "quedan pocas" en vez de "hay". */
 export const ULTIMAS_UNIDADES = 3;
@@ -75,11 +77,19 @@ export type ConStock = {
   stock: number | null;
   disponible: boolean;
   activo: boolean;
+  /** Sólo a demanda (stock null); ausente = no lo dijo. */
+  plazoEntregaDias?: number | null;
 };
+
+/** "a pedido, se entrega en 7 días": lo que se dice de un producto a demanda con plazo. */
+export function describirAPedido(plazoEntregaDias: number | null | undefined): string | null {
+  if (plazoEntregaDias == null) return null;
+  return `a pedido, se entrega en ${plazoEntregaDias === 1 ? '1 día' : `${plazoEntregaDias} días`}`;
+}
 
 /**
  * Unidades que se pueden vender ya descontadas las reservas vigentes. `null`
- * cuando el dueño no controla cantidad (vale el switch `disponible`).
+ * a demanda: no se controla cantidad (vale el switch `disponible`).
  */
 export function unidadesDisponibles(producto: ConStock, reservadas = 0): number | null {
   if (producto.stock === null) return null;
@@ -100,7 +110,8 @@ export function hayStock(producto: ConStock, cantidad = 1, reservadas = 0): bool
 export function describirStock(producto: ConStock, reservadas = 0): string {
   if (!hayStock(producto, 1, reservadas)) return 'sin stock';
   const unidades = unidadesDisponibles(producto, reservadas);
-  if (unidades !== null && unidades <= ULTIMAS_UNIDADES) {
+  if (unidades === null) return describirAPedido(producto.plazoEntregaDias) ?? 'disponible';
+  if (unidades <= ULTIMAS_UNIDADES) {
     return unidades === 1 ? 'queda 1 unidad' : `quedan ${unidades} unidades`;
   }
   return 'disponible';
