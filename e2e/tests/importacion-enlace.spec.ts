@@ -84,7 +84,8 @@ test.describe('importación rápida de productos', () => {
       ['Línea Kiev', '900.000'],
     ] as const) {
       const tarjeta = page.getByRole('listitem').filter({ has: page.getByRole('checkbox', { name: `Importar ${nombre}` }) });
-      await tarjeta.getByRole('radio', { name: 'Pesos' }).check();
+      // Sin moneda en la página, arranca en pesos.
+      await expect(tarjeta.getByRole('radio', { name: 'Pesos' })).toBeChecked();
       await tarjeta.getByLabel(`Precio de ${nombre}`, { exact: true }).fill(precio);
     }
 

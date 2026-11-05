@@ -64,7 +64,7 @@ test.describe('descuentos del asistente de ventas', () => {
   test('carga el descuento desde el formulario y la tarjeta muestra el precio final', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
-    await crearProductoPorApi(context.request, { codigo: 'TERMO-DESC', nombre: 'Termo de acero', precioCentavos: 4_500_000 });
+    await crearProductoPorApi(context.request, { codigo: 'TERMO-DESC', nombre: 'Termo de acero', precioCentavos: 4_500_000, stock: 10 });
 
     await page.goto('/productos');
     await page.getByRole('button', { name: 'Editar Termo de acero' }).click();

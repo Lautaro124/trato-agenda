@@ -22,9 +22,9 @@ const SEGMENTO = "relative flex-1 cursor-pointer rounded-sm px-3 py-1.5 text-cen
 
 /**
  * Un producto encontrado en un enlace, para revisar antes de importarlo: se
- * tilda, se corrige lo que haga falta y se elige la foto. Lo que la página no
- * decía (el precio, la moneda) queda vacío y frena la importación hasta que
- * el dueño lo carga: nada se inventa.
+ * tilda, se corrige lo que haga falta y se elige la foto. Un precio que la
+ * página no decía queda vacío y frena la importación hasta que el dueño lo
+ * carga; la moneda que no decía arranca en pesos.
  */
 export function TarjetaBorrador({
   producto,

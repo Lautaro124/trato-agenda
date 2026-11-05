@@ -22,9 +22,18 @@ import {
   MONEDAS,
   NOMBRE_MONEDA,
   type Moneda,
+  PLAZO_ENTREGA_MAX_DIAS,
   type Producto,
   type ProductoAGuardar,
 } from "@/lib/productos";
+
+/** Con stock se cuentan unidades; a demanda se prepara al pedirlo y se informa el plazo de entrega. */
+type ModoStock = "stock" | "demanda";
+
+const MODOS_STOCK: Array<{ modo: ModoStock; etiqueta: string }> = [
+  { modo: "stock", etiqueta: "Con stock" },
+  { modo: "demanda", etiqueta: "A demanda" },
+];
 
 export const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2.5 text-[14.5px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
@@ -81,6 +90,30 @@ function entero(texto: string): number | null | "invalido" {
 }
 
 /**
+ * Con stock: unidades obligatorias y mínimo opcional. A demanda: sólo el plazo
+ * de entrega (sin unidades ni mínimo que vigilar).
+ */
+function armarDisponibilidad(
+  modo: ModoStock,
+  stock: string,
+  stockMinimo: string,
+  plazoEntrega: string,
+): Pick<ProductoAGuardar, "stock" | "stockMinimo" | "plazoEntregaDias"> | string {
+  if (modo === "demanda") {
+    const plazo = entero(plazoEntrega);
+    if (typeof plazo !== "number" || plazo < 1 || plazo > PLAZO_ENTREGA_MAX_DIAS) {
+      return `Poné en cuántos días lo entregás (de 1 a ${PLAZO_ENTREGA_MAX_DIAS}).`;
+    }
+    return { stock: null, stockMinimo: null, plazoEntregaDias: plazo };
+  }
+  const unidades = entero(stock);
+  const minimo = entero(stockMinimo);
+  if (unidades === "invalido" || minimo === "invalido") return "El stock tiene que ser un número entero.";
+  if (unidades === null) return "Poné cuántas unidades tenés en stock.";
+  return { stock: unidades, stockMinimo: minimo, plazoEntregaDias: null };
+}
+
+/**
  * Alta o edición completa de un producto, en su propia pantalla
  * (/productos/nuevo o /productos/[id]): datos, fotos, precio, stock y descuento.
  */
@@ -110,11 +143,19 @@ export function EditorProducto({
   const [cuotas, setCuotas] = useState<CuotasEnEdicion>(() => cuotasDesdeProducto(productoInicial?.cuotas));
   const [preguntas, setPreguntas] = useState<PreguntaEnEdicion[]>(() => preguntasDesdeProducto(productoInicial?.preguntas));
   const [precio, setPrecio] = useState(productoInicial ? centavosParaInput(productoInicial.precioCentavos) : "");
+  // Un producto existente sin cantidad es a demanda; uno nuevo arranca con stock.
+  const [modoStock, setModoStock] = useState<ModoStock>(
+    productoInicial?.stock === null ? "demanda" : "stock",
+  );
   const [stock, setStock] = useState(productoInicial?.stock == null ? "" : String(productoInicial.stock));
+  const [plazoEntrega, setPlazoEntrega] = useState(
+    productoInicial?.plazoEntregaDias == null ? "" : String(productoInicial.plazoEntregaDias),
+  );
   const [stockMinimo, setStockMinimo] = useState(
     productoInicial?.stockMinimo == null ? "" : String(productoInicial.stockMinimo),
   );
-  const [disponible, setDisponible] = useState(productoInicial?.disponible ?? true);
+  // No se edita acá (se pausa desde el listado): se reenvía para no pisarlo.
+  const disponible = productoInicial?.disponible ?? true;
   const [descuento, setDescuento] = useState<DescuentoEnEdicion>(() => descuentoDesdeProducto(productoInicial));
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,9 +171,10 @@ export function EditorProducto({
       cuotas,
       preguntas,
       precio,
+      modoStock,
       stock,
       stockMinimo,
-      disponible,
+      plazoEntrega,
       descuento,
       fotos.map((foto) => foto.name),
     ]);
@@ -150,9 +192,8 @@ export function EditorProducto({
     if (nombre.trim().length < 2) return "Poné el nombre del producto.";
     const precioCentavos = leerCentavos(precio);
     if (precioCentavos === null) return "Revisá el precio.";
-    const unidades = entero(stock);
-    const minimo = entero(stockMinimo);
-    if (unidades === "invalido" || minimo === "invalido") return "El stock tiene que ser un número entero.";
+    const disponibilidad = armarDisponibilidad(modoStock, stock, stockMinimo, plazoEntrega);
+    if (typeof disponibilidad === "string") return disponibilidad;
     const descuentoArmado = armarDescuento(descuento, precioCentavos);
     if (typeof descuentoArmado === "string") return descuentoArmado;
     const cuotasArmadas = armarCuotas(cuotas, precioCentavos, moneda);
@@ -168,9 +209,7 @@ export function EditorProducto({
       cuotas: cuotasArmadas,
       preguntas: preguntasArmadas,
       precioCentavos,
-      stock: unidades,
-      // Sin cantidad cargada no hay mínimo que vigilar.
-      stockMinimo: unidades === null ? null : minimo,
+      ...disponibilidad,
       disponible,
       descuento: descuentoArmado,
     };
@@ -325,6 +364,29 @@ export function EditorProducto({
               )}
             </div>
             <div className="grid gap-3 rounded-md bg-sunken p-3 sm:grid-cols-2">
+              <div role="radiogroup" aria-label="Disponibilidad" className="sm:col-span-2">
+                <span className={LABEL} aria-hidden="true">
+                  Disponibilidad
+                </span>
+                <div className="flex gap-1 rounded-md border border-line bg-card p-1">
+                  {MODOS_STOCK.map(({ modo, etiqueta }) => (
+                    <label
+                      key={modo}
+                      className={cn(SEGMENTO, "relative", modoStock === modo ? "bg-sunken text-ink shadow-sm" : "text-ink-secondary")}
+                    >
+                      <input
+                        type="radio"
+                        name="modo-stock-producto"
+                        value={modo}
+                        checked={modoStock === modo}
+                        onChange={() => setModoStock(modo)}
+                        className="absolute inset-0 m-0 cursor-pointer opacity-0"
+                      />
+                      {etiqueta}
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div>
                 <label htmlFor={`${idCampos}-precio`} className={LABEL}>
                   Precio
@@ -341,28 +403,40 @@ export function EditorProducto({
                   />
                 </div>
               </div>
-              <div>
-                <label htmlFor={`${idCampos}-stock`} className={LABEL}>
-                  Stock (unidades)
-                </label>
-                <input
-                  id={`${idCampos}-stock`}
-                  inputMode="numeric"
-                  value={stock}
-                  placeholder="Vacío = sin control de stock"
-                  onChange={(e) => setStock(e.target.value)}
-                  className={INPUT}
-                />
-              </div>
-              {stock.trim() === "" ? (
-                // Sin cantidad cargada, la disponibilidad se marca a mano.
-                <div className="flex flex-col justify-end sm:col-span-2">
-                  <span className={LABEL}>¿Está disponible?</span>
-                  <label className="flex min-h-[44px] items-center gap-2 text-[14px] text-ink">
-                    <input type="checkbox" checked={disponible} onChange={(e) => setDisponible(e.target.checked)} />
-                    Hay stock
+              {modoStock === "demanda" ? (
+                <div>
+                  <label htmlFor={`${idCampos}-plazo`} className={LABEL}>
+                    Tiempo de entrega <span className="font-normal text-muted">(días)</span>
                   </label>
+                  <input
+                    id={`${idCampos}-plazo`}
+                    inputMode="numeric"
+                    value={plazoEntrega}
+                    placeholder="Ej. 7"
+                    aria-describedby={`${idCampos}-plazo-ayuda`}
+                    onChange={(e) => setPlazoEntrega(e.target.value)}
+                    className={INPUT}
+                  />
                 </div>
+              ) : (
+                <div>
+                  <label htmlFor={`${idCampos}-stock`} className={LABEL}>
+                    Stock (unidades)
+                  </label>
+                  <input
+                    id={`${idCampos}-stock`}
+                    inputMode="numeric"
+                    value={stock}
+                    placeholder="0"
+                    onChange={(e) => setStock(e.target.value)}
+                    className={INPUT}
+                  />
+                </div>
+              )}
+              {modoStock === "demanda" ? (
+                <p id={`${idCampos}-plazo-ayuda`} className="text-[12.5px] text-muted sm:col-span-2">
+                  Lo preparás cuando te lo piden: el asistente le avisa al cliente en cuántos días se entrega.
+                </p>
               ) : (
                 <div className="sm:col-span-2">
                   <label htmlFor={`${idCampos}-minimo`} className={LABEL}>

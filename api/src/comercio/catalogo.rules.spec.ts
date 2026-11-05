@@ -87,6 +87,14 @@ describe('stock', () => {
     expect(describirStock(sinControl)).toBe('disponible');
   });
 
+  it('a demanda dice el plazo de entrega, y sin stock lo calla', () => {
+    expect(describirStock({ ...sinControl, plazoEntregaDias: 7 })).toBe('a pedido, se entrega en 7 días');
+    expect(describirStock({ ...sinControl, plazoEntregaDias: 1 })).toBe('a pedido, se entrega en 1 día');
+    expect(describirStock({ ...sinControl, plazoEntregaDias: 7, disponible: false })).toBe('sin stock');
+    // Con cantidad controlada el plazo no cuenta.
+    expect(describirStock({ ...conCantidad, stock: 50, plazoEntregaDias: 7 })).toBe('disponible');
+  });
+
   it('stock bajo sólo con mínimo definido', () => {
     expect(stockBajo({ stock: 2, stockMinimo: 2 })).toBe(true);
     expect(stockBajo({ stock: 3, stockMinimo: 2 })).toBe(false);
