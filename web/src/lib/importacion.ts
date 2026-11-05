@@ -76,7 +76,8 @@ export type ProductoEnRevision = {
   nombre: string;
   descripcion: string;
   categoria: string;
-  moneda: Moneda | null;
+  /** Si la página no la dice, arranca en pesos: el dueño la cambia si es en dólares. */
+  moneda: Moneda;
   precio: string;
   stock: string;
   /** Índice de la foto elegida en `borrador.imagenes`, o null para ninguna. */
@@ -95,7 +96,7 @@ export function enRevision(borrador: BorradorProducto): ProductoEnRevision {
     nombre: borrador.nombre,
     descripcion: borrador.descripcion,
     categoria: borrador.categoria ?? "",
-    moneda: borrador.moneda,
+    moneda: borrador.moneda ?? "ARS",
     precio: borrador.precioCentavos === null ? "" : CENTAVOS_A_TEXTO.format(borrador.precioCentavos / 100),
     stock: "",
     imagen: borrador.imagenes.length > 0 ? 0 : null,
@@ -108,11 +109,10 @@ function entero(texto: string): number | null | "invalido" {
   return /^\d{1,7}$/.test(limpio) ? Number(limpio) : "invalido";
 }
 
-/** Qué le falta a un producto para poder importarlo, o null. Nada se completa solo. */
+/** Qué le falta a un producto para poder importarlo, o null. Nada se completa solo, salvo la moneda (pesos). */
 export function problemaDelProducto(producto: ProductoEnRevision): string | null {
   if (!producto.codigo.trim()) return "Falta el código.";
   if (producto.nombre.trim().length < 2) return "Falta el nombre.";
-  if (!producto.moneda) return "Elegí si el precio es en pesos o en dólares.";
   if (!producto.precio.trim()) return "Falta el precio.";
   if (leerCentavos(producto.precio) === null) return "Revisá el precio.";
   if (entero(producto.stock) === "invalido") return "El stock tiene que ser un número entero (o vacío).";
@@ -199,8 +199,8 @@ export const EXPLICACION_ERROR: Record<CodigoErrorImportacion, string> = {
 
 export const EXPLICACION_AVISO: Record<AvisoBorrador, string> = {
   sin_precio: "La página no dice el precio: cargalo vos.",
-  sin_moneda: "La página no dice la moneda: elegí pesos o dólares.",
-  moneda_no_soportada: "El precio está en otra moneda: cargalo en pesos o en dólares.",
+  sin_moneda: "La página no dice la moneda: quedó en pesos, cambiala si es en dólares.",
+  moneda_no_soportada: "El precio está en otra moneda: cargalo en pesos (o elegí dólares).",
   variantes_recortadas: "Tenía más variantes de las que entran: quedaron las primeras 50, cada una como un producto.",
   descripcion_recortada: "La descripción era más larga y quedó recortada.",
   sin_descripcion: "No trae descripción: tu asistente la usa para recomendar, conviene agregarla.",
