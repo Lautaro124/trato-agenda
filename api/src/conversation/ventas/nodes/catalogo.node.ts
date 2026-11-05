@@ -61,20 +61,22 @@ export type DepsCatalogo = {
 type Resultado = string | { texto: string; imagen: ImagenAEnviar | ImagenAEnviar[] };
 
 /**
- * Las fotos que salen solas con el listado de ver_catalogo: sólo cuando es
- * la lista entera (hasta MAX_PRODUCTOS_LISTADO), de los productos que tienen
- * foto, cada una con su línea de la lista al pie. Las que ya le llegaron en la
- * charla no se repiten, y si el dueño apagó las fotos de la lista no sale ninguna.
+ * Las fotos que salen solas con el listado de ver_catalogo, sea la lista
+ * entera o los que eligió Jev de un catálogo grande: las de los productos que
+ * tienen foto, hasta MAX_PRODUCTOS_LISTADO, cada una con su línea de la lista
+ * al pie. Las que ya le llegaron en la charla no se repiten, y si el dueño
+ * apagó las fotos de la lista no sale ninguna.
  */
 export function fotosDelListado(
   catalogo: ResultadoCatalogo,
   yaMandadas: ReadonlySet<string>,
   agent?: Pick<Agent, 'mensajes'>,
 ): ImagenAEnviar[] {
-  if (catalogo.tipo !== 'listado' || catalogo.restantes > 0 || catalogo.productos.length > MAX_PRODUCTOS_LISTADO) return [];
+  if (catalogo.tipo !== 'listado') return [];
   if (agent && !listadoConFotos(agent)) return [];
   return catalogo.productos
     .filter((producto) => producto.tieneImagen && !yaMandadas.has(claveDeFoto({ productoId: producto.productoId })))
+    .slice(0, MAX_PRODUCTOS_LISTADO)
     .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeProducto(producto, agent) }));
 }
 

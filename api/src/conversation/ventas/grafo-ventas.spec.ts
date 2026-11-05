@@ -14,6 +14,7 @@ import { MENSAJE_CUAL_TE_INTERESA, MENSAJE_PRECIO_SIN_VERIFICAR } from '../mensa
 import { conMarcaDeLlegada } from '../graph/ventana-historial.js';
 import { LIMITE_RECURSION_VENTAS, construirGrafoVentas } from './grafo-ventas.factory.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../comercio/imagenes.rules.js';
+import { MAX_PRODUCTOS_LISTADO } from '../../comercio/sugerencias.rules.js';
 import { imagenesDeLaVuelta } from './imagenes-de-la-vuelta.js';
 import { MENSAJE_CATALOGO_CAIDO } from './nodes/catalogo.node.js';
 import { OFERTA_DE_DESCUENTOS, YA_TE_PRESENTASTE } from './reglas-ventas.js';
@@ -591,15 +592,32 @@ describe('grafo de ventas', () => {
       expect(contenido).not.toContain('ya le llegó en foto');
     });
 
-    it('sin la lista entera no manda fotos solas', async () => {
-      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }];
+    it('con un catálogo grande manda las fotos de los que eligió Jev y avisa que hay más', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }, PRODUCTOS[1]];
       const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 5 });
       const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage('.')]);
 
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
 
-      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([]);
-      expect(toolMessages(resultado.messages)[0].content).toContain('mostrale la lista entera');
+      expect(imagenesDeLaVuelta(resultado.messages).map((foto) => foto.productoId)).toEqual([PRODUCTOS[0].productoId]);
+      const contenido = String(toolMessages(resultado.messages)[0].content);
+      expect(contenido).toContain('ya le llegó en foto');
+      expect(contenido).toContain('Decile que tenés más');
+    });
+
+    it('nunca manda más fotos solas que MAX_PRODUCTOS_LISTADO', async () => {
+      const muchos = Array.from({ length: MAX_PRODUCTOS_LISTADO + 3 }, (_, i) => ({
+        ...PRODUCTOS[0],
+        productoId: `p-${i}`,
+        nombre: `Mate ${i}`,
+        tieneImagen: true,
+      }));
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: muchos, categoria: 'Mates', restantes: 0 });
+      const llm = crearModelo([llamada('ver_catalogo', { categoria: 'Mates' }), new AIMessage('.')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
+
+      expect(imagenesDeLaVuelta(resultado.messages)).toHaveLength(MAX_PRODUCTOS_LISTADO);
     });
 
     it('las fotos del listado no gastan el tope de las que pide el modelo', async () => {
