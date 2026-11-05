@@ -587,7 +587,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (upsert.type !== 'notify') return;
 
-    // De a uno y en orden: los chequeos de cada mensaje deciden si entra a su ráfaga.
+    // Cada chat en orden (`enOrden`), pero sin esperar a uno para empezar con
+    // otro: un audio que se está "escuchando" no frena a los demás chats del lote.
+    const recepciones: Promise<void>[] = [];
     for (const mensaje of upsert.messages) {
       const remoteJid = mensaje.key.remoteJid;
       if (!remoteJid || isJidGroup(remoteJid)) continue;
@@ -597,15 +599,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         // Lo que el dueño contesta desde su teléfono: sólo se guarda en un chat en atención humana.
         if (texto) await this.guardarRespuestaDelDueno(userId, sock, remoteJid, mensaje.key.id, texto);
       } else if (texto) {
-        await this.enOrden(userId, remoteJid, () =>
-          this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, async () => ({ texto })),
+        recepciones.push(
+          this.enOrden(userId, remoteJid, () =>
+            this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, () => Promise.resolve({ texto })),
+          ),
         );
       } else if (mensaje.message?.audioMessage) {
-        await this.enOrden(userId, remoteJid, () =>
-          this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, () => this.escucharAudio(userId, sock, mensaje)),
+        recepciones.push(
+          this.enOrden(userId, remoteJid, () =>
+            this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, () => this.escucharAudio(userId, sock, mensaje)),
+          ),
         );
       }
     }
+    await Promise.all(recepciones);
   }
 
   /** Corre `tarea` después de la recepción anterior del mismo chat, aunque esa haya fallado. */

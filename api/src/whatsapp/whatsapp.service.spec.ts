@@ -323,6 +323,30 @@ describe('WhatsappService — mensajes de clientes', () => {
       expect(conversationService.responder).toHaveBeenCalledOnce();
     });
 
+    it('un audio que se está escuchando no frena a otro chat del mismo lote', async () => {
+      const { service, conversationService } = crearServicio();
+      vi.mocked(conversationService.responder).mockResolvedValue({ texto: 'ok', imagenes: [] });
+      const sock = socketDeChat();
+      (service as unknown as { sockets: Map<string, unknown> }).sockets.set('user-1', sock);
+      const OTRO = '5492222@s.whatsapp.net';
+
+      const lote = (
+        service as unknown as { handleMessagesUpsert: (u: string, s: unknown, e: unknown) => Promise<void> }
+      ).handleMessagesUpsert('user-1', sock, {
+        type: 'notify',
+        messages: [
+          { key: { remoteJid: JID, fromMe: false, id: 'a-1' }, message: { audioMessage: { mimetype: 'audio/ogg', seconds: 90 } } },
+          { key: { remoteJid: OTRO, fromMe: false, id: 'm-1' }, message: { conversation: 'hola' } },
+        ],
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(conversationService.responder).toHaveBeenCalledExactlyOnceWith('user-1', OTRO, 'hola', expect.anything());
+
+      await vi.runAllTimersAsync();
+      await lote;
+      expect(conversationService.responder).toHaveBeenCalledTimes(2);
+    });
+
     it('si la sesión se cierra mientras lo "escucha", no lo contesta', async () => {
       const { service, conversationService } = crearServicio();
       const sock = socketDeChat();
