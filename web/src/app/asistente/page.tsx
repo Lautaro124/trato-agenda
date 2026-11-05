@@ -14,6 +14,7 @@ import { guardarCondicionesPago, obtenerCondicionesPago } from "@/lib/condicione
 import {
   CLAVE_COBRO,
   MENSAJE_COBRO_OTRO_CANAL,
+  conFotos,
   datosDeEjemplo,
   mensajesDe,
   validarMensaje,
@@ -124,7 +125,9 @@ function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (ag
   const cambiadas = filas.flatMap(({ definicion, mensaje }) => {
     if (definicion.clave === CLAVE_COBRO) return [];
     const antes = guardados[definicion.clave] ?? AUTOMATICO;
-    return antes.modo !== mensaje.modo || antes.texto !== mensaje.texto ? [{ clave: definicion.clave, mensaje }] : [];
+    const cambio =
+      antes.modo !== mensaje.modo || antes.texto !== mensaje.texto || conFotos(definicion, antes) !== conFotos(definicion, mensaje);
+    return cambio ? [{ clave: definicion.clave, mensaje }] : [];
   });
   const cobroCambiado = cobroGuardado !== null && cobroBorrador.trim() !== cobroGuardado;
   const hayCambios = cambiadas.length > 0 || cobroCambiado;

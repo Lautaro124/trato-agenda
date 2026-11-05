@@ -79,8 +79,20 @@ test.describe('mensajes personalizados del asistente', () => {
     await expect(vista).toContainText('• Yerba 1 kg → $ 5.000');
     await expect(vista).toContainText('• Bombilla de acero → $ 3.500');
 
+    // Por defecto la lista sale con fotos, cada producto con su línea al pie; el dueño puede apagarlas.
+    const fotos = page.getByRole('switch', { name: 'Mandar la foto de cada producto' });
+    await expect(fotos).toBeChecked();
+    await expect(vista.getByRole('img', { name: 'Foto del producto' })).toHaveCount(3);
+    await fotos.uncheck();
+    await expect(vista.getByRole('img', { name: 'Foto del producto' })).toHaveCount(0);
+    await expect(vista).toContainText('• Yerba 1 kg → $ 5.000');
+
     await page.getByRole('button', { name: 'Guardar cambios' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Guardado' })).toBeVisible();
+
+    await page.reload();
+    await page.getByRole('navigation', { name: 'Mensajes' }).getByRole('button', { name: /Lista de productos/ }).click();
+    await expect(page.getByRole('switch', { name: 'Mandar la foto de cada producto' })).not.toBeChecked();
 
     // El listado del chat de prueba llega con las líneas que armó el código con el formato del dueño.
     await page.goto('/inicio');

@@ -313,6 +313,11 @@ export class MensajeDto {
   @IsString()
   @MaxLength(1000)
   texto!: string;
+
+  /** Sólo en la lista de productos: si sale con la foto de cada uno (normalizarMensajes lo controla). */
+  @IsOptional()
+  @IsBoolean()
+  fotos?: boolean;
 }
 
 /**
@@ -354,11 +359,6 @@ export class ActualizarMensajesDto {
   @ValidateNested()
   @Type(() => MensajeDto)
   detalleProducto?: MensajeDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => MensajeDto)
-  pieDeFoto?: MensajeDto;
 }
 
 /** Vista pública del agente: nunca incluye el systemPrompt (config interna del bot). */

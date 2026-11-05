@@ -460,13 +460,13 @@ describe('formatos de producto del dueño', () => {
     expect(estilo).toContain('los productos de ver_catalogo ya traen su formato');
   });
 
-  it('el listado de ver_catalogo y el pie de foto usan el formato del dueño', () => {
-    const agent = conFormato({ listadoProductos: '• {producto}: {precio}', pieDeFoto: '{producto} a sólo {precio}' });
+  it('el listado de ver_catalogo y el pie de sus fotos usan el mismo formato del dueño', () => {
+    const agent = conFormato({ listadoProductos: '{producto} a sólo {precio}' });
     const mate = { productoId: 'm', nombre: 'Mate', categoria: null, descripcion: '', precioFinalCentavos: 800_000, descuento: '20% off' };
     const termo = { ...mate, productoId: 't', nombre: 'Termo', descuento: null };
     const texto = formatearCatalogo({ tipo: 'listado', productos: [mate, termo], categoria: null, restantes: 0 }, agent, new Set(['m']));
-    expect(texto).toContain('- "• Mate: $ 8.000 (con 20% off)" (ya le llegó en foto)');
-    expect(texto).toContain('- "• Termo: $ 8.000"');
+    expect(texto).toContain('- "Mate a sólo $ 8.000 (con 20% off)" (ya le llegó en foto)');
+    expect(texto).toContain('- "Termo a sólo $ 8.000"');
     expect(texto).toContain('copiala tal cual');
 
     const leyenda = leyendaDeProducto(mate, agent);

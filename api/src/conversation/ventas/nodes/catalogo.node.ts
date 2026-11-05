@@ -19,6 +19,7 @@ import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { RegistroPerformanceService } from '../../../performance/registro.service.js';
 import type { Agent } from '../../../generated/prisma/client.js';
+import { listadoConFotos } from '../../../agents/mensajes.rules.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
@@ -62,8 +63,8 @@ type Resultado = string | { texto: string; imagen: ImagenAEnviar | ImagenAEnviar
 /**
  * Las fotos que salen solas con el listado de ver_catalogo: sólo cuando es
  * la lista entera (hasta MAX_PRODUCTOS_LISTADO), de los productos que tienen
- * foto, cada una con su nombre y precio al pie. Las que ya le llegaron en la
- * charla no se repiten.
+ * foto, cada una con su línea de la lista al pie. Las que ya le llegaron en la
+ * charla no se repiten, y si el dueño apagó las fotos de la lista no sale ninguna.
  */
 export function fotosDelListado(
   catalogo: ResultadoCatalogo,
@@ -71,6 +72,7 @@ export function fotosDelListado(
   agent?: Pick<Agent, 'mensajes'>,
 ): ImagenAEnviar[] {
   if (catalogo.tipo !== 'listado' || catalogo.restantes > 0 || catalogo.productos.length > MAX_PRODUCTOS_LISTADO) return [];
+  if (agent && !listadoConFotos(agent)) return [];
   return catalogo.productos
     .filter((producto) => producto.tieneImagen && !yaMandadas.has(claveDeFoto({ productoId: producto.productoId })))
     .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeProducto(producto, agent) }));

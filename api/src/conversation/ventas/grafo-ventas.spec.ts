@@ -572,6 +572,25 @@ describe('grafo de ventas', () => {
       expect(resultado.messages.at(-1)?.content).toBe(MENSAJE_CUAL_TE_INTERESA);
     });
 
+    it('si el dueño apagó las fotos de la lista, sale sólo el texto con todos los productos', async () => {
+      const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }, PRODUCTOS[1]];
+      const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 0 });
+      const llm = crearModelo([llamada('ver_catalogo', {}), new AIMessage('.')]);
+      const sinFotos = { ...AGENT, mensajes: { listadoProductos: { modo: 'auto', texto: '', fotos: false } } };
+
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: sinFotos }),
+        llm,
+        busqueda: { buscar: vi.fn() },
+        sugerencias: { verCatalogo },
+      });
+
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([]);
+      const contenido = String(toolMessages(resultado.messages)[0].content);
+      expect(contenido).toContain('mostrale la lista entera');
+      expect(contenido).not.toContain('ya le llegó en foto');
+    });
+
     it('sin la lista entera no manda fotos solas', async () => {
       const conFoto = [{ ...PRODUCTOS[0], tieneImagen: true }];
       const verCatalogo = vi.fn().mockResolvedValue({ tipo: 'listado', productos: conFoto, categoria: null, restantes: 5 });

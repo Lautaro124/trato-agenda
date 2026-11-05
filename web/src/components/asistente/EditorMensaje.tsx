@@ -1,8 +1,10 @@
 "use client";
 
+import { FilaInterruptor } from "@/components/ui/FilaInterruptor";
 import { Icono, TextoConDatos } from "@/components/ui/TextoConDatos";
 import { cn } from "@/lib/cn";
 import {
+  conFotos,
   MAX_CARACTERES_MENSAJE,
   type DefinicionMensaje,
   type MensajeConfigurado,
@@ -47,6 +49,19 @@ export function EditorMensaje({
         <p className="text-sm leading-[1.6] text-ink-secondary">{definicion.cuando}</p>
       </div>
 
+      {definicion.fotos && (
+        <FilaInterruptor
+          titulo="Mandar la foto de cada producto"
+          ayuda={
+            conFotos(definicion, mensaje)
+              ? "Los productos con foto le llegan como una foto con su texto al pie; los que no tienen, en la lista. Las fotos salen cuando la lista entra completa, hasta 10 productos."
+              : "Le llega sólo la lista en texto, sin fotos. Igual puede pedirte la foto de un producto."
+          }
+          checked={conFotos(definicion, mensaje)}
+          onChange={(fotos) => onCambio({ ...mensaje, fotos })}
+        />
+      )}
+
       {!definicion.soloPropio && (
         <div role="group" aria-label="Quién escribe este mensaje" className="grid grid-cols-2 gap-1 rounded-md bg-sunken p-1">
           <button
@@ -60,7 +75,7 @@ export function EditorMensaje({
           <button
             type="button"
             aria-pressed={propio}
-            onClick={() => onCambio({ modo: "propio", texto: mensaje.texto.trim() ? mensaje.texto : definicion.sugerido })}
+            onClick={() => onCambio({ ...mensaje, modo: "propio", texto: mensaje.texto.trim() ? mensaje.texto : definicion.sugerido })}
             className={cn(SEGMENTO, propio ? SEGMENTO_ACTIVO : SEGMENTO_INACTIVO)}
           >
             Mi mensaje

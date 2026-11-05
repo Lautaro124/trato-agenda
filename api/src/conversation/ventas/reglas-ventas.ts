@@ -792,7 +792,7 @@ export function precioParaElModelo(
 
 /**
  * Lo que se completa en los formatos de producto que escribe el dueño
- * (listadoProductos, detalleProducto, pieDeFoto). Todo sale de la base: el
+ * (listadoProductos, que también es el pie de las fotos, y detalleProducto). Todo sale de la base: el
  * precio es el final, con el descuento dicho igual que en el listado.
  */
 type DatosDeProducto = { producto: string; precio: string; stock: string; descripcion: string; categoria: string };
@@ -826,11 +826,12 @@ function datosDePanorama(producto: ProductoPanorama): DatosDeProducto {
 /**
  * El pie de la foto de un producto del listado: el nombre y el mismo precio
  * que lleva su línea en formatearCatalogo, armado acá y no por el modelo. Si
- * el dueño escribió el suyo, va ese (siempre con {producto} y {precio}, que
- * es lo que lineasQueRepitenFotos busca para no repetirlo en el texto).
+ * el dueño escribió el formato de la lista, va ese: la foto es un producto más
+ * de la lista (siempre con {producto} y {precio}, que es lo que
+ * lineasQueRepitenFotos busca para no repetirlo en el texto).
  */
 export function leyendaDeProducto(producto: ProductoPanorama, agent?: Pick<Agent, 'mensajes'>): string {
-  const propio = agent ? mensajePropio(agent, 'pieDeFoto') : null;
+  const propio = agent ? mensajePropio(agent, 'listadoProductos') : null;
   if (propio) return completarPlantilla(propio, datosDePanorama(producto));
   const precio = formatearMonto(producto.precioFinalCentavos, producto.moneda);
   return (
