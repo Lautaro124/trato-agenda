@@ -83,6 +83,11 @@ function armarDescuento(descuento: DescuentoEnEdicion, precioCentavos: number): 
   };
 }
 
+/** Un número guardado → el texto del input (vacío si no hay). */
+function textoDeNumero(valor: number | null | undefined): string {
+  return valor == null ? "" : String(valor);
+}
+
 function entero(texto: string): number | null | "invalido" {
   const limpio = texto.trim();
   if (limpio === "") return null;
@@ -147,12 +152,12 @@ export function EditorProducto({
   const [modoStock, setModoStock] = useState<ModoStock>(
     productoInicial?.stock === null ? "demanda" : "stock",
   );
-  const [stock, setStock] = useState(productoInicial?.stock == null ? "" : String(productoInicial.stock));
+  const [stock, setStock] = useState(textoDeNumero(productoInicial?.stock));
   const [plazoEntrega, setPlazoEntrega] = useState(
-    productoInicial?.plazoEntregaDias == null ? "" : String(productoInicial.plazoEntregaDias),
+    textoDeNumero(productoInicial?.plazoEntregaDias),
   );
   const [stockMinimo, setStockMinimo] = useState(
-    productoInicial?.stockMinimo == null ? "" : String(productoInicial.stockMinimo),
+    textoDeNumero(productoInicial?.stockMinimo),
   );
   // No se edita acá (se pausa desde el listado): se reenvía para no pisarlo.
   const disponible = productoInicial?.disponible ?? true;
