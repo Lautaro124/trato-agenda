@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  esperaDeEscucha,
   ESPERA_RAFAGA_MS,
   MAXIMO_RAFAGA_MS,
   demoraDeEscritura,
@@ -58,5 +59,17 @@ describe('esperaDeRafaga', () => {
   it('cerca del tope espera sólo lo que falta, y pasado el tope sale ya', () => {
     expect(esperaDeRafaga(0, MAXIMO_RAFAGA_MS - 1_000)).toBe(1_000);
     expect(esperaDeRafaga(0, MAXIMO_RAFAGA_MS + 5_000)).toBe(0);
+  });
+});
+
+describe('esperaDeEscucha', () => {
+  it('dura lo que el audio más 2 a 4 s, descontando el silencio que igual espera la ráfaga', () => {
+    expect(esperaDeEscucha(30, 0) + ESPERA_RAFAGA_MS).toBe(32_000);
+    expect(esperaDeEscucha(30, 1) + ESPERA_RAFAGA_MS).toBe(34_000);
+  });
+
+  it('un audio corto no espera más que la ráfaga', () => {
+    expect(esperaDeEscucha(2, 1)).toBe(0);
+    expect(esperaDeEscucha(0, 0.5)).toBe(0);
   });
 });
