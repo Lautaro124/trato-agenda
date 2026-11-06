@@ -1,7 +1,13 @@
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
+  MARCA_RECORTE,
+  MAX_TOKENS_ENTRADA,
+  ajustarAlPresupuesto,
   conMarcaDeLlegada,
+  estimarTokens,
+  textoDeHerramientas,
   inicioVisible,
   mensajesVisibles,
   prepararHistorial,
@@ -108,5 +114,86 @@ describe('prepararHistorial', () => {
     expect(historial.inicio).toBe(0);
     expect(historial.hayHistorialOculto).toBe(false);
     expect(mensajesVisibles(mensajes, historial.inicio)).toHaveLength(3);
+  });
+});
+
+describe('ajustarAlPresupuesto', () => {
+  /** Un texto que pesa ~`tokens` tokens estimados. */
+  const deTokens = (tokens: number, letra = 'a') => letra.repeat(Math.round(tokens * 3.5));
+
+  it('si entra, manda todo igual', () => {
+    const mensajes = [new HumanMessage('hola'), new AIMessage('¡Hola!'), new HumanMessage('quiero un turno')];
+
+    const entrada = ajustarAlPresupuesto('sistema', mensajes);
+
+    expect(entrada.mensajes).toEqual(mensajes);
+    expect(entrada).toMatchObject({ descartados: 0, acortado: false, excedido: false });
+  });
+
+  it('saca vueltas viejas enteras, sin separar una tool call de su resultado', () => {
+    const llamada = new AIMessage({ content: '', tool_calls: [{ id: 't1', name: 'consultar', args: {} }] });
+    const mensajes = [
+      new HumanMessage(deTokens(30, 'v')),
+      llamada,
+      new ToolMessage({ content: deTokens(30, 'r'), tool_call_id: 't1' }),
+      new AIMessage('listo'),
+      new HumanMessage('y el jueves?'),
+      new AIMessage('dejame ver'),
+      new HumanMessage('dale'),
+    ];
+
+    const entrada = ajustarAlPresupuesto('', mensajes, 40);
+
+    expect(tipos(entrada.mensajes)).toEqual(['human:y el jueves?', 'ai:dejame ver', 'human:dale']);
+    expect(entrada.descartados).toBe(4);
+    expect(entrada.excedido).toBe(false);
+    expect(entrada.tokens).toBeLessThanOrEqual(40);
+  });
+
+  it('la vuelta en curso queda siempre, con sus tool calls', () => {
+    const llamada = new AIMessage({ content: '', tool_calls: [{ id: 't1', name: 'consultar', args: {} }] });
+    const mensajes = [
+      new HumanMessage('viejo'),
+      new HumanMessage('quiero un turno'),
+      llamada,
+      new ToolMessage({ content: 'libre', tool_call_id: 't1' }),
+    ];
+
+    const entrada = ajustarAlPresupuesto(deTokens(100), mensajes, 50);
+
+    expect(entrada.mensajes.slice(-2)).toEqual([llamada, mensajes[3]]);
+    expect(entrada.descartados).toBe(1);
+  });
+
+  it('si la vuelta en curso sola no entra, acorta el mensaje del cliente más largo (un audio) y no muta el estado', () => {
+    const audio = new HumanMessage({ content: deTokens(50_000), id: 'audio' });
+    const mensajes = [new HumanMessage('hola'), new AIMessage('¡Hola!'), audio];
+
+    const entrada = ajustarAlPresupuesto(deTokens(5_000), mensajes);
+
+    expect(entrada.descartados).toBe(2);
+    expect(entrada.acortado).toBe(true);
+    expect(entrada.excedido).toBe(false);
+    expect(entrada.tokens).toBeLessThanOrEqual(MAX_TOKENS_ENTRADA);
+    const acortado = entrada.mensajes[0]!;
+    expect(acortado.id).toBe('audio');
+    expect(String(acortado.content).endsWith(MARCA_RECORTE)).toBe(true);
+    expect(audio.content).toHaveLength(deTokens(50_000).length);
+  });
+
+  it('avisa si el system prompt solo ya pasa el tope', () => {
+    const entrada = ajustarAlPresupuesto(deTokens(200), [new HumanMessage('hola')], 100);
+
+    expect(entrada.excedido).toBe(true);
+  });
+
+  it('cuenta las herramientas con su schema', () => {
+    const texto = textoDeHerramientas([
+      { name: 'crear_turno', description: 'Reserva un turno', schema: z.object({ inicio: z.string().describe('ISO 8601') }) },
+    ]);
+
+    expect(texto).toContain('crear_turno');
+    expect(texto).toContain('ISO 8601');
+    expect(estimarTokens(texto)).toBeGreaterThan(estimarTokens('crear_turnoReserva un turno'));
   });
 });
