@@ -195,14 +195,45 @@ export function ajustarAlPresupuesto(
   mensajes: BaseMessage[],
   presupuesto: number = MAX_TOKENS_ENTRADA,
 ): EntradaAjustada {
-  const tokensFijos = estimarTokens(fijo);
   const pesos = mensajes.map((mensaje) => estimarTokens(textoDe(mensaje)));
-  let total = tokensFijos + pesos.reduce((suma, peso) => suma + peso, 0);
-
   const inicioVueltaActual = Math.max(
     mensajes.findLastIndex((mensaje) => mensaje.getType() === 'human'),
     0,
   );
+  const sinViejas = descartarVueltasViejas(mensajes, pesos, inicioVueltaActual, estimarTokens(fijo), presupuesto);
+  const resultado = mensajes.slice(sinViejas.desde);
+  let total = sinViejas.total;
+  let acortado = false;
+
+  if (total > presupuesto) {
+    const pesosVisibles = pesos.slice(sinViejas.desde);
+    const mayor = mayorDelClienteDesde(resultado, pesosVisibles, inicioVueltaActual - sinViejas.desde);
+    if (mayor !== -1) {
+      const peso = pesosVisibles[mayor]!;
+      const disponible = Math.max(presupuesto - (total - peso) - estimarTokens(MARCA_RECORTE), 0);
+      const acortadoEn = acortarMensaje(resultado[mayor]!, Math.floor(disponible * CARACTERES_POR_TOKEN));
+      resultado[mayor] = acortadoEn;
+      total = total - peso + estimarTokens(acortadoEn.content as string);
+      acortado = true;
+    }
+  }
+
+  return { mensajes: resultado, tokens: total, descartados: sinViejas.desde, acortado, excedido: total > presupuesto };
+}
+
+/**
+ * Saca vueltas viejas enteras mientras el total pase el presupuesto, sin tocar
+ * la vuelta en curso. Corta siempre en un mensaje del cliente. Devuelve desde
+ * qué índice queda el historial y el total que resulta.
+ */
+function descartarVueltasViejas(
+  mensajes: BaseMessage[],
+  pesos: number[],
+  inicioVueltaActual: number,
+  tokensFijos: number,
+  presupuesto: number,
+): { desde: number; total: number } {
+  let total = tokensFijos + pesos.reduce((suma, peso) => suma + peso, 0);
   let desde = 0;
   while (total > presupuesto && desde < inicioVueltaActual) {
     // El próximo mensaje del cliente después de `desde`: ahí empieza la vuelta siguiente.
@@ -211,31 +242,24 @@ export function ajustarAlPresupuesto(
     for (let i = desde; i < hasta; i++) total -= pesos[i]!;
     desde = hasta;
   }
+  return { desde, total };
+}
 
-  const resultado = mensajes.slice(desde);
-  let acortado = false;
-  if (total > presupuesto) {
-    // El mensaje del cliente más largo de la vuelta en curso, si su contenido es texto.
-    let mayor = -1;
-    for (let i = inicioVueltaActual - desde; i < resultado.length; i++) {
-      const mensaje = resultado[i]!;
-      if (mensaje.getType() !== 'human' || typeof mensaje.content !== 'string') continue;
-      if (mayor === -1 || pesos[i + desde]! > pesos[mayor + desde]!) mayor = i;
-    }
-    if (mayor !== -1) {
-      const original = resultado[mayor]!;
-      const peso = pesos[mayor + desde]!;
-      const disponible = Math.max(presupuesto - (total - peso) - estimarTokens(MARCA_RECORTE), 0);
-      const caracteres = Math.floor(disponible * CARACTERES_POR_TOKEN);
-      let corte = (original.content as string).slice(0, caracteres);
-      // No dejar medio emoji (un par sustituto UTF-16 partido).
-      if (/[\uD800-\uDBFF]$/.test(corte)) corte = corte.slice(0, -1);
-      const texto = corte + MARCA_RECORTE;
-      resultado[mayor] = new HumanMessage({ content: texto, id: original.id, response_metadata: original.response_metadata });
-      total = total - peso + estimarTokens(texto);
-      acortado = true;
-    }
+/** Índice del mensaje del cliente más largo desde `inicio` cuyo contenido es texto, o -1. */
+function mayorDelClienteDesde(mensajes: BaseMessage[], pesos: number[], inicio: number): number {
+  let mayor = -1;
+  for (let i = inicio; i < mensajes.length; i++) {
+    const mensaje = mensajes[i]!;
+    const esTextoDelCliente = mensaje.getType() === 'human' && typeof mensaje.content === 'string';
+    if (esTextoDelCliente && (mayor === -1 || pesos[i]! > pesos[mayor]!)) mayor = i;
   }
+  return mayor;
+}
 
-  return { mensajes: resultado, tokens: total, descartados: desde, acortado, excedido: total > presupuesto };
+/** Una copia del mensaje del cliente con el texto cortado a `caracteres` y la marca de recorte. */
+function acortarMensaje(original: BaseMessage, caracteres: number): HumanMessage {
+  let corte = (original.content as string).slice(0, caracteres);
+  // No dejar medio emoji (un par sustituto UTF-16 partido).
+  if (/[\uD800-\uDBFF]$/.test(corte)) corte = corte.slice(0, -1);
+  return new HumanMessage({ content: corte + MARCA_RECORTE, id: original.id, response_metadata: original.response_metadata });
 }

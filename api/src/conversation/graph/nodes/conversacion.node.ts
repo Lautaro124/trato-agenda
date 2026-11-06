@@ -14,7 +14,12 @@ import { MENSAJE_DISCULPA_GENERICO, MENSAJE_FUERA_DE_ALCANCE } from '../../mensa
 import { clasificarFalloDelModelo } from '../../respuesta-sin-choices.js';
 import { ESQUEMAS_ACCIONES, ESQUEMAS_PROPIETARIO, type EsquemaHerramienta } from '../../conversation-tools.js';
 import type { EstadoComun } from '../state.js';
-import { ajustarAlPresupuesto, mensajesVisibles, textoDeHerramientas } from '../ventana-historial.js';
+import {
+  ajustarAlPresupuesto,
+  mensajesVisibles,
+  textoDeHerramientas,
+  type EntradaAjustada,
+} from '../ventana-historial.js';
 
 export type DepsConversacion = {
   llm: BaseChatModel;
@@ -34,6 +39,22 @@ export function herramientasDisponibles(
     ...allowedActions.filter(esAccionValida).map((id) => ESQUEMAS_ACCIONES[id]),
     ...(esPropietario ? Object.values(ESQUEMAS_PROPIETARIO) : []),
   ];
+}
+
+/**
+ * El aviso para el log cuando hubo que acortar un mensaje o el pedido sigue
+ * pasado del tope; null si alcanzó con sacar vueltas viejas. Sólo ids y
+ * números: nada del contenido.
+ */
+export function avisoDeRecorte(conversationId: string, entrada: EntradaAjustada): string | null {
+  if (!entrada.acortado && !entrada.excedido) return null;
+  const detalles = [
+    `~${entrada.tokens} tokens`,
+    `${entrada.descartados} mensajes viejos fuera`,
+    ...(entrada.acortado ? ['mensaje del cliente acortado'] : []),
+    ...(entrada.excedido ? ['sigue por encima del tope'] : []),
+  ];
+  return `Entrada al modelo recortada en la conversación ${conversationId}: ${detalles.join(', ')}.`;
 }
 
 export function crearNodoConversacion(deps: DepsConversacion) {
@@ -58,14 +79,8 @@ export function crearNodoConversacion(deps: DepsConversacion) {
         sistema + textoDeHerramientas(herramientas),
         mensajesVisibles(state.messages, state.inicioVisible ?? 0),
       );
-      if (entrada.acortado || entrada.excedido) {
-        // Sólo ids y números: nada del contenido.
-        logger.warn(
-          `Entrada al modelo recortada en la conversación ${contexto.conversation.id}: ~${entrada.tokens} tokens, ` +
-            `${entrada.descartados} mensajes viejos fuera${entrada.acortado ? ', mensaje del cliente acortado' : ''}` +
-            `${entrada.excedido ? ', sigue por encima del tope' : ''}.`,
-        );
-      }
+      const aviso = avisoDeRecorte(contexto.conversation.id, entrada);
+      if (aviso) logger.warn(aviso);
       const mensajes = [new SystemMessage(sistema), ...entrada.mensajes];
       // Con la señal, descartar la vuelta corta también el pedido al proveedor, no sólo el grafo.
       const respuesta = state.cancelacion
