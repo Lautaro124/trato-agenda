@@ -8,6 +8,7 @@ import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { AsistenteController } from './asistente.controller.js';
 import { AvisosPorWhatsapp } from './avisos-por-whatsapp.js';
 import { WhatsappController } from './whatsapp.controller.js';
+import { TranscripcionClient } from './transcripcion.client.js';
 import { WhatsappService } from './whatsapp.service.js';
 
 @Module({
@@ -25,6 +26,6 @@ import { WhatsappService } from './whatsapp.service.js';
   // Exportado para la baja de cuenta, que necesita cerrar el socket de Baileys.
   exports: [WhatsappService],
   controllers: [WhatsappController, AsistenteController],
-  providers: [WhatsappService, AvisosPorWhatsapp],
+  providers: [WhatsappService, AvisosPorWhatsapp, TranscripcionClient],
 })
 export class WhatsappModule {}

@@ -163,8 +163,10 @@ export default function EntrarPage() {
                 {pending ? "Entrando…" : "Entrar con Google"}
               </Button>
 
-              {/* NODE_ENV se inlinea en el build: en producción este bloque ni llega al bundle. */}
-              {process.env.NODE_ENV !== "production" && <LoginDev />}
+              {/* Se inlinea en el build: en producción (salvo Railway develop) este bloque ni llega al bundle. */}
+              {(process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ENTORNO_RAILWAY === "develop") && (
+                <LoginDev />
+              )}
             </div>
           ) : (
             <div id="panel-nueva" role="tabpanel" aria-labelledby="pestana-nueva">

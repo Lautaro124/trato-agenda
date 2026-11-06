@@ -23,6 +23,23 @@ describe('validateEnv', () => {
     );
   });
 
+  it('permite DEV_LOGIN_PASSWORD en el entorno develop de Railway', () => {
+    const env = validateEnv({
+      ...BASE,
+      NODE_ENV: 'production',
+      RAILWAY_ENVIRONMENT_NAME: 'develop',
+      DEV_LOGIN_PASSWORD: 'secreta',
+    });
+
+    expect(env.DEV_LOGIN_PASSWORD).toBe('secreta');
+  });
+
+  it('no arranca en el entorno production de Railway si DEV_LOGIN_PASSWORD está definida', () => {
+    expect(() =>
+      validateEnv({ ...BASE, NODE_ENV: 'production', RAILWAY_ENVIRONMENT_NAME: 'production', DEV_LOGIN_PASSWORD: 'secreta' }),
+    ).toThrow(/DEV_LOGIN_PASSWORD/);
+  });
+
   it('en producción sin DEV_LOGIN_PASSWORD arranca normal', () => {
     expect(validateEnv({ ...BASE, NODE_ENV: 'production' }).DEV_LOGIN_PASSWORD).toBe('');
   });
@@ -94,6 +111,19 @@ describe('validateEnv', () => {
   it('no arranca con una ventana de historial mal escrita', () => {
     for (const valor of ['14', 'dos semanas', '0d', '-1d', '1.5h', '2w', '9999999999d']) {
       expect(() => validateEnv({ ...BASE, HISTORIAL_IA_VENTANA: valor })).toThrow(/HISTORIAL_IA_VENTANA/);
+    }
+  });
+
+  it('el "escribiendo…" del cliente vence a los 30 s si no se configura', () => {
+    expect(validateEnv(BASE).WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS).toBe(30);
+    expect(validateEnv({ ...BASE, WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: '45' }).WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS).toBe(45);
+  });
+
+  it('no arranca con un vencimiento del "escribiendo…" fuera de rango', () => {
+    for (const valor of ['4', '301', '1.5', 'treinta', '-10']) {
+      expect(() => validateEnv({ ...BASE, WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: valor })).toThrow(
+        /WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS/,
+      );
     }
   });
 });

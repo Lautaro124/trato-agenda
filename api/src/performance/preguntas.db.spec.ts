@@ -93,7 +93,7 @@ describe.skipIf(!hayBaseDePrueba)('clasificación de preguntas (Postgres)', () =
   });
 
   it('guarda las preguntas validadas, con la etapa del chat y sólo productos que vio', async () => {
-    const mate = await prisma.producto.create({ data: { userId: dueno.id, codigo: 'MATE', nombre: 'Mate' } });
+    const mate = await prisma.producto.create({ data: { userId: dueno.id, codigo: 'MATE', nombre: 'Mate', precioCentavos: 100 } });
     const etapa = await chatDe(dueno.id, {
       quieto: 60,
       etapa: 'pedido',

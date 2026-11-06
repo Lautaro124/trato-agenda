@@ -6,34 +6,28 @@ import { ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import type { BusquedaService } from '../../../comercio/busqueda.service.js';
 import type { HistoricoVentasService } from '../../../comercio/historico.service.js';
-import type { ImagenesService } from '../../../comercio/imagenes.service.js';
+import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
+import type { EstadoDeFoto, ImagenesService } from '../../../comercio/imagenes.service.js';
 import { RangoInvalidoError } from '../../../comercio/historico.rules.js';
 import { leerDatosDeVenta, leerEntrega } from '../../../comercio/datos-cliente.rules.js';
+import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
 import type { SugerenciasService } from '../../../comercio/sugerencias.service.js';
-import type { PedidosAMedidaService } from '../../../comercio/pedidos-a-medida.service.js';
-import {
-  MOTIVOS_DEL_ASISTENTE,
-  leerSolicitudDeVenta,
-  type MotivoDelAsistente,
-} from '../../../comercio/pedido-a-medida.rules.js';
-import { validarRespuestasSolicitud, type RespuestaSolicitud } from '../../../comercio/solicitud.rules.js';
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
 import type { RegistroPerformanceService } from '../../../performance/registro.service.js';
+import type { Agent } from '../../../generated/prisma/client.js';
+import { listadoConFotos } from '../../../agents/mensajes.rules.js';
 import type { OperacionPendiente } from '../../graph/state.js';
 import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
-import { esFormaDePago, hayCondiciones } from '../../../comercio/condiciones-pago.rules.js';
+import { esFormaDePago } from '../../../comercio/condiciones-pago.rules.js';
 import { hayDescuentosVigentes } from '../../../comercio/descuentos.rules.js';
 import { MAX_PRODUCTOS_LISTADO, type ResultadoCatalogo } from '../../../comercio/sugerencias.rules.js';
 import {
   conOfertaDeDescuentos,
-  formatearCobroAMedida,
-  formatearDerivacion,
-  formatearSolicitudRegistrada,
   formatearCatalogo,
   formatearDescuentos,
   formatearFormasDePago,
@@ -56,21 +50,10 @@ export type DepsCatalogo = {
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
-  pedidos: Pick<
-    PedidosAMedidaService,
-    | 'productoParaSolicitud'
-    | 'cotizacionPrevia'
-    | 'registrarSolicitud'
-    | 'cotizarSolicitud'
-    | 'cobrar'
-    | 'derivar'
-    | 'varianteParaPedir'
-    | 'pedirVariante'
-  >;
   /** Módulo de performance (LAU-30): qué productos vio o pidió el chat y si se derivó. Sin él (evals), nada. */
   registro?: Pick<
     RegistroPerformanceService,
-    'registrarInteres' | 'registrarPedidoDeVariantes' | 'marcarDerivado' | 'registrarZonaDeDatos'
+    'registrarInteres' | 'marcarDerivado' | 'registrarZonaDeDatos'
   >;
 };
 
@@ -78,16 +61,23 @@ export type DepsCatalogo = {
 type Resultado = string | { texto: string; imagen: ImagenAEnviar | ImagenAEnviar[] };
 
 /**
- * Las fotos que salen solas con el listado de ver_catalogo: sólo cuando es
- * la lista entera (hasta MAX_PRODUCTOS_LISTADO), de los productos que tienen
- * foto, cada una con su nombre y precio al pie. Las que ya le llegaron en la
- * charla no se repiten.
+ * Las fotos que salen solas con el listado de ver_catalogo, sea la lista
+ * entera o los que eligió Jev de un catálogo grande: las de los productos que
+ * tienen foto, hasta MAX_PRODUCTOS_LISTADO, cada una con su línea de la lista
+ * al pie. Las que ya le llegaron en la charla no se repiten, y si el dueño
+ * apagó las fotos de la lista no sale ninguna.
  */
-export function fotosDelListado(catalogo: ResultadoCatalogo, yaMandadas: ReadonlySet<string>): ImagenAEnviar[] {
-  if (catalogo.tipo !== 'listado' || catalogo.restantes > 0 || catalogo.productos.length > MAX_PRODUCTOS_LISTADO) return [];
+export function fotosDelListado(
+  catalogo: ResultadoCatalogo,
+  yaMandadas: ReadonlySet<string>,
+  agent?: Pick<Agent, 'mensajes'>,
+): ImagenAEnviar[] {
+  if (catalogo.tipo !== 'listado') return [];
+  if (agent && !listadoConFotos(agent)) return [];
   return catalogo.productos
     .filter((producto) => producto.tieneImagen && !yaMandadas.has(claveDeFoto({ productoId: producto.productoId })))
-    .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeProducto(producto) }));
+    .slice(0, MAX_PRODUCTOS_LISTADO)
+    .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeProducto(producto, agent) }));
 }
 
 /** Sólo lo que escribió el cliente dentro de la ventana, en texto: es lo único que se le pasa a Jev. */
@@ -105,15 +95,7 @@ export const MENSAJE_CATALOGO_CAIDO =
   'No pude consultar el catálogo en este momento. Pedile disculpas al cliente y decile que en un rato lo vuelva a intentar.';
 
 /** Las herramientas que cambian algo afuera del hilo (cancelacion.ts). */
-const CON_EFECTO = new Set([
-  'crear_pedido',
-  'cancelar_pedido',
-  'derivar_consulta',
-  'registrar_solicitud',
-  'pedir_variante',
-  'aceptar_presupuesto',
-  'derivar_a_persona',
-]);
+const CON_EFECTO = new Set(['crear_pedido', 'cancelar_pedido', 'derivar_consulta']);
 
 export function crearNodoCatalogo(deps: DepsCatalogo) {
   const logger = new Logger('CatalogoNode');
@@ -179,6 +161,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         remoteJid: state.remoteJid,
         nombreCliente: String(args.nombreCliente),
         items: args.items as ItemPedido[],
+        respuestas: Array.isArray(args.respuestas) ? (args.respuestas as RespuestaDelModelo[]) : [],
         medioPago,
         formaPago: esFormaDePago(args.formaPago) ? args.formaPago : null,
         cuotas: typeof args.cuotas === 'number' ? args.cuotas : null,
@@ -187,10 +170,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         // El banco de pruebas del Home (quien habla es el dueño): pedido real, fuera del histórico.
         dePrueba: state.esPropietario,
       });
-      if (!state.esPropietario) {
-        const varianteIds = venta.items.flatMap((item) => (item.varianteId ? [item.varianteId] : []));
-        await deps.registro?.registrarPedidoDeVariantes(state.ownerUserId, conversation.id, varianteIds);
-      }
+      await registrar.pedidos(state, venta.items.flatMap((item) => (item.productoId ? [item.productoId] : [])));
       await registrar.zona(state, venta.datosCliente);
       return formatearPedidoCreado(agent, venta, state.contexto.condicionesPago);
     } catch (error) {
@@ -201,7 +181,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
 
   async function verFormasDePago(state: EstadoVentasValue, args: Args): Promise<string> {
     const { condicionesPago, mpConectado } = state.contexto;
-    if (!Array.isArray(args.items) || !hayCondiciones(condicionesPago)) {
+    if (!Array.isArray(args.items)) {
       return formatearFormasDePago(condicionesPago, mpConectado, null);
     }
     try {
@@ -232,131 +212,6 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     );
     if (!state.esPropietario) await deps.registro?.marcarDerivado(state.ownerUserId, conversation.id);
     return `Listo, le avisé a ${titular}. ${decile}`;
-  }
-
-  /**
-   * Anota la solicitud a medida. Las respuestas se validan acá contra las
-   * preguntas del producto (la validación no tiene la base): si falta una
-   * necesaria, vuelve al modelo con lo que falta y no se anota nada.
-   */
-  async function registrarSolicitud(state: EstadoVentasValue, args: Args): Promise<string> {
-    const producto = await deps.pedidos.productoParaSolicitud(state.ownerUserId, String(args.productoId));
-    if (!producto) return 'Ese producto ya no está en el catálogo. Volvé a buscarlo.';
-    if (!producto.solicitud) {
-      return 'Ese producto es de stock, no a medida: no se cotiza. Si lo quiere, anotalo con crear_pedido.';
-    }
-    const respuestas = validarRespuestasSolicitud(producto.solicitud, args.respuestas);
-    if (!respuestas.ok) {
-      return `${respuestas.motivo} Preguntáselo al cliente (de a una o dos preguntas) antes de anotar la solicitud.`;
-    }
-    // Si la receta del producto necesita un dato que el cliente todavía no
-    // dio, se le pregunta antes de anotar nada (y antes de molestar al dueño).
-    const previa = await deps.pedidos.cotizacionPrevia(state.ownerUserId, producto.id, respuestas.respuestas);
-    if (previa && !previa.resultado.ok && previa.resultado.faltan.length > 0) {
-      return (
-        `Para cotizarlo hace falta que el cliente conteste ${previa.resultado.faltan.map((t) => JSON.stringify(t)).join(', ')} ` +
-        'con un número. Preguntáselo y volvé a llamar registrar_solicitud con todo.'
-      );
-    }
-    // La versión de base tiene que ser de este mismo producto.
-    const base =
-      typeof args.varianteBaseId === 'string'
-        ? await deps.pedidos.varianteParaPedir(state.ownerUserId, args.varianteBaseId)
-        : null;
-    if (typeof args.varianteBaseId === 'string' && base?.productoId !== producto.id) {
-      return 'Esa versión no es de este producto. Usá el id entre corchetes de una de sus versiones con precio fijo, o no mandes ninguna.';
-    }
-    try {
-      const resultado = await deps.pedidos.registrarSolicitud({
-        userId: state.ownerUserId,
-        conversationId: state.contexto.conversation.id,
-        remoteJid: state.remoteJid,
-        nombreCliente: String(args.nombreCliente),
-        producto: { id: producto.id, nombre: producto.nombre },
-        respuestas: respuestas.respuestas as RespuestaSolicitud[],
-        resumen: String(args.resumen ?? ''),
-        ...(base
-          ? {
-              variante: { id: base.varianteId, nombre: base.nombreVariante, precioCentavos: base.precioCentavos, cantidad: 1 },
-              cambios: String(args.cambios ?? ''),
-            }
-          : {}),
-        dePrueba: state.esPropietario,
-      });
-      await registrar.pedidos(state, [producto.id]);
-      const cotizacion = await deps.pedidos.cotizarSolicitud(resultado, previa);
-      return formatearSolicitudRegistrada(
-        resultado,
-        cotizacion.modo === 'automatica' ? { texto: cotizacion.texto } : null,
-        cotizacion.modo === 'revision',
-      );
-    } catch (error) {
-      if (error instanceof PedidoRechazadoError) return `No se pudo anotar la solicitud: ${error.message}`;
-      throw error;
-    }
-  }
-
-  /** Una versión de precio fijo pedida tal cual: el pedido sale cotizado y con su cobro. */
-  async function pedirVariante(state: EstadoVentasValue, args: Args): Promise<string> {
-    try {
-      const venta = await deps.pedidos.pedirVariante({
-        userId: state.ownerUserId,
-        conversationId: state.contexto.conversation.id,
-        remoteJid: state.remoteJid,
-        nombreCliente: String(args.nombreCliente),
-        varianteId: String(args.varianteId),
-        cantidad: Number(args.cantidad),
-        entrega: leerEntrega(args.entrega),
-        datosCliente: leerDatosDeVenta(args.datosCliente),
-        dePrueba: state.esPropietario,
-      });
-      const productoId = leerSolicitudDeVenta(venta.solicitud)?.productoId;
-      if (productoId) await registrar.pedidos(state, [productoId]);
-      await registrar.zona(state, venta.datosCliente);
-      return formatearCobroAMedida(state.contexto.agent, venta, true, state.contexto.condicionesPago);
-    } catch (error) {
-      if (error instanceof PedidoRechazadoError) return `No se pudo anotar el pedido: ${error.message}`;
-      throw error;
-    }
-  }
-
-  async function aceptarPresupuesto(state: EstadoVentasValue, args: Args): Promise<string> {
-    try {
-      const venta = await deps.pedidos.cobrar(state.ownerUserId, String(args.pedidoId), {
-        autor: 'asistente',
-        conversationId: state.contexto.conversation.id,
-        entrega: leerEntrega(args.entrega),
-        datosCliente: leerDatosDeVenta(args.datosCliente),
-      });
-      await registrar.zona(state, venta.datosCliente);
-      return formatearCobroAMedida(state.contexto.agent, venta, false, state.contexto.condicionesPago);
-    } catch (error) {
-      if (error instanceof PedidoRechazadoError) return `No se pudo generar el cobro: ${error.message}`;
-      throw error;
-    }
-  }
-
-  async function derivarAPersona(state: EstadoVentasValue, args: Args): Promise<string> {
-    const motivo = (MOTIVOS_DEL_ASISTENTE as readonly string[]).includes(String(args.motivo))
-      ? (args.motivo as MotivoDelAsistente)
-      : 'otro';
-    try {
-      const venta = await deps.pedidos.derivar({
-        userId: state.ownerUserId,
-        ventaId: typeof args.pedidoId === 'string' ? args.pedidoId : null,
-        conversationId: state.contexto.conversation.id,
-        remoteJid: state.remoteJid,
-        nombreCliente: state.contexto.conversation.nombreCliente,
-        motivo,
-        detalle: String(args.detalle ?? ''),
-        autor: 'asistente',
-        dePrueba: state.esPropietario,
-      });
-      return formatearDerivacion(venta);
-    } catch (error) {
-      if (error instanceof PedidoRechazadoError) return `No se pudo pasar a una persona: ${error.message}`;
-      throw error;
-    }
   }
 
   /** listar_ventas y resumen_ventas (sólo el dueño). */
@@ -393,32 +248,43 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
 
   async function enviarImagen(state: EstadoVentasValue, args: Args): Promise<Resultado> {
     const productoId = String(args.productoId);
-    const varianteId = typeof args.varianteId === 'string' ? args.varianteId : undefined;
-    const foto = await deps.imagenes.estadoDeFoto(state.ownerUserId, productoId, varianteId);
-    if (!foto) {
-      return varianteId
-        ? 'Esa versión no es de ese producto (o ya no está). Usá los ids entre corchetes de una búsqueda de esta charla.'
-        : 'Ese producto no está en el catálogo. Usá el id entre corchetes de una búsqueda de esta charla.';
-    }
+    const foto = await deps.imagenes.estadoDeFoto(state.ownerUserId, productoId);
+    if (!foto) return 'Ese producto no está en el catálogo. Usá el id entre corchetes de una búsqueda de esta charla.';
     const nombre = JSON.stringify(foto.nombre);
     if (!foto.tieneFoto) {
       return `${nombre} no tiene foto. Decíselo al cliente y contale cómo es con lo que dice el catálogo.`;
     }
-    const imagen: ImagenAEnviar = { productoId, nombre: foto.nombre, ...(foto.deVariante && varianteId ? { varianteId } : {}) };
-    // Una versión sin foto propia (sólo las hay a medida) manda la del producto: si esa ya le llegó, no se repite.
-    if (
-      !imagen.varianteId &&
-      varianteId &&
-      fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)).has(claveDeFoto(imagen))
-    ) {
-      return `Esa versión no tiene foto propia y la de ${nombre} ya se la mandaste: no la repitas, seguí la charla.`;
-    }
+    if (args.detalles === true) return enviarDetalles(state, productoId, foto);
+    const imagen: ImagenAEnviar = { productoId, nombre: foto.nombre };
     await registrar.vistos(state, [productoId]);
     return {
       texto:
         `Listo: la foto de ${nombre} le llega al cliente junto con tu respuesta. No la describas ni pegues ` +
         'links: seguí la charla (por ejemplo, preguntale si es lo que buscaba).',
       imagen,
+    };
+  }
+
+  /** Las fotos de detalle que todavía no le llegaron: la principal no, que sale al mostrar el producto. */
+  async function enviarDetalles(state: EstadoVentasValue, productoId: string, foto: EstadoDeFoto): Promise<Resultado> {
+    const nombre = JSON.stringify(foto.nombre);
+    if (foto.detalles.length === 0) {
+      return `${nombre} no tiene más fotos que la principal. Contale los detalles con lo que dice el catálogo.`;
+    }
+    const yaMandadas = fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0));
+    const imagenes: ImagenAEnviar[] = foto.detalles
+      .map((imagenId) => ({ productoId, imagenId, nombre: foto.nombre }))
+      .filter((imagen) => !yaMandadas.has(claveDeFoto(imagen)))
+      .slice(0, MAX_IMAGENES_POR_MENSAJE);
+    if (imagenes.length === 0) {
+      return `Ya le mandaste todas las fotos de ${nombre} en esta charla: no se las mandes de nuevo, seguí la conversación.`;
+    }
+    await registrar.vistos(state, [productoId]);
+    return {
+      texto:
+        `Listo: le llegan ${imagenes.length} fotos más de ${nombre} junto con tu respuesta. No las describas ni ` +
+        'pegues links: seguí la charla (por ejemplo, preguntale si tiene alguna duda).',
+      imagen: imagenes,
     };
   }
 
@@ -437,7 +303,11 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const catalogo = await deps.sugerencias.verCatalogo(state.ownerUserId, mensajesDelCliente(state), categoria);
         if (catalogo.tipo === 'listado') await registrar.vistos(state, catalogo.productos.map((producto) => producto.productoId));
-        const fotos = fotosDelListado(catalogo, fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)));
+        const fotos = fotosDelListado(
+          catalogo,
+          fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)),
+          state.contexto.agent,
+        );
         const texto = formatearCatalogo(catalogo, state.contexto.agent, new Set(fotos.map((foto) => foto.productoId)));
         if (catalogo.tipo === 'vacio') return texto;
         const conOferta = await ofrecer(texto);
@@ -455,14 +325,6 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         return crearPedido(state, args);
       case 'derivar_consulta':
         return derivarConsulta(state, args);
-      case 'registrar_solicitud':
-        return registrarSolicitud(state, args);
-      case 'pedir_variante':
-        return pedirVariante(state, args);
-      case 'aceptar_presupuesto':
-        return aceptarPresupuesto(state, args);
-      case 'derivar_a_persona':
-        return derivarAPersona(state, args);
       case 'listar_ventas':
       case 'resumen_ventas':
         return historicoDeVentas(state, operacion);

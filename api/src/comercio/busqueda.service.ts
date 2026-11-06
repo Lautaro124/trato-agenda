@@ -11,11 +11,12 @@ import {
   type Moneda,
   type Ranking,
 } from './catalogo.rules.js';
+import { leerCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
+import { leerPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
 import { mejorDescuento, type DescuentoAplicado } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
-import { reservadasPorVariante } from './reservas.js';
-import { leerSolicitud, type PreguntaSolicitud } from './solicitud.rules.js';
+import { reservadasPorProducto } from './reservas.js';
 
 /** Productos que devuelve una búsqueda del asistente: los que entran en un mensaje de WhatsApp. */
 export const RESULTADOS_POR_BUSQUEDA = 8;
@@ -41,28 +42,8 @@ const UMBRAL_TRIGRAMAS = 0.5;
  */
 const DISTANCIA_MAXIMA = 0.7;
 
-/** Lo exacto (código o SKU tipeado tal cual) pesa más que cualquier parecido. */
+/** Lo exacto (el código tipeado tal cual) pesa más que cualquier parecido. */
 const PESO_EXACTO = 3;
-
-export type VarianteEncontrada = {
-  varianteId: string;
-  sku: string;
-  nombre: string;
-  /** Precio de lista. */
-  precioCentavos: number;
-  /** Lo que paga hoy el cliente: el de lista menos el mejor descuento vigente (descuentos.rules.ts). */
-  precioFinalCentavos: number;
-  descuento: DescuentoAplicado | null;
-  hayStock: boolean;
-  /** "disponible" | "quedan N unidades" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
-  stock: string;
-  /** Unidades vendibles ya descontadas las reservas; null sin control de cantidad. Sólo para el dueño. */
-  unidades: number | null;
-  reservadas: number;
-  stockMinimo: number | null;
-  /** Variante fija de un producto a medida con foto propia (enviar_imagen_producto con su id). */
-  tieneImagen?: boolean;
-};
 
 export type ProductoEncontrado = {
   productoId: string;
@@ -70,36 +51,43 @@ export type ProductoEncontrado = {
   nombre: string;
   categoria: string | null;
   descripcion: string;
-  /** La de todos sus precios; ausente = pesos (los a medida siempre lo son). */
+  /** La de su precio; ausente = pesos. */
   moneda?: Moneda;
-  variantes: VarianteEncontrada[];
+  /** Precio de lista. */
+  precioCentavos: number;
+  /** Lo que paga hoy el cliente: el de lista menos el mejor descuento vigente (descuentos.rules.ts). */
+  precioFinalCentavos: number;
+  descuento: DescuentoAplicado | null;
+  /** En cuántas cuotas se vende; null o ausente = en un pago. */
+  cuotas?: CuotasProducto | null;
+  /** Lo que hay que preguntarle al cliente al pedirlo; null o ausente = nada. */
+  preguntas?: PreguntaProducto[] | null;
+  hayStock: boolean;
+  /** "disponible" | "quedan N unidades" | "a pedido, se entrega en N días" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
+  stock: string;
+  /** Unidades vendibles ya descontadas las reservas; null a demanda (sin control de cantidad). Sólo para el dueño. */
+  unidades: number | null;
+  reservadas: number;
+  stockMinimo: number | null;
+  /** A demanda: en cuántos días se entrega; null o ausente = no lo dijo (o tiene stock). */
+  plazoEntregaDias?: number | null;
   /**
    * true si sólo lo trajo la búsqueda por significado (embeddings): ninguna
    * palabra de la consulta aparece en el producto. Es "algo parecido", no lo
    * que se pidió, y así se le presenta al modelo.
    */
   soloParecido?: boolean;
-  /** Si tiene foto para mandarle al cliente (enviar_imagen_producto). */
+  /** Si tiene foto principal para mandarle al cliente (enviar_imagen_producto). */
   tieneImagen: boolean;
-  /**
-   * Producto a medida (tiene `solicitud`): se cotiza. Sus variantes, si tiene,
-   * son versiones con precio cerrado que el cliente pide tal cual, sin stock
-   * ni descuento.
-   */
-  aMedida?: boolean;
-  /** Su precio "desde", si el dueño puso uno. */
-  precioReferenciaCentavos?: number | null;
-  /** Producto a medida: con qué materiales se hace ([] = no los cargó). */
-  materiales?: string[];
-  /** Producto a medida: lo que el asistente pregunta para cotizar, en orden. */
-  preguntas?: PreguntaSolicitud[];
+  /** Cuántas fotos de detalle tiene además de la principal (enviar_imagen_producto con `detalles`). */
+  fotosDeDetalle: number;
 };
 
 export type OpcionesBusqueda = {
   categoria?: string | null;
   limite?: number;
   /**
-   * Unidades reservadas por pedidos pendientes, por varianteId. Sin esto se
+   * Unidades reservadas por pedidos pendientes, por productoId. Sin esto se
    * leen de la base (reservas.ts); los tests lo pasan a mano.
    */
   reservadas?: Map<string, number>;
@@ -109,7 +97,7 @@ export type OpcionesBusqueda = {
  * El RAG del asistente de ventas. Cuatro estrategias sobre el catálogo de UNA
  * cuenta, fusionadas por posición (Reciprocal Rank Fusion, catalogo.rules.ts):
  *
- * - exacta: el cliente escribió un código o SKU;
+ * - exacta: el cliente escribió un código;
  * - full-text en español (con stemming: "remeras" encuentra "remera");
  * - trigramas, para los errores de tipeo;
  * - embeddings, para lo que se pide por significado ("algo para regalarle a
@@ -156,10 +144,8 @@ export class BusquedaService {
   private async exactos(userId: string, texto: string): Promise<string[]> {
     const tokens = [texto, ...texto.split(' ')].map((token) => token.replace(/[¿?¡!,;:()"']/g, '')).filter(Boolean);
     const filas = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT DISTINCT p."id" FROM "Producto" p
-      LEFT JOIN "Variante" v ON v."productoId" = p."id" AND v."activo"
-      WHERE p."userId" = ${userId} AND p."activo"
-        AND (lower(p."codigo") = ANY(${tokens}) OR lower(v."sku") = ANY(${tokens}))
+      SELECT p."id" FROM "Producto" p
+      WHERE p."userId" = ${userId} AND p."activo" AND lower(p."codigo") = ANY(${tokens})
       LIMIT 5
     `;
     return filas.map((fila) => fila.id);
@@ -224,7 +210,7 @@ export class BusquedaService {
     return filas.map((fila) => fila.id);
   }
 
-  /** Carga los productos en el orden de la fusión, con sus variantes activas y el stock visible. */
+  /** Carga los productos en el orden de la fusión, con su precio y el stock visible. */
   private async cargar(
     userId: string,
     ids: string[],
@@ -234,11 +220,8 @@ export class BusquedaService {
     const [productos, descuentos] = await Promise.all([
       this.prisma.producto.findMany({
         where: { id: { in: ids }, userId, activo: true },
-        include: {
-          variantes: { where: { activo: true }, orderBy: { createdAt: 'asc' }, include: { imagen: { select: { id: true } } } },
-          // Sólo si existe: los bytes nunca vienen en una búsqueda.
-          imagen: { select: { id: true } },
-        },
+        // Sólo si existe: los bytes nunca vienen en una búsqueda.
+        include: { _count: { select: { imagenes: true } } },
       }),
       descuentosActivos(this.prisma, userId, ids),
     ]);
@@ -246,18 +229,16 @@ export class BusquedaService {
     const porId = new Map(productos.map((producto) => [producto.id, producto]));
     const reservadas =
       reservadasDadas ??
-      (await reservadasPorVariante(
+      (await reservadasPorProducto(
         this.prisma,
-        productos.flatMap((producto) => producto.variantes.map((variante) => variante.id)),
+        productos.map((producto) => producto.id),
       ));
 
     return ids.flatMap((id) => {
       const producto = porId.get(id);
-      // Sin variantes sólo vale un producto a medida: no tiene precio ni stock, se cotiza. Con
-      // variantes también puede serlo: son sus versiones de precio fijo.
-      const solicitud = producto ? leerSolicitud(producto.solicitud) : null;
-      const aMedida = solicitud !== null;
-      if (!producto || (producto.variantes.length === 0 && !aMedida)) return [];
+      if (!producto) return [];
+      const reservadasProducto = reservadas.get(producto.id) ?? 0;
+      const descuento = mejorDescuento(descuentos, producto, producto.precioCentavos, ahora);
       return [
         {
           productoId: producto.id,
@@ -266,34 +247,19 @@ export class BusquedaService {
           categoria: producto.categoria,
           descripcion: producto.descripcion,
           moneda: monedaDe(producto.moneda),
-          tieneImagen: producto.imagen !== null,
-          ...(solicitud
-            ? {
-                aMedida,
-                precioReferenciaCentavos: producto.precioReferenciaCentavos,
-                materiales: producto.materiales,
-                preguntas: solicitud.preguntas,
-              }
-            : {}),
-          variantes: producto.variantes.map((variante) => {
-            const reservadasVariante = reservadas.get(variante.id) ?? 0;
-            // A medida no hay descuentos: la versión vale lo que dice.
-            const descuento = aMedida ? null : mejorDescuento(descuentos, producto, variante.precioCentavos, ahora);
-            return {
-              varianteId: variante.id,
-              sku: variante.sku,
-              nombre: variante.nombre,
-              precioCentavos: variante.precioCentavos,
-              precioFinalCentavos: descuento?.precioFinalCentavos ?? variante.precioCentavos,
-              descuento,
-              hayStock: hayStock(variante, 1, reservadasVariante),
-              stock: describirStock(variante, reservadasVariante),
-              unidades: unidadesDisponibles(variante, reservadasVariante),
-              reservadas: reservadasVariante,
-              stockMinimo: variante.stockMinimo,
-              ...(aMedida ? { tieneImagen: variante.imagen !== null } : {}),
-            };
-          }),
+          tieneImagen: producto._count.imagenes > 0,
+          fotosDeDetalle: Math.max(0, producto._count.imagenes - 1),
+          precioCentavos: producto.precioCentavos,
+          precioFinalCentavos: descuento?.precioFinalCentavos ?? producto.precioCentavos,
+          descuento,
+          cuotas: leerCuotasProducto(producto.cuotas, producto.precioCentavos, producto.moneda),
+          preguntas: leerPreguntas(producto.preguntasPedido),
+          hayStock: hayStock(producto, 1, reservadasProducto),
+          stock: describirStock(producto, reservadasProducto),
+          unidades: unidadesDisponibles(producto, reservadasProducto),
+          reservadas: reservadasProducto,
+          stockMinimo: producto.stockMinimo,
+          plazoEntregaDias: producto.plazoEntregaDias,
         },
       ];
     });

@@ -26,7 +26,6 @@ function servicioConDatos(altasPendientes: { id: string }[] = []) {
       deleteMany: vi.fn().mockResolvedValue({ count: altasPendientes.length }),
     },
     venta: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    presupuesto: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     notificacion: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     $executeRaw: vi.fn().mockResolvedValue(0),
   } as unknown as PrismaService;
@@ -90,9 +89,8 @@ describe('purga de retención — adversarial (matriz E)', () => {
     await servicio.purgar();
 
     expect('deleteMany' in prisma.venta).toBe(false);
-    expect('deleteMany' in prisma.presupuesto).toBe(false);
     const { data } = vi.mocked(prisma.venta.updateMany).mock.calls[0][0]!;
-    // Lo que escribió el cliente o el dueño sobre un pedido a medida (LAU-27) también se va.
+    // Lo que escribió el dueño sobre un pedido derivado (LAU-27) también se va.
     expect(data).toEqual({
       nombreCliente: null,
       telefonoCliente: null,

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import type { ClaveMensaje, DefinicionMensaje, MensajeConfigurado, Validacion } from "@/lib/mensajes";
+import type { ClaveItem, DefinicionMensaje, MensajeConfigurado, Validacion } from "@/lib/mensajes";
 
 type Fila = { definicion: DefinicionMensaje; mensaje: MensajeConfigurado; validacion: Validacion };
 
@@ -17,8 +17,8 @@ export function ListaMensajes({
   className,
 }: {
   filas: Fila[];
-  seleccion: ClaveMensaje;
-  onElegir: (clave: ClaveMensaje) => void;
+  seleccion: ClaveItem;
+  onElegir: (clave: ClaveItem) => void;
   className?: string;
 }) {
   return (

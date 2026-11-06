@@ -16,14 +16,13 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 import type { GrafoConversacion } from './conversation.providers.js';
 import { ConversationService, jidDePrueba } from './conversation.service.js';
 
-function crearPrisma(agent: unknown = { id: 'agent-1' }, filas: unknown[] = [], ventaEnAtencion: unknown = null) {
+function crearPrisma(agent: unknown = { id: 'agent-1' }, filas: unknown[] = [], atencion: 'asistente' | 'humana' = 'asistente') {
   return {
     agent: { findUnique: vi.fn().mockResolvedValue(agent) },
     conversation: {
-      upsert: vi.fn().mockResolvedValue({ id: 'conv-1', remoteJid: '54911@s.whatsapp.net' }),
+      upsert: vi.fn().mockResolvedValue({ id: 'conv-1', remoteJid: '54911@s.whatsapp.net', atencion }),
     },
     message: { findMany: vi.fn().mockResolvedValue(filas), create: vi.fn().mockResolvedValue({}) },
-    venta: { findFirst: vi.fn().mockResolvedValue(ventaEnAtencion) },
   } as unknown as PrismaService;
 }
 
@@ -161,8 +160,8 @@ describe('ConversationService.handleIncoming', () => {
     expect(ventas.getState).toHaveBeenCalled();
   });
 
-  it('con un pedido en atención humana el asistente no corre: guarda el mensaje y no contesta (LAU-27)', async () => {
-    const prisma = crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' }, [], { atencion: 'humana', estado: 'cotizado' });
+  it('con el chat en atención humana el asistente no corre: guarda el mensaje y no contesta (LAU-81)', async () => {
+    const prisma = crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' }, [], 'humana');
     const ventas = crearGrafo('no debería contestar');
     const service = new ConversationService(prisma, crearGrafo('agenda'), ventas as never, CONFIG);
 
@@ -175,16 +174,42 @@ describe('ConversationService.handleIncoming', () => {
     });
   });
 
-  it('un pedido en atención humana ya cerrado no calla al asistente', async () => {
-    const prisma = crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' }, [], { atencion: 'humana', estado: 'pagada' });
-    const ventas = crearGrafo('hola de nuevo');
-    const service = new ConversationService(prisma, crearGrafo('agenda'), ventas as never, CONFIG);
+  it('un chat de agenda en atención humana tampoco corre (LAU-81)', async () => {
+    const prisma = crearPrisma({ id: 'agent-1' }, [], 'humana');
+    const agenda = crearGrafo('no debería contestar');
+    const service = new ConversationService(prisma, agenda, crearGrafo('x') as never, CONFIG);
 
-    expect(await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola')).toBe('hola de nuevo');
+    expect(await service.responder('user-1', '54911@s.whatsapp.net', 'hola')).toEqual({
+      texto: '',
+      imagenes: [],
+      enAtencionHumana: true,
+    });
+    expect(agenda.invoke).not.toHaveBeenCalled();
+  });
+
+  it('si lo pendiente ya estaba guardado y el chat volvió a una persona, no lo guarda otra vez', async () => {
+    const prisma = crearPrisma({ id: 'agent-1' }, [], 'humana');
+    const service = new ConversationService(prisma, crearGrafo('x'), crearGrafo('x') as never, CONFIG);
+
+    await service.responder('user-1', '54911@s.whatsapp.net', 'hola', { yaGuardado: true });
+
+    expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+
+  it('contesta lo ya guardado marcándolo para que persistir no lo duplique', async () => {
+    const agenda = crearGrafo('respuesta');
+    const service = new ConversationService(crearPrisma(), agenda, crearGrafo('x') as never, CONFIG);
+
+    await service.responder('user-1', '54911@s.whatsapp.net', '¿tenés lugar?', { yaGuardado: true });
+
+    const [entrada] = agenda.invoke.mock.calls[0] as [{ messages: Array<{ content: unknown; response_metadata: unknown }> }];
+    const humano = entrada.messages.at(-1)!;
+    expect(humano.content).toBe('¿tenés lugar?');
+    expect(humano.response_metadata).toMatchObject({ yaGuardado: true });
   });
 
   it('en el banco de pruebas un chat en atención humana le avisa al dueño en vez de callarse', async () => {
-    const prisma = crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' }, [], { atencion: 'humana', estado: 'a_cotizar' });
+    const prisma = crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' }, [], 'humana');
     const service = new ConversationService(prisma, crearGrafo('agenda'), crearGrafo('x') as never, CONFIG);
 
     expect(await service.handleIncoming('user-1', jidDePrueba('user-1'), 'hola')).toContain('atención humana');

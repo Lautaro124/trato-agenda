@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  esperaDeEscucha,
   ESPERA_RAFAGA_MS,
   MAXIMO_RAFAGA_MS,
   demoraDeEscritura,
@@ -51,12 +52,35 @@ describe('partirEnMensajes', () => {
 });
 
 describe('esperaDeRafaga', () => {
-  it('espera el silencio entero mientras no se pase del tope', () => {
-    expect(esperaDeRafaga(0, 1_000)).toBe(ESPERA_RAFAGA_MS);
+  it('espera el silencio entero desde el último mensaje mientras no se pase del tope', () => {
+    expect(esperaDeRafaga(0, 1_000, 1_000)).toBe(ESPERA_RAFAGA_MS);
+    expect(esperaDeRafaga(0, 1_000, 3_000)).toBe(ESPERA_RAFAGA_MS - 2_000);
   });
 
   it('cerca del tope espera sólo lo que falta, y pasado el tope sale ya', () => {
-    expect(esperaDeRafaga(0, MAXIMO_RAFAGA_MS - 1_000)).toBe(1_000);
-    expect(esperaDeRafaga(0, MAXIMO_RAFAGA_MS + 5_000)).toBe(0);
+    const cerca = MAXIMO_RAFAGA_MS - 1_000;
+    expect(esperaDeRafaga(0, cerca, cerca)).toBe(1_000);
+    expect(esperaDeRafaga(0, MAXIMO_RAFAGA_MS + 5_000, MAXIMO_RAFAGA_MS + 5_000)).toBe(0);
+  });
+
+  it('mientras el cliente escribe espera hasta que venza, aunque pase el silencio o el tope', () => {
+    expect(esperaDeRafaga(0, 0, 1_000, 30_000)).toBe(29_000);
+    expect(esperaDeRafaga(0, 0, MAXIMO_RAFAGA_MS + 1_000, MAXIMO_RAFAGA_MS + 3_000)).toBe(2_000);
+  });
+
+  it('si dejó de escribir hace rato, vuelve a mandar el silencio', () => {
+    expect(esperaDeRafaga(0, 0, 1_000, 500)).toBe(ESPERA_RAFAGA_MS - 1_000);
+  });
+});
+
+describe('esperaDeEscucha', () => {
+  it('dura lo que el audio más 2 a 4 s, descontando el silencio que igual espera la ráfaga', () => {
+    expect(esperaDeEscucha(30, 0) + ESPERA_RAFAGA_MS).toBe(32_000);
+    expect(esperaDeEscucha(30, 1) + ESPERA_RAFAGA_MS).toBe(34_000);
+  });
+
+  it('un audio corto no espera más que la ráfaga', () => {
+    expect(esperaDeEscucha(2, 1)).toBe(0);
+    expect(esperaDeEscucha(0, 0.5)).toBe(0);
   });
 });

@@ -1,44 +1,18 @@
 import { apiFetch } from "./api";
 import { ErrorDeApi, type Moneda } from "./productos";
 
-/** Los tres primeros sólo existen en los pedidos a medida: todavía no tienen precio. */
-export type EstadoVenta =
-  | "solicitado"
-  | "a_cotizar"
-  | "cotizado"
-  | "pendiente_pago"
-  | "pagada"
-  | "cancelada"
-  | "vencida";
-
-export type RespuestaSolicitud = { pregunta: string; respuesta: string };
-
-/** Lo que pidió el cliente en un pedido a medida (espejo de `SolicitudDeVenta`). */
-export type SolicitudDePedido = {
-  productoId: string | null;
-  nombreProducto: string | null;
-  respuestas: RespuestaSolicitud[];
-  resumen: string;
-  /** La versión de precio fijo de la que salió (tal cual o de base), con el precio al pedirla. */
-  variante: { id: string; nombre: string; precioCentavos: number; cantidad: number } | null;
-  /** Lo que el cliente quiere distinto de esa versión; null = la pidió tal cual. */
-  cambios: string | null;
-};
+export type EstadoVenta = "pendiente_pago" | "pagada" | "cancelada" | "vencida";
 
 /** Espejo de `VentaPublica` en la API. */
 export type Venta = {
   id: string;
   estado: EstadoVenta;
-  /** "stock" (del catálogo) | "a_medida" (se cotiza). */
-  tipo: "stock" | "a_medida";
   /** "humana" mientras lo atendés vos: el asistente no contesta en ese chat. */
   atencion: "asistente" | "humana";
   derivadaAt: string | null;
   motivoDerivacion: string | null;
   detalleDerivacion: string | null;
   devueltaAt: string | null;
-  solicitud: SolicitudDePedido | null;
-  /** null en un pedido a medida que todavía no se cobra. */
   medioPago: "mercadopago" | "manual" | null;
   /** Cómo eligió pagar el cliente (LAU-34); null = en un pago. */
   formaPago: "efectivo" | "cuotas" | null;
@@ -47,7 +21,6 @@ export type Venta = {
   recargoCentavos: number;
   nombreCliente: string | null;
   telefonoCliente: string | null;
-  /** null mientras un pedido a medida no tiene presupuesto. */
   totalCentavos: number | null;
   moneda: string;
   reservaVenceAt: string | null;
@@ -66,7 +39,6 @@ export type Venta = {
   items: Array<{
     codigo: string;
     nombreProducto: string;
-    nombreVariante: string;
     cantidad: number;
     /** Lo que se cobró por unidad, ya con el descuento. */
     precioUnitarioCentavos: number;
@@ -75,38 +47,13 @@ export type Venta = {
     precioListaCentavos: number | null;
     descuentoCentavos: number;
     descuentoEtiqueta: string | null;
+    /** Lo que contestó el cliente a las preguntas del producto. */
+    respuestas: Array<{ pregunta: string; respuesta: string }>;
   }>;
 };
 
-export const TIPOS_RENGLON = ["material", "proceso", "mano_obra", "extra", "otro"] as const;
-export type TipoRenglon = (typeof TIPOS_RENGLON)[number];
-
-export type RenglonPresupuesto = {
-  concepto: string;
-  tipo: TipoRenglon;
-  cantidad: number;
-  unidad: string;
-  precioUnitarioCentavos: number;
-  subtotalCentavos: number;
-};
-
-export type Presupuesto = {
-  id: string;
-  version: number;
-  origen: "asistente" | "dueno";
-  estado: "borrador" | "enviado" | "reemplazado" | "descartado";
-  totalCentavos: number;
-  moneda: string;
-  estimativo: boolean;
-  detalleAlCliente: boolean;
-  nota: string | null;
-  enviadoAt: string | null;
-  createdAt: string;
-  renglones: RenglonPresupuesto[];
-};
-
 export type EventoPedido = {
-  tipo: "estado" | "derivacion" | "devolucion" | "presupuesto" | "cobro";
+  tipo: "derivacion" | "devolucion";
   de: string | null;
   a: string | null;
   motivo: string | null;
@@ -116,10 +63,9 @@ export type EventoPedido = {
 
 export type MensajeDelChat = { de: "cliente" | "asistente" | "dueno"; texto: string; createdAt: string };
 
-/** Espejo de `DetalleVentaPublica`: lo del listado más presupuestos, historial y conversación. */
+/** Espejo de `DetalleVentaPublica`: lo del listado más historial y conversación. */
 export type DetalleVenta = Venta & {
   notaDevolucion: string | null;
-  presupuestos: Presupuesto[];
   eventos: EventoPedido[];
   mensajes: MensajeDelChat[];
 };
@@ -130,8 +76,6 @@ export type Totales = {
   ticketPromedioCentavos: number;
   pendienteCentavos: number;
   pendientes: number;
-  /** Pedidos a medida que esperan precio: no suman plata. */
-  porCotizar: number;
 };
 
 export type ListadoVentas = {
@@ -166,9 +110,6 @@ export type FiltrosVentas = {
 };
 
 export const ETIQUETA_ESTADO: Record<EstadoVenta, string> = {
-  solicitado: "Solicitado",
-  a_cotizar: "A cotizar",
-  cotizado: "Cotizado",
   pendiente_pago: "Pendiente de pago",
   pagada: "Pagada",
   cancelada: "Cancelada",
@@ -208,7 +149,7 @@ export const ETIQUETA_MOTIVO: Record<string, string> = {
   falta_info: "Falta información que el asistente no puede conseguir",
   excepcion: "Pide algo fuera de lo habitual",
   pide_persona: "Quiere hablar con una persona",
-  sin_reglas: "No hay cómo cotizarlo automáticamente",
+  sin_reglas: "El asistente no podía resolverlo",
   cobro_manual: "Espera que le cobres a mano: se libera solo cuando lo marcás pagado o lo cancelás",
   dueno: "Lo tomaste vos",
   otro: "Otro motivo",
@@ -238,50 +179,16 @@ export function listarEnAtencion(): Promise<Venta[]> {
   return apiFetch("/ventas/atencion").then((res) => json<Venta[]>(res));
 }
 
-/** "Atender yo" (`humana: true`) o "Devolver al asistente", con una nota para el asistente. */
-export function cambiarAtencion(id: string, humana: boolean, nota?: string): Promise<DetalleVenta> {
-  return postar(`/ventas/${encodeURIComponent(id)}/atencion`, { humana, ...(nota?.trim() ? { nota: nota.trim() } : {}) });
+/** "Devolver al asistente", con una nota para el asistente. */
+export function devolverAlAsistente(id: string, nota?: string): Promise<DetalleVenta> {
+  return postar(`/ventas/${encodeURIComponent(id)}/devolver`, nota?.trim() ? { nota: nota.trim() } : {});
 }
 
-export type PresupuestoAGuardar = {
-  renglones: Array<Pick<RenglonPresupuesto, "concepto" | "tipo" | "cantidad" | "unidad" | "precioUnitarioCentavos">>;
-  estimativo: boolean;
-  detalleAlCliente: boolean;
-  nota?: string;
-  /** true: se le manda al cliente en el mismo paso. */
-  enviar?: boolean;
-};
-
-export function crearPresupuesto(id: string, presupuesto: PresupuestoAGuardar): Promise<DetalleVenta & { mandado?: boolean }> {
-  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos`, presupuesto);
-}
-
-/** Un borrador calculado con la receta del producto y las respuestas del pedido. */
-export function presupuestoDesdeReceta(id: string): Promise<DetalleVenta> {
-  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos/desde-receta`);
-}
-
-export function enviarPresupuesto(id: string, presupuestoId: string): Promise<DetalleVenta & { mandado: boolean }> {
-  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos/${encodeURIComponent(presupuestoId)}/enviar`);
-}
-
-export function descartarPresupuesto(id: string, presupuestoId: string): Promise<DetalleVenta> {
-  return postar(`/ventas/${encodeURIComponent(id)}/presupuestos/${encodeURIComponent(presupuestoId)}/descartar`);
-}
-
-/** Genera el cobro del presupuesto vigente sin esperar a que el cliente diga que sí. */
-export function cobrarPedido(id: string, medioPago?: "mercadopago" | "manual"): Promise<DetalleVenta> {
-  return postar(`/ventas/${encodeURIComponent(id)}/cobrar`, medioPago ? { medioPago } : {});
-}
-
-/** El producto que se vende en un pedido: los renglones cobrados o, a medida, lo que se pidió. */
-export function resumenDeVenta(venta: Pick<Venta, "items" | "solicitud">): string {
-  if (venta.items.length > 0) {
-    return venta.items
-      .map((item) => `${item.cantidad} × ${item.nombreProducto}${item.nombreVariante ? ` (${item.nombreVariante})` : ""}`)
-      .join(", ");
-  }
-  return venta.solicitud?.nombreProducto ? `A medida: ${venta.solicitud.nombreProducto}` : "Pedido a medida";
+/** Lo que se vende en un pedido, en una línea. */
+export function resumenDeVenta(venta: Pick<Venta, "items">): string {
+  return venta.items
+    .map((item) => `${item.cantidad} × ${item.nombreProducto}`)
+    .join(", ");
 }
 
 /** Descarga el CSV con los mismos filtros que la pantalla (sin paginar). */

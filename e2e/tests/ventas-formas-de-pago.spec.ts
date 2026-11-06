@@ -3,57 +3,35 @@ import { expect, test } from './fixtures';
 import { crearAgenteVentasPorApi, nuevoProducto } from './ventas';
 
 test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
-  test('se configuran cuotas y descuento en efectivo en Cuenta y quedan guardados', async ({ page, context, usuarioDev }) => {
+  test('el descuento en efectivo se configura en Productos y queda guardado', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
+    await context.request.post(`${API_URL}/productos`, {
+      data: { codigo: 'MATE-E2E', nombre: 'Mate', precioCentavos: 100_000 },
+    });
 
-    // El paso del Home arranca pendiente y lleva a la sección de Cuenta.
+    // El paso del Home arranca pendiente y lleva a Productos.
     await page.goto('/inicio');
     const tienda = page.getByRole('region', { name: 'Tu tienda' });
-    await expect(tienda.getByText('Definí cuotas y pago en efectivo (pendiente)')).toBeVisible();
+    await expect(tienda.getByText('Definí el pago en efectivo (pendiente)')).toBeVisible();
     await tienda.getByRole('link', { name: 'Configurar' }).click();
-    await page.waitForURL('**/cuenta#formas-de-pago');
-    const seccion = page.getByRole('region', { name: 'Formas de pago' });
-    await expect(seccion.getByText('No ofrecés pago en cuotas.')).toBeVisible();
+    await page.waitForURL('**/productos');
+    const grupo = page.getByRole('region', { name: 'Promociones' }).getByRole('group', { name: 'Descuento en efectivo' });
 
-    await seccion.getByRole('button', { name: 'Agregar plan de cuotas' }).click();
-    await seccion.getByLabel('Cantidad de cuotas').nth(0).fill('6');
-    await seccion.getByLabel('Recargo (%)').nth(0).fill('15');
-    await seccion.getByRole('button', { name: 'Agregar plan de cuotas' }).click();
-    await seccion.getByLabel('Cantidad de cuotas').nth(1).fill('6');
-    // Dos planes iguales no se pueden guardar.
-    await expect(seccion.getByRole('alert')).toHaveText('Hay dos planes de 6 cuotas: dejá uno.');
-    await expect(seccion.getByRole('button', { name: 'Guardar formas de pago' })).toBeDisabled();
-    await seccion.getByLabel('Cantidad de cuotas').nth(1).fill('3');
-    // El plan nuevo arranca sin interés: avisa cómo se cobra sin Mercado Pago.
-    await expect(seccion.getByText(/las cuotas se coordinan por WhatsApp/)).toBeVisible();
-    await seccion.getByLabel('Descuento en efectivo (%)').fill('10');
-    await seccion.getByRole('button', { name: 'Guardar formas de pago' }).click();
-    await expect(seccion.getByRole('status')).toHaveText('Listo: tu asistente ya ofrece estas formas de pago.');
+    await grupo.getByLabel('Descuento en efectivo (%)').fill('10');
+    await grupo.getByRole('button', { name: 'Guardar descuento' }).click();
+    await expect(grupo.getByRole('status')).toHaveText('Listo: tu asistente ya ofrece este descuento.');
 
     const res = await context.request.get(`${API_URL}/condiciones-pago`);
     expect(res.ok(), await res.text()).toBe(true);
-    expect(await res.json()).toEqual({
-      planesCuotas: [
-        { cuotas: 3, recargoPorcentaje: 0 },
-        { cuotas: 6, recargoPorcentaje: 15 },
-      ],
-      descuentoEfectivoPorcentaje: 10,
-      cobroManual: null,
-    });
+    expect(await res.json()).toEqual({ descuentoEfectivoPorcentaje: 10, cobroManual: null });
 
-    // Al volver, la sección muestra lo guardado, ordenado por cuotas.
     await page.reload();
-    await expect(seccion.getByLabel('Cantidad de cuotas').nth(0)).toHaveValue('3');
-    await expect(seccion.getByLabel('Recargo (%)').nth(1)).toHaveValue('15');
-    await expect(seccion.getByLabel('Descuento en efectivo (%)')).toHaveValue('10');
+    await expect(grupo.getByLabel('Descuento en efectivo (%)')).toHaveValue('10');
 
-    // Con algo configurado, el paso del Home queda hecho y resume lo que ofrece.
     await page.goto('/inicio');
-    await expect(tienda.getByText('Definí cuotas y pago en efectivo (hecho)')).toBeVisible();
-    await expect(
-      tienda.getByText('Tu asistente ofrece: 3 cuotas sin interés, 6 cuotas con 15% de recargo, 10% off en efectivo.'),
-    ).toBeVisible();
+    await expect(tienda.getByText('Definí el pago en efectivo (hecho)')).toBeVisible();
+    await expect(tienda.getByText('Tu asistente ofrece: 10% off en efectivo.')).toBeVisible();
   });
 
   test('el cobro sin link se configura con un alias o con un mensaje propio', async ({ page, context, usuarioDev }) => {
@@ -89,38 +67,88 @@ test.describe('formas de pago del asistente de ventas (LAU-34)', () => {
       mensaje: 'Te cobramos {total} desde el 11-5555-0000, {nombre}.',
     });
 
+    // Guardar el cobro no pisa el descuento en efectivo, y al revés.
+    await context.request.put(`${API_URL}/condiciones-pago`, { data: { descuentoEfectivoPorcentaje: 15 } });
+    res = await context.request.get(`${API_URL}/condiciones-pago`);
+    expect(await res.json()).toMatchObject({ descuentoEfectivoPorcentaje: 15, cobroManual: { modo: 'otro_canal' } });
+
     // Un dato que no se completa solo lo rechaza también la API.
     const rechazo = await context.request.put(`${API_URL}/condiciones-pago`, {
-      data: { planesCuotas: [], descuentoEfectivoPorcentaje: null, cobroManual: { modo: 'otro_canal', mensaje: 'Pagá en {link}' } },
+      data: { descuentoEfectivoPorcentaje: null, cobroManual: { modo: 'otro_canal', mensaje: 'Pagá en {link}' } },
     });
     expect(rechazo.status()).toBe(400);
   });
 
-  test('un producto se limita a menos cuotas desde su editor', async ({ page, context, usuarioDev }) => {
+  test('cada producto define sus cuotas: un % de recargo o un precio por cuota', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
+    type ConCuotas = { codigo: string; cuotas: unknown };
+    const cuotasDe = async (codigo: string) => {
+      const res = await context.request.get(`${API_URL}/productos`);
+      expect(res.ok(), await res.text()).toBe(true);
+      const { productos } = (await res.json()) as { productos: ConCuotas[] };
+      return productos.find((producto) => producto.codigo === codigo)?.cuotas;
+    };
+
+    // Con recargo: al prender las cuotas arranca en 3 y el dueño suma las que marca.
     await page.goto('/productos');
-    const formulario = await nuevoProducto(page, 'stock');
+    let formulario = await nuevoProducto(page);
     await formulario.getByLabel('Código', { exact: true }).fill('HELADERA-E2E');
     await formulario.getByLabel('Nombre', { exact: true }).fill('Heladera');
     await formulario.getByLabel(/^Precio/).first().fill('500.000');
-    await expect(formulario.getByLabel('Cuotas')).toHaveValue('');
-    await formulario.getByLabel('Cuotas').selectOption({ label: 'Hasta 3 cuotas' });
+    await formulario.getByLabel('Stock (unidades)').fill('10');
+    await expect(formulario.getByRole('switch', { name: 'Ofrecer cuotas' })).not.toBeChecked();
+    await formulario.getByRole('switch', { name: 'Ofrecer cuotas' }).check();
+    await expect(formulario.getByRole('button', { name: '3 cuotas', pressed: true, exact: true })).toBeVisible();
+    await formulario.getByRole('button', { name: '6 cuotas', exact: true }).click();
+    await formulario.getByLabel('Recargo (%)').fill('10');
+    await expect(formulario.getByText('3 cuotas de $ 183.333')).toBeVisible();
     await formulario.getByRole('button', { name: 'Guardar producto' }).click();
     await expect(page).toHaveURL(/\/productos$/);
+    expect(await cuotasDe('HELADERA-E2E')).toEqual({ modo: 'recargo', recargoPorcentaje: 10, planes: [3, 6] });
 
-    const res = await context.request.get(`${API_URL}/productos`);
-    expect(res.ok(), await res.text()).toBe(true);
-    const { productos } = (await res.json()) as { productos: Array<{ codigo: string; cuotasMax: number | null }> };
-    expect(productos.find((producto) => producto.codigo === 'HELADERA-E2E')?.cuotasMax).toBe(3);
+    // Con precio por cuota: el total no puede quedar por debajo del precio.
+    formulario = await nuevoProducto(page);
+    await formulario.getByLabel('Código', { exact: true }).fill('LAVARROPAS-E2E');
+    await formulario.getByLabel('Nombre', { exact: true }).fill('Lavarropas');
+    await formulario.getByLabel(/^Precio/).first().fill('400.000');
+    await formulario.getByLabel('Stock (unidades)').fill('10');
+    await formulario.getByRole('switch', { name: 'Ofrecer cuotas' }).check();
+    await formulario.getByRole('button', { name: '3 cuotas', pressed: true, exact: true }).click();
+    await formulario.getByLabel('Otra cantidad').fill('12');
+    await formulario.getByRole('button', { name: 'Agregar', exact: true }).click();
+    await expect(formulario.getByRole('button', { name: '12 cuotas', pressed: true, exact: true })).toBeVisible();
+    await formulario.getByText('Un precio por cuota', { exact: true }).click();
+    await formulario.getByLabel('Total en 12 cuotas').fill('300.000');
+    await formulario.getByRole('button', { name: 'Guardar producto' }).click();
+    await expect(formulario.getByText(/El total en 12 cuotas no puede ser menor que el precio/)).toBeVisible();
+    await formulario.getByLabel('Total en 12 cuotas').fill('520.000');
+    await formulario.getByRole('button', { name: 'Guardar producto' }).click();
+    await expect(page).toHaveURL(/\/productos$/);
+    expect(await cuotasDe('LAVARROPAS-E2E')).toEqual({ modo: 'precios', planes: [{ cuotas: 12, totalCentavos: 52_000_000 }] });
+
+    // Al volver a editarlo, se ve lo guardado.
+    await page.getByRole('button', { name: 'Editar Lavarropas' }).click();
+    await expect(page.getByRole('switch', { name: 'Ofrecer cuotas' })).toBeChecked();
+    await expect(page.getByRole('button', { name: '12 cuotas', pressed: true, exact: true })).toBeVisible();
+    await expect(page.getByLabel('Total en 12 cuotas')).toHaveValue('520.000');
   });
 
-  test('la API rechaza condiciones fuera de rango', async ({ context, usuarioDev }) => {
+  test('la API rechaza condiciones y cuotas fuera de rango', async ({ context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);
-    const res = await context.request.put(`${API_URL}/condiciones-pago`, {
-      data: { planesCuotas: [{ cuotas: 30, recargoPorcentaje: 0 }], descuentoEfectivoPorcentaje: null },
+    const condiciones = await context.request.put(`${API_URL}/condiciones-pago`, {
+      data: { descuentoEfectivoPorcentaje: 95 },
     });
-    expect(res.status()).toBe(400);
+    expect(condiciones.status()).toBe(400);
+    const producto = await context.request.post(`${API_URL}/productos`, {
+      data: {
+        codigo: 'CUOTAS-MAL',
+        nombre: 'Silla',
+        precioCentavos: 100_000,
+        cuotas: { modo: 'recargo', recargoPorcentaje: 0, planes: [30] },
+      },
+    });
+    expect(producto.status()).toBe(400);
   });
 });

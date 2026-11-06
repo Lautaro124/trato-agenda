@@ -1,6 +1,12 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import {
+  aCobroManual,
+  COBRO_INICIAL,
+  type BorradorCobro,
+} from "@/components/cuenta/ControlesCobroManual";
+import { problemaDeCobroManual } from "@/lib/condiciones-pago";
 import { useDatosCliente, type PayloadDatosCliente } from "@/lib/datos-cliente";
 import { ZONA_POR_DEFECTO } from "@/lib/horario-atencion";
 import {
@@ -132,6 +138,7 @@ export type PasoId =
   | "horarios"
   | "local"
   | "datos"
+  | "cobro"
   | "cuando"
   | "asistente";
 
@@ -148,8 +155,7 @@ export type Atencion = "individual" | "grupal" | "ambas";
  * que ofrece sale del catálogo, que se carga en /productos. Los dos piden
  * cuándo atiende el asistente por WhatsApp (LAU-29), que no es la franja de turnos.
  * Sí pregunta por el local a la calle, para contestar dónde queda y si se retira.
- * Su paso "datos" (qué le pide al cliente, envíos) es opcional. Si vende con
- * stock o a medida no se pregunta: lo dice cada producto al cargarlo.
+ * Su paso "datos" (qué le pide al cliente, envíos) es opcional.
  */
 export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> = {
   agenda: [
@@ -168,6 +174,7 @@ export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> 
     { id: "negocio", label: "Tu negocio" },
     { id: "local", label: "Tu local" },
     { id: "datos", label: "Datos del cliente" },
+    { id: "cobro", label: "Cobro sin link" },
     { id: "cuando", label: "Cuándo atiende" },
     { id: "asistente", label: "Tu asistente" },
   ],
@@ -198,6 +205,7 @@ export const AYUDA_POR_PASO: Record<PasoId, string> = {
   horarios: "Fuera de esta franja el asistente no ofrece horarios.",
   local: "Lo que no cargues, el asistente no lo inventa: te pasa la consulta a vos.",
   datos: "Es opcional: lo podés cambiar cuando quieras desde Cuenta.",
+  cobro: "Aplica a los pedidos que no van con link de Mercado Pago. Lo cambiás cuando quieras desde Cuenta.",
   cuando:
     "Fuera de este horario el asistente no empieza chats nuevos: los ves vos en WhatsApp. Lo cambiás o lo sacás desde Cuenta.",
   asistente: "Así arranca cada conversación en WhatsApp.",
@@ -475,6 +483,10 @@ export function useOnboarding() {
   const horarioBot = useSemana(semanaInicial, { nocturnas: true });
   const [zona, setZona] = useState(ZONA_POR_DEFECTO);
   const [atenderSiempre, setAtenderSiempre] = useState(false);
+  // Cobro sin link (LAU-34): no viaja con el asistente, se guarda aparte al crearlo.
+  const [cobro, setCobro] = useState<BorradorCobro>(COBRO_INICIAL);
+  const cobroManual = aCobroManual(cobro);
+  const problemaCobro = problemaDeCobroManual(cobroManual);
 
   const elegirTipoUso = useCallback(
     (id: TipoUsoId) => {
@@ -545,6 +557,7 @@ export function useOnboarding() {
     local: local.valido,
     // Opcional: sin tildar nada el asistente sólo pide el nombre.
     datos: true,
+    cobro: problemaCobro === null,
     cuando: atenderSiempre || (horarioBot.valida && diasConAtencion > 0),
     asistente: nombreBot.trim().length >= LARGO_MIN_NOMBRE,
   };
@@ -567,6 +580,7 @@ export function useOnboarding() {
     horarios: `${horaDesde}–${horaHasta}`,
     local: local.resumen,
     datos: datosCliente.resumen,
+    cobro: { chat: "Por el chat", transferencia: "Transferencia", otro_canal: "Otro canal" }[cobro.modo],
     cuando: atenderSiempre ? "Siempre" : `${diasConAtencion} ${diasConAtencion === 1 ? "día" : "días"}`,
     asistente: nombreBot.trim(),
   };
@@ -664,6 +678,11 @@ export function useOnboarding() {
     setZona,
     atenderSiempre,
     setAtenderSiempre,
+    cobro,
+    cambiarCobro: (cambio: Partial<BorradorCobro>) => setCobro((previo) => ({ ...previo, ...cambio })),
+    problemaCobro,
+    /** Lo que se guarda en PUT /condiciones-pago una vez creado el asistente de ventas. */
+    cobroManual,
     puedeAvanzar,
     presentacion,
     saludo,

@@ -279,10 +279,10 @@ export default function Home() {
       >
         <div className="mx-auto max-w-[920px] text-center">
           <h2 className="mb-3 font-display text-[28px] leading-[1.12] font-bold tracking-[-0.03em] text-ink md:text-[38px]">
-            Dos planes, según cuántos chats atiendas
+            Un solo plan, con todo incluido
           </h2>
           <p className="mb-7 text-[16px] leading-[1.6] text-ink-secondary">
-            Probás un mes completo gratis. Si te sirve, elegís el plan que te quede cómodo.
+            Probás un mes completo gratis. Si te sirve, seguís con el plan.
           </p>
           <PlanesPrecio incluye={INCLUYE_PLAN} />
           <p className="mt-5 text-[13px] leading-[1.6] text-muted">

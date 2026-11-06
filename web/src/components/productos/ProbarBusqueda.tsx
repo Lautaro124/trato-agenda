@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { buscarComoElAsistente, formatearCentavos, formatearMonto, type ProductoEncontrado } from "@/lib/productos";
+import { buscarComoElAsistente, formatearMonto, type ProductoEncontrado } from "@/lib/productos";
 
 /**
  * "¿Qué encuentra mi asistente si le preguntan esto?": la misma búsqueda que
@@ -56,33 +56,20 @@ export function ProbarBusqueda() {
             <li key={producto.productoId} className="rounded-md bg-sunken px-3 py-2 text-[13.5px]">
               <span className="font-semibold text-ink">{producto.nombre}</span>
               <span className="text-muted"> · {producto.codigo}</span>
-              <ul className="text-[12.5px] text-ink-secondary">
-                {producto.aMedida && (
-                  <li>
-                    A medida ·{" "}
-                    {producto.precioReferenciaCentavos
-                      ? `desde ${formatearCentavos(producto.precioReferenciaCentavos)}`
-                      : "precio a cotizar"}
-                  </li>
-                )}
-                {producto.variantes.map((variante) => (
-                  <li key={variante.varianteId}>
-                    {variante.nombre ? `${variante.nombre}: ` : ""}
-                    {variante.descuento ? (
-                      <>
-                        <strong className="text-[var(--color-primitive-coral-700)]">
-                          {formatearMonto(variante.precioFinalCentavos, producto.moneda)}
-                        </strong>{" "}
-                        <span className="text-muted line-through">{formatearMonto(variante.precioCentavos, producto.moneda)}</span> ·{" "}
-                        {variante.descuento.etiqueta}
-                      </>
-                    ) : (
-                      formatearMonto(variante.precioCentavos, producto.moneda)
-                    )}{" "}
-                    ({variante.stock})
-                  </li>
-                ))}
-              </ul>
+              <p className="text-[12.5px] text-ink-secondary">
+                {producto.descuento ? (
+                  <>
+                    <strong className="text-[var(--color-primitive-coral-700)]">
+                      {formatearMonto(producto.precioFinalCentavos, producto.moneda)}
+                    </strong>{" "}
+                    <span className="text-muted line-through">{formatearMonto(producto.precioCentavos, producto.moneda)}</span> ·{" "}
+                    {producto.descuento.etiqueta}
+                  </>
+                ) : (
+                  formatearMonto(producto.precioCentavos, producto.moneda)
+                )}{" "}
+                ({producto.stock})
+              </p>
             </li>
           ))}
         </ol>

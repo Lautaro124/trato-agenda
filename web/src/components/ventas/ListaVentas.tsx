@@ -6,19 +6,16 @@ import { formatearMonto } from "@/lib/productos";
 import { ETIQUETA_ESTADO, fechaCorta, resumenDeVenta, type EstadoVenta, type Venta } from "@/lib/ventas";
 
 /** Estado → tono de Badge. Los colores de estado sólo cuando el estado significa algo bueno o a atender. */
-export const TONO_ESTADO: Record<EstadoVenta, "success" | "warning" | "neutral" | "info"> = {
-  solicitado: "info",
-  a_cotizar: "warning",
-  cotizado: "info",
+export const TONO_ESTADO: Record<EstadoVenta, "success" | "warning" | "neutral"> = {
   pagada: "success",
   pendiente_pago: "warning",
   vencida: "neutral",
   cancelada: "neutral",
 };
 
-/** El total, o qué falta para tenerlo en un pedido a medida sin cotizar. */
+/** El total del pedido, en su moneda. */
 export function totalDeVenta(venta: Pick<Venta, "totalCentavos" | "moneda">): string {
-  return venta.totalCentavos === null ? "Sin precio" : formatearMonto(venta.totalCentavos, venta.moneda);
+  return formatearMonto(venta.totalCentavos ?? 0, venta.moneda);
 }
 
 /** Un pedido abierto que atendés vos: el asistente no contesta en ese chat. */

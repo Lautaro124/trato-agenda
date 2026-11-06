@@ -7,6 +7,7 @@ const CONFIG: Partial<Env> = {
   LINEAR_API_KEY: 'lin_api_prueba',
   LINEAR_TEAM_ID: 'equipo-1',
   LINEAR_LABEL_ID: 'etiqueta-1',
+  LINEAR_PROJECT_ID: 'proyecto-1',
   LINEAR_API_URL: 'https://linear.test/graphql',
 };
 
@@ -40,6 +41,7 @@ describe('LinearClient', () => {
       title: ISSUE.titulo,
       description: ISSUE.descripcion,
       labelIds: ['etiqueta-1'],
+      projectId: 'proyecto-1',
     });
   });
 
@@ -48,6 +50,13 @@ describe('LinearClient', () => {
     await cliente({ ...CONFIG, LINEAR_LABEL_ID: '' }).crearIssue(ISSUE);
     const cuerpo = JSON.parse(String(fetch.mock.calls[0][1]?.body)) as { variables: { input: Record<string, unknown> } };
     expect(cuerpo.variables.input).not.toHaveProperty('labelIds');
+  });
+
+  it('sin proyecto no manda projectId', async () => {
+    const fetch = responder({ data: { issueCreate: { success: true, issue: { identifier: 'LAU-31' } } } });
+    await cliente({ ...CONFIG, LINEAR_PROJECT_ID: '' }).crearIssue(ISSUE);
+    const cuerpo = JSON.parse(String(fetch.mock.calls[0][1]?.body)) as { variables: { input: Record<string, unknown> } };
+    expect(cuerpo.variables.input).not.toHaveProperty('projectId');
   });
 
   it('sin configurar falla sin llamar a Linear', async () => {

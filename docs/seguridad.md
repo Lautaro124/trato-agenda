@@ -28,7 +28,7 @@ controles que corren solos están en `.github/workflows/security.yml` y
 | 5 | Media | Las imágenes de producción corrían como `root` y traían npm, corepack y yarn (con `tar`, `brace-expansion` e `ip-address` vulnerables adentro), que el runtime no usa. | **Arreglado**: `USER node`; el código queda de root (sólo lectura) y en la web sólo `.next` es escribible (cache de `next/image`). Se borran npm/npx/corepack/yarn y se hace `apk upgrade`; la API corre `prisma` directo desde `node_modules/.bin`. CI verifica que la imagen no sea root y Grype la escanea. |
 | 6 | Media | La web no mandaba `X-Frame-Options` ni `frame-ancestors`: `/cuenta` (borrar la cuenta) y `/vincular` se podían embeber en un iframe (clickjacking). | **Arreglado**: cabeceras en `web/next.config.ts` (más `nosniff`, `Referrer-Policy`, `Permissions-Policy`, HSTS) y `poweredByHeader: false`. |
 | 7 | Baja | La API no mandaba cabeceras de seguridad y anunciaba `X-Powered-By: Express`. | **Arreglado**: `api/src/security-headers.ts` (`nosniff`, `DENY`, CSP `default-src 'none'`, `no-referrer`) y `x-powered-by` apagado. |
-| 8 | Media | Cambiar la contraseña (o recuperarla por código) **no invalida las sesiones abiertas**: un JWT robado sigue valiendo hasta 7 días aunque el dueño ya haya cambiado la clave. | **Pendiente**: requiere un `User.sesionVersion` (migración) que viaje en el JWT y se compare en `JwtStrategy.validate`, incrementado en `POST /auth/password`, en la verificación del código y en `/auth/logout`. |
+| 8 | Media | Cambiar la contraseña (o recuperarla por código) **no invalida las sesiones abiertas**: un JWT robado sigue valiendo hasta 7 días aunque el dueño ya haya cambiado la clave. | **Arreglado** (2026-11-02, LAU-73): `User.sesionVersion` viaja en el JWT (`sv`) y `AuthService.usuarioDeSesion` lo compara en `JwtStrategy.validate` y al conectar Google. Lo suben `POST /auth/password` (que reemite la cookie de quien la cambió), la recuperación por código y `/auth/logout`, que cierra las sesiones en todos los dispositivos y sólo si la que lo pide sigue vigente. Las sesiones previas, sin `sv`, cuentan como versión 0 hasta el primer cambio. Tests en `api/src/auth/sesion-version.spec.ts`. |
 | 9 | Baja | El webhook de Mercado Pago verifica la firma pero no la antigüedad de `ts`, así que una notificación firmada se puede reenviar. | **Aceptado por ahora**: el handler ignora el cuerpo y vuelve a leer el preapproval de la API de MP, así que un replay no cambia nada. Si se quiere cerrar, rechazar `ts` con más de ~5 minutos. |
 | 10 | Info | Sin CSP completa en la web (sólo `frame-ancestors`). | **Pendiente**: una CSP con nonces en Next 16 necesita `proxy.ts`; ver la doc de Next en `web/node_modules/next/dist/docs/` antes de encararlo. |
 | 11 | Info | `npx tsc --noEmit -p tsconfig.json` en `api/` falla en dos specs (`turnos-del-dueno.spec.ts`, `test/app.e2e-spec.ts`). No afecta al build (`tsconfig.build.json`) ni a vitest. | **Pendiente**: CI chequea tipos con `tsconfig.build.json`. |
@@ -39,7 +39,8 @@ controles que corren solos están en `.github/workflows/security.yml` y
 | 16 | Alta | `zlib` 1.3.2-r0 en las dos imágenes (CVE-2026-85091, arreglado en 1.3.2-r1). El `RUN apk upgrade` de la etapa `prod` salía del cache de BuildKit, que lo reusa mientras no cambien la imagen base ni el comando: los paquetes del sistema quedaban congelados en el primer build. | **Arreglado en CI** (2026-10-07): el build que escanea Grype pasa `no-cache-filters: prod`, así que `apk upgrade` corre siempre. **Pendiente en Railway**: su build también cachea capas; si una imagen desplegada queda vieja, redeployar sin cache. |
 
 Lo que se revisó y está bien: el CSRF por `Origin` más cookies `httpOnly`/`secure`;
-la validación de entorno que rechaza `DEV_LOGIN_PASSWORD` en producción; el
+la validación de entorno que rechaza `DEV_LOGIN_PASSWORD` en producción (sólo
+la admite el entorno develop de Railway, por `RAILWAY_ENVIRONMENT_NAME`); el
 refresh token cifrado con GCM e IV aleatorio; scrypt con `timingSafeEqual` y
 hash falso para no delatar números; `ValidationPipe` con `whitelist`; los
 eventos locales se buscan siempre por `userId` antes de editar o borrar; el
@@ -71,10 +72,10 @@ Lo que agrega superficie nueva y cómo está cubierto:
   desconecta la cuenta y avisa al dueño. El cuerpo de error de `/oauth/token`
   no se loguea.
 - **El precio nunca sale del modelo**: `crear_pedido` recibe sólo
-  `varianteId` + `cantidad`; la validación exige que la variante sea del dueño
-  y esté activa, y el total lo calcula el código desde la base.
-- **Reservas**: se toman en una transacción con `SELECT … FOR UPDATE` sobre las
-  variantes, así dos pedidos por la última unidad se serializan
+  `productoId` + `cantidad`; la validación exige que el producto sea del dueño
+  y esté activo, y el total lo calcula el código desde la base.
+- **Reservas**: se toman en una transacción con `SELECT … FOR UPDATE` sobre los
+  productos, así dos pedidos por la última unidad se serializan
   (`ventas.db.spec.ts` lo prueba). Topes para que un cliente no bloquee el
   stock: 2 pedidos pendientes por conversación, 10 renglones, 50 unidades por
   renglón, 30 minutos con link y 24 horas a coordinar.
@@ -125,14 +126,17 @@ Pendiente:
 
 ## Fotos de productos (2026-10-09, LAU-10)
 
-El dueño sube una foto por producto y el asistente de ventas se la manda al
-cliente que la pide (`enviar_imagen_producto`). Superficie nueva y cómo está
-cubierta:
+El dueño sube hasta 4 fotos por producto (2026-11-04: la principal y hasta
+tres de detalle) y el asistente de ventas se las manda al cliente
+(`enviar_imagen_producto`; con `detalles: true`, las de detalle). Superficie y
+cómo está cubierta:
 
-- **Subida** (`PUT /productos/:id/imagen`, multipart con `FileInterceptor` de
-  `@nestjs/platform-express`): multer en memoria con tope de 2 MB, un solo
-  archivo y ningún otro campo; el producto tiene que ser del `userId` de la
-  sesión (404 si no) y el chequeo de `Origin` de `main.ts` cubre el `PUT`.
+- **Subida** (`PUT /productos/:id/imagen` para la principal, `POST
+  /productos/:id/imagenes` y `PUT /productos/:id/imagenes/:imagenId`,
+  multipart con `FileInterceptor` de `@nestjs/platform-express`): multer en
+  memoria con tope de 2 MB, un solo archivo y ningún otro campo; el producto
+  tiene que ser del `userId` de la sesión y la foto, de ese producto (404 si
+  no). El chequeo de `Origin` de `main.ts` cubre `POST`, `PUT` y `DELETE`.
 - **Validación por contenido, no por nombre**: `formatoPorFirma`
   (`comercio/imagenes.rules.ts`) mira los primeros bytes y sólo deja pasar
   JPEG, PNG y WebP antes de entregarle el archivo a sharp, que sabe leer
@@ -141,19 +145,24 @@ cubierta:
   descompresión.
 - **Nunca se guarda ni se sirve lo que subió el dueño**: se recomprime a JPEG
   de 800 px, ≤ 150 KB y **sin metadatos** (EXIF con GPS, ICC). `GET
-  /productos/:id/imagen` responde siempre `image/jpeg` con las cabeceras de
-  seguridad globales (`nosniff`, CSP `default-src 'none'`).
-- **Tope de almacenamiento**: una foto por producto y 100 productos con foto
-  por cuenta, contados en una transacción con `SELECT … FOR UPDATE` sobre el
-  `User` (`imagenes.db.spec.ts` prueba dos subidas simultáneas por el último
-  lugar). Tabla aparte (`ImagenProducto`) para que ningún listado lea los
-  bytes. Dar de baja el producto borra su foto; la baja de cuenta, por cascada.
+  /productos/:id/imagen` y `GET /productos/:id/imagenes/:imagenId` responden
+  siempre `image/jpeg` con las cabeceras de seguridad globales (`nosniff`,
+  CSP `default-src 'none'`).
+- **Tope de almacenamiento**: 4 fotos por producto
+  (`MAX_IMAGENES_POR_PRODUCTO`) y 100 fotos por cuenta, contadas en una
+  transacción con `SELECT … FOR UPDATE` sobre el `User` y después sobre el
+  `Producto` (`imagenes.db.spec.ts` prueba dos subidas simultáneas por el
+  último lugar). Tabla aparte (`ImagenProducto`) para que ningún listado lea
+  los bytes. Dar de baja el producto borra sus fotos; la baja de cuenta, por
+  cascada.
 - **El modelo no elige qué bytes salen**: la herramienta recibe sólo un
-  `productoId`; el nodo `catalogo` comprueba que sea un producto activo del
-  dueño con foto y deja en el `ToolMessage` un `artifact` con id y nombre
-  (nunca los bytes, que no llegan al checkpoint). `WhatsappService` vuelve a
-  leer la foto filtrando por dueño y producto activo antes de mandarla. Tope
-  de 2 fotos por respuesta (`MAX_IMAGENES_POR_MENSAJE`). Una foto que falla se
+  `productoId` (y `detalles`, nunca un id de foto); el nodo `catalogo` comprueba que sea un producto activo del
+  dueño con foto y deja en el `ToolMessage` un `artifact` con ids y nombre
+  (nunca los bytes, que no llegan al checkpoint); los ids de las fotos de
+  detalle salen de la base, no del modelo. `WhatsappService` vuelve a leer
+  cada foto filtrando por dueño, producto activo y, si es de detalle, su id
+  antes de mandarla. Tope de 3 fotos pedidas por respuesta
+  (`MAX_IMAGENES_POR_MENSAJE`); las de detalle van solas. Una foto que falla se
   loguea con ids y el texto sale igual.
 
 ## Importación rápida de productos (2026-10-21, LAU-31)
@@ -202,7 +211,7 @@ pasa por `fetch-seguro.ts`:
   tercero y el asistente los lee en cada búsqueda. `textoSeguro`
   (`texto.rules.ts`) los deja en texto plano acotado y saca caracteres
   invisibles y bidi, la frase de "mandar tal cual", los marcadores internos
-  (`[producto …]`, `[variante …]`, `[pedido …]`) y, en las descripciones, los
+  (`[producto …]`, y los de mensajes viejos `[variante …]` y `[pedido …]`) y, en las descripciones, los
   montos: `preciosSinRespaldo` acepta cualquier monto de un resultado de
   búsqueda, y un "$ 1" en la descripción respaldaría un precio inventado. El
   dueño revisa y edita todo antes de confirmar.
@@ -425,7 +434,7 @@ como una secuencia que el proveedor rechaza para siempre. Ahora:
   Los mensajes de antes de este cambio no tienen marca y cuentan como viejos.
 - En ventas, `buscar_productos` tiene un tope de 3 por mensaje
   (`MAX_BUSQUEDAS_POR_MENSAJE`) para no agotar las vueltas, `crear_pedido` sólo
-  acepta variantes que salieron de una búsqueda visible, y el nodo
+  acepta productos que salieron de una búsqueda visible, y el nodo
   `verificar_respuesta` descarta una respuesta con un monto `$ …` que no sale del
   catálogo, de los pedidos ni de lo que escribió el cliente: el modelo la
   reescribe con una nota de corrección, y si insiste se contesta

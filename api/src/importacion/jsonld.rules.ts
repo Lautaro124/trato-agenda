@@ -8,12 +8,14 @@
  * y los precios se leen como en la planilla (parsearPrecio). Si algo falta,
  * queda vacío con un aviso; nunca se completa.
  */
-import { LARGOS, MAX_VARIANTES, parsearPrecio, PRECIO_MAX_PESOS, esMoneda, type Moneda } from '../comercio/catalogo.rules.js';
+import { LARGOS, parsearPrecio, PRECIO_MAX_PESOS, esMoneda, type Moneda } from '../comercio/catalogo.rules.js';
 import { revisarUrl } from './ssrf.rules.js';
 import { textoSeguro } from './texto.rules.js';
 import {
+  LARGO_VARIANTE,
   MAX_IMAGENES_OFRECIDAS,
   MAX_PRODUCTOS_LISTADO_WEB,
+  MAX_VARIANTES_PAGINA,
   type AvisoBorrador,
   type ProductoExtraido,
   type VarianteExtraida,
@@ -207,18 +209,18 @@ function armarProducto(
 
   const skus = new Set<string>();
   let variantes: VarianteExtraida[] = porVariante.map(({ fuente, oferta }) => {
-    const sku = textoSeguro(textoDeCampo(fuente, 'sku') || textoDeCampo(fuente, 'mpn'), { largo: LARGOS.sku, sinMontos: true }) || null;
+    const sku = textoSeguro(textoDeCampo(fuente, 'sku') || textoDeCampo(fuente, 'mpn'), { largo: LARGOS.codigo, sinMontos: true }) || null;
     const unico = sku && !skus.has(sku.toLowerCase()) ? sku : null;
     if (unico) skus.add(unico.toLowerCase());
     return {
       nombre:
-        fuente === nodo ? '' : textoSeguro(nombreDeVariante(textoDeCampo(fuente, 'name'), nombre), { largo: LARGOS.variante, sinMontos: true }),
+        fuente === nodo ? '' : textoSeguro(nombreDeVariante(textoDeCampo(fuente, 'name'), nombre), { largo: LARGO_VARIANTE, sinMontos: true }),
       sku: unico,
       precioCentavos: moneda === 'otra' ? null : (oferta?.precioCentavos ?? null),
     };
   });
-  if (variantes.length > MAX_VARIANTES) {
-    variantes = variantes.slice(0, MAX_VARIANTES);
+  if (variantes.length > MAX_VARIANTES_PAGINA) {
+    variantes = variantes.slice(0, MAX_VARIANTES_PAGINA);
     avisos.add('variantes_recortadas');
   }
   // Dos variantes con el mismo nombre (o sin nombre) no se distinguen: se numeran.
@@ -228,7 +230,7 @@ function armarProducto(
       const base = variante.nombre || `Variante ${indice + 1}`;
       const veces = (vistos.get(base.toLowerCase()) ?? 0) + 1;
       vistos.set(base.toLowerCase(), veces);
-      return { ...variante, nombre: (veces > 1 ? `${base} (${veces})` : base).slice(0, LARGOS.variante) };
+      return { ...variante, nombre: (veces > 1 ? `${base} (${veces})` : base).slice(0, LARGO_VARIANTE) };
     });
   }
   if (variantes.some((variante) => variante.precioCentavos === null)) avisos.add('sin_precio');

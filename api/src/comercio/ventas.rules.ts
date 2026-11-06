@@ -24,19 +24,7 @@ export const MAX_PEDIDOS_PENDIENTES = 2;
 export const MAX_ITEMS_POR_PEDIDO = 10;
 export const MAX_CANTIDAD_POR_ITEM = 50;
 
-/**
- * Los tres primeros sólo existen en los pedidos a medida (LAU-24/28): una
- * solicitud que todavía no tiene precio. Ver pedido-a-medida.rules.ts.
- */
-export const ESTADOS_VENTA = [
-  'solicitado',
-  'a_cotizar',
-  'cotizado',
-  'pendiente_pago',
-  'pagada',
-  'cancelada',
-  'vencida',
-] as const;
+export const ESTADOS_VENTA = ['pendiente_pago', 'pagada', 'cancelada', 'vencida'] as const;
 export type EstadoVenta = (typeof ESTADOS_VENTA)[number];
 
 export const MEDIOS_DE_PAGO = ['mercadopago', 'manual'] as const;
@@ -62,16 +50,77 @@ export function vencimientoDeReserva(medio: MedioDePago, ahora: Date = new Date(
   return new Date(ahora.getTime() + minutos * 60_000);
 }
 
-export type ItemPedido = { varianteId: string; cantidad: number };
+/** Estados en los que el pedido sigue vivo (todavía se puede cobrar o cancelar). */
+export const ESTADOS_ABIERTOS = ['pendiente_pago', 'vencida'] as const;
+
+export function estaAbierto(estado: string): boolean {
+  return (ESTADOS_ABIERTOS as readonly string[]).includes(estado);
+}
+
+/** Quién atiende el chat de un pedido (LAU-27): el asistente o una persona. */
+export const ATENCIONES = ['asistente', 'humana'] as const;
+export type Atencion = (typeof ATENCIONES)[number];
 
 /**
- * Junta renglones repetidos de la misma variante ("2 mates" y "1 mate más")
+ * Por qué un pedido pasó a una persona: `cobro_manual` lo pone el código (un
+ * pedido sin link con el cobro manual configurado: el negocio lo cobra) y
+ * `dueno` es el dueño tomándolo desde el panel. El resto quedó de pedidos
+ * viejos que derivaba el asistente: se siguen mostrando.
+ */
+export const MOTIVOS_DERIVACION = [
+  'falta_info',
+  'excepcion',
+  'pide_persona',
+  'sin_reglas',
+  'cobro_manual',
+  'dueno',
+  'otro',
+] as const;
+export type MotivoDerivacion = (typeof MOTIVOS_DERIVACION)[number];
+
+export const LARGO_MAX_DETALLE_DERIVACION = 300;
+export const LARGO_MAX_NOTA = 500;
+
+/**
+ * Un pedido derivado a una persona que sigue abierto (lo que lista "Te
+ * esperan" en Ventas). Quién contesta el chat lo decide la conversación
+ * (chats/atencion.ts), no el pedido.
+ */
+export function enAtencionHumana(venta: { atencion: string; estado: string }): boolean {
+  return venta.atencion === 'humana' && estaAbierto(venta.estado);
+}
+
+/**
+ * Lo que se le escribe a un pedido sin link cuando el comercio configuró el
+ * cobro manual (condiciones-pago.rules.ts): el asistente manda los datos de
+ * pago y el chat queda en atención humana hasta que el pedido se pague o se
+ * cancele. Va en la misma escritura que lo deja pendiente de pago.
+ */
+export function pausaPorCobroManual(ahora: Date) {
+  return {
+    atencion: 'humana',
+    derivadaAt: ahora,
+    motivoDerivacion: 'cobro_manual',
+    detalleDerivacion: null,
+    devueltaAt: null,
+    notaDevolucion: null,
+  } as const;
+}
+
+/** Lo que contesta el banco de pruebas del Home cuando el chat lo atiende el dueño. */
+export const MENSAJE_ATENCION_HUMANA_PRUEBA =
+  'Este chat está en atención humana: el asistente no contesta hasta que lo devuelvas desde Ventas.';
+
+export type ItemPedido = { productoId: string; cantidad: number };
+
+/**
+ * Junta renglones repetidos del mismo producto ("2 mates" y "1 mate más")
  * en uno, así el control de stock mira la cantidad total.
  */
 export function agruparItems(items: ItemPedido[]): ItemPedido[] {
-  const porVariante = new Map<string, number>();
-  for (const item of items) porVariante.set(item.varianteId, (porVariante.get(item.varianteId) ?? 0) + item.cantidad);
-  return [...porVariante.entries()].map(([varianteId, cantidad]) => ({ varianteId, cantidad }));
+  const porProducto = new Map<string, number>();
+  for (const item of items) porProducto.set(item.productoId, (porProducto.get(item.productoId) ?? 0) + item.cantidad);
+  return [...porProducto.entries()].map(([productoId, cantidad]) => ({ productoId, cantidad }));
 }
 
 /** Motivo por el que un pedido no se puede ni intentar, o null si la forma es válida. */
@@ -117,17 +166,16 @@ export function telefonoDeJid(remoteJid: string): string | null {
 
 export type RenglonVenta = {
   nombreProducto: string;
-  nombreVariante: string;
   cantidad: number;
   subtotalCentavos: number;
 };
 
-/** "2 × Mate de calabaza ($ 16.000), 1 × Remera (Talle M) ($ 15.000)", en la moneda de la venta. */
+/** "2 × Mate de calabaza ($ 16.000), 1 × Remera ($ 15.000)", en la moneda de la venta. */
 export function detalleDeRenglones(items: RenglonVenta[], moneda: string = 'ARS'): string {
   return items
     .map(
       (item) =>
-        `${item.cantidad} × ${item.nombreProducto}${item.nombreVariante ? ` (${item.nombreVariante})` : ''} ` +
+        `${item.cantidad} × ${item.nombreProducto} ` +
         `(${formatearMonto(item.subtotalCentavos, moneda)})`,
     )
     .join(', ');

@@ -56,9 +56,10 @@ export class LoginWhatsappService {
   /**
    * Poner (si no tiene) o cambiar (con la actual) la contraseña de una cuenta
    * con WhatsApp. Sin la actual se acepta sólo cuando todavía no hay ninguna:
-   * es el paso que sigue al QR del alta.
+   * es el paso que sigue al QR del alta. Devuelve la cuenta con la versión de
+   * sesión nueva, para volver a emitir la cookie de quien la cambió.
    */
-  async cambiarPassword(user: User, nueva: string, actual?: string): Promise<void> {
+  async cambiarPassword(user: User, nueva: string, actual?: string): Promise<User> {
     if (!user.phoneNumber) {
       throw new BadRequestException('La contraseña es para entrar con WhatsApp, y esta cuenta no tiene uno vinculado.');
     }
@@ -66,10 +67,14 @@ export class LoginWhatsappService {
       // 403 y no 401: la sesión es válida, lo que falla es la contraseña.
       throw new ForbiddenException('La contraseña actual no es correcta.');
     }
-    await this.guardar(user.id, nueva);
+    return this.guardar(user.id, nueva);
   }
 
+  /** Guarda la contraseña y cierra todas las sesiones abiertas (ver `AuthService.usuarioDeSesion`). */
   async guardar(userId: string, nueva: string): Promise<User> {
-    return this.prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashearPassword(nueva) } });
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: await hashearPassword(nueva), sesionVersion: { increment: 1 } },
+    });
   }
 }

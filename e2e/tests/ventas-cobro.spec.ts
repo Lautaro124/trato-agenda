@@ -28,7 +28,7 @@ test.describe('venta con link de Mercado Pago', () => {
     expect(link, 'la respuesta trae el link de pago').toBeTruthy();
 
     // Reservado, no descontado: el stock baja recién cuando se paga.
-    expect((await productoPorApi(context.request, producto.id)).variantes[0].stock).toBe(5);
+    expect((await productoPorApi(context.request, producto.id)).stock).toBe(5);
 
     // 2. El cliente paga en Mercado Pago (el falso aprueba y manda el webhook firmado).
     await page.goto(link!);
@@ -36,7 +36,7 @@ test.describe('venta con link de Mercado Pago', () => {
     await expect(page.getByRole('heading', { name: '¡Pago aprobado!' })).toBeVisible();
 
     await expect
-      .poll(async () => (await productoPorApi(context.request, producto.id)).variantes[0].stock, {
+      .poll(async () => (await productoPorApi(context.request, producto.id)).stock, {
         message: 'el webhook descuenta el stock',
       })
       .toBe(3);

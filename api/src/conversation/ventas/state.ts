@@ -6,7 +6,6 @@
 import { MessagesValue, StateSchema, UntrackedValue } from '@langchain/langgraph';
 import { z } from 'zod';
 import type { CondicionesPago } from '../../comercio/condiciones-pago.rules.js';
-import type { PedidoAMedida } from '../../comercio/pedidos-a-medida.service.js';
 import type { Conversation } from '../../generated/prisma/client.js';
 import type { Cancelacion } from '../cancelacion.js';
 import type { AgentConUser, OperacionPendiente } from '../graph/state.js';
@@ -20,10 +19,6 @@ export type ContextoVentas = {
   mpConectado: boolean;
   /** Cuotas y descuento en efectivo del comercio (LAU-34): lo que puede ofrecer y cotizar. */
   condicionesPago: CondicionesPago;
-  /** Pedidos a medida de la conversación: los que pueden nombrar aceptar_presupuesto y derivar_a_persona. */
-  pedidosAMedida: PedidoAMedida[];
-  /** La cuenta tiene algún producto a medida activo (o un pedido a medida en esta charla): suma sus reglas y herramientas. */
-  tieneAMedida: boolean;
 };
 
 export const EstadoVentas = new StateSchema({

@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useSession } from "@/lib/session";
 
-// "plan", "cuenta", "asistente", "costos" y "rendimiento" no tienen ítem propio (se llega desde el menú
+// "plan", "cuenta", "asistente" y "rendimiento" no tienen ítem propio (se llega desde el menú
 // de usuario): se incluyen para que esas pantallas puedan montar la barra sin
 // marcar ninguna pestaña como activa.
-type Tab = "inicio" | "calendario" | "reuniones" | "productos" | "ventas" | "chat" | "plan" | "cuenta" | "asistente" | "costos" | "rendimiento";
+type Tab = "inicio" | "calendario" | "reuniones" | "productos" | "ventas" | "chat" | "chats" | "plan" | "cuenta" | "asistente" | "rendimiento";
 
 type Item = { tab: Tab; href: string; label: string; icon: React.ReactNode };
 
-/** Inicio y Chat: los tiene cualquier cuenta. */
+/** Inicio, Chats y el chat de prueba: los tiene cualquier cuenta. */
 const ITEMS_COMUNES: Item[] = [
   {
     tab: "inicio",
@@ -24,9 +24,22 @@ const ITEMS_COMUNES: Item[] = [
     ),
   },
   {
+    // Las conversaciones reales de WhatsApp (LAU-81).
+    tab: "chats",
+    href: "/chats",
+    label: "Chats",
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z" />
+        <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" />
+      </svg>
+    ),
+  },
+  {
+    // El banco de pruebas: "Probar" para no confundirlo con los chats reales.
     tab: "chat",
     href: "/chat",
-    label: "Chat",
+    label: "Probar",
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -94,8 +107,8 @@ const ITEMS_VENTAS: Item[] = [
 /** Barra inferior de navegación móvil (variante 5a-5c del canvas): reemplaza al <nav> de AppHeader debajo de md. */
 export function MobileTabBar({ active }: { active: Tab }) {
   const { user } = useSession();
-  const [inicio, chat] = ITEMS_COMUNES;
-  const items = [inicio, ...(user?.tipoAsistente === "ventas" ? ITEMS_VENTAS : ITEMS_AGENDA), chat];
+  const [inicio, chats, chat] = ITEMS_COMUNES;
+  const items = [inicio, chats, ...(user?.tipoAsistente === "ventas" ? ITEMS_VENTAS : ITEMS_AGENDA), chat];
   return (
     <nav
       data-tutorial="navegacion"

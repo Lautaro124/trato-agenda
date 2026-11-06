@@ -4,8 +4,7 @@ import { hayStock } from './catalogo.rules.js';
 import { DecisionesClient } from './decisiones.client.js';
 import { descuentosParaElCliente, mejorDescuento, type DescuentosVigentes } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
-import { reservadasPorVariante } from './reservas.js';
-import { leerSolicitud } from './solicitud.rules.js';
+import { reservadasPorProducto } from './reservas.js';
 import {
   agruparPorCategoria,
   categoriaVisible,
@@ -90,51 +89,25 @@ export class SugerenciasService {
   }
 
   /**
-   * Los productos activos con al menos una variante con stock (descontadas
-   * las reservas vigentes), con el precio de la más barata que se puede
-   * vender, y los productos a medida (con su precio de referencia y el de su
-   * versión fija más barata, si tiene). Del más nuevo al más viejo: es el
-   * orden determinista.
+   * Los productos activos con stock (descontadas las reservas vigentes), con
+   * su precio final. Del más nuevo al más viejo: es el orden determinista.
    */
   async panorama(userId: string): Promise<ProductoPanorama[]> {
     const { productos, descuentos, ahora } = await this.conStock(userId);
     return productos.flatMap((producto): ProductoPanorama[] => {
-      if (producto.aMedida) {
-        return [
-          {
-            productoId: producto.id,
-            nombre: producto.nombre,
-            categoria: producto.categoria,
-            descripcion: producto.descripcion,
-            precioDesdeCentavos: producto.precioReferenciaCentavos,
-            variosPrecios: false,
-            aMedida: true,
-            materiales: producto.materiales,
-            varianteFijaDesdeCentavos: producto.preciosFijos.length > 0 ? Math.min(...producto.preciosFijos) : null,
-            variantesFijas: producto.preciosFijos.length,
-            tieneImagen: producto.tieneImagen,
-          },
-        ];
-      }
-      const precios = producto.preciosConStock
-        .map((precio) => {
-          const descuento = mejorDescuento(descuentos, producto, precio, ahora);
-          return { final: descuento?.precioFinalCentavos ?? precio, descuento };
-        })
-        .sort((a, b) => a.final - b.final);
-      if (precios.length === 0) return [];
-      const desde = precios[0].final;
+      if (!producto.conStock) return [];
+      const descuento = mejorDescuento(descuentos, producto, producto.precioCentavos, ahora);
       return [
         {
           productoId: producto.id,
           nombre: producto.nombre,
           categoria: producto.categoria,
           descripcion: producto.descripcion,
-          precioDesdeCentavos: desde,
+          precioFinalCentavos: descuento?.precioFinalCentavos ?? producto.precioCentavos,
           moneda: producto.moneda,
-          variosPrecios: precios.some((precio) => precio.final !== desde),
-          descuento: precios[0].descuento?.etiqueta ?? null,
+          descuento: descuento?.etiqueta ?? null,
           tieneImagen: producto.tieneImagen,
+          plazoEntregaDias: producto.stock === null ? producto.plazoEntregaDias : null,
         },
       ];
     });
@@ -154,7 +127,7 @@ export class SugerenciasService {
     return descuentosParaElCliente(descuentos, productos, ahora);
   }
 
-  /** Los productos activos con los precios de lista de sus variantes con stock, y los descuentos que pueden tocarles. */
+  /** Los productos activos con su precio de lista y si hay stock, y los descuentos que pueden tocarles. */
   private async conStock(userId: string) {
     const productos = await this.prisma.producto.findMany({
       where: { userId, activo: true },
@@ -164,14 +137,12 @@ export class SugerenciasService {
         categoria: true,
         descripcion: true,
         moneda: true,
-        solicitud: true,
-        precioReferenciaCentavos: true,
-        materiales: true,
-        imagen: { select: { id: true } },
-        variantes: {
-          where: { activo: true },
-          select: { id: true, precioCentavos: true, stock: true, disponible: true, activo: true },
-        },
+        _count: { select: { imagenes: true } },
+        precioCentavos: true,
+        stock: true,
+        disponible: true,
+        plazoEntregaDias: true,
+        activo: true,
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
@@ -180,26 +151,16 @@ export class SugerenciasService {
       userId,
       productos.map((producto) => producto.id),
     );
-    const reservadas = await reservadasPorVariante(
+    const reservadas = await reservadasPorProducto(
       this.prisma,
-      productos.flatMap((producto) => producto.variantes.map((variante) => variante.id)),
+      productos.map((producto) => producto.id),
     );
     return {
-      productos: productos.map(({ variantes, solicitud, imagen, ...producto }) => {
-        // A medida las variantes son versiones de precio fijo: no tienen stock ni descuento que aplicar.
-        const aMedida = leerSolicitud(solicitud) !== null;
-        return {
-          ...producto,
-          aMedida,
-          tieneImagen: imagen !== null,
-          preciosFijos: aMedida ? variantes.map((variante) => variante.precioCentavos) : [],
-          preciosConStock: aMedida
-            ? []
-            : variantes
-                .filter((variante) => hayStock(variante, 1, reservadas.get(variante.id) ?? 0))
-                .map((variante) => variante.precioCentavos),
-        };
-      }),
+      productos: productos.map(({ _count, ...producto }) => ({
+        ...producto,
+        tieneImagen: _count.imagenes > 0,
+        conStock: hayStock(producto, 1, reservadas.get(producto.id) ?? 0),
+      })),
       descuentos,
       ahora: new Date(),
     };

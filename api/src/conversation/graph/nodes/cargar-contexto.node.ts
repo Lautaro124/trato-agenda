@@ -5,6 +5,7 @@
  * ya resumida. Ese resumen es lo que evita que el modelo gaste vueltas (y
  * lecturas a Google) preguntando "¿está libre el martes?".
  */
+import { bloqueAtencionHumana, ultimaAtencionHumana } from '../atencion-humana.js';
 import { Logger } from '@nestjs/common';
 import { leerTiposEvento } from '../../../agents/agents.types.js';
 import { detalleDeTipo } from '../../../agents/precio.js';
@@ -312,10 +313,18 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
     // persistir arma los resúmenes siguientes sin el viejo (lo reemplaza al actualizarlo).
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
-    const turnoActivo = await deps.prisma.turno.findFirst({
-      where: { conversationId: conversation.id, estado: 'confirmado' },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [turnoActivo, devolucion] = await Promise.all([
+      deps.prisma.turno.findFirst({
+        where: { conversationId: conversation.id, estado: 'confirmado' },
+        orderBy: { createdAt: 'desc' },
+      }),
+      // Lo que habló el dueño con el cliente mientras el asistente estaba callado (LAU-81).
+      ultimaAtencionHumana(
+        deps.prisma,
+        guardada,
+        new Date(Date.now() - (deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS)),
+      ),
+    ]);
 
     const desde = new Date();
     const hasta = new Date(desde.getTime() + DIAS_VENTANA * 24 * 60 * 60_000);
@@ -360,6 +369,7 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
     }
 
     const clasesGrupales = bloqueTurnosGrupales(grupales);
+    const atencionHumana = bloqueAtencionHumana(devolucion);
     const contexto: ContextoTurno = {
       agent,
       conversation,
@@ -370,7 +380,8 @@ export function crearNodoCargarContexto(deps: DepsContexto) {
         bloqueDisponibilidad(agent, agenda) +
         (clasesGrupales ? `\n\n${clasesGrupales}` : '') +
         // Los nombres de los clientes son sólo para el dueño.
-        (state.esPropietario ? `\n\n${bloqueTurnosDelDueno(turnos)}` : ''),
+        (state.esPropietario ? `\n\n${bloqueTurnosDelDueno(turnos)}` : '') +
+        (atencionHumana ? `\n\n${atencionHumana}` : ''),
     };
 
     return {

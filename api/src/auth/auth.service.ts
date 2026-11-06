@@ -136,8 +136,39 @@ export class AuthService {
 
   /** JWT propio que después viaja en la cookie httpOnly. */
   issueSessionToken(user: User): Promise<string> {
-    const payload: JwtPayload = { sub: user.id, email: user.email };
+    const payload: JwtPayload = { sub: user.id, email: user.email, sv: user.sesionVersion };
     return this.jwt.signAsync(payload);
+  }
+
+  /**
+   * El usuario de una sesión ya verificada (firma y vencimiento), o null si no
+   * es una sesión, el usuario no existe o la versión quedó vieja: un cambio de
+   * contraseña o un logout la sube y deja afuera a todas las sesiones previas.
+   */
+  async usuarioDeSesion(payload: JwtPayload): Promise<User | null> {
+    if (payload.tipo) return null;
+    const user = await this.findById(payload.sub);
+    return user?.sesionVersion === (payload.sv ?? 0) ? user : null;
+  }
+
+  /** Como `usuarioDeSesion`, pero desde el token crudo de la cookie. */
+  async verificarSesion(token: string | undefined): Promise<User | null> {
+    const payload = await this.verificarFirma(token);
+    return payload ? this.usuarioDeSesion(payload) : null;
+  }
+
+  /**
+   * Logout: cierra todas las sesiones de la cuenta, no sólo la de este
+   * navegador. Sólo una sesión vigente puede hacerlo; si no, una cookie ya
+   * invalidada serviría para echar al dueño una y otra vez.
+   */
+  async cerrarSesiones(token: string | undefined): Promise<void> {
+    const payload = await this.verificarFirma(token);
+    if (!payload || payload.tipo) return;
+    await this.prisma.user.updateMany({
+      where: { id: payload.sub, sesionVersion: payload.sv ?? 0 },
+      data: { sesionVersion: { increment: 1 } },
+    });
   }
 
   /** Token corto de un paso intermedio (alta por WhatsApp, conectar Google). */
@@ -146,15 +177,16 @@ export class AuthService {
     return this.jwt.signAsync(payload, { expiresIn: segundos });
   }
 
-  /**
-   * Devuelve el `userId` de un token válido del tipo esperado, o null.
-   * `undefined` como tipo es la sesión común.
-   */
-  async verificarTokenDePaso(token: string | undefined, tipo: JwtPayload['tipo']): Promise<string | null> {
+  /** Devuelve el `userId` de un token de paso válido del tipo esperado, o null. */
+  async verificarTokenDePaso(token: string | undefined, tipo: Exclude<JwtPayload['tipo'], undefined>): Promise<string | null> {
+    const payload = await this.verificarFirma(token);
+    return payload?.tipo === tipo ? payload.sub : null;
+  }
+
+  private async verificarFirma(token: string | undefined): Promise<JwtPayload | null> {
     if (!token) return null;
     try {
-      const payload = await this.jwt.verifyAsync<JwtPayload>(token);
-      return payload.tipo === tipo ? payload.sub : null;
+      return await this.jwt.verifyAsync<JwtPayload>(token);
     } catch {
       return null;
     }

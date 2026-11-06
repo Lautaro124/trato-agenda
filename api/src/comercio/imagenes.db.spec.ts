@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { User } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
-import { MAX_IMAGENES_POR_CUENTA } from './imagenes.rules.js';
+import { MAX_IMAGENES_POR_CUENTA, MAX_IMAGENES_POR_PRODUCTO } from './imagenes.rules.js';
 import { ImagenesService } from './imagenes.service.js';
 import type { IndexadorService } from './indexador.service.js';
 import { ProductosService } from './productos.service.js';
@@ -30,7 +30,7 @@ describe.skipIf(!hayBaseDePrueba)('fotos de productos (Postgres real)', () => {
     usuarios.push(dueno);
     const ids: string[] = [];
     for (let i = 0; i < cantidad; i++) {
-      const producto = await prisma.producto.create({ data: { userId: dueno.id, codigo: `P-${i}`, nombre: `Producto ${i}` } });
+      const producto = await prisma.producto.create({ data: { userId: dueno.id, codigo: `P-${i}`, nombre: `Producto ${i}`, precioCentavos: 100 } });
       ids.push(producto.id);
     }
     return { dueno, ids };
@@ -60,16 +60,16 @@ describe.skipIf(!hayBaseDePrueba)('fotos de productos (Postgres real)', () => {
     const otro = await crearUsuarioDePrueba(prisma);
     usuarios.push(otro);
 
-    const guardada = await imagenes.guardar(dueno.id, ids[0], await foto());
+    const guardada = await imagenes.guardarPrincipal(dueno.id, ids[0], await foto());
 
     expect(guardada).toMatchObject({ ancho: 800, alto: 400 });
     const datos = await imagenes.obtener(dueno.id, ids[0]);
     expect((await sharp(datos).metadata()).format).toBe('jpeg');
     expect(datos.length).toBe(guardada.bytes);
     await expect(imagenes.obtener(otro.id, ids[0])).rejects.toBeInstanceOf(NotFoundException);
-    await expect(imagenes.guardar(otro.id, ids[0], await foto())).rejects.toBeInstanceOf(NotFoundException);
+    await expect(imagenes.guardarPrincipal(otro.id, ids[0], await foto())).rejects.toBeInstanceOf(NotFoundException);
     expect(await imagenes.paraEnviar(otro.id, ids[0])).toBeNull();
-    expect(await imagenes.estadoDeFoto(dueno.id, ids[0])).toEqual({ nombre: 'Producto 0', tieneFoto: true, deVariante: false });
+    expect(await imagenes.estadoDeFoto(dueno.id, ids[0])).toEqual({ nombre: 'Producto 0', tieneFoto: true, detalles: [] });
 
     const listado = await productos.listar(dueno.id, {});
     expect(listado.productos[0].imagenActualizada).toBeInstanceOf(Date);
@@ -79,10 +79,10 @@ describe.skipIf(!hayBaseDePrueba)('fotos de productos (Postgres real)', () => {
     const { dueno, ids } = await duenoConProductos(MAX_IMAGENES_POR_CUENTA + 1);
     await conFotosDePrueba(dueno, ids.slice(0, MAX_IMAGENES_POR_CUENTA));
 
-    await expect(imagenes.guardar(dueno.id, ids[MAX_IMAGENES_POR_CUENTA], await foto())).rejects.toBeInstanceOf(
+    await expect(imagenes.guardarPrincipal(dueno.id, ids[MAX_IMAGENES_POR_CUENTA], await foto())).rejects.toBeInstanceOf(
       ConflictException,
     );
-    await expect(imagenes.guardar(dueno.id, ids[0], await foto())).resolves.toMatchObject({ ancho: 800 });
+    await expect(imagenes.guardarPrincipal(dueno.id, ids[0], await foto())).resolves.toMatchObject({ ancho: 800 });
     expect(await imagenes.uso(dueno.id)).toEqual({ usadas: MAX_IMAGENES_POR_CUENTA, maximo: MAX_IMAGENES_POR_CUENTA });
   });
 
@@ -92,75 +92,56 @@ describe.skipIf(!hayBaseDePrueba)('fotos de productos (Postgres real)', () => {
     const archivo = await foto();
 
     const resultados = await Promise.allSettled([
-      imagenes.guardar(dueno.id, ids[MAX_IMAGENES_POR_CUENTA - 1], archivo),
-      imagenes.guardar(dueno.id, ids[MAX_IMAGENES_POR_CUENTA], archivo),
+      imagenes.guardarPrincipal(dueno.id, ids[MAX_IMAGENES_POR_CUENTA - 1], archivo),
+      imagenes.guardarPrincipal(dueno.id, ids[MAX_IMAGENES_POR_CUENTA], archivo),
     ]);
 
     expect(resultados.filter((resultado) => resultado.status === 'fulfilled')).toHaveLength(1);
     expect(await imagenes.uso(dueno.id)).toMatchObject({ usadas: MAX_IMAGENES_POR_CUENTA });
   });
 
+  it(`hasta ${MAX_IMAGENES_POR_PRODUCTO} fotos por producto: la primera es la principal y se puede cambiar`, async () => {
+    const { dueno, ids } = await duenoConProductos(1);
+    const archivo = await foto();
+    let fotos: Awaited<ReturnType<ImagenesService['agregar']>> = [];
+    for (let i = 0; i < MAX_IMAGENES_POR_PRODUCTO; i++) fotos = await imagenes.agregar(dueno.id, ids[0], archivo);
+    expect(fotos).toHaveLength(MAX_IMAGENES_POR_PRODUCTO);
+    await expect(imagenes.agregar(dueno.id, ids[0], archivo)).rejects.toBeInstanceOf(ConflictException);
+
+    const [primera, segunda, tercera, cuarta] = fotos.map((f) => f.id);
+    expect(await imagenes.estadoDeFoto(dueno.id, ids[0])).toMatchObject({ detalles: [segunda, tercera, cuarta] });
+
+    fotos = await imagenes.hacerPrincipal(dueno.id, ids[0], tercera);
+    expect(fotos.map((f) => f.id)).toEqual([tercera, primera, segunda, cuarta]);
+
+    // Quitar la principal deja como principal a la que seguía, sin huecos en el orden.
+    fotos = await imagenes.quitar(dueno.id, ids[0], tercera);
+    expect(fotos.map((f) => f.id)).toEqual([primera, segunda, cuarta]);
+    const ordenes = await prisma.imagenProducto.findMany({ where: { productoId: ids[0] }, select: { orden: true }, orderBy: { orden: 'asc' } });
+    expect(ordenes.map((f) => f.orden)).toEqual([0, 1, 2]);
+
+    // Una foto de otro producto o de otra cuenta no se puede tocar.
+    const otro = await duenoConProductos(1);
+    await expect(imagenes.hacerPrincipal(otro.dueno.id, ids[0], primera)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(imagenes.quitar(otro.dueno.id, otro.ids[0], primera)).rejects.toBeInstanceOf(NotFoundException);
+    expect(await imagenes.paraEnviar(dueno.id, ids[0], segunda)).not.toBeNull();
+    expect(await imagenes.paraEnviar(otro.dueno.id, ids[0], segunda)).toBeNull();
+  });
+
   it('dar de baja el producto borra su foto y libera el lugar; borrar la cuenta se lleva todo', async () => {
     const { dueno, ids } = await duenoConProductos(2);
-    await imagenes.guardar(dueno.id, ids[0], await foto());
-    await imagenes.guardar(dueno.id, ids[1], await foto());
+    await imagenes.guardarPrincipal(dueno.id, ids[0], await foto());
+    await imagenes.guardarPrincipal(dueno.id, ids[1], await foto());
 
     await productos.eliminar(dueno.id, ids[0]);
     expect(await imagenes.uso(dueno.id)).toMatchObject({ usadas: 1 });
     expect(await imagenes.estadoDeFoto(dueno.id, ids[0])).toBeNull();
 
-    await imagenes.borrar(dueno.id, ids[1]);
+    await imagenes.quitarPrincipal(dueno.id, ids[1]);
     expect(await imagenes.uso(dueno.id)).toMatchObject({ usadas: 0 });
 
-    await imagenes.guardar(dueno.id, ids[1], await foto());
+    await imagenes.guardarPrincipal(dueno.id, ids[1], await foto());
     await prisma.user.delete({ where: { id: dueno.id } });
     expect(await prisma.imagenProducto.count({ where: { userId: dueno.id } })).toBe(0);
-  });
-
-  it('la foto de una variante fija: va esa al elegirla, si no la del producto, y cuenta para el mismo cupo', async () => {
-    const { dueno, ids } = await duenoConProductos(1);
-    const otro = await crearUsuarioDePrueba(prisma);
-    usuarios.push(otro);
-    const [roble, paraiso] = await Promise.all(
-      ['Roble', 'Paraíso'].map((nombre) =>
-        prisma.variante.create({ data: { productoId: ids[0], sku: `P-0-${nombre}`, nombre, precioCentavos: 100 } }),
-      ),
-    );
-
-    await imagenes.guardar(dueno.id, ids[0], await foto());
-    await imagenes.guardarDeVariante(dueno.id, ids[0], roble.id, await foto());
-    await expect(imagenes.guardarDeVariante(otro.id, ids[0], roble.id, await foto())).rejects.toBeInstanceOf(NotFoundException);
-    await expect(imagenes.obtenerDeVariante(otro.id, ids[0], roble.id)).rejects.toBeInstanceOf(NotFoundException);
-    expect(await imagenes.uso(dueno.id)).toMatchObject({ usadas: 2 });
-
-    expect(await imagenes.estadoDeFoto(dueno.id, ids[0], roble.id)).toEqual({
-      nombre: 'Producto 0 · Roble',
-      tieneFoto: true,
-      deVariante: true,
-    });
-    expect(await imagenes.estadoDeFoto(dueno.id, ids[0], paraiso.id)).toEqual({ nombre: 'Producto 0', tieneFoto: true, deVariante: false });
-    expect(await imagenes.estadoDeFoto(dueno.id, ids[0], 'otra')).toBeNull();
-    expect((await imagenes.paraEnviar(dueno.id, ids[0], roble.id))?.nombre).toBe('Producto 0 · Roble');
-    expect(await imagenes.paraEnviar(otro.id, ids[0], roble.id)).toBeNull();
-
-    const [listado] = (await productos.listar(dueno.id, {})).productos;
-    expect(listado.variantes.find((v) => v.id === roble.id)?.imagenActualizada).toBeInstanceOf(Date);
-    expect(listado.variantes.find((v) => v.id === paraiso.id)?.imagenActualizada).toBeNull();
-
-    // El cupo es uno solo entre productos y variantes.
-    const otros = await Promise.all(
-      Array.from({ length: MAX_IMAGENES_POR_CUENTA - 2 }, (_, i) =>
-        prisma.producto.create({ data: { userId: dueno.id, codigo: `R-${i}`, nombre: `Relleno ${i}` } }),
-      ),
-    );
-    await conFotosDePrueba(
-      dueno,
-      otros.map((producto) => producto.id),
-    );
-    await expect(imagenes.guardarDeVariante(dueno.id, ids[0], paraiso.id, await foto())).rejects.toBeInstanceOf(ConflictException);
-
-    // Dar de baja el producto se lleva también las fotos de sus variantes.
-    await productos.eliminar(dueno.id, ids[0]);
-    expect(await prisma.imagenVariante.count({ where: { userId: dueno.id } })).toBe(0);
   });
 });

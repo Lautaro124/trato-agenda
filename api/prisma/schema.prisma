@@ -34,6 +34,11 @@ model User {
   /// auth/password.ts). Nunca en claro. Las cuentas de Google no la usan.
   passwordHash String?
 
+  /// Versión de las sesiones: viaja en el JWT (`sv`) y `JwtStrategy` rechaza
+  /// los que no coinciden. Subirla cierra todas las sesiones abiertas: se hace
+  /// al cambiar o recuperar la contraseña y al cerrar sesión.
+  sesionVersion Int @default(0)
+
   /// Refresh token de Google cifrado con AES-256-GCM. Nunca se expone por la API.
   googleRefreshToken String?
 
@@ -51,26 +56,23 @@ model User {
   /// catálogo de claves vive en src/auth/tutoriales.ts.
   tutorialesVistos String[] @default([])
 
-  whatsappSession WhatsappSession?
-  agent           Agent?
-  conversaciones  Conversation[]
-  suscripcion     Subscription?
-  eventos         Evento[]
-  codigosAcceso   CodigoAcceso[]
-  productos       Producto[]
-  descuentos      Descuento[]
-  imagenesProducto ImagenProducto[]
-  imagenesVariante ImagenVariante[]
-  ventas          Venta[]
+  whatsappSession   WhatsappSession?
+  agent             Agent?
+  conversaciones    Conversation[]
+  suscripcion       Subscription?
+  eventos           Evento[]
+  codigosAcceso     CodigoAcceso[]
+  productos         Producto[]
+  descuentos        Descuento[]
+  imagenesProducto  ImagenProducto[]
+  ventas            Venta[]
   cuentaMercadoPago CuentaMercadoPago?
-  notificaciones  Notificacion[]
-  sugerencias     SugerenciaMejora[]
-  insumos          Insumo[]
-  configCotizacion ConfigCotizacion?
-  condicionesPago  CondicionesPago?
-  etapasChat       EtapaChat[]
-  interesProductos InteresProducto[]
-  preguntasChat    PreguntaChat[]
+  notificaciones    Notificacion[]
+  sugerencias       SugerenciaMejora[]
+  condicionesPago   CondicionesPago?
+  etapasChat        EtapaChat[]
+  interesProductos  InteresProducto[]
+  preguntasChat     PreguntaChat[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -234,10 +236,28 @@ model Conversation {
   /// (LAU-37). Fuera del horario de atención se avisa una vez por cierre.
   avisoFueraDeHorarioAt DateTime?
 
+  /// Quién contesta este chat (LAU-81): "asistente" | "humana". Es el único
+  /// estado del chat: lo cambian el dueño (panel o escribiendo desde su
+  /// teléfono) y una derivación de pedido (LAU-27). Sólo vuelve a
+  /// "asistente" con el botón del panel. Reglas en src/chats/atencion.ts.
+  atencion       String    @default("asistente")
+  /// Cuándo pasó a una persona y cuándo se le devolvió al asistente, con la
+  /// nota que dejó el dueño (dato, nunca instrucción). El asistente lee lo
+  /// que se habló entre las dos fechas al retomar.
+  tomadaAt       DateTime?
+  devueltaAt     DateTime?
+  notaDevolucion String?
+
+  /// Cuándo se guardó el último mensaje del chat: ordena la lista de Chats.
+  /// Lo mantiene un trigger de la base sobre "Message" (migración
+  /// 20261103120000_atencion_por_conversacion), así no depende de quién escriba.
+  ultimoMensajeAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, remoteJid])
+  @@index([userId, ultimoMensajeAt])
 }
 
 /// Un mensaje del historial de una Conversation, en el shape que espera
@@ -259,6 +279,11 @@ model Message {
 
   createdAt DateTime @default(now())
 
+  /// Llave de idempotencia de un mensaje que el dueño mandó desde el panel
+  /// (LAU-81): reintentar con la misma no lo manda dos veces.
+  clave String?
+
+  @@unique([conversationId, clave])
   /// El conteo de chats del mes (suscripción) filtra por rol y fecha.
   @@index([conversationId, createdAt])
 }
@@ -379,9 +404,8 @@ model CodigoAcceso {
   @@index([userId])
 }
 
-/// Producto del catálogo de una cuenta de ventas. El precio y el stock no
-/// viven acá sino en sus variantes: todo producto tiene al menos una (la
-/// "única", con nombre vacío, si no tiene talles ni colores).
+/// Producto del catálogo de una cuenta de ventas, con su precio y su stock.
+/// No hay variantes: un talle o un color distinto es otro producto.
 ///
 /// `textoBusqueda`, `busqueda` y `embedding` son para el RAG del asistente
 /// (comercio/busqueda.service.ts). `busqueda` y `embedding` se escriben por SQL
@@ -393,24 +417,35 @@ model Producto {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// Clave del producto para el dueño: con ella se re-importa sin duplicar.
+  /// Clave del producto para el dueño (su SKU): con ella se re-importa sin duplicar.
   codigo      String
   nombre      String
   descripcion String  @default("")
   categoria   String?
-  /// "ARS" | "USD": la moneda de los precios de todas sus variantes. Un
+  /// "ARS" | "USD": la moneda de su precio. Un
   /// pedido no mezcla monedas y uno en dólares se cobra a mano (Mercado Pago
-  /// cobra en pesos). Los a medida son siempre en pesos.
+  /// cobra en pesos).
   moneda      String  @default("ARS")
+
+  /// Precio en centavos, como `Subscription.montoCentavos`.
+  precioCentavos Int
+  /// Unidades en stock. Null = producto a demanda: no se controla cantidad y vale `disponible`.
+  stock          Int?
+  /// Switch manual "hay / no hay", que sólo cuenta cuando `stock` es null.
+  disponible     Boolean @default(true)
+  /// A demanda (`stock` null): en cuántos días se entrega. Con stock queda en null.
+  plazoEntregaDias Int?
+  /// Con stock controlado: por debajo de esto se avisa al dueño.
+  stockMinimo    Int?
 
   /// Baja lógica: un producto borrado deja de venderse pero sus ventas
   /// guardan igual su snapshot.
   activo Boolean @default(true)
 
-  /// Nombre, categoría, descripción, códigos y variantes en minúsculas y sin
+  /// Nombre, categoría, descripción y código en minúsculas y sin
   /// tildes (catalogo.rules.ts). Es la base del full-text, de los trigramas y
   /// del embedding.
-  textoBusqueda String @default("")
+  textoBusqueda String                       @default("")
   /// to_tsvector('spanish', textoBusqueda).
   busqueda      Unsupported("tsvector")?
   /// openai/text-embedding-3-small vía OpenRouter (1536 dimensiones).
@@ -419,38 +454,22 @@ model Producto {
   /// de `textoBusqueda`, el indexador lo recalcula.
   embeddingHash String?
 
-  variantes Variante[]
-  intereses InteresProducto[]
-  preguntas PreguntaChat[]
+  itemsVenta      ItemVenta[]
+  intereses       InteresProducto[]
+  preguntas       PreguntaChat[]
   /// El descuento propio del producto (del formulario), si tiene.
-  descuento Descuento?
-  /// La foto que el asistente le manda al cliente cuando la pide (una sola).
-  imagen    ImagenProducto?
-  /// Producto a medida (LAU-22): las preguntas que el asistente le hace al
-  /// cliente para presupuestar, `{ preguntas: [{ texto, sobre: 'tiene' |
-  /// 'solicita', opciones, textoLibre, obligatoria }] }`, en el orden en que
-  /// las hace; `{ preguntas: [] }` es a medida sin preguntas propias. Null =
-  /// no se hace a medida. La forma y sus reglas están en
-  /// comercio/solicitud.rules.ts.
-  solicitud Json?
-  /// Precio "desde" opcional de un producto a medida, que no tiene stock: el
-  /// precio real sale de la cotización. Null en los de stock.
-  precioReferenciaCentavos Int?
-  /// Con qué materiales se hace un producto a medida: el asistente ofrece
-  /// sólo esos. Vacío en los de stock y cuando el dueño no los cargó.
-  materiales String[] @default([])
-  /// Producto a medida (LAU-26): cómo se cotiza solo. `{ renglones: [{ insumoId,
-  /// cantidad: "<fórmula>", cuando? }], extras: [{ nombre, modo, valor, formula?,
-  /// cuando? }] }`; las fórmulas usan las preguntas de número de `solicitud`.
-  /// Null = no tiene receta (lo cotiza el dueño). Reglas en comercio/costos.rules.ts.
-  receta Json?
-  /// "manual" (lo cotiza el dueño) | "revision" (el asistente lo arma y el dueño
-  /// lo aprueba) | "automatica" (el asistente cotiza y lo manda).
-  politicaCotizacion String @default("manual")
-
-  /// Hasta cuántas cuotas se vende (LAU-34): 1 = sólo en un pago, null = con
-  /// todos los planes del comercio. En un pedido manda el más bajo.
-  cuotasMax Int?
+  descuento       Descuento?
+  /// Hasta MAX_IMAGENES_POR_PRODUCTO fotos; la de menor `orden` es la principal
+  /// (la que sale al mostrar el producto) y el resto, las de detalle.
+  imagenes        ImagenProducto[]
+  /// Cuotas del producto (LAU-34): { modo: "recargo", recargoPorcentaje, planes: [3, 6] }
+  /// o { modo: "precios", planes: [{ cuotas, totalCentavos }] }; null = en un pago.
+  /// Reglas en comercio/condiciones-pago.rules.ts.
+  cuotas          Json?
+  /// Lo que el asistente le pregunta al cliente al pedirlo (talle, color…):
+  /// [{ texto, tipo: "opciones" | "texto", opciones, obligatoria }]; null =
+  /// no pregunta nada. Reglas en comercio/preguntas-producto.rules.ts.
+  preguntasPedido Json?
 
   /// Importación rápida (LAU-31): de dónde salió el producto, como clave
   /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
@@ -470,43 +489,10 @@ model Producto {
   @@index([textoBusqueda(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-/// Variante vendible de un producto (talle, color, sabor…), con su precio y su
-/// stock. Un producto sin variantes tiene una sola, con `nombre` vacío.
-model Variante {
-  id         String   @id @default(cuid())
-  productoId String
-  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
-
-  sku    String
-  /// "" para la variante única de un producto sin variantes.
-  nombre String @default("")
-
-  /// Precio en centavos, como `Subscription.montoCentavos`.
-  precioCentavos Int
-
-  /// Unidades en stock. Null = el dueño no controla cantidad y vale `disponible`.
-  stock        Int?
-  /// Switch manual "hay / no hay", que sólo cuenta cuando `stock` es null.
-  disponible   Boolean @default(true)
-  /// Con stock controlado: por debajo de esto se avisa al dueño.
-  stockMinimo  Int?
-
-  activo Boolean @default(true)
-
-  itemsVenta ItemVenta[]
-  /// La foto propia de una variante fija de un producto a medida, si tiene.
-  imagen     ImagenVariante?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([productoId, sku])
-}
-
 /// Un descuento del comercio. El alcance sale de los campos: con `productoId`
 /// es el del formulario de ese producto (uno por producto); con `categoria`,
 /// una promo de esa categoría; sin ninguno, una promo de todo el catálogo. Si
-/// a una variante le tocan varios, se aplica el que más le conviene al
+/// a un producto le tocan varios, se aplica el que más le conviene al
 /// cliente y nunca se suman (comercio/descuentos.rules.ts).
 model Descuento {
   id     String @id @default(cuid())
@@ -537,15 +523,19 @@ model Descuento {
 
 /// La foto de un producto, ya recomprimida por la API (comercio/imagenes.rules.ts):
 /// JPEG de hasta 800 px y 150 KB, sin metadatos. Tabla aparte para que los
-/// listados y la búsqueda nunca arrastren los bytes. Una por producto y hasta
-/// `MAX_IMAGENES_POR_CUENTA` por cuenta, para que la base no crezca sin techo.
+/// listados y la búsqueda nunca arrastren los bytes. Hasta
+/// `MAX_IMAGENES_POR_PRODUCTO` por producto y `MAX_IMAGENES_POR_CUENTA` por
+/// cuenta, para que la base no crezca sin techo.
 model ImagenProducto {
   id     String @id @default(cuid())
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  productoId String   @unique
+  productoId String
   producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  /// 0 = la principal; las demás, en el orden en que se muestran. Lo mantiene
+  /// ImagenesService (0..n-1, sin huecos), con el producto bloqueado.
+  orden      Int      @default(0)
 
   datos Bytes
   /// Tamaño de `datos`, para el uso de la cuenta sin leer los bytes.
@@ -557,29 +547,7 @@ model ImagenProducto {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
-}
-
-/// La foto de una variante fija de un producto a medida: el asistente la manda
-/// cuando el cliente elige esa versión. Mismo formato y mismo cupo por cuenta
-/// que ImagenProducto (comercio/imagenes.rules.ts); aparte para no tocar el
-/// producto único de esa tabla.
-model ImagenVariante {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  varianteId String   @unique
-  variante   Variante @relation(fields: [varianteId], references: [id], onDelete: Cascade)
-
-  datos Bytes
-  bytes Int
-  ancho Int
-  alto  Int
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
+  @@index([productoId, orden])
 }
 
 /// Un pedido del asistente de ventas, desde que se reserva el stock hasta que
@@ -607,16 +575,10 @@ model Venta {
   /// al vender (como ItemVenta). Misma retención que el nombre.
   datosCliente Json?
 
-  /// "stock" (productos del catálogo con variantes) | "a_medida" (una
-  /// solicitud que se cotiza: LAU-24/26/27). Las reglas de los a medida están
-  /// en comercio/pedido-a-medida.rules.ts.
-  tipo String @default("stock")
-
-  /// "solicitado" | "a_cotizar" | "cotizado" (sólo a medida) | "pendiente_pago"
-  /// | "pagada" | "cancelada" | "vencida"
-  estado    String @default("pendiente_pago")
-  /// "mercadopago" | "manual". Null en un a medida que todavía no se cobra.
-  medioPago String?
+  /// "pendiente_pago" | "pagada" | "cancelada" | "vencida"
+  estado          String  @default("pendiente_pago")
+  /// "mercadopago" | "manual".
+  medioPago       String?
   /// "efectivo" | "cuotas" (LAU-34); null = contado, como siempre. Reglas en
   /// comercio/condiciones-pago.rules.ts.
   formaPago       String?
@@ -625,19 +587,11 @@ model Venta {
   /// Sólo en cuotas: lo que se sumó al total por el plan (ya incluido en `totalCentavos`).
   recargoCentavos Int     @default(0)
 
-  /// Null en un a medida sin cotizar: nunca un cero inventado.
   totalCentavos Int?
   moneda        String @default("ARS")
 
-  /// Hasta cuándo retiene el stock mientras está pendiente de pago. En un a
-  /// medida es hasta cuándo vale el link (o el cobro a coordinar); null
-  /// mientras no se cobra.
+  /// Hasta cuándo retiene el stock mientras está pendiente de pago.
   reservaVenceAt DateTime?
-
-  /// Sólo a medida: la foto de lo que pidió el cliente, `{ productoId,
-  /// nombreProducto, respuestas: [{ pregunta, respuesta }], resumen }`. Se
-  /// anonimiza el resumen a los 12 meses, como el nombre.
-  solicitud Json?
 
   /// "asistente" | "humana" (LAU-27). En "humana" el asistente no contesta en
   /// ese chat mientras el pedido siga abierto.
@@ -672,9 +626,8 @@ model Venta {
   /// es un pedido real, pero no cuenta en el histórico ni en los totales.
   dePrueba Boolean @default(false)
 
-  items        ItemVenta[]
-  presupuestos Presupuesto[]
-  eventos      EventoVenta[]
+  items   ItemVenta[]
+  eventos EventoVenta[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -685,48 +638,14 @@ model Venta {
   @@index([userId, atencion])
 }
 
-/// Un presupuesto de un pedido a medida. Cada cambio es una versión nueva: la
-/// anterior queda "reemplazado", y la que se cobra es la única "enviado".
-/// Reglas en comercio/presupuesto.rules.ts.
-model Presupuesto {
-  id      String @id @default(cuid())
-  ventaId String
-  venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
-
-  version Int
-  /// "asistente" (lo calculó la receta) | "dueno" (lo armó o editó a mano)
-  origen  String
-  /// "borrador" | "enviado" | "reemplazado" | "descartado"
-  estado  String @default("borrador")
-
-  /// [{ concepto, tipo: material|proceso|mano_obra|extra|otro, cantidad,
-  /// unidad, precioUnitarioCentavos, subtotalCentavos }], foto del momento.
-  renglones     Json
-  totalCentavos Int
-  moneda        String  @default("ARS")
-  /// Si es estimativo (el precio final puede cambiar) o definitivo.
-  estimativo    Boolean @default(false)
-  /// Si el cliente ve los renglones o sólo el total.
-  detalleAlCliente Boolean @default(false)
-  /// Lo que el dueño le agrega al cliente (plazo, condiciones). Nunca lo inventa el asistente.
-  nota          String?
-  /// Fase 2: las respuestas y valores con que se calculó.
-  datos         Json?
-
-  enviadoAt DateTime?
-  createdAt DateTime  @default(now())
-
-  @@unique([ventaId, version])
-}
-
-/// El historial de un pedido: cada cambio de estado, derivación, devolución,
-/// presupuesto y cobro, con quién lo hizo y por qué.
+/// El historial de un pedido: cada derivación y devolución, con quién lo hizo
+/// y por qué.
 model EventoVenta {
   id      String @id @default(cuid())
   ventaId String
   venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
 
-  /// "estado" | "derivacion" | "devolucion" | "presupuesto" | "cobro"
+  /// "derivacion" | "devolucion"
   tipo   String
   de     String?
   a      String?
@@ -746,12 +665,11 @@ model ItemVenta {
   ventaId String
   venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
 
-  varianteId String?
-  variante   Variante? @relation(fields: [varianteId], references: [id], onDelete: SetNull)
+  productoId String?
+  producto   Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
 
   codigo                 String
   nombreProducto         String
-  nombreVariante         String @default("")
   /// El precio que se cobró por unidad: ya con el descuento, si hubo.
   precioUnitarioCentavos Int
   cantidad               Int
@@ -763,8 +681,11 @@ model ItemVenta {
   descuentoCentavos      Int     @default(0)
   /// Cómo se llamaba el descuento aplicado ("20% off", "Semana del mate").
   descuentoEtiqueta      String?
+  /// Lo que contestó el cliente a las preguntas del producto, copiado al pedir:
+  /// [{ pregunta, respuesta }]. Null = el producto no preguntaba nada.
+  respuestas             Json?
 
-  @@index([varianteId])
+  @@index([productoId])
   @@index([ventaId])
 }
 
@@ -799,7 +720,7 @@ model Notificacion {
 
   /// "venta_pagada" | "pedido_manual" | "stock_bajo" | "stock_agotado" |
   /// "consulta_derivada" | "mercadopago_desconectado" | "whatsapp_desconectado" |
-  /// "solicitud_a_cotizar" | "presupuesto_a_revisar" | "pedido_derivado" | "presupuesto_aceptado" | "cupo_chats"
+  /// "cupo_chats"
   tipo   String
   titulo String
   cuerpo String
@@ -807,7 +728,7 @@ model Notificacion {
   /// Ruta del panel a la que lleva (ej. "/ventas?venta=…"). Nunca una URL externa.
   enlace String?
 
-  /// Para no repetir un aviso que sigue sin leer (ej. "stock:<varianteId>").
+  /// Para no repetir un aviso que sigue sin leer (ej. "stock:<productoId>").
   clave String?
 
   leidaAt   DateTime?
@@ -843,56 +764,13 @@ model SugerenciaMejora {
   @@index([enviadaAt])
 }
 
-/// Lo que cuesta hacer algo en un comercio a pedido (LAU-26), por unidad:
-/// materiales, fabricación y máquinas, mano de obra. Las recetas de los
-/// productos lo referencian por id, así que no se borra: `activo = false`.
-model Insumo {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  /// "material" | "proceso" | "mano_obra"
-  tipo          String
-  nombre        String
-  /// "unidad" | "m" | "m2" | "m3" | "cm" | "cm2" | "litro" | "kg" | "g" | "hora" | "minuto"
-  unidad        String
-  costoCentavos Int
-  activo        Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, tipo, nombre])
-}
-
-/// Cómo cotiza el asistente de un comercio a pedido (LAU-26): extras que se
-/// suman a toda cotización, redondeo, si es estimativo, vigencia y cuánto
-/// detalle ve el cliente. Sin fila, lo de costos.rules.ts CONFIG_POR_DEFECTO.
-model ConfigCotizacion {
-  userId String @id
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  /// [{ nombre, modo: "fijo" | "porcentaje", valor }]
-  extras            Json    @default("[]")
-  redondeoCentavos  Int     @default(0)
-  estimativo        Boolean @default(true)
-  /// Null = el presupuesto no dice hasta cuándo vale.
-  vigenciaDias      Int?
-  /// "total" | "detallado"
-  desgloseAlCliente String  @default("total")
-
-  updatedAt DateTime @updatedAt
-}
-
-/// Cómo puede pagar el cliente de un comercio que vende (LAU-34): planes de
-/// cuotas con su recargo y el descuento por pagar en efectivo. Sin fila, no
-/// ofrece ninguno. Reglas en comercio/condiciones-pago.rules.ts.
+/// Cómo puede pagar el cliente de un comercio que vende (LAU-34): el descuento
+/// por pagar en efectivo y el cobro sin link (las cuotas son de cada producto).
+/// Sin fila, no ofrece ninguno. Reglas en comercio/condiciones-pago.rules.ts.
 model CondicionesPago {
   userId String @id
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// [{ cuotas, recargoPorcentaje }]; recargo 0 = sin interés.
-  planesCuotas                Json @default("[]")
   /// Porcentaje de descuento pagando en efectivo; null = no hay.
   descuentoEfectivoPorcentaje Int?
 
@@ -922,7 +800,7 @@ model EtapaChat {
   conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   /// La más avanzada que alcanzó; nunca retrocede.
-  /// "consulta" | "vio_productos" | "eligiendo" | "lista" | "pedido" | "cotizado" | "pagado"
+  /// "consulta" | "vio_productos" | "eligiendo" | "lista" | "pedido" | "pagado"
   etapa    String  @default("consulta")
   /// Última etapa que calculó Jev: "eligiendo" | "lista". Null si nunca se calculó.
   etapaJev String?
@@ -940,8 +818,8 @@ model EtapaChat {
   ultimaActividadAt DateTime @default(now())
 
   preguntas PreguntaChat[]
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
   @@index([userId, ultimaActividadAt])
   @@index([userId, createdAt])

@@ -141,13 +141,13 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
             <DelAsistente>
               {ob.presentacion} Sí, tengo el mate de calabaza curado a $ 8.000. ¿Te lo reservo?
             </DelAsistente>
-            {(paso === "local" || paso === "datos" || alFinal) && (
+            {(paso === "local" || paso === "datos" || paso === "cobro" || alFinal) && (
               <>
                 <DelCliente>¿Puedo pasar a buscarlo?</DelCliente>
                 <DelAsistente>{respuestaDelLocal(ob)}</DelAsistente>
               </>
             )}
-            {(paso === "datos" || alFinal) && <PedidoDeDatos ob={ob} />}
+            {(paso === "datos" || paso === "cobro" || alFinal) && <PedidoDeDatos ob={ob} />}
           </>
         ) : (
           <>

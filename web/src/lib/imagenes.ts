@@ -1,5 +1,5 @@
 import { API_URL, apiFetch } from "./api";
-import { ErrorDeApi } from "./productos";
+import { ErrorDeApi, type FotoDeProducto } from "./productos";
 
 /**
  * Fotos de productos. La API es la que valida y recomprime (JPEG de 800 px,
@@ -17,17 +17,30 @@ const MAX_BYTES_SUBIDA = 2 * 1024 * 1024;
 /** Lado mayor con el que se sube: la API igual la deja en 800. */
 const LADO_SUBIDA = 1600;
 
+/** Fotos por producto: la principal y hasta tres de detalle (MAX_IMAGENES_POR_PRODUCTO de la API). */
+export const MAX_FOTOS_POR_PRODUCTO = 4;
+
 export type UsoDeImagenes = { usadas: number; maximo: number };
 
-/** Dónde vive la foto del producto o, con `varianteId`, la de una de sus versiones de precio fijo. */
-function rutaImagen(productoId: string, varianteId?: string): string {
-  const producto = `/productos/${encodeURIComponent(productoId)}`;
-  return varianteId ? `${producto}/variantes/${encodeURIComponent(varianteId)}/imagen` : `${producto}/imagen`;
+/** Dónde vive la foto principal del producto. */
+function rutaImagen(productoId: string): string {
+  return `/productos/${encodeURIComponent(productoId)}/imagen`;
 }
 
-/** URL de la foto; `version` (imagenActualizada) evita mostrar una cacheada vieja. */
-export function urlImagenProducto(productoId: string, version: string, varianteId?: string): string {
-  return `${API_URL}${rutaImagen(productoId, varianteId)}?${new URLSearchParams({ v: version })}`;
+/** Dónde viven las fotos del producto (o una, con `imagenId`). */
+function rutaFotos(productoId: string, imagenId?: string): string {
+  const base = `/productos/${encodeURIComponent(productoId)}/imagenes`;
+  return imagenId ? `${base}/${encodeURIComponent(imagenId)}` : base;
+}
+
+/** URL de la foto principal; `version` (imagenActualizada) evita mostrar una cacheada vieja. */
+export function urlImagenProducto(productoId: string, version: string): string {
+  return `${API_URL}${rutaImagen(productoId)}?${new URLSearchParams({ v: version })}`;
+}
+
+/** URL de una foto puntual; `version` (su `actualizada`) evita mostrar una cacheada vieja. */
+export function urlFotoProducto(productoId: string, imagenId: string, version: string): string {
+  return `${API_URL}${rutaFotos(productoId, imagenId)}?${new URLSearchParams({ v: version })}`;
 }
 
 async function mensajeDeError(res: Response): Promise<string> {
@@ -62,7 +75,8 @@ export async function achicarParaSubir(archivo: File): Promise<Blob> {
   }
 }
 
-export async function subirImagenProducto(productoId: string, archivo: File, varianteId?: string): Promise<void> {
+/** Valida y achica la foto antes de mandarla: el cuerpo multipart que espera la API. */
+async function cuerpoDeFoto(archivo: File): Promise<FormData> {
   if (!FORMATOS_FOTO.split(",").includes(archivo.type)) {
     throw new ErrorDeApi("La foto tiene que ser JPG, PNG o WebP.");
   }
@@ -70,13 +84,36 @@ export async function subirImagenProducto(productoId: string, archivo: File, var
   if (blob.size > MAX_BYTES_SUBIDA) throw new ErrorDeApi("La foto pesa demasiado: probá con otra.");
   const datos = new FormData();
   datos.append("imagen", blob, "foto.jpg");
-  const res = await apiFetch(rutaImagen(productoId, varianteId), { method: "PUT", body: datos });
-  if (!res.ok) throw new ErrorDeApi(await mensajeDeError(res));
+  return datos;
 }
 
-export async function quitarImagenProducto(productoId: string, varianteId?: string): Promise<void> {
-  const res = await apiFetch(rutaImagen(productoId, varianteId), { method: "DELETE" });
-  if (!res.ok) throw new ErrorDeApi("No pudimos quitar la foto. Probá de nuevo.");
+async function fotosDe(res: Response, error: string): Promise<FotoDeProducto[]> {
+  if (!res.ok) throw new ErrorDeApi(res.status === 404 || res.status === 409 ? await mensajeDeError(res) : error);
+  return (await res.json()) as FotoDeProducto[];
+}
+
+/** Suma una foto al final (la primera queda como principal). Devuelve todas, en orden. */
+export async function agregarFotoProducto(productoId: string, archivo: File): Promise<FotoDeProducto[]> {
+  const res = await apiFetch(rutaFotos(productoId), { method: "POST", body: await cuerpoDeFoto(archivo) });
+  if (!res.ok) throw new ErrorDeApi(await mensajeDeError(res));
+  return (await res.json()) as FotoDeProducto[];
+}
+
+/** Cambia una foto por otra sin moverla de lugar. */
+export async function reemplazarFotoProducto(productoId: string, imagenId: string, archivo: File): Promise<FotoDeProducto[]> {
+  const res = await apiFetch(rutaFotos(productoId, imagenId), { method: "PUT", body: await cuerpoDeFoto(archivo) });
+  if (!res.ok) throw new ErrorDeApi(await mensajeDeError(res));
+  return (await res.json()) as FotoDeProducto[];
+}
+
+export async function hacerPrincipalFotoProducto(productoId: string, imagenId: string): Promise<FotoDeProducto[]> {
+  const res = await apiFetch(`${rutaFotos(productoId, imagenId)}/principal`, { method: "POST" });
+  return fotosDe(res, "No pudimos cambiar la foto principal. Probá de nuevo.");
+}
+
+export async function quitarFotoProducto(productoId: string, imagenId: string): Promise<FotoDeProducto[]> {
+  const res = await apiFetch(rutaFotos(productoId, imagenId), { method: "DELETE" });
+  return fotosDe(res, "No pudimos quitar la foto. Probá de nuevo.");
 }
 
 export async function usoDeImagenes(): Promise<UsoDeImagenes> {

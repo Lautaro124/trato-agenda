@@ -1,80 +1,134 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cuotasEnComun,
+  describirCuotas,
   descuentoEfectivo,
   filaDeCobroManual,
-  normalizarCobroManual,
-  hayCondiciones,
   leerCondiciones,
-  MAX_PLANES_CUOTAS,
+  leerCuotasProducto,
+  normalizarCobroManual,
   normalizarCondiciones,
-  planesEn,
+  normalizarCuotasProducto,
   problemaDeFormaDePago,
-  recargoDe,
+  recargoDeRenglon,
   SIN_CONDICIONES,
-  topeDelPedido,
   valorDeCuota,
   type CondicionesPago,
+  type CuotasProducto,
 } from './condiciones-pago.rules.js';
 import { mejorDescuento, type DescuentoParaAplicar } from './descuentos.rules.js';
 
-const CONDICIONES: CondicionesPago = {
-  planesCuotas: [
-    { cuotas: 3, recargoPorcentaje: 0 },
-    { cuotas: 6, recargoPorcentaje: 15 },
+const CONDICIONES: CondicionesPago = { descuentoEfectivoPorcentaje: 10, cobroManual: null };
+
+const SIN_INTERES: CuotasProducto = { modo: 'recargo', recargoPorcentaje: 0, planes: [3, 6] };
+const CON_PRECIOS: CuotasProducto = {
+  modo: 'precios',
+  planes: [
+    { cuotas: 3, totalCentavos: 110_000 },
+    { cuotas: 12, totalCentavos: 150_000 },
   ],
-  descuentoEfectivoPorcentaje: 10,
-  cobroManual: null,
 };
 
 describe('normalizarCondiciones', () => {
-  it('ordena los planes por cantidad de cuotas', () => {
-    const resultado = normalizarCondiciones({
-      planesCuotas: [
-        { cuotas: 12, recargoPorcentaje: 30 },
-        { cuotas: 3, recargoPorcentaje: 0 },
-      ],
-      descuentoEfectivoPorcentaje: null,
-    });
-    expect(resultado).toEqual({
-      condiciones: {
-        planesCuotas: [
-          { cuotas: 3, recargoPorcentaje: 0 },
-          { cuotas: 12, recargoPorcentaje: 30 },
-        ],
-        descuentoEfectivoPorcentaje: null,
-        cobroManual: null,
-      },
-    });
-  });
-
   it.each([
-    [{ planesCuotas: [{ cuotas: 1, recargoPorcentaje: 0 }] }, 'cuotas'],
-    [{ planesCuotas: [{ cuotas: 25, recargoPorcentaje: 0 }] }, 'cuotas'],
-    [{ planesCuotas: [{ cuotas: 3.5, recargoPorcentaje: 0 }] }, 'cuotas'],
-    [{ planesCuotas: [{ cuotas: 3, recargoPorcentaje: -1 }] }, 'recargo'],
-    [{ planesCuotas: [{ cuotas: 3, recargoPorcentaje: 101 }] }, 'recargo'],
-    [{ planesCuotas: [{ cuotas: 3, recargoPorcentaje: 0 }, { cuotas: 3, recargoPorcentaje: 10 }] }, 'dos planes'],
-    [{ planesCuotas: 'tres' }, 'planes'],
     [{ descuentoEfectivoPorcentaje: 0 }, 'efectivo'],
     [{ descuentoEfectivoPorcentaje: 91 }, 'efectivo'],
   ])('rechaza %j', (entrada, motivo) => {
     const resultado = normalizarCondiciones(entrada);
     expect('error' in resultado && resultado.error).toContain(motivo);
   });
-
-  it(`acepta hasta ${MAX_PLANES_CUOTAS} planes`, () => {
-    const planes = Array.from({ length: MAX_PLANES_CUOTAS + 1 }, (_, i) => ({ cuotas: i + 2, recargoPorcentaje: 0 }));
-    expect('error' in normalizarCondiciones({ planesCuotas: planes.slice(0, -1) })).toBe(false);
-    expect('error' in normalizarCondiciones({ planesCuotas: planes })).toBe(true);
-  });
 });
 
 describe('leerCondiciones', () => {
   it('sin fila o con una rota no ofrece nada', () => {
     expect(leerCondiciones(null)).toEqual(SIN_CONDICIONES);
-    expect(leerCondiciones({ planesCuotas: [{ cuotas: 'x' }], descuentoEfectivoPorcentaje: 10 })).toEqual(SIN_CONDICIONES);
-    expect(hayCondiciones(SIN_CONDICIONES)).toBe(false);
-    expect(hayCondiciones(CONDICIONES)).toBe(true);
+    expect(leerCondiciones({ descuentoEfectivoPorcentaje: 500 })).toEqual(SIN_CONDICIONES);
+  });
+});
+
+describe('cuotas de un producto', () => {
+  it('con recargo: ordena las cantidades y deja sólo los campos del modo', () => {
+    expect(
+      normalizarCuotasProducto({ modo: 'recargo', recargoPorcentaje: 10, planes: [12, 3], totalCentavos: 1 }, 100_000, 'ARS'),
+    ).toEqual({ cuotas: { modo: 'recargo', recargoPorcentaje: 10, planes: [3, 12] } });
+  });
+
+  it('con precio por plan: ordena por cantidad', () => {
+    expect(
+      normalizarCuotasProducto({ modo: 'precios', planes: [...CON_PRECIOS.planes].reverse() }, 100_000, 'ARS'),
+    ).toEqual({ cuotas: CON_PRECIOS });
+  });
+
+  it('null o ausente es en un pago', () => {
+    expect(normalizarCuotasProducto(null, 100_000, 'ARS')).toEqual({ cuotas: null });
+    expect(normalizarCuotasProducto(undefined, 100_000, 'USD')).toEqual({ cuotas: null });
+  });
+
+  it.each([
+    [{ modo: 'otro', planes: [3] }, 'no son válidas'],
+    [{ modo: 'recargo', recargoPorcentaje: 0, planes: [] }, 'Elegí en cuántas'],
+    [{ modo: 'recargo', recargoPorcentaje: 0, planes: [1] }, 'de 2 a 24'],
+    [{ modo: 'recargo', recargoPorcentaje: 0, planes: [25] }, 'de 2 a 24'],
+    [{ modo: 'recargo', recargoPorcentaje: 0, planes: [3.5] }, 'de 2 a 24'],
+    [{ modo: 'recargo', recargoPorcentaje: 0, planes: [3, 3] }, 'dos planes'],
+    [{ modo: 'recargo', recargoPorcentaje: -1, planes: [3] }, 'recargo'],
+    [{ modo: 'recargo', recargoPorcentaje: 101, planes: [3] }, 'recargo'],
+    [{ modo: 'precios', planes: [{ cuotas: 3 }] }, 'Falta el total'],
+    [{ modo: 'precios', planes: [{ cuotas: 3, totalCentavos: 99_999 }] }, 'menor que el precio'],
+    [{ modo: 'precios', planes: [3] }, 'no son válidas'],
+  ])('rechaza %j', (entrada, motivo) => {
+    const resultado = normalizarCuotasProducto(entrada, 100_000, 'ARS');
+    expect('error' in resultado && resultado.error).toContain(motivo);
+  });
+
+  it('un producto en dólares no va en cuotas', () => {
+    const resultado = normalizarCuotasProducto(SIN_INTERES, 100_000, 'USD');
+    expect('error' in resultado && resultado.error).toContain('dólares');
+    expect(leerCuotasProducto(SIN_INTERES, 100_000, 'USD')).toBeNull();
+  });
+
+  it('al leer, un total que quedó por debajo del precio deja de ofrecerse', () => {
+    expect(leerCuotasProducto(CON_PRECIOS, 120_000, 'ARS')).toEqual({
+      modo: 'precios',
+      planes: [{ cuotas: 12, totalCentavos: 150_000 }],
+    });
+    expect(leerCuotasProducto(CON_PRECIOS, 200_000, 'ARS')).toBeNull();
+    expect(leerCuotasProducto({ modo: 'recargo', planes: 'x' }, 100_000, 'ARS')).toBeNull();
+    expect(leerCuotasProducto(null, 100_000, 'ARS')).toBeNull();
+  });
+
+  it('se describe para el asistente', () => {
+    expect(describirCuotas(SIN_INTERES)).toBe('3 o 6 cuotas sin interés');
+    expect(describirCuotas({ modo: 'recargo', recargoPorcentaje: 15, planes: [3, 6, 12] })).toBe(
+      '3, 6 o 12 cuotas con 15% de recargo',
+    );
+    expect(describirCuotas(CON_PRECIOS)).toBe('3 cuotas: total $ 1.100; 12 cuotas: total $ 1.500');
+  });
+});
+
+describe('montos', () => {
+  it('con recargo, es un porcentaje del subtotal del renglón, redondeado al centavo', () => {
+    const quince: CuotasProducto = { modo: 'recargo', recargoPorcentaje: 15, planes: [6] };
+    expect(recargoDeRenglon(quince, 6, { cantidad: 2, subtotalCentavos: 1_000_000 })).toBe(150_000);
+    expect(recargoDeRenglon(quince, 6, { cantidad: 1, subtotalCentavos: 333 })).toBe(50);
+    expect(recargoDeRenglon(SIN_INTERES, 3, { cantidad: 1, subtotalCentavos: 1_000_000 })).toBe(0);
+  });
+
+  it('con precio por plan, es lo que va del subtotal (con promos) al total del plan por unidad', () => {
+    expect(recargoDeRenglon(CON_PRECIOS, 3, { cantidad: 2, subtotalCentavos: 200_000 })).toBe(20_000);
+    expect(recargoDeRenglon(CON_PRECIOS, 12, { cantidad: 1, subtotalCentavos: 80_000 })).toBe(70_000);
+  });
+
+  it('las cuotas redondean para arriba: nunca cubren menos que el total', () => {
+    expect(valorDeCuota(1_000_000, 3)).toBe(333_334);
+    expect(valorDeCuota(1_000_000, 3) * 3).toBeGreaterThanOrEqual(1_000_000);
+  });
+
+  it('un pedido sólo va en las cuotas que tienen todos sus productos', () => {
+    expect(cuotasEnComun([SIN_INTERES, CON_PRECIOS])).toEqual([3]);
+    expect(cuotasEnComun([SIN_INTERES])).toEqual([3, 6]);
+    expect(cuotasEnComun([SIN_INTERES, null])).toEqual([]);
+    expect(cuotasEnComun([])).toEqual([]);
   });
 });
 
@@ -115,46 +169,20 @@ describe('cobro manual', () => {
 
   it('se guarda plano y se vuelve a leer igual', () => {
     const cobro = { modo: 'transferencia' as const, alias: 'mi.alias', titular: 'Ana' };
-    const fila = { planesCuotas: [], descuentoEfectivoPorcentaje: null, ...filaDeCobroManual(cobro) };
+    const fila = { descuentoEfectivoPorcentaje: 10, ...filaDeCobroManual(cobro) };
     expect(fila.mensajeCobroManual).toBeNull();
     expect(leerCondiciones(fila).cobroManual).toEqual(cobro);
   });
 
-  it('uno roto queda como coordinar por el chat sin llevarse las cuotas', () => {
+  it('uno roto queda como coordinar por el chat sin llevarse el efectivo', () => {
     const fila = {
-      planesCuotas: [{ cuotas: 3, recargoPorcentaje: 0 }],
-      descuentoEfectivoPorcentaje: null,
+      descuentoEfectivoPorcentaje: 10,
       cobroManual: 'transferencia',
       aliasTransferencia: null,
       titularTransferencia: null,
       mensajeCobroManual: null,
     };
-    expect(leerCondiciones(fila)).toEqual({ ...SIN_CONDICIONES, planesCuotas: [{ cuotas: 3, recargoPorcentaje: 0 }] });
-  });
-});
-
-describe('montos', () => {
-  it('el recargo es un porcentaje del total, redondeado al centavo', () => {
-    expect(recargoDe(1_000_000, { cuotas: 6, recargoPorcentaje: 15 })).toBe(150_000);
-    expect(recargoDe(333, { cuotas: 6, recargoPorcentaje: 15 })).toBe(50);
-    expect(recargoDe(1_000_000, { cuotas: 3, recargoPorcentaje: 0 })).toBe(0);
-  });
-
-  it('las cuotas redondean para arriba: nunca cubren menos que el total', () => {
-    expect(valorDeCuota(1_000_000, 3)).toBe(333_334);
-    expect(valorDeCuota(1_000_000, 3) * 3).toBeGreaterThanOrEqual(1_000_000);
-  });
-
-  it('el tope de un pedido es el más bajo de sus productos', () => {
-    expect(topeDelPedido([null, 6, 3])).toBe(3);
-    expect(topeDelPedido([null, null])).toBeNull();
-    expect(planesEn(CONDICIONES, 'ARS', 4)).toEqual([{ cuotas: 3, recargoPorcentaje: 0 }]);
-    expect(planesEn(CONDICIONES, 'ARS', 1)).toEqual([]);
-  });
-
-  it('en dólares no hay cuotas', () => {
-    expect(planesEn(CONDICIONES, 'USD')).toEqual([]);
-    expect(planesEn(CONDICIONES, 'ARS')).toHaveLength(2);
+    expect(leerCondiciones(fila)).toEqual({ ...SIN_CONDICIONES, descuentoEfectivoPorcentaje: 10 });
   });
 });
 
@@ -186,30 +214,28 @@ describe('descuento en efectivo', () => {
 
 describe('problemaDeFormaDePago', () => {
   it('contado siempre se puede', () => {
-    expect(problemaDeFormaDePago(SIN_CONDICIONES, null, null, 'ARS')).toBeNull();
+    expect(problemaDeFormaDePago(SIN_CONDICIONES, null, null, 'ARS', [null])).toBeNull();
   });
 
-  it('sólo los planes y el efectivo configurados', () => {
-    expect(problemaDeFormaDePago(CONDICIONES, 'cuotas', 6, 'ARS')).toBeNull();
-    expect(problemaDeFormaDePago(CONDICIONES, 'efectivo', null, 'ARS')).toBeNull();
-    expect(problemaDeFormaDePago(CONDICIONES, 'cuotas', 12, 'ARS')).toContain('3, 6 cuotas');
-    expect(problemaDeFormaDePago(CONDICIONES, 'cuotas', null, 'ARS')).toContain('no existe');
-    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'cuotas', 3, 'ARS')).toContain('no ofrece');
-    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'efectivo', null, 'ARS')).toContain('no tiene descuento');
+  it('el efectivo sólo con descuento configurado', () => {
+    expect(problemaDeFormaDePago(CONDICIONES, 'efectivo', null, 'ARS', [null])).toBeNull();
+    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'efectivo', null, 'ARS', [null])).toContain('no tiene descuento');
+    // Las cuotas de los productos no tocan el efectivo.
+    expect(problemaDeFormaDePago(CONDICIONES, 'efectivo', null, 'USD', [null])).toBeNull();
   });
 
-  it('respeta el tope de cuotas de los productos', () => {
-    expect(problemaDeFormaDePago(CONDICIONES, 'cuotas', 3, 'ARS', 3)).toBeNull();
-    expect(problemaDeFormaDePago(CONDICIONES, 'cuotas', 6, 'ARS', 5)).toBe(
-      'Con estos productos el máximo es 5 cuotas. Los que hay son de 3 cuotas.',
+  it('las cuotas, sólo las que tienen todos los productos', () => {
+    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'cuotas', 6, 'ARS', [SIN_INTERES])).toBeNull();
+    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'cuotas', 3, 'ARS', [SIN_INTERES, CON_PRECIOS])).toBeNull();
+    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'cuotas', 6, 'ARS', [SIN_INTERES, CON_PRECIOS])).toBe(
+      'Con estos productos no hay plan de 6 cuotas. Los que hay son de 3 cuotas.',
     );
-    expect(problemaDeFormaDePago(CONDICIONES, 'cuotas', 3, 'ARS', 1)).toContain('no hay plan de cuotas');
-    // El tope no toca el efectivo.
-    expect(problemaDeFormaDePago(CONDICIONES, 'efectivo', null, 'ARS', 1)).toBeNull();
+    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'cuotas', null, 'ARS', [SIN_INTERES])).toContain('3, 6 cuotas');
+    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'cuotas', 3, 'ARS', [null])).toContain('se vende en un pago');
+    expect(problemaDeFormaDePago(SIN_CONDICIONES, 'cuotas', 3, 'ARS', [SIN_INTERES, null])).toContain('en común');
   });
 
   it('un pedido en dólares no va en cuotas', () => {
-    expect(problemaDeFormaDePago(CONDICIONES, 'cuotas', 3, 'USD')).toContain('dólares');
-    expect(problemaDeFormaDePago(CONDICIONES, 'efectivo', null, 'USD')).toBeNull();
+    expect(problemaDeFormaDePago(CONDICIONES, 'cuotas', 3, 'USD', [SIN_INTERES])).toContain('dólares');
   });
 });

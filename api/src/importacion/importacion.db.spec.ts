@@ -168,18 +168,13 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
       accion: 'crear',
       imagenElegida: borrador.imagenes.length > 0 ? 0 : null,
       producto: {
-        tipo: 'stock',
         codigo: borrador.codigoSugerido,
         nombre: borrador.nombre,
         descripcion: borrador.descripcion,
         categoria: borrador.categoria,
         moneda: borrador.moneda ?? 'ARS',
-        variantes: borrador.variantes.map((variante) => ({
-          nombre: variante.nombre,
-          ...(variante.sku ? { sku: variante.sku } : {}),
-          precioCentavos: variante.precioCentavos ?? 100,
-          stock: null,
-        })),
+        precioCentavos: borrador.precioCentavos ?? 100,
+        stock: null,
       },
       ...extra,
     }) as ItemConfirmadoDto;
@@ -200,21 +195,26 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
     ]);
 
     // El mate aparece dos veces (suelto y en la categoría) pero va una sola.
-    expect(resultado.productos.map((producto) => producto.nombre)).toEqual(['Mate imperial', 'Auriculares', 'Termo Stanley 1L', 'Taza']);
-    const [mate, auriculares, termo, taza] = resultado.productos;
+    // Las variantes de una página llegan como productos separados.
+    expect(resultado.productos.map((producto) => producto.nombre)).toEqual([
+      'Mate imperial',
+      'Auriculares – Negro',
+      'Auriculares – Blanco',
+      'Termo Stanley 1L – Color: Verde',
+      'Termo Stanley 1L – Color: Negro',
+      'Taza',
+    ]);
+    const [mate, negro, blanco, verde, termoNegro, taza] = resultado.productos;
     expect(mate).toMatchObject({ moneda: 'ARS', codigoSugerido: 'MATE-IMPERIAL', imagenes: [`${base}/foto.jpg`], duplicado: null });
-    expect(auriculares).toMatchObject({ moneda: 'USD', variantes: [{ nombre: 'Negro', precioCentavos: 2500 }, { nombre: 'Blanco', precioCentavos: 2700 }] });
-    expect(termo).toMatchObject({
-      claveOrigen: 'ml:MLA1234567890',
-      codigoSugerido: 'MLA1234567890',
-      variantes: [
-        { nombre: 'Color: Verde', sku: 'TER-V', precioCentavos: 12_000_000 },
-        { nombre: 'Color: Negro', sku: 'TER-N', precioCentavos: 12_500_000 },
-      ],
-    });
+    expect(negro).toMatchObject({ moneda: 'USD', precioCentavos: 2500 });
+    expect(blanco).toMatchObject({ moneda: 'USD', precioCentavos: 2700 });
+    expect(negro.claveOrigen).not.toBe(blanco.claveOrigen);
+    expect(verde).toMatchObject({ codigoSugerido: 'TER-V', precioCentavos: 12_000_000 });
+    expect(verde.claveOrigen).toMatch(/^ml:MLA1234567890#/);
+    expect(termoNegro).toMatchObject({ codigoSugerido: 'TER-N', precioCentavos: 12_500_000 });
     // El "$ 1" de la descripción no llega: respaldaría un precio inventado.
-    expect(termo.descripcion).toBe('Mantiene la temperatura 24 horas. Precio especial');
-    expect(taza).toMatchObject({ variantes: [{ precioCentavos: null }], avisos: expect.arrayContaining(['sin_precio']) });
+    expect(verde.descripcion).toBe('Mantiene la temperatura 24 horas. Precio especial');
+    expect(taza).toMatchObject({ precioCentavos: null, avisos: expect.arrayContaining(['sin_precio']) });
     expect(resultado.errores).toEqual(
       expect.arrayContaining([
         { url: `${base}/nada`, codigo: 'no_encontrada' },
@@ -228,91 +228,30 @@ describe.skipIf(!hayBaseDePrueba)('importación rápida (Postgres real)', () => 
     expect(extraccionIa).toHaveBeenCalledTimes(1);
   });
 
-  it('lee una landing sin datos de producto por sus secciones, sin precio y sugeridas a medida', async () => {
+  it('lee una landing sin datos de producto por sus secciones, sin precio', async () => {
     const resultado = await importacion.extraer(dueno.id, [`${base}/landing`]);
     expect(resultado.errores).toEqual([]);
     expect(extraccionIa).not.toHaveBeenCalled();
-    expect(resultado.productos.map((producto) => [producto.nombre, producto.tipoSugerido])).toEqual([
-      ['Línea Retro', 'a_medida'],
-      ['Línea Cubos', 'a_medida'],
-      ['Línea Kiev', null],
-    ]);
+    expect(resultado.productos.map((producto) => producto.nombre)).toEqual(['Línea Retro', 'Línea Cubos', 'Línea Kiev']);
+    expect(resultado.productos.every((producto) => producto.avisos.includes('sin_precio'))).toBe(true);
     const [retro, cubos] = resultado.productos;
     expect(retro).toMatchObject({
       descripcion: 'Un cuerpo: 100 x 80 cm\nCotizar a medida',
       imagenes: [`${base}/fotos/retro.jpg`],
-      variantes: [{ precioCentavos: null }],
+      precioCentavos: null,
       origenUrl: `${base}/landing#linea-retro`,
     });
     expect(retro.claveOrigen).not.toBe(cubos.claveOrigen);
-  });
-
-  it('confirma un producto sin precio como a medida, y una importación no le cambia el tipo', async () => {
-    const [retro] = (await importacion.extraer(dueno.id, [`${base}/landing`])).productos;
-    const comoAMedida = (borrador: BorradorProducto, extra: Partial<ItemConfirmadoDto> = {}) =>
-      confirmable(borrador, {
-        imagenElegida: null,
-        producto: {
-          ...confirmable(borrador).producto,
-          tipo: 'a_medida',
-          moneda: 'ARS',
-          variantes: [],
-          precioReferenciaCentavos: 50_000_000,
-          materiales: ['Pana', 'Chenille'],
-        },
-        ...extra,
-      });
-    const creado = await importacion.confirmar(dueno.id, [comoAMedida(retro)]);
-    expect(creado.resultados).toEqual([expect.objectContaining({ estado: 'creado', tipo: 'a_medida' })]);
-    const guardado = await prisma.producto.findFirstOrThrow({ where: { userId: dueno.id }, include: { variantes: true } });
-    expect(guardado).toMatchObject({
-      nombre: 'Línea Retro',
-      moneda: 'ARS',
-      solicitud: { preguntas: [] },
-      precioReferenciaCentavos: 50_000_000,
-      materiales: ['Pana', 'Chenille'],
-    });
-    expect(guardado.variantes).toEqual([]);
-
-    // Las preguntas que el dueño cargó después no se pierden al actualizarlo desde la importación.
-    const conPreguntas = { preguntas: [{ texto: '¿Qué medida?', sobre: 'solicita', opciones: [], textoLibre: true, obligatoria: true }] };
-    await prisma.producto.update({ where: { id: guardado.id }, data: { solicitud: conPreguntas } });
-    const actualizado = await importacion.confirmar(dueno.id, [comoAMedida(retro, { accion: 'actualizar' })]);
-    expect(actualizado.resultados).toEqual([expect.objectContaining({ estado: 'actualizado' })]);
-    expect(await prisma.producto.findUniqueOrThrow({ where: { id: guardado.id } })).toMatchObject({
-      solicitud: conPreguntas,
-      precioReferenciaCentavos: 50_000_000,
-      materiales: ['Pana', 'Chenille'],
-    });
-    // Sin precio "desde" ni materiales en la vista previa, se conservan los que ya tenía.
-    const sinDatos = comoAMedida(retro, { accion: 'actualizar' });
-    sinDatos.producto = { ...sinDatos.producto, precioReferenciaCentavos: null, materiales: [] };
-    await importacion.confirmar(dueno.id, [sinDatos]);
-    expect(await prisma.producto.findUniqueOrThrow({ where: { id: guardado.id } })).toMatchObject({
-      precioReferenciaCentavos: 50_000_000,
-      materiales: ['Pana', 'Chenille'],
-    });
-
-    // De stock sobre uno a medida: no se cambia de tipo con una importación.
-    const comoStock = await importacion.confirmar(dueno.id, [confirmable(retro, { accion: 'actualizar', imagenElegida: null })]);
-    expect(comoStock.resultados).toEqual([expect.objectContaining({ estado: 'error', motivo: expect.stringContaining('es a medida') })]);
-
-    // A medida no lleva stock: lo valida el código, no la pantalla.
-    const [kiev] = (await importacion.extraer(dueno.id, [`${base}/landing`])).productos.slice(2);
-    const conStock = await importacion.confirmar(dueno.id, [
-      comoAMedida(kiev, { producto: { ...comoAMedida(kiev).producto, variantes: [{ nombre: 'Tres cuerpos', precioCentavos: 100, stock: 3 }] } }),
-    ]);
-    expect(conStock.resultados).toEqual([expect.objectContaining({ estado: 'error', motivo: expect.stringContaining('no lleva stock') })]);
   });
 
   it('confirma con la foto, y reimportar no duplica: se marca, se saltea o se actualiza', async () => {
     const [mate] = (await importacion.extraer(dueno.id, [`${base}/mate`])).productos;
     const primera = await importacion.confirmar(dueno.id, [confirmable(mate)]);
     expect(primera.resultados).toEqual([expect.objectContaining({ estado: 'creado', foto: 'guardada' })]);
-    const guardado = await prisma.producto.findFirstOrThrow({ where: { userId: dueno.id }, include: { imagen: true, variantes: true } });
+    const guardado = await prisma.producto.findFirstOrThrow({ where: { userId: dueno.id }, include: { imagenes: true } });
     expect(guardado).toMatchObject({ codigo: 'MATE-IMPERIAL', moneda: 'ARS', origenId: mate.claveOrigen, origenUrl: `${base}/mate` });
-    expect(guardado.imagen).not.toBeNull();
-    expect(guardado.variantes).toEqual([expect.objectContaining({ sku: 'MATE-IMP', precioCentavos: 2_500_000, stock: null })]);
+    expect(guardado.imagenes).toHaveLength(1);
+    expect(guardado).toMatchObject({ precioCentavos: 2_500_000, stock: null });
 
     const [otraVez] = (await importacion.extraer(dueno.id, [`${base}/mate?utm_source=ig`])).productos;
     expect(otraVez).toMatchObject({ claveOrigen: mate.claveOrigen, codigoSugerido: 'MATE-IMPERIAL', duplicado: { motivo: 'origen', productoId: guardado.id } });

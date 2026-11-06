@@ -66,40 +66,20 @@ export function estadoDeSuscripcion(entrada: {
   };
 }
 
-/** Planes pagos. El Básico es el que ya existía; el Pro sube el tope de chats. */
-export const PLANES = {
-  basico: { nombre: 'Básico', chats: 1500 },
-  pro: { nombre: 'Pro', chats: 4500 },
-} as const;
+/** El único plan pago. Un plan guardado en la base antes de que fueran uno solo (básico/pro) cuenta igual. */
+export const PLAN = { id: 'unico', nombre: 'Trato', chats: 4500 } as const;
 
-export type PlanId = keyof typeof PLANES;
-
-export const IDS_DE_PLAN = Object.keys(PLANES) as PlanId[];
+export type PlanId = typeof PLAN.id;
 
 /** Desde qué porcentaje del tope se avisa que se está llegando. */
 export const PORCENTAJE_AVISO_CUPO = 80;
 
-export function esPlanId(valor: unknown): valor is PlanId {
-  return typeof valor === 'string' && Object.hasOwn(PLANES, valor);
-}
-
-/**
- * Durante la prueba (sin plan elegido) se muestra el tope del Pro: el mes
- * gratis incluye todo. Un valor desconocido en la base cuenta como Básico.
- */
-export function limiteDeChats(plan: string | null | undefined): number {
-  if (plan === null || plan === undefined) return PLANES.pro.chats;
-  return esPlanId(plan) ? PLANES[plan].chats : PLANES.basico.chats;
-}
-
 /**
  * El plan que se está pagando, o null: sólo una suscripción `activa` tiene
- * plan (la prueba, una vencida o una pendiente no). Un valor desconocido en la
- * base cuenta como Básico, igual que en `limiteDeChats`.
+ * plan (la prueba, una vencida o una pendiente no).
  */
-export function planVigente(estado: Pick<EstadoSuscripcion, 'estado'>, plan: string | null | undefined): PlanId | null {
-  if (estado.estado !== 'activa' || plan === null || plan === undefined) return null;
-  return esPlanId(plan) ? plan : 'basico';
+export function planVigente(estado: Pick<EstadoSuscripcion, 'estado'>): PlanId | null {
+  return estado.estado === 'activa' ? PLAN.id : null;
 }
 
 export type EstadoDeCupo = {
@@ -114,8 +94,8 @@ export type EstadoDeCupo = {
 };
 
 /** "Chat" = cliente distinto con mensajes en el mes; acá sólo se compara el número con el tope. */
-export function estadoDeCupo(entrada: { usados: number; plan: string | null | undefined }): EstadoDeCupo {
-  const limite = limiteDeChats(entrada.plan);
+export function estadoDeCupo(entrada: { usados: number }): EstadoDeCupo {
+  const limite = PLAN.chats;
   const usados = Math.max(0, Math.floor(entrada.usados));
   const porcentaje = Math.floor((usados * 100) / limite);
   return {

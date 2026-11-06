@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 22 de octubre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 3 de noviembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -117,25 +117,30 @@ export default function PrivacidadPage() {
             turnos y lo que ves en el historial de tu panel.
           </p>
           <p>
+            <Fuerte>Si atendés un chat vos.</Fuerte> En la pantalla Chats de tu panel ves el texto de
+            esas conversaciones y podés tomar el control de un chat: mientras lo atendés, guardamos lo
+            que el cliente te escribe y lo que le contestás, desde el panel o desde tu teléfono, para
+            mostrártelo y para que tu asistente sepa qué se habló cuando se lo devolvés. Lo que mandás
+            desde el panel sale por tu WhatsApp vinculado. Si al devolverlo le dejás una nota a tu
+            asistente, la guardamos con esa conversación y se le pasa al modelo como contexto.
+          </p>
+          <p>
             <Fuerte>De pagos.</Fuerte> Si activás la suscripción, el cobro lo procesa Mercado Pago.
             Guardamos el identificador de la suscripción y su estado. <Fuerte>Ningún dato de tarjeta
             pasa por nuestros sistemas</Fuerte>: no lo recibimos ni lo almacenamos.
           </p>
           <p>
             <Fuerte>Si usás el asistente de ventas.</Fuerte> Tu catálogo: nombre, descripción,
-            categoría, código, variantes, precio y stock de cada producto, y la foto de los productos
+            categoría, código, precio y stock de cada producto, y la foto de los productos
             a los que les subas una (la guardamos achicada y sin los datos que trae el archivo, como
             el lugar donde se sacó; el asistente sólo se la manda a un cliente que la pide). De cada pedido: el nombre
             que da el cliente, su número de WhatsApp, los productos, el total, el estado y las fechas,
             y, si pagó con Mercado Pago, el número de operación. Si configurás que el asistente pida
             datos para el envío o para el pedido (código postal, dirección, provincia, país, email, DNI
             u otros que definas vos), también guardamos lo que el cliente conteste, sólo los datos que
-            vos elegiste pedir. Si vendés productos a medida, además: lo que el cliente pidió (el producto,
-            sus respuestas a tus preguntas y un resumen), los presupuestos con sus versiones, el
-            historial de cada pedido, si lo atiende una persona y por qué, y lo que el cliente y vos se
-            escriban mientras el asistente está callado en ese chat; y tus materiales y costos (lo que
-            te cuesta cada cosa y cómo cotiza el asistente), que nunca se le muestran a un cliente salvo
-            que elijas mostrarle el detalle del presupuesto. Los avisos que te mostramos en el
+            vos elegiste pedir. También el historial de cada pedido, si lo atiende una persona y por
+            qué, y lo que el cliente y vos se escriban mientras el asistente está callado en ese chat.
+            Los avisos que te mostramos en el
             panel (ventas, pedidos, stock, consultas) repiten algunos de esos datos. Para mostrarte
             cómo rinden tus productos, de cada chat anotamos hasta qué paso llegó (consultó, vio
             productos, pidió, pagó), si se pasó a una persona, qué productos de tu catálogo vio o
@@ -363,10 +368,8 @@ export default function PrivacidadPage() {
             <Punto>
               <Fuerte>Ventas:</Fuerte> se conservan mientras tu cuenta exista, porque son tu histórico.
               A los 12 meses de cada pedido se borran el nombre, el número de WhatsApp y los demás datos
-              que dio el cliente (dirección, email, DNI y los que hayas pedido); en un pedido a medida,
-              también sus respuestas, el resumen de lo que pidió, el motivo escrito de la derivación y
-              las notas tuyas y de los presupuestos. Los productos, los montos, los renglones de los
-              presupuestos y las fechas quedan.
+              que dio el cliente (dirección, email, DNI y los que hayas pedido), el motivo escrito de
+              la derivación y tus notas. Los productos, los montos y las fechas quedan.
             </Punto>
             <Punto>
               <Fuerte>Rendimiento de tus productos:</Fuerte> el paso al que llegó cada chat, los
@@ -416,10 +419,9 @@ export default function PrivacidadPage() {
               cancelamos.
             </Punto>
             <Punto>
-              Si vendías con el asistente: borramos tu catálogo, tus ventas (con sus presupuestos e
-              historial), tus materiales y costos, tus avisos y los tokens de tu cuenta de Mercado Pago.
-              Los links de pago que ya se habían mandado vencen solos: los de un pedido del catálogo en
-              menos de una hora, los de un presupuesto a medida en hasta tres días.
+              Si vendías con el asistente: borramos tu catálogo, tus ventas (con su historial), tus
+              avisos y los tokens de tu cuenta de Mercado Pago. Los links de pago que ya se habían
+              mandado vencen solos en menos de una hora.
             </Punto>
             <Punto>
               Lo único que conservamos es una huella irreversible (un hash con clave secreta, no tu

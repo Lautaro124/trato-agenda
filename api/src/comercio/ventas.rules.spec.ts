@@ -40,34 +40,34 @@ describe('reservas', () => {
 });
 
 describe('forma del pedido', () => {
-  it('junta renglones de la misma variante', () => {
+  it('junta renglones del mismo producto', () => {
     expect(
       agruparItems([
-        { varianteId: 'a', cantidad: 2 },
-        { varianteId: 'b', cantidad: 1 },
-        { varianteId: 'a', cantidad: 1 },
+        { productoId: 'a', cantidad: 2 },
+        { productoId: 'b', cantidad: 1 },
+        { productoId: 'a', cantidad: 1 },
       ]),
     ).toEqual([
-      { varianteId: 'a', cantidad: 3 },
-      { varianteId: 'b', cantidad: 1 },
+      { productoId: 'a', cantidad: 3 },
+      { productoId: 'b', cantidad: 1 },
     ]);
   });
 
   it('rechaza pedidos vacíos, cantidades raras y los que pasan los topes', () => {
     expect(problemaDeForma([])).toContain('no tiene productos');
-    expect(problemaDeForma([{ varianteId: 'a', cantidad: 0 }])).toContain('mayor que cero');
-    expect(problemaDeForma([{ varianteId: 'a', cantidad: 1.5 }])).toContain('entero');
-    expect(problemaDeForma([{ varianteId: 'a', cantidad: MAX_CANTIDAD_POR_ITEM + 1 }])).toContain('hasta');
+    expect(problemaDeForma([{ productoId: 'a', cantidad: 0 }])).toContain('mayor que cero');
+    expect(problemaDeForma([{ productoId: 'a', cantidad: 1.5 }])).toContain('entero');
+    expect(problemaDeForma([{ productoId: 'a', cantidad: MAX_CANTIDAD_POR_ITEM + 1 }])).toContain('hasta');
     // Repartido en dos renglones igual cuenta el total.
     expect(
       problemaDeForma([
-        { varianteId: 'a', cantidad: MAX_CANTIDAD_POR_ITEM },
-        { varianteId: 'a', cantidad: 1 },
+        { productoId: 'a', cantidad: MAX_CANTIDAD_POR_ITEM },
+        { productoId: 'a', cantidad: 1 },
       ]),
     ).toContain('hasta');
-    const muchos = Array.from({ length: MAX_ITEMS_POR_PEDIDO + 1 }, (_, i) => ({ varianteId: `v${i}`, cantidad: 1 }));
+    const muchos = Array.from({ length: MAX_ITEMS_POR_PEDIDO + 1 }, (_, i) => ({ productoId: `v${i}`, cantidad: 1 }));
     expect(problemaDeForma(muchos)).toContain('productos distintos');
-    expect(problemaDeForma([{ varianteId: 'a', cantidad: 2 }])).toBeNull();
+    expect(problemaDeForma([{ productoId: 'a', cantidad: 2 }])).toBeNull();
   });
 });
 
@@ -101,10 +101,10 @@ describe('detalleDeRenglones', () => {
   it('arma el detalle legible de una venta', () => {
     expect(
       detalleDeRenglones([
-        { nombreProducto: 'Mate', nombreVariante: '', cantidad: 2, subtotalCentavos: 1_600_000 },
-        { nombreProducto: 'Remera', nombreVariante: 'Talle M', cantidad: 1, subtotalCentavos: 1_500_000 },
+        { nombreProducto: 'Mate', cantidad: 2, subtotalCentavos: 1_600_000 },
+        { nombreProducto: 'Remera', cantidad: 1, subtotalCentavos: 1_500_000 },
       ]),
-    ).toBe('2 × Mate ($ 16.000), 1 × Remera (Talle M) ($ 15.000)');
+    ).toBe('2 × Mate ($ 16.000), 1 × Remera ($ 15.000)');
   });
 });
 

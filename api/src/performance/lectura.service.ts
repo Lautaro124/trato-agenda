@@ -41,7 +41,7 @@ function condicionDeZona(zona: FiltroZona | null): Prisma.Sql {
 const MAX_PRODUCTOS_CON_PREGUNTAS = 20;
 
 /** Etapas que cuentan como "hizo un pedido". */
-const CON_PEDIDO: Etapa[] = ['pedido', 'cotizado', 'pagado'];
+const CON_PEDIDO: Etapa[] = ['pedido', 'pagado'];
 
 /**
  * Lectura del módulo de performance (LAU-30): conversión, etapas y
@@ -290,26 +290,15 @@ export class LecturaPerformanceService {
           ${interesDeZona}
         GROUP BY 1, 2
       `,
-      // Lo de stock sale de los renglones (por variante); lo a medida, del producto de la solicitud.
+      // Lo cobrado sale de los renglones, por producto.
       this.prisma.$queryRaw<Array<{ productoId: string; pagaron: number; unidades: number; cobrado: number }>>`
-        WITH pagadas AS (
-          SELECT v."id", v."tipo", v."conversationId", v."solicitud", v."totalCentavos"
-          FROM "Venta" v JOIN "EtapaChat" e ON e."conversationId" = v."conversationId"
-          WHERE v."userId" = ${userId} AND e."userId" = ${userId} AND v."estado" = 'pagada' AND NOT v."dePrueba"
-            AND v."moneda" = ${moneda} AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
-        )
-        SELECT x."productoId", COUNT(DISTINCT x."conversationId")::int AS "pagaron",
-               SUM(x."unidades")::int AS "unidades", SUM(x."cobrado")::int AS "cobrado"
-        FROM (
-          SELECT va."productoId", p."conversationId", i."cantidad" AS "unidades", i."subtotalCentavos" AS "cobrado"
-          FROM pagadas p JOIN "ItemVenta" i ON i."ventaId" = p."id" JOIN "Variante" va ON va."id" = i."varianteId"
-          WHERE p."tipo" = 'stock'
-          UNION ALL
-          SELECT p."solicitud"->>'productoId', p."conversationId",
-                 COALESCE((SELECT SUM(i."cantidad") FROM "ItemVenta" i WHERE i."ventaId" = p."id"), 1), COALESCE(p."totalCentavos", 0)
-          FROM pagadas p
-          WHERE p."tipo" = 'a_medida' AND p."solicitud"->>'productoId' IS NOT NULL
-        ) x
+        SELECT i."productoId", COUNT(DISTINCT v."conversationId")::int AS "pagaron",
+               SUM(i."cantidad")::int AS "unidades", SUM(i."subtotalCentavos")::int AS "cobrado"
+        FROM "Venta" v
+          JOIN "EtapaChat" e ON e."conversationId" = v."conversationId"
+          JOIN "ItemVenta" i ON i."ventaId" = v."id" AND i."productoId" IS NOT NULL
+        WHERE v."userId" = ${userId} AND e."userId" = ${userId} AND v."estado" = 'pagada' AND NOT v."dePrueba"
+          AND v."moneda" = ${moneda} AND e."createdAt" >= ${rango.desde} AND e."createdAt" < ${rango.hasta} ${deZona}
         GROUP BY 1
       `,
       this.prisma.$queryRaw<Array<{ productoId: string; etapa: string; chats: number }>>`
@@ -346,10 +335,10 @@ export class LecturaPerformanceService {
     }
     if (porProducto.size === 0) return [];
 
-    // Sólo productos de la cuenta: un id que no es suyo (una solicitud vieja, un producto ajeno) no sale.
+    // Sólo productos de la cuenta: un id que no es suyo no sale.
     const datos = await this.prisma.producto.findMany({
       where: { userId, id: { in: [...porProducto.keys()] } },
-      select: { id: true, codigo: true, nombre: true, solicitud: true },
+      select: { id: true, codigo: true, nombre: true },
     });
     return datos
       .map((producto): ProductoPerformance => {
@@ -358,7 +347,6 @@ export class LecturaPerformanceService {
           productoId: producto.id,
           codigo: producto.codigo,
           nombre: producto.nombre,
-          aMedida: producto.solicitud !== null,
           vieron: acumulado.vieron,
           pidieron: acumulado.pidieron,
           pagaron: acumulado.pagaron,

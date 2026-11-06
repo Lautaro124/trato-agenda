@@ -20,8 +20,7 @@ export type DepsConversacion = {
   llm: BaseChatModel;
   /**
    * Qué herramientas ve el modelo. Por defecto las de la agenda; el grafo de
-   * ventas pasa las suyas (ventas-tools.ts), que además dependen de lo que
-   * cargó el contexto (si la cuenta tiene productos a medida).
+   * ventas pasa las suyas (ventas-tools.ts).
    */
   herramientas?: (allowedActions: string[], esPropietario: boolean, contexto: EstadoComun['contexto']) => EsquemaHerramienta[];
 };

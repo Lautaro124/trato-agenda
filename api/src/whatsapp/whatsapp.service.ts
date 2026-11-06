@@ -1,3 +1,4 @@
+import { chatEnAtencionHumana, guardarMensajeEnPausa, tomarChat } from '../chats/atencion.js';
 import {
   ConflictException,
   HttpException,
@@ -13,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestWaWebVersion,
   isJidGroup,
   makeCacheableSignalKeyStore,
@@ -28,7 +30,6 @@ import { Observable, ReplaySubject, map } from 'rxjs';
 import { Limitador } from '../auth/limitador.js';
 import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
-import { PedidosAMedidaService } from '../comercio/pedidos-a-medida.service.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
@@ -41,12 +42,19 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { VueltaCancelada, type Cancelacion } from '../conversation/cancelacion.js';
 import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
+import {
+  MAX_BYTES_AUDIO,
+  MAX_SEGUNDOS_AUDIO,
+  TranscripcionClient,
+  formatoDeAudio,
+} from './transcripcion.client.js';
 import { CacheConVencimiento, MensajesEnviados, TTL_REINTENTOS_MS } from './caches.js';
 import {
   MAX_CARACTERES_RAFAGA,
   RENOVAR_ESCRIBIENDO_MS,
   demoraDeEscritura,
   demoraRestante,
+  esperaDeEscucha,
   partirEnMensajes,
 } from './ritmo-humano.js';
 import { PREFIJO_TIEMPOS, demoraDeEntrega, resumenDeRafaga, timestampEnMs } from './metricas.js';
@@ -97,6 +105,16 @@ const REINTENTO_VERSION_WA_MS = 10 * 60 * 1000;
 /** Lo que recibe un chat ya iniciado que escribe fuera del horario de atención (LAU-37). */
 export const AVISO_FUERA_DE_HORARIO = 'El vendedor que te atendió no está disponible.';
 
+/** Respuesta fija a un audio de más de MAX_SEGUNDOS_AUDIO: no se descarga ni se transcribe. */
+export const AVISO_AUDIO_LARGO =
+  'No puedo descargar audios de más de 2 minutos. ¿Me lo escribís o me mandás uno más corto?';
+
+/** Respuesta fija a un audio que no se pudo descargar o transcribir. */
+export const AVISO_AUDIO_FALLIDO = 'No pude descargar el audio. ¿Me lo escribís?';
+
+/** Marca del texto transcripto, para que el dueño en Chats y el asistente sepan que fue un audio. */
+export const PREFIJO_AUDIO = '🎤 ';
+
 /**
  * Cómo se presenta el socket ante WhatsApp. Tiene que ser un navegador que
  * WhatsApp conozca y con versión fija: con un nombre propio
@@ -128,11 +146,88 @@ type MensajeEntrante = {
   userId: string;
   remoteJid: string;
   sock: WASocket;
-  key: WAMessageKey;
+  /** Sin key: mensajes del cliente ya guardados que el dueño pidió que conteste el asistente al devolverle el chat. */
+  key?: WAMessageKey;
+  /** El mensaje ya está en el historial (se guardó mientras atendía una persona): no se vuelve a guardar. */
+  yaGuardado?: boolean;
   texto: string;
   enviadoEn: number | null;
   recibidoEn: number;
 };
+
+/** Lo que se sacó de un mensaje del cliente: su texto, o el aviso fijo con el que se contesta. */
+type Entrada = { texto: string; escucharHasta?: number } | { aviso: string };
+
+/** `fileLength` de WhatsApp puede llegar como Long. */
+function aNumero(valor: number | { toNumber(): number } | null | undefined): number {
+  if (valor == null) return 0;
+  return typeof valor === 'number' ? valor : valor.toNumber();
+}
+
+/** Host de media de WhatsApp cuando el mensaje no trae `url`. */
+const HOST_MEDIA_WHATSAPP = 'mmg.whatsapp.net';
+
+/** Lo máximo que puede tardar la descarga de un audio, incluido el reintento por reupload. */
+export const PLAZO_DESCARGA_AUDIO_MS = 30_000;
+
+/**
+ * El host del que se puede bajar el audio, o undefined si el mensaje apunta a
+ * otro lado. `url` y `directPath` los arma el que manda el mensaje y Baileys
+ * los usa tal cual: sin esto, un cliente modificado haría que la API pida
+ * cualquier URL (red interna, metadata del proveedor…). Exige un `directPath`
+ * de ruta simple (sin `@`, `\`, `//` ni `:`, que cambiarían el host al
+ * concatenarlo) y, si viene `url`, que sea https de `*.whatsapp.net`.
+ */
+export function hostDeMedia(media: { url?: string | null; directPath?: string | null }): string | undefined {
+  if (!media.directPath || !/^\/(?!\/)[\w\-.~%/?=&+]*$/.test(media.directPath)) return undefined;
+  if (!media.url) return HOST_MEDIA_WHATSAPP;
+  try {
+    const url = new URL(media.url);
+    const esDeWhatsapp = url.protocol === 'https:' && !url.port && url.hostname.endsWith('.whatsapp.net');
+    return esDeWhatsapp && !url.username && !url.password ? url.hostname : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+type FlujoDeMedia = AsyncIterable<Buffer> & { destroy(): void };
+
+/**
+ * Abre la descarga y la junta con tope de bytes y de tiempo. Baileys no deja
+ * pasarle un AbortSignal: al vencer el plazo se destruye el stream (o el que
+ * llegue tarde), así un servidor que manda de a gotas no deja el chat trabado.
+ */
+async function descargarConTope(abrir: () => Promise<FlujoDeMedia>, max: number, plazoMs: number): Promise<Buffer | null> {
+  const descarga = abrir();
+  let timer: NodeJS.Timeout | undefined;
+  const vencimiento = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`La descarga del audio pasó ${plazoMs}ms.`)), plazoMs);
+  });
+  let flujo: FlujoDeMedia | undefined;
+  try {
+    flujo = await Promise.race([descarga, vencimiento]);
+    return await Promise.race([leerHasta(flujo, max), vencimiento]);
+  } finally {
+    clearTimeout(timer);
+    if (flujo) flujo.destroy();
+    else void descarga.then((tarde) => tarde.destroy(), () => undefined);
+  }
+}
+
+/** Junta el stream en memoria; null (y lo corta) si pasa de `max` bytes. */
+async function leerHasta(flujo: FlujoDeMedia, max: number): Promise<Buffer | null> {
+  const partes: Buffer[] = [];
+  let total = 0;
+  for await (const parte of flujo) {
+    total += parte.length;
+    if (total > max) {
+      flujo.destroy();
+      return null;
+    }
+    partes.push(parte);
+  }
+  return Buffer.concat(partes);
+}
 
 function esperar(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -183,17 +278,17 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly reintentosDeMensajes = new CacheConVencimiento(TTL_REINTENTOS_MS);
   /** Lo último que mandó cada cuenta, para reenviarlo si el teléfono del cliente no lo pudo descifrar. */
   private readonly enviados = new MensajesEnviados();
+  /**
+   * La última recepción de cada chat. Un audio tarda unos segundos en
+   * descargarse y transcribirse: lo que el cliente manda después espera, así
+   * entra a la ráfaga en el orden en que lo mandó.
+   */
+  private readonly recepciones = new Map<string, Promise<void>>();
   /** Versión de WhatsApp Web con la que se conecta; se refresca cada VIGENCIA_VERSION_WA_MS. */
   private versionWa: { version: WAVersion; hasta: number } | null = null;
   private consultandoVersion: Promise<WAVersion> | null = null;
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
-  private readonly rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
-    (_clave, items, cancelacion) => this.contestarRafaga(items, cancelacion),
-    // Sólo el userId: el JID del cliente es su teléfono y no va a los logs.
-    (clave, error) =>
-      this.logger.error(`Fallo procesando mensajes entrantes de ${clave.split('\n')[0]}`, error as Error),
-    (item) => item.texto.length,
-  );
+  private readonly rafagas: AgrupadorDeRafagas<MensajeEntrante>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -202,12 +297,22 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly subscriptionService: SubscriptionService,
     private readonly imagenes: ImagenesService,
     private readonly notificaciones: NotificacionesService,
-    private readonly pedidos: PedidosAMedidaService,
     private readonly horarioAtencion: HorarioAtencionService,
+    private readonly transcripcion: TranscripcionClient,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
     });
+    // En el constructor y no como campo: necesita la configuración ya inyectada.
+    this.rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
+      (_clave, items, cancelacion) => this.contestarRafaga(items, cancelacion),
+      // Sólo el userId: el JID del cliente es su teléfono y no va a los logs.
+      (clave, error) =>
+        this.logger.error(`Fallo procesando mensajes entrantes de ${clave.split('\n')[0]}`, error as Error),
+      (item) => item.texto.length,
+      Date.now,
+      this.config.get('WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS', { infer: true }) * 1000,
+    );
   }
 
   /** Al bootear la API, resumimos toda sesión que ya haya completado el pairing. */
@@ -510,6 +615,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Fallo procesando connection.update de ${userId}`, error as Error),
       );
     });
+    // "Escribiendo…" del cliente: demora la respuesta de una ráfaga que todavía espera.
+    sock.ev.on('presence.update', ({ id, presences }) => {
+      const estados = Object.values(presences).map((presencia) => presencia.lastKnownPresence);
+      if (estados.length === 0) return;
+      const escribe = estados.some((estado) => estado === 'composing' || estado === 'recording');
+      this.rafagas.escribiendo(`${userId}\n${id}`, escribe);
+    });
     sock.ev.on('messages.upsert', (upsert) => {
       this.handleMessagesUpsert(userId, sock, upsert).catch((error: unknown) =>
         this.logger.error(`Fallo procesando mensajes entrantes de ${userId}`, error as Error),
@@ -536,7 +648,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (upsert.type !== 'notify') return;
 
-    // De a uno y en orden: los chequeos de cada mensaje deciden si entra a su ráfaga.
+    // Cada chat en orden (`enOrden`), pero sin esperar a uno para empezar con
+    // otro: un audio que se está "escuchando" no frena a los demás chats del lote.
+    const recepciones: Promise<void>[] = [];
     for (const mensaje of upsert.messages) {
       const remoteJid = mensaje.key.remoteJid;
       if (!remoteJid || isJidGroup(remoteJid)) continue;
@@ -546,22 +660,101 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         // Lo que el dueño contesta desde su teléfono: sólo se guarda en un chat en atención humana.
         if (texto) await this.guardarRespuestaDelDueno(userId, sock, remoteJid, mensaje.key.id, texto);
       } else if (texto) {
-        await this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, texto);
+        recepciones.push(
+          this.enOrden(userId, remoteJid, () =>
+            this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, () => Promise.resolve({ texto })),
+          ),
+        );
+      } else if (mensaje.message?.audioMessage) {
+        recepciones.push(
+          this.enOrden(userId, remoteJid, () =>
+            this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, () => this.escucharAudio(userId, sock, mensaje)),
+          ),
+        );
       }
+    }
+    await Promise.all(recepciones);
+  }
+
+  /** Corre `tarea` después de la recepción anterior del mismo chat, aunque esa haya fallado. */
+  private enOrden(userId: string, remoteJid: string, tarea: () => Promise<void>): Promise<void> {
+    const clave = `${userId}\n${remoteJid}`;
+    const actual = (this.recepciones.get(clave) ?? Promise.resolve()).catch(() => undefined).then(tarea);
+    this.recepciones.set(clave, actual);
+    void actual
+      .finally(() => {
+        if (this.recepciones.get(clave) === actual) this.recepciones.delete(clave);
+      })
+      .catch(() => undefined);
+    return actual;
+  }
+
+  /**
+   * Descarga una nota de voz o un audio y lo pasa a texto. Uno de más de
+   * MAX_SEGUNDOS_AUDIO no se descarga: se contesta con AVISO_AUDIO_LARGO. Si
+   * falla la descarga o la transcripción (o no se entiende nada), con
+   * AVISO_AUDIO_FALLIDO. El audio queda sólo en memoria.
+   */
+  private async escucharAudio(userId: string, sock: WASocket, mensaje: WAMessage): Promise<Entrada> {
+    const audio = mensaje.message!.audioMessage!;
+    // Desde que llegó: la descarga y la transcripción corren dentro de esa espera, no se suman.
+    const escucharHasta = Date.now() + esperaDeEscucha(audio.seconds ?? 0, randomInt(0, 1001) / 1000);
+    if ((audio.seconds ?? 0) > MAX_SEGUNDOS_AUDIO || aNumero(audio.fileLength) > MAX_BYTES_AUDIO) {
+      return { aviso: AVISO_AUDIO_LARGO };
+    }
+    const formato = formatoDeAudio(audio.mimetype);
+    const host = hostDeMedia(audio);
+    if (!formato || !host) return { aviso: AVISO_AUDIO_FALLIDO };
+    try {
+      // En stream y con tope: `seconds` y `fileLength` los declara el que manda y pueden mentir.
+      // `host` fijo: el reintento por reupload no puede volver a sacarlo de `url`.
+      // Sólo el audio validado: Baileys descarga el primer contenido con media
+      // que encuentre (o el de adentro de un `ephemeralMessage`), y el
+      // remitente podría poner otro antes, sin validar.
+      const soloElAudio: WAMessage = { key: mensaje.key, message: { audioMessage: audio } };
+      const contenido = await descargarConTope(
+        () =>
+          downloadMediaMessage(soloElAudio, 'stream', { host }, { logger: this.baileysLogger, reuploadRequest: sock.updateMediaMessage }),
+        MAX_BYTES_AUDIO,
+        PLAZO_DESCARGA_AUDIO_MS,
+      );
+      if (!contenido) return { aviso: AVISO_AUDIO_LARGO };
+      const texto = await this.transcripcion.transcribir(contenido, formato);
+      return texto ? { texto: `${PREFIJO_AUDIO}${texto}`, escucharHasta } : { aviso: AVISO_AUDIO_FALLIDO };
+    } catch (error) {
+      this.logger.error(`No se pudo escuchar un audio de ${userId}: ${resumenDeError(error)}`);
+      return { aviso: AVISO_AUDIO_FALLIDO };
     }
   }
 
   /**
-   * Un mensaje de texto de un cliente: pasa por la suscripción, el horario de
-   * atención y la atención humana antes de sumarse a la ráfaga de su chat.
+   * Un mensaje de un cliente: pasa por la atención humana, la suscripción y
+   * el horario de atención antes de sumarse a la ráfaga de su chat. `leer`
+   * saca el texto (en un audio, lo transcribe) y se llama recién después de
+   * esos chequeos, así un audio que no se va a contestar no se paga.
    */
   private async recibirMensajeDeCliente(
     userId: string,
     sock: WASocket,
     mensaje: WAMessage,
     remoteJid: string,
-    texto: string,
+    leer: () => Promise<Entrada>,
   ): Promise<void> {
+    // El chat lo atiende una persona (LAU-81): el asistente no contesta, ni
+    // marca leído, ni muestra "escribiendo…". El mensaje queda guardado para
+    // que el dueño lo vea en Chats y el asistente al retomar. Va antes de la
+    // suscripción y el horario: esas reglas frenan sólo al asistente.
+    if (await chatEnAtencionHumana(this.prisma, userId, remoteJid)) {
+      // Un audio que no se pudo escuchar no se guarda: el dueño lo tiene en su teléfono.
+      const entrada = await leer();
+      if (!('texto' in entrada)) return;
+      const texto = entrada.texto;
+      await guardarMensajeEnPausa(this.prisma, userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA)).catch((error: unknown) =>
+          this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
+        );
+      return;
+    }
+
     if (!(await this.subscriptionService.asistenteActivo(userId))) {
       this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
       return;
@@ -583,24 +776,31 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Un pedido de este chat lo atiende una persona (LAU-27): el asistente no
-    // contesta, ni marca leído, ni muestra "escribiendo…". El mensaje queda
-    // guardado para que el dueño lo vea en Ventas y el asistente al retomar.
-    if (await this.pedidos.enAtencionHumana(userId, remoteJid)) {
-      await this.pedidos
-        .guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'cliente')
-        .catch((error: unknown) =>
-          this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
-        );
+    const entrada = await leer();
+    if (!('texto' in entrada)) {
+      // Fuera del historial, igual que el aviso de fuera de horario.
+      await sock.readMessages([mensaje.key]).catch(() => undefined);
+      await this.enviar(userId, sock, remoteJid, { text: entrada.aviso }).catch((error: unknown) =>
+        this.logger.error(`No se pudo avisar que un audio no se escuchó a ${userId}: ${(error as Error).message}`),
+      );
       return;
     }
+    // Un audio se contesta después de "escucharlo" (esperaDeEscucha). Lo que el
+    // cliente mande mientras tanto espera detrás (`enOrden`).
+    if (entrada.escucharHasta) {
+      await esperar(Math.max(0, entrada.escucharHasta - Date.now()));
+      // Mientras tanto se cerró o reemplazó la sesión: `descartar` ya no lo alcanza y no saldría.
+      if (this.sockets.get(userId) !== sock) return;
+    }
 
+    // Para enterarse de si sigue escribiendo (presence.update). Si WhatsApp no avisa, queda el silencio fijo.
+    sock.presenceSubscribe(remoteJid).catch(() => undefined);
     this.rafagas.agregar(`${userId}\n${remoteJid}`, {
       userId,
       remoteJid,
       sock,
       key: mensaje.key,
-      texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
+      texto: entrada.texto.slice(0, MAX_CARACTERES_RAFAGA),
       enviadoEn: timestampEnMs(mensaje.messageTimestamp),
       recibidoEn: Date.now(),
     });
@@ -608,9 +808,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Un mensaje que el dueño escribió desde su teléfono en el chat de un
-   * cliente. Si ese chat está en atención humana, se guarda: es la mitad de la
-   * charla que el asistente no vio. Se descartan su propio chat (los códigos
-   * de acceso) y lo que salió del asistente (`enviados`), que vuelve como eco.
+   * cliente (LAU-81): el chat pasa a él (si lo tenía el asistente, se corta
+   * la respuesta en curso) y el mensaje se guarda, es la mitad de la charla
+   * que el asistente no vio. Se descartan su propio chat (los códigos de
+   * acceso), lo que salió de la API (`enviados`, que vuelve como eco) y los
+   * chats que el asistente nunca atendió.
    */
   private async guardarRespuestaDelDueno(
     userId: string,
@@ -623,11 +825,65 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const telefono = estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
     if (telefono && remoteJid === jidPropio(telefono)) return;
     try {
-      if (!(await this.pedidos.enAtencionHumana(userId, remoteJid))) return;
-      await this.pedidos.guardarMensajeEnPausa(userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA), 'dueno');
+      const conversation = await this.prisma.conversation.findUnique({
+        where: { userId_remoteJid: { userId, remoteJid } },
+        select: { id: true },
+      });
+      if (!conversation) return;
+      if (await tomarChat(this.prisma, userId, conversation.id, new Date())) this.interrumpir(userId, remoteJid);
+      await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: 'assistant',
+          content: { content: texto.slice(0, MAX_CARACTERES_RAFAGA), humano: true },
+        },
+      });
     } catch (error) {
       this.logger.error(`No se pudo guardar una respuesta del dueño ${userId}: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * El chat pasó a una persona: se descarta la respuesta que el asistente
+   * estaba armando, si todavía no se comprometió (LAU-81).
+   */
+  interrumpir(userId: string, remoteJid: string): void {
+    this.rafagas.interrumpir(`${userId}\n${remoteJid}`);
+  }
+
+  /**
+   * El dueño devolvió el chat y eligió que el asistente conteste lo que el
+   * cliente escribió mientras tanto (ya guardado). Pasa por la ráfaga del
+   * chat, así se serializa con lo que llegue. Con la suscripción vencida el
+   * asistente no contesta. false si no hay un socket vinculado.
+   */
+  async contestarPendientes(userId: string, remoteJid: string, texto: string): Promise<boolean> {
+    const sock = this.sockets.get(userId);
+    if (!sock || !estaVinculado(sock.authState.creds)) return false;
+    if (!(await this.subscriptionService.asistenteActivo(userId))) return false;
+    this.rafagas.agregar(`${userId}\n${remoteJid}`, {
+      userId,
+      remoteJid,
+      sock,
+      yaGuardado: true,
+      texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
+      enviadoEn: null,
+      recibidoEn: Date.now(),
+    });
+    return true;
+  }
+
+  /**
+   * Un mensaje que el dueño escribe desde el panel (LAU-81). Sale por la
+   * misma vía que todo lo demás (`enviar`), así su eco no se toma como un
+   * mensaje desde el teléfono. Sin chequeos de suscripción ni horario: esas
+   * reglas frenan sólo al asistente. false si no hay un socket vinculado.
+   */
+  async enviarDesdePanel(userId: string, remoteJid: string, texto: string): Promise<boolean> {
+    const sock = this.sockets.get(userId);
+    if (!sock || !estaVinculado(sock.authState.creds)) return false;
+    await this.enviar(userId, sock, remoteJid, { text: texto });
+    return true;
   }
 
   /**
@@ -646,11 +902,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const texto = items.map((item) => item.texto).join('\n');
 
     // Lo cosmético (leído, "escribiendo…") nunca frena la respuesta.
-    await sock.readMessages(items.map((item) => item.key)).catch(() => undefined);
+    const keys = items.flatMap((item) => (item.key ? [item.key] : []));
+    if (keys.length > 0) await sock.readMessages(keys).catch(() => undefined);
     const escribiendo = this.mostrarEscribiendo(sock, remoteJid);
     const inicio = Date.now();
     try {
-      const respuesta = await this.conversationService.responder(userId, remoteJid, texto, { cancelacion }).catch(
+      const yaGuardado = items.every((item) => item.yaGuardado);
+      const respuesta = await this.conversationService.responder(userId, remoteJid, texto, { cancelacion, yaGuardado }).catch(
         (error: unknown) => {
           if (error instanceof VueltaCancelada) {
             this.logger.log(
@@ -732,9 +990,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * que las acompaña. Una que falla no corta nada: el texto sale igual.
    */
   private async enviarFotos(userId: string, sock: WASocket, remoteJid: string, imagenes: ImagenAEnviar[]): Promise<void> {
-    for (const { productoId, varianteId, leyenda } of imagenes) {
+    for (const { productoId, imagenId, leyenda } of imagenes) {
       try {
-        const foto = await this.imagenes.paraEnviar(userId, productoId, varianteId);
+        const foto = await this.imagenes.paraEnviar(userId, productoId, imagenId);
         if (!foto) continue;
         // Las del listado traen nombre y precio; las demás, el nombre de la base.
         await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: leyenda ?? foto.nombre });

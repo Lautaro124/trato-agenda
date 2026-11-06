@@ -3,6 +3,7 @@ import { VueltaCancelada, type Cancelacion } from '../conversation/cancelacion.j
 import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
 import {
   ESPERA_RAFAGA_MS,
+  ESPERA_TRAS_ESCRIBIR_MS,
   MAX_CANCELACIONES_POR_RAFAGA,
   MAX_CARACTERES_RAFAGA,
   MAX_MENSAJES_RAFAGA,
@@ -16,6 +17,91 @@ describe('AgrupadorDeRafagas', () => {
     const agrupador = new AgrupadorDeRafagas<string>(procesar, vi.fn(), (texto) => texto.length);
     return { agrupador, procesar };
   }
+
+  describe('silencio y "escribiendo…"', () => {
+    const VENCE_MS = 30_000;
+    function conVencimiento() {
+      const procesar = vi.fn().mockResolvedValue(undefined);
+      const agrupador = new AgrupadorDeRafagas<string>(procesar, vi.fn(), (texto) => texto.length, Date.now, VENCE_MS);
+      return { agrupador, procesar };
+    }
+
+    it('cada mensaje reinicia la cuenta del silencio y salen todos juntos', async () => {
+      const { agrupador, procesar } = conVencimiento();
+
+      agrupador.agregar('u\nc', 'hola');
+      await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS - 1_000);
+      agrupador.agregar('u\nc', 'quería saber');
+      await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS - 1);
+      expect(procesar).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(procesar).toHaveBeenCalledOnce();
+      expect(procesar.mock.calls[0][1]).toEqual(['hola', 'quería saber']);
+    });
+
+    it('mientras escribe no contesta, y al parar espera ESPERA_TRAS_ESCRIBIR_MS más', async () => {
+      const { agrupador, procesar } = conVencimiento();
+
+      agrupador.agregar('u\nc', 'hola');
+      await vi.advanceTimersByTimeAsync(1_000);
+      agrupador.escribiendo('u\nc', true);
+      await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS + 5_000);
+      expect(procesar).not.toHaveBeenCalled();
+
+      agrupador.escribiendo('u\nc', false);
+      await vi.advanceTimersByTimeAsync(ESPERA_TRAS_ESCRIBIR_MS - 1);
+      expect(procesar).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(procesar).toHaveBeenCalledOnce();
+    });
+
+    it('si retoma dentro de esos segundos, vuelve a esperar', async () => {
+      const { agrupador, procesar } = conVencimiento();
+
+      agrupador.agregar('u\nc', 'hola');
+      agrupador.escribiendo('u\nc', true);
+      await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS);
+      agrupador.escribiendo('u\nc', false);
+      await vi.advanceTimersByTimeAsync(ESPERA_TRAS_ESCRIBIR_MS - 500);
+      agrupador.escribiendo('u\nc', true);
+      await vi.advanceTimersByTimeAsync(VENCE_MS - 1);
+      expect(procesar).not.toHaveBeenCalled();
+    });
+
+    it('un "escribiendo…" sin aviso de que paró vence y contesta igual', async () => {
+      const { agrupador, procesar } = conVencimiento();
+
+      agrupador.agregar('u\nc', 'hola');
+      agrupador.escribiendo('u\nc', true);
+      await vi.advanceTimersByTimeAsync(VENCE_MS - 1);
+      expect(procesar).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(procesar).toHaveBeenCalledOnce();
+    });
+
+    it('al parar, igual respeta el silencio desde el último mensaje', async () => {
+      const { agrupador, procesar } = conVencimiento();
+
+      agrupador.agregar('u\nc', 'hola');
+      agrupador.escribiendo('u\nc', true);
+      agrupador.escribiendo('u\nc', false);
+      await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS - 1);
+      expect(procesar).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(procesar).toHaveBeenCalledOnce();
+    });
+
+    it('sin mensajes pendientes, escribir no arma nada', async () => {
+      const { agrupador, procesar } = conVencimiento();
+
+      agrupador.escribiendo('u\nc', true);
+      agrupador.escribiendo('u\nc', false);
+      await vi.runAllTimersAsync();
+
+      expect(procesar).not.toHaveBeenCalled();
+    });
+  });
 
   it('con la ráfaga llena contesta ya, sin esperar el silencio', async () => {
     const { agrupador, procesar } = crear();
@@ -52,6 +138,31 @@ describe('AgrupadorDeRafagas', () => {
 
     expect(procesar).toHaveBeenCalledTimes(2);
     expect(procesar.mock.calls[1][1]).toHaveLength(MAX_MENSAJES_RAFAGA);
+  });
+
+  it('interrumpir descarta la respuesta en curso aunque ya se haya descartado el máximo de veces', async () => {
+    const vistas: Cancelacion[] = [];
+    const procesar = vi.fn().mockImplementation(
+      (_clave: string, _items: string[], cancelacion: Cancelacion) =>
+        new Promise<void>((_resolve, reject) => {
+          vistas.push(cancelacion);
+          cancelacion.signal.addEventListener('abort', () => reject(new VueltaCancelada()));
+        }),
+    );
+    const { agrupador } = crear(procesar);
+
+    agrupador.agregar('u\nc', 'hola');
+    await vi.advanceTimersByTimeAsync(ESPERA_RAFAGA_MS);
+    for (let i = 0; i < MAX_CANCELACIONES_POR_RAFAGA; i++) {
+      agrupador.agregar('u\nc', `otro${i}`);
+      await vi.runOnlyPendingTimersAsync();
+    }
+    const enCurso = vistas.at(-1)!;
+    expect(enCurso.cancelada).toBe(false);
+
+    agrupador.interrumpir('u\nc');
+
+    expect(enCurso.cancelada).toBe(true);
   });
 
   it('descartar olvida lo pendiente de ese dueño y no toca a los demás', async () => {

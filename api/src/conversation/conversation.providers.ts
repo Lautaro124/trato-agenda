@@ -8,7 +8,6 @@ import { DecisionesClient } from '../comercio/decisiones.client.js';
 import type { Env } from '../config/env.js';
 import { HistoricoVentasService } from '../comercio/historico.service.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
-import { PedidosAMedidaService } from '../comercio/pedidos-a-medida.service.js';
 import { SugerenciasService } from '../comercio/sugerencias.service.js';
 import { VentasService } from '../comercio/ventas.service.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
@@ -62,7 +61,6 @@ export const grafoVentasProvider = {
     CheckpointerService,
     ConfigService,
     DecisionesClient,
-    PedidosAMedidaService,
     RegistroPerformanceService,
   ],
   useFactory: (
@@ -78,7 +76,6 @@ export const grafoVentasProvider = {
     checkpointer: CheckpointerService,
     config: ConfigService<Env, true>,
     decisiones: DecisionesClient,
-    pedidos: PedidosAMedidaService,
     registro: RegistroPerformanceService,
   ): GrafoVentas =>
     construirGrafoVentas({
@@ -94,7 +91,6 @@ export const grafoVentasProvider = {
       checkpointer: checkpointer.saver,
       ventanaHistorialMs: config.get('HISTORIAL_IA_VENTANA_MS', { infer: true }),
       decisiones,
-      pedidos,
       registro,
     }),
 };

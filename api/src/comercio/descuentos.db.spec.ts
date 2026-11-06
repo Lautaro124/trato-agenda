@@ -65,7 +65,7 @@ describe.skipIf(!hayBaseDePrueba)('promociones (Postgres real)', () => {
     expect((await prisma.descuento.findUniqueOrThrow({ where: { id: ajena.id } })).activo).toBe(true);
 
     const producto = await prisma.producto.create({
-      data: { userId: dueno.id, codigo: 'P-DESC', nombre: 'Con descuento', variantes: { create: [{ sku: 'P', precioCentavos: 100 }] } },
+      data: { userId: dueno.id, codigo: 'P-DESC', nombre: 'Con descuento', precioCentavos: 100 },
     });
     const delProducto = await prisma.descuento.create({
       data: { userId: dueno.id, productoId: producto.id, tipo: 'porcentaje', valor: 10 },

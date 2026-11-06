@@ -6,8 +6,8 @@ export const CLAVES_TUTORIAL = [
   "calendario",
   "reuniones",
   "chat",
+  "chats",
   "productos",
-  "costos",
   "ventas",
   "rendimiento",
   "asistente",
@@ -97,6 +97,29 @@ const PASOS: Record<Exclude<ClaveTutorial, "inicio">, Paso[]> = {
     },
   ],
   chat: [CHAT_DE_PRUEBA],
+  chats: [
+    {
+      objetivo: "lista-chats",
+      titulo: "Tus chats de WhatsApp",
+      texto: "Acá están las conversaciones que atiende tu asistente, la más reciente arriba. Tocá una para leerla.",
+    },
+    {
+      objetivo: "filtro-chats",
+      titulo: "Bot o Vos",
+      texto:
+        "Cada chat dice quién contesta. Bot: responde tu asistente. Vos: el bot no escribe y te toca a vos. «Te espera» marca a quien nadie le contestó.",
+    },
+    {
+      objetivo: "control-chat",
+      titulo: "Un botón decide quién contesta",
+      texto: "«Tomar el control» frena al bot en este chat al instante. «Devolver al bot» le pasa la posta de nuevo. El bot nunca vuelve solo.",
+    },
+    {
+      titulo: "Contestá desde acá o desde tu teléfono",
+      texto:
+        "Lo que escribís en un chat tuyo sale por tu WhatsApp. Si le contestás a un cliente desde tu teléfono, ese chat pasa a Vos solo.",
+    },
+  ],
   productos: [
     {
       objetivo: "cargar-productos",
@@ -112,18 +135,6 @@ const PASOS: Record<Exclude<ClaveTutorial, "inicio">, Paso[]> = {
       objetivo: "herramientas-catalogo",
       titulo: "Probá y promocioná",
       texto: "Fijate qué encuentra tu asistente cuando un cliente pregunta algo, y armá promociones por producto o categoría.",
-    },
-  ],
-  costos: [
-    {
-      objetivo: "insumos",
-      titulo: "Tus materiales",
-      texto: "Lo que te cuesta cada material. Con esto y la receta de cada producto a medida se calcula el presupuesto.",
-    },
-    {
-      objetivo: "config-cotizacion",
-      titulo: "Cómo cotiza",
-      texto: "Lo que se suma a cada presupuesto. La cuenta la hace el sistema: tu asistente nunca inventa un precio.",
     },
   ],
   ventas: [
@@ -183,3 +194,34 @@ const PASOS: Record<Exclude<ClaveTutorial, "inicio">, Paso[]> = {
 export function pasosDe(clave: ClaveTutorial, user: Usuario): Paso[] {
   return clave === "inicio" ? pasosInicio(user) : PASOS[clave];
 }
+
+/**
+ * Recorrido de la sección Cuotas del producto. No es una pantalla propia: lo
+ * abre el botón «Ver tutorial» de la sección, así que no figura en
+ * `CLAVES_TUTORIAL` ni se guarda como visto.
+ */
+export const PASOS_CUOTAS: Paso[] = [
+  {
+    objetivo: "cuotas-activar",
+    titulo: "Ofrecé cuotas",
+    texto:
+      "Prendé el interruptor para que tu asistente ofrezca pagar este producto en cuotas. Apagado, el cliente paga en un solo pago.",
+  },
+  {
+    objetivo: "cuotas-modo",
+    titulo: "Elegí cómo las cobrás",
+    texto:
+      "Con recargo ponés un solo porcentaje para todas las cuotas. Con precio por cuota escribís vos el total de cada plan.",
+  },
+  {
+    objetivo: "cuotas-planes",
+    titulo: "Marcá las cantidades",
+    texto: "Tocá las cuotas que ofrecés. Si necesitás otra cantidad, de 2 a 24, agregala en «Otra cantidad».",
+  },
+  {
+    objetivo: "cuotas-vista",
+    titulo: "Revisá lo que ve tu cliente",
+    texto:
+      "Acá se calcula cuánto paga por mes y el total, sobre el precio con descuento. En un pedido con varios productos sólo valen las cuotas que tienen todos.",
+  },
+];

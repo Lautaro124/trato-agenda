@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Body,
-  ConflictException,
   Controller,
   Get,
   Header,
@@ -24,29 +23,16 @@ import { MercadoPagoWebhookDto } from '../subscription/subscription.types.js';
 import { firmaDeWebhookValida } from '../subscription/webhook-signature.js';
 import { HistoricoVentasService, type ListadoVentas, type ResumenVentas } from './historico.service.js';
 import { RangoInvalidoError } from './historico.rules.js';
-import { PedidosAMedidaService } from './pedidos-a-medida.service.js';
-import { normalizarRenglones } from './presupuesto.rules.js';
-import { PedidoRechazadoError, VentasService } from './ventas.service.js';
+import { AtencionPedidosService } from './atencion-pedidos.service.js';
+import { VentasService } from './ventas.service.js';
 import {
   aDetalleVentaPublica,
-  AtencionDto,
+  DevolverDto,
   aVentaPublica,
-  CobrarDto,
   FiltrosVentasQuery,
-  PresupuestoDto,
   type DetalleVentaPublica,
   type VentaPublica,
 } from './ventas.types.js';
-
-/** Un motivo de negocio (pedido cerrado, sin presupuesto…) es un 409 con el texto, no un 500. */
-async function conPedido<T>(accion: () => Promise<T>): Promise<T> {
-  try {
-    return await accion();
-  } catch (error) {
-    if (error instanceof PedidoRechazadoError) throw new ConflictException(error.message);
-    throw error;
-  }
-}
 
 /** Un rango de fechas mal armado es un 400 con el motivo, no un 500. */
 async function conRango<T>(accion: () => Promise<T>): Promise<T> {
@@ -66,7 +52,7 @@ export class VentasController {
   constructor(
     private readonly ventas: VentasService,
     private readonly historico: HistoricoVentasService,
-    private readonly pedidos: PedidosAMedidaService,
+    private readonly atencionPedidos: AtencionPedidosService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -97,7 +83,7 @@ export class VentasController {
   @Get('atencion')
   @UseGuards(JwtAuthGuard)
   async esperandoAtencion(@CurrentUser() user: User): Promise<VentaPublica[]> {
-    const ventas = await this.pedidos.esperandoAtencion(user.id);
+    const ventas = await this.atencionPedidos.esperandoAtencion(user.id);
     return ventas.map((venta) => aVentaPublica(venta));
   }
 
@@ -107,107 +93,18 @@ export class VentasController {
     return this.detalle(user.id, id);
   }
 
-  /** "Atender yo" (el asistente se calla en ese chat) o "Devolver al asistente". */
-  @Post(':id/atencion')
+  /** "Devolver al asistente": el chat del pedido vuelve a contestarlo el asistente. */
+  @Post(':id/devolver')
   @UseGuards(JwtAuthGuard)
-  async atencion(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: AtencionDto): Promise<DetalleVentaPublica> {
-    await conPedido(async () => {
-      if (dto.humana) {
-        const venta = await this.historico.obtener(user.id, id);
-        if (!venta) throw new NotFoundException('No existe ese pedido.');
-        await this.pedidos.derivar({
-          userId: user.id,
-          ventaId: id,
-          conversationId: null,
-          remoteJid: null,
-          nombreCliente: venta.nombreCliente,
-          motivo: 'dueno',
-          detalle: dto.nota ?? null,
-          autor: 'dueno',
-          dePrueba: venta.dePrueba,
-        });
-      } else if (!(await this.pedidos.devolver(user.id, id, dto.nota ?? null))) {
-        throw new NotFoundException('No existe ese pedido.');
-      }
-    });
-    return this.detalle(user.id, id);
-  }
-
-  /** Un presupuesto armado a mano: queda como borrador, o se manda en el mismo paso con `enviar`. */
-  @Post(':id/presupuestos')
-  @UseGuards(JwtAuthGuard)
-  async crearPresupuesto(
-    @CurrentUser() user: User,
-    @Param('id') id: string,
-    @Body() dto: PresupuestoDto,
-  ): Promise<DetalleVentaPublica & { mandado?: boolean }> {
-    const armado = normalizarRenglones(dto.renglones);
-    if ('error' in armado) throw new BadRequestException(armado.error);
-    const mandado = await conPedido(async () => {
-      const creado = await this.pedidos.crearPresupuesto(
-        user.id,
-        id,
-        { ...armado, estimativo: dto.estimativo, detalleAlCliente: dto.detalleAlCliente, nota: dto.nota ?? null },
-        'dueno',
-      );
-      if (!creado) throw new NotFoundException('No hay un pedido a medida con ese id.');
-      if (!dto.enviar) return undefined;
-      const enviado = await this.pedidos.enviarPresupuesto(user.id, id, creado.presupuesto.id, {
-        autor: 'dueno',
-        mandarAlCliente: true,
-      });
-      return enviado?.mandado;
-    });
-    return { ...(await this.detalle(user.id, id)), ...(mandado === undefined ? {} : { mandado }) };
-  }
-
-  /** Arma un borrador con la receta del producto y las respuestas del pedido (LAU-26). */
-  @Post(':id/presupuestos/desde-receta')
-  @UseGuards(JwtAuthGuard)
-  async presupuestoDesdeReceta(@CurrentUser() user: User, @Param('id') id: string): Promise<DetalleVentaPublica> {
-    const venta = await conPedido(() => this.pedidos.presupuestoDesdeReceta(user.id, id));
-    if (!venta) throw new NotFoundException('No hay un pedido a medida con ese id.');
-    return this.detalle(user.id, id);
-  }
-
-  /** Habilita un borrador (del dueño o del asistente) y se lo manda al cliente por su chat. */
-  @Post(':id/presupuestos/:presupuestoId/enviar')
-  @UseGuards(JwtAuthGuard)
-  async enviarPresupuesto(
-    @CurrentUser() user: User,
-    @Param('id') id: string,
-    @Param('presupuestoId') presupuestoId: string,
-  ): Promise<DetalleVentaPublica & { mandado: boolean }> {
-    const resultado = await conPedido(() =>
-      this.pedidos.enviarPresupuesto(user.id, id, presupuestoId, { autor: 'dueno', mandarAlCliente: true }),
-    );
-    if (!resultado) throw new NotFoundException('No hay un presupuesto con ese id.');
-    return { ...(await this.detalle(user.id, id)), mandado: resultado.mandado };
-  }
-
-  @Post(':id/presupuestos/:presupuestoId/descartar')
-  @UseGuards(JwtAuthGuard)
-  async descartarPresupuesto(
-    @CurrentUser() user: User,
-    @Param('id') id: string,
-    @Param('presupuestoId') presupuestoId: string,
-  ): Promise<DetalleVentaPublica> {
-    if (!(await this.pedidos.descartarPresupuesto(user.id, id, presupuestoId))) {
-      throw new NotFoundException('No hay un borrador con ese id.');
+  async devolver(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: DevolverDto): Promise<DetalleVentaPublica> {
+    if (!(await this.atencionPedidos.devolver(user.id, id, dto.nota ?? null))) {
+      throw new NotFoundException('No existe ese pedido.');
     }
     return this.detalle(user.id, id);
   }
 
-  /** Genera el cobro del presupuesto vigente (link de Mercado Pago o a coordinar) sin esperar al cliente. */
-  @Post(':id/cobrar')
-  @UseGuards(JwtAuthGuard)
-  async cobrar(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: CobrarDto): Promise<DetalleVentaPublica> {
-    await conPedido(() => this.pedidos.cobrar(user.id, id, { autor: 'dueno', medioPago: dto.medioPago }));
-    return this.detalle(user.id, id);
-  }
-
   private async detalle(userId: string, id: string): Promise<DetalleVentaPublica> {
-    const venta = await this.pedidos.detalle(userId, id);
+    const venta = await this.atencionPedidos.detalle(userId, id);
     if (!venta) throw new NotFoundException('No existe esa venta.');
     return aDetalleVentaPublica(venta);
   }

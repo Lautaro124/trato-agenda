@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Logger, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AgentsService } from '../agents/agents.service.js';
 import { CALENDARIO_GOOGLE, CalendarService } from '../calendar/calendar.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -94,12 +94,20 @@ export class AuthController {
     return aUsuarioPublico(user, await this.agentsService.findByUserId(user.id));
   }
 
-  /** Poner (después del QR) o cambiar la contraseña de una cuenta con WhatsApp. */
+  /**
+   * Poner (después del QR) o cambiar la contraseña de una cuenta con WhatsApp.
+   * Cierra las demás sesiones; ésta sigue con una cookie nueva.
+   */
   @Post('password')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  cambiarPassword(@CurrentUser() user: User, @Body() dto: CambiarPasswordDto): Promise<void> {
-    return this.logins.cambiarPassword(user, dto.nueva, dto.actual);
+  async cambiarPassword(
+    @CurrentUser() user: User,
+    @Body() dto: CambiarPasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    const actualizado = await this.logins.cambiarPassword(user, dto.nueva, dto.actual);
+    ponerCookieDeSesion(res, this.config, await this.authService.issueSessionToken(actualizado));
   }
 
   /**
@@ -117,9 +125,11 @@ export class AuthController {
       WHERE id = ${user.id}`;
   }
 
+  /** Cierra la sesión en todos los dispositivos, no sólo en éste. */
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  logout(@Res({ passthrough: true }) res: Response): void {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
+    await this.authService.cerrarSesiones((req.cookies as Record<string, string> | undefined)?.[nombreCookie(this.config)]);
     res.clearCookie(nombreCookie(this.config), opcionesDeCookie(this.config));
     res.clearCookie(COOKIE_CONECTAR, opcionesDeCookie(this.config));
   }

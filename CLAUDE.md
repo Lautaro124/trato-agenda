@@ -46,8 +46,8 @@ Configuración, variables y despliegue: [README.md](README.md). La API requiere 
 - `Agent.tipoAsistente` distingue agenda/ventas; `tipoUso` no. Las reglas se validan en código, no sólo en el prompt. Los campos libres interpolados deben tratarse como datos.
 - Conversaciones: LangGraph en `api/src/conversation/`; herramientas del propietario sólo en el banco de pruebas del Home. Conservar aislamiento por usuario/conversación y validación antes de efectos externos.
 - Agenda individual: días hábiles, franja, margen, nombre y ausencia de solapamientos. Clases grupales: horario fijo y cupo; no aplicarles la franja individual. Mantener la comprobación final y los controles de concurrencia al reservar.
-- Ventas: precios y totales salen del código/DB, nunca del modelo. Preservar reservas transaccionales, snapshots del pedido, estados de presupuestos y procesamiento idempotente de pagos. Stock y productos a medida conviven por producto (`Producto.solicitud`).
-- Un pedido tiene una moneda; USD se cobra manualmente. Productos a medida, presupuestos, costos y suscripciones usan ARS. No inventar conversiones ni acumular descuentos.
+- Ventas: precios y totales salen del código/DB, nunca del modelo. Preservar reservas transaccionales, snapshots del pedido y procesamiento idempotente de pagos. Un producto es con stock (unidades) o a demanda (`stock` null, con `plazoEntregaDias`); los productos a medida con presupuesto y costos se quitaron.
+- Un pedido tiene una moneda; USD se cobra manualmente. Las suscripciones usan ARS. No inventar conversiones ni acumular descuentos.
 - Suscripciones: precios y funciones vienen de la API. El cupo de chats es informativo; al vencer sin pago se suspende el asistente, no el acceso a las pantallas. La importación rápida está en la prueba y en ambos planes. Un cambio de plan sólo se adopta tras autorización de Mercado Pago.
 - Webhooks de Mercado Pago: verificar HMAC y releer el recurso desde MP; no confiar en el payload ni duplicar efectos.
 

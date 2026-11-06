@@ -9,7 +9,9 @@ import { AgentsService } from '../agents/agents.service.js';
 import type { Env } from '../config/env.js';
 import { AuthService } from './auth.service.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { contrasenaCorrecta, DevAuthController } from './dev-auth.controller.js';
+import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 
 type Entorno = Partial<Record<keyof Env, string>>;
 
@@ -37,8 +39,12 @@ async function crearApp(entorno: Entorno, opciones: { tieneAgente?: boolean } = 
       { provide: AgentsService, useValue: agentsService },
       { provide: CodigoAccesoService, useValue: { ultimoCodigoDev: vi.fn().mockReturnValue('123456') } },
       { provide: ConfigService, useValue: { get: (clave: string) => valores[clave] } },
+      { provide: PrismaService, useValue: {} },
     ],
-  }).compile();
+  })
+    .overrideGuard(JwtAuthGuard)
+    .useValue({ canActivate: () => true })
+    .compile();
 
   const app: INestApplication = modulo.createNestApplication({ logger: false });
   app.use(cookieParser());
@@ -73,6 +79,21 @@ describe('DevAuthController', () => {
 
     await request(app.getHttpServer()).post('/auth/dev/login').send({ password: 'e2e-password' }).expect(404);
     expect(authService.upsertUsuarioDev).not.toHaveBeenCalled();
+  });
+
+  it('en el entorno production de Railway responde 404 aunque la contraseña coincida', async () => {
+    let authService;
+    ({ app, authService } = await crearApp({ NODE_ENV: 'production', RAILWAY_ENVIRONMENT_NAME: 'production' }));
+
+    await request(app.getHttpServer()).post('/auth/dev/login').send({ password: 'e2e-password' }).expect(404);
+    expect(authService.upsertUsuarioDev).not.toHaveBeenCalled();
+  });
+
+  it('en el entorno develop de Railway entra aunque corra con NODE_ENV=production', async () => {
+    ({ app } = await crearApp({ NODE_ENV: 'production', RAILWAY_ENVIRONMENT_NAME: 'develop' }));
+
+    await request(app.getHttpServer()).get('/auth/dev').expect(200, { habilitado: true });
+    await request(app.getHttpServer()).post('/auth/dev/login').send({ password: 'e2e-password' }).expect(200);
   });
 
   it('una contraseña incorrecta da 401 y no crea sesión', async () => {
@@ -152,6 +173,18 @@ describe('DevAuthController', () => {
 
     ({ app } = await crearApp({ NODE_ENV: 'production' }));
     await request(app.getHttpServer()).get('/auth/dev/ultimo-codigo?telefono=5491122334455').expect(404);
+  });
+
+  it('POST /auth/dev/chat responde 404 en producción y valida el body', async () => {
+    ({ app } = await crearApp({ NODE_ENV: 'production' }));
+    await request(app.getHttpServer())
+      .post('/auth/dev/chat')
+      .send({ telefono: '5491122334455', mensajes: [{ de: 'cliente', texto: 'hola' }] })
+      .expect(404);
+    await app.close();
+
+    ({ app } = await crearApp({}));
+    await request(app.getHttpServer()).post('/auth/dev/chat').send({ telefono: '12', mensajes: [] }).expect(400);
   });
 
   it('propaga el 409 si el email ya es de un usuario de Google', async () => {

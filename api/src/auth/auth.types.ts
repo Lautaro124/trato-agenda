@@ -21,6 +21,12 @@ export type JwtPayload = {
   sub: string;
   email?: string | null;
   tipo?: 'alta' | 'conectar';
+  /**
+   * `User.sesionVersion` al emitir la sesión. Las sesiones firmadas antes de
+   * que existiera no lo traen y cuentan como 0: siguen valiendo hasta el
+   * primer cambio de contraseña o logout, que las invalida.
+   */
+  sv?: number;
 };
 
 /** Vista pública del usuario: nunca incluye el refresh token de Google. */

@@ -1,13 +1,12 @@
 import { apiFetch } from "./api";
 import { PORCENTAJE_MAX } from "./descuentos";
-import { ErrorDeApi } from "./productos";
+import { ErrorDeApi, formatearMonto } from "./productos";
 
 /**
- * Cuotas, descuento en efectivo y cobro sin link del comercio (LAU-34). Topes
- * y validación copiados de api/src/comercio/condiciones-pago.rules.ts:
- * mantenerlos iguales.
+ * Descuento en efectivo y cobro sin link del comercio, y cuotas de cada
+ * producto (LAU-34). Topes y validación copiados de
+ * api/src/comercio/condiciones-pago.rules.ts: mantenerlos iguales.
  */
-export const MAX_PLANES_CUOTAS = 6;
 export const MIN_CUOTAS = 2;
 export const MAX_CUOTAS = 24;
 export const RECARGO_MAX_PORCENTAJE = 100;
@@ -15,10 +14,19 @@ export const RECARGO_MAX_PORCENTAJE = 100;
 export const LARGO_MAX_TITULAR = 80;
 export const LARGO_MAX_MENSAJE_COBRO = 400;
 export const VARIABLES_MENSAJE_COBRO = ["nombre", "total", "detalle"] as const;
+/** Con lo que arranca "Otro canal" si el dueño todavía no escribió el suyo. */
+export const MENSAJE_COBRO_SUGERIDO =
+  "¡Gracias {nombre}! Anotamos tu pedido ({detalle}) por {total}. Te escribimos enseguida para coordinar el cobro.";
 const ALIAS = /^[a-z0-9.-]{6,20}$/;
 const CBU = /^\d{22}$/;
 
-export type PlanCuotas = { cuotas: number; recargoPorcentaje: number };
+/**
+ * Espejo de `CuotasProducto` en la API: un mismo recargo para las cantidades
+ * elegidas, o el total de una unidad en cada cantidad. null = en un pago.
+ */
+export type CuotasProducto =
+  | { modo: "recargo"; recargoPorcentaje: number; planes: number[] }
+  | { modo: "precios"; planes: Array<{ cuotas: number; totalCentavos: number }> };
 
 /** Cómo se cobra un pedido sin link; null = se coordina por el chat. */
 export type CobroManual =
@@ -27,7 +35,6 @@ export type CobroManual =
 
 /** Espejo de `CondicionesPago` en la API. */
 export type CondicionesPago = {
-  planesCuotas: PlanCuotas[];
   descuentoEfectivoPorcentaje: number | null;
   cobroManual: CobroManual | null;
 };
@@ -37,7 +44,7 @@ export function normalizarAlias(alias: string): string {
   return alias.replace(/\s+/g, "").toLowerCase();
 }
 
-function problemaDeCobroManual(cobro: CobroManual | null): string | null {
+export function problemaDeCobroManual(cobro: CobroManual | null): string | null {
   if (!cobro) return null;
   if (cobro.modo === "transferencia") {
     const alias = normalizarAlias(cobro.alias);
@@ -63,28 +70,32 @@ function esEntero(valor: number, min: number, max: number): boolean {
   return Number.isInteger(valor) && valor >= min && valor <= max;
 }
 
-/** El mismo motivo que daría la API, o null si se puede guardar. */
-export function problemaDeCondiciones(condiciones: CondicionesPago): string | null {
-  if (condiciones.planesCuotas.length > MAX_PLANES_CUOTAS) return `Podés tener hasta ${MAX_PLANES_CUOTAS} planes de cuotas.`;
-  const vistas = new Set<number>();
-  for (const plan of condiciones.planesCuotas) {
-    if (!esEntero(plan.cuotas, MIN_CUOTAS, MAX_CUOTAS)) return `Las cuotas tienen que ser de ${MIN_CUOTAS} a ${MAX_CUOTAS}.`;
-    if (!esEntero(plan.recargoPorcentaje, 0, RECARGO_MAX_PORCENTAJE)) {
-      return `El recargo tiene que ser de 0% a ${RECARGO_MAX_PORCENTAJE}%.`;
-    }
-    if (vistas.has(plan.cuotas)) return `Hay dos planes de ${plan.cuotas} cuotas: dejá uno.`;
-    vistas.add(plan.cuotas);
-  }
-  const efectivo = condiciones.descuentoEfectivoPorcentaje;
+/** El mismo motivo que daría la API, o null si se puede guardar (null = sin descuento). */
+export function problemaDeEfectivo(efectivo: number | null): string | null {
   if (efectivo !== null && !esEntero(efectivo, 1, PORCENTAJE_MAX)) {
     return `El descuento en efectivo tiene que ser de 1% a ${PORCENTAJE_MAX}%.`;
   }
-  return problemaDeCobroManual(condiciones.cobroManual);
+  return null;
 }
 
-/** "3 cuotas sin interés", "6 cuotas con 15% de recargo". */
-export function nombreDePlan(plan: PlanCuotas): string {
-  return `${plan.cuotas} cuotas ${plan.recargoPorcentaje === 0 ? "sin interés" : `con ${plan.recargoPorcentaje}% de recargo`}`;
+/** Lo mismo que normalizarCuotasProducto en la API, o null si se puede guardar. */
+export function problemaDeCuotas(cuotas: CuotasProducto | null, precioCentavos: number, moneda: string): string | null {
+  if (!cuotas) return null;
+  if (moneda !== "ARS") return "Un producto en dólares no se vende en cuotas: Mercado Pago cobra en pesos.";
+  if (cuotas.planes.length === 0) return "Elegí en cuántas cuotas se vende, o dejalo en un pago.";
+  if (cuotas.modo === "recargo") {
+    if (!esEntero(cuotas.recargoPorcentaje, 0, RECARGO_MAX_PORCENTAJE)) {
+      return `El recargo tiene que ser de 0% a ${RECARGO_MAX_PORCENTAJE}%.`;
+    }
+    return null;
+  }
+  for (const plan of cuotas.planes) {
+    if (!Number.isInteger(plan.totalCentavos) || plan.totalCentavos < 0) return `Falta el total en ${plan.cuotas} cuotas.`;
+    if (plan.totalCentavos < precioCentavos) {
+      return `El total en ${plan.cuotas} cuotas no puede ser menor que el precio (${formatearMonto(precioCentavos, moneda)}).`;
+    }
+  }
+  return null;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -100,7 +111,8 @@ export function obtenerCondicionesPago(): Promise<CondicionesPago> {
   return apiFetch("/condiciones-pago").then((res) => json<CondicionesPago>(res));
 }
 
-export function guardarCondicionesPago(condiciones: CondicionesPago): Promise<CondicionesPago> {
+/** Lo que no se manda queda como estaba: cada pantalla guarda lo suyo. */
+export function guardarCondicionesPago(condiciones: Partial<CondicionesPago>): Promise<CondicionesPago> {
   return apiFetch("/condiciones-pago", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

@@ -1,4 +1,4 @@
-import { enAtencionHumana, MENSAJE_ATENCION_HUMANA_PRUEBA } from '../comercio/pedido-a-medida.rules.js';
+import { MENSAJE_ATENCION_HUMANA_PRUEBA } from '../comercio/ventas.rules.js';
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { GraphRecursionError } from '@langchain/langgraph';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -14,6 +14,7 @@ import {
   type GrafoVentas,
 } from './conversation.providers.js';
 import { LIMITE_RECURSION } from './graph/graph.factory.js';
+import { CLAVE_YA_GUARDADO } from './graph/nodes/persistir.node.js';
 import { VENTANA_HISTORIAL, mensajesDesdeFilas } from './graph/historial.js';
 import { LIMITE_RECURSION_VENTAS } from './ventas/grafo-ventas.factory.js';
 import { imagenesDeLaVuelta, type ImagenAEnviar } from './ventas/imagenes-de-la-vuelta.js';
@@ -73,13 +74,19 @@ type GrafoInvocable = {
 export type OpcionesDeVuelta = {
   /** Si se cancela antes de comprometerse, `responder` tira VueltaCancelada y la vuelta no cuenta. */
   cancelacion?: Cancelacion;
+  /**
+   * El texto del cliente ya está en el historial (lo escribió mientras
+   * atendía una persona y el dueño pidió que el asistente lo conteste al
+   * devolverle el chat): no se vuelve a guardar (LAU-81).
+   */
+  yaGuardado?: boolean;
 };
 
 /** Lo que se le contesta al cliente: el texto y, del asistente de ventas, las fotos a mandar antes. */
 export type RespuestaConversacion = {
   texto: string;
   imagenes: ImagenAEnviar[];
-  /** El chat lo atiende una persona (LAU-27): el asistente no corrió y no hay que mandar nada. */
+  /** El chat lo atiende una persona (LAU-81): el asistente no corrió y no hay que mandar nada. */
   enAtencionHumana?: boolean;
 };
 
@@ -138,10 +145,11 @@ export class ConversationService {
     });
 
     const esVentas = tipoAsistenteDe(agent) === 'ventas';
-    if (esVentas && (await this.enAtencionHumana(conversation.id))) {
+    if (conversation.atencion === 'humana') {
       // La ráfaga ya estaba esperando cuando el chat pasó a una persona: se
       // guarda lo que escribió el cliente y el asistente no contesta.
       if (esConversacionDePrueba(remoteJid)) return soloTexto(MENSAJE_ATENCION_HUMANA_PRUEBA);
+      if (opciones.yaGuardado) return { texto: '', imagenes: [], enAtencionHumana: true };
       await this.prisma.message.create({
         data: { conversationId: conversation.id, role: 'user', content: { content: texto, enAtencionHumana: true } },
       });
@@ -160,7 +168,12 @@ export class ConversationService {
     try {
       const resultado = await grafo.invoke(
         {
-          messages: [...(await this.historialSemilla(previo, conversation.id)), new HumanMessage(texto)],
+          messages: [
+            ...(await this.historialSemilla(previo, conversation.id)),
+            new HumanMessage(
+              opciones.yaGuardado ? { content: texto, response_metadata: { [CLAVE_YA_GUARDADO]: true } } : texto,
+            ),
+          ],
           ownerUserId,
           remoteJid,
           esPropietario: esConversacionDePrueba(remoteJid),
@@ -192,16 +205,6 @@ export class ConversationService {
       this.logger.error(`El grafo falló en la conversación ${conversation.id}`, error as Error);
       return soloTexto(MENSAJE_DISCULPA_GENERICO);
     }
-  }
-
-  /** ¿Algún pedido abierto de esta conversación lo atiende una persona? */
-  private async enAtencionHumana(conversationId: string): Promise<boolean> {
-    const venta = await this.prisma.venta.findFirst({
-      where: { conversationId, atencion: 'humana' },
-      select: { atencion: true, estado: true },
-      orderBy: { derivadaAt: 'desc' },
-    });
-    return venta !== null && enAtencionHumana(venta);
   }
 
   /**

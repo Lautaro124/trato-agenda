@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/api";
 import { ErrorDeApi, type Moneda } from "@/lib/productos";
 import { diaCorto } from "@/lib/ventas";
 
-export const ETAPAS = ["consulta", "vio_productos", "eligiendo", "lista", "pedido", "cotizado", "pagado"] as const;
+export const ETAPAS = ["consulta", "vio_productos", "eligiendo", "lista", "pedido", "pagado"] as const;
 export type Etapa = (typeof ETAPAS)[number];
 
 export const ETIQUETA_ETAPA: Record<Etapa, string> = {
@@ -16,7 +16,6 @@ export const ETIQUETA_ETAPA: Record<Etapa, string> = {
   eligiendo: "Eligiendo",
   lista: "Listo para comprar",
   pedido: "Hizo el pedido",
-  cotizado: "Cotizado",
   pagado: "Pagó",
 };
 
@@ -56,7 +55,7 @@ export type FiltroZona = ClaveZona | "sin_zona";
 export const TEMAS = {
   precio: "Precio",
   envio: "Envío",
-  stock: "Stock y variantes",
+  stock: "Stock",
   medidas: "Medidas y materiales",
   pago: "Formas de pago",
   plazos: "Plazos de entrega",
@@ -108,7 +107,6 @@ export type ProductoPerformance = Conteo<"vieron" | "pidieron" | "pagaron" | "un
     productoId: string;
     codigo: string;
     nombre: string;
-    aMedida: boolean;
     cortanEn: Etapa | null;
   };
 

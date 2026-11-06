@@ -39,7 +39,7 @@ describe('secciones de una landing', () => {
       imagenes: ['https://sillones.com.ar/wp-content/uploads/retro-1024x1024.webp'],
       moneda: null,
       variantes: [{ nombre: '', sku: null, precioCentavos: null }],
-      avisos: ['sin_precio', 'parece_a_medida'],
+      avisos: ['sin_precio'],
       seccion: 'linea-retro',
     });
     // El monto de la página no llega a la descripción ni se toma como precio.

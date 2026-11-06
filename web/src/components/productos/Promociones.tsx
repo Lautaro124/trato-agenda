@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { DescuentoEfectivo } from "@/components/productos/DescuentoEfectivo";
 import { useAvisos } from "@/components/ui/Avisos";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -92,6 +93,7 @@ export function Promociones({ categorias, onCambio }: Readonly<{ categorias: Cat
 
   return (
     <section aria-label="Promociones" className="flex flex-col gap-3 rounded-lg border border-line bg-card p-5">
+      <DescuentoEfectivo />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display text-[18px] font-bold text-ink">Promociones</h2>
         {editando === null && (

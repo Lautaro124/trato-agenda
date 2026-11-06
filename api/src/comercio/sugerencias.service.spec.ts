@@ -5,25 +5,26 @@ import { DecisionesError } from './decisiones.client.js';
 import { SugerenciasService } from './sugerencias.service.js';
 import { MAX_CATEGORIAS_SUGERIDAS, MAX_PRODUCTOS_LISTADO } from './sugerencias.rules.js';
 
-type Variante = { id: string; precioCentavos: number; stock: number | null; disponible: boolean; activo: boolean };
-type Fila = { id: string; nombre: string; categoria: string | null; descripcion: string; variantes: Variante[] };
+type Fila = {
+  id: string;
+  nombre: string;
+  categoria: string | null;
+  descripcion: string;
+  precioCentavos: number;
+  stock: number | null;
+  disponible: boolean;
+  activo: boolean;
+  _count: { imagenes: number };
+};
 
-const variante = (id: string, precioCentavos = 1000, stock: number | null = 5): Variante => ({
-  id,
-  precioCentavos,
-  stock,
-  disponible: true,
-  activo: true,
-});
-
-function fila(id: string, categoria: string | null, variantes: Variante[] = [variante(`${id}-v`)]): Fila {
-  return { id, nombre: `Producto ${id}`, categoria, descripcion: '', variantes };
+function fila(id: string, categoria: string | null, precioCentavos = 1000, stock: number | null = 5): Fila {
+  return { id, nombre: `Producto ${id}`, categoria, descripcion: '', precioCentavos, stock, disponible: true, activo: true, _count: { imagenes: 0 } };
 }
 
 function crear(
   filas: Fila[],
   opciones: {
-    reservadas?: Array<{ varianteId: string; reservadas: number }>;
+    reservadas?: Array<{ productoId: string; reservadas: number }>;
     orden?: (ids: string[]) => string[] | Error;
     descuentos?: unknown[];
   } = {},
@@ -58,11 +59,11 @@ describe('SugerenciasService.verCatalogo', () => {
   it('los productos sin stock (o con todo reservado) no cuentan ni aparecen', async () => {
     const filas = [
       ...muchos(MAX_PRODUCTOS_LISTADO, () => 'Mates'),
-      fila('agotado', 'Mates', [variante('agotado-v', 1000, 0)]),
-      fila('reservado', 'Mates', [variante('reservado-v', 1000, 2)]),
-      fila('apagado', 'Mates', [{ ...variante('apagado-v', 1000, null), disponible: false }]),
+      fila('agotado', 'Mates', 1000, 0),
+      fila('reservado', 'Mates', 1000, 2),
+      { ...fila('apagado', 'Mates', 1000, null), disponible: false },
     ];
-    const { servicio } = crear(filas, { reservadas: [{ varianteId: 'reservado-v', reservadas: 2 }] });
+    const { servicio } = crear(filas, { reservadas: [{ productoId: 'reservado', reservadas: 2 }] });
     const resultado = await servicio.verCatalogo('user-1', ['¿qué tenés?']);
     expect(resultado.tipo).toBe('listado');
     if (resultado.tipo !== 'listado') return;
@@ -71,15 +72,12 @@ describe('SugerenciasService.verCatalogo', () => {
     expect(resultado.productos.map((p) => p.productoId)).not.toContain('apagado');
   });
 
-  it('el precio es el de la variante más barata con stock, y avisa si hay varios', async () => {
-    const { servicio } = crear([
-      fila('remera', 'Ropa', [variante('s', 900, 0), variante('m', 1500), variante('l', 1800)]),
-      fila('gorra', 'Ropa', [variante('u', 700)]),
-    ]);
+  it('cada producto va con su precio', async () => {
+    const { servicio } = crear([fila('remera', 'Ropa', 1500), fila('gorra', 'Ropa', 700)]);
     const resultado = await servicio.verCatalogo('user-1', []);
     if (resultado.tipo !== 'listado') throw new Error(resultado.tipo);
-    expect(resultado.productos[0]).toMatchObject({ precioDesdeCentavos: 1500, variosPrecios: true });
-    expect(resultado.productos[1]).toMatchObject({ precioDesdeCentavos: 700, variosPrecios: false });
+    expect(resultado.productos[0]).toMatchObject({ precioFinalCentavos: 1500 });
+    expect(resultado.productos[1]).toMatchObject({ precioFinalCentavos: 700 });
   });
 
   it(`con más: hasta ${MAX_CATEGORIAS_SUGERIDAS} categorías en el orden de Jev, y cuántas quedan`, async () => {
@@ -136,7 +134,7 @@ describe('SugerenciasService.verCatalogo', () => {
   });
 
   it('sin productos con stock avisa que no hay nada', async () => {
-    const { servicio } = crear([fila('agotado', 'Mates', [variante('v', 1000, 0)])]);
+    const { servicio } = crear([fila('agotado', 'Mates', 1000, 0)]);
     await expect(servicio.verCatalogo('user-1', ['hola'])).resolves.toEqual({ tipo: 'vacio' });
   });
 
@@ -170,9 +168,9 @@ describe('SugerenciasService.descuentosVigentes', () => {
   });
 
   it('cuenta sólo lo que tiene stock: una promo de una categoría agotada no aparece', async () => {
-    const filas = [fila('mate', 'Mates'), fila('termo', 'Termos', [variante('termo-v', 1000, 2)])];
+    const filas = [fila('mate', 'Mates'), fila('termo', 'Termos', 1000, 2)];
     const { servicio } = crear(filas, {
-      reservadas: [{ varianteId: 'termo-v', reservadas: 2 }],
+      reservadas: [{ productoId: 'termo', reservadas: 2 }],
       descuentos: [
         promo({ id: 'd-mates', categoria: 'Mates', nombre: 'Semana del mate' }),
         promo({ id: 'd-termos', categoria: 'Termos', nombre: 'Termos' }),

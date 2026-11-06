@@ -100,7 +100,7 @@ export function etapaDondeCortan(conteos: Partial<Record<Etapa, number>>): Etapa
 /** Lo que la pantalla muestra al lado de cada métrica, tal cual. */
 export const DEFINICIONES = {
   base: 'Chats nuevos del período: los que escribieron por primera vez entre esas fechas. Sus pedidos y pagos cuentan aunque lleguen después.',
-  chatAPedido: 'De los chats nuevos del período, cuántos hicieron un pedido o una solicitud a medida.',
+  chatAPedido: 'De los chats nuevos del período, cuántos hicieron un pedido.',
   pedidoAPago: 'De los pedidos de esos chats, cuántos se pagaron (por Mercado Pago o marcados a mano).',
   chatAPago: 'De los chats nuevos del período, cuántos terminaron en un pago.',
   estancado: `Un chat sin pagar está estancado si no escribe hace ${HORAS_ESTANCADO} horas o más.`,

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { chip } from "@/components/ui/chip";
 import { cn } from "@/lib/cn";
 import { leerPrecio, precioParaInput } from "@/lib/precio";
 import { CAPACIDAD_MAX, capacidadValida, leerCapacidad } from "@/lib/turnos-grupales";
@@ -26,14 +27,7 @@ import { HorariosGrupales } from "./HorariosGrupales";
 export const INPUT =
   "w-full box-border rounded-md border border-line bg-card px-3.5 py-[13px] font-body text-[15px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
 
-export function chip(activo: boolean): string {
-  return cn(
-    "cursor-pointer rounded-full border px-3 py-[7px] text-[13px] select-none",
-    activo
-      ? "border-primary bg-primary font-semibold text-primary-on"
-      : "border-line bg-card text-ink hover:border-line-strong",
-  );
-}
+export { chip } from "@/components/ui/chip";
 
 export function ChipsTitular({ ob }: { ob: Onboarding }) {
   return (

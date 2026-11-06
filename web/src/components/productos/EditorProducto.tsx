@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { FotoProducto, guardarConFoto } from "@/components/productos/FotoProducto";
+import { FotosPendientes, FotosProducto, guardarConFotos } from "@/components/productos/FotosProducto";
 import { PantallaProducto } from "@/components/productos/PantallaProducto";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { FilaInterruptor } from "@/components/ui/FilaInterruptor";
 import { cn } from "@/lib/cn";
 import {
   leerValorDescuento,
+  montoDeDescuento,
   problemaDeDescuento,
   vistaPrevia,
   type DescuentoAGuardar,
   type TipoDescuento,
 } from "@/lib/descuentos";
-import { MAX_CUOTAS } from "@/lib/condiciones-pago";
+import { armarCuotas, cuotasDesdeProducto, SeccionCuotas, type CuotasEnEdicion } from "@/components/productos/SeccionCuotas";
+import { armarPreguntas, preguntasDesdeProducto, SeccionPreguntas, type PreguntaEnEdicion } from "@/components/productos/SeccionPreguntas";
 import {
   centavosParaInput,
   ErrorDeApi,
@@ -21,50 +22,22 @@ import {
   MONEDAS,
   NOMBRE_MONEDA,
   type Moneda,
+  PLAZO_ENTREGA_MAX_DIAS,
   type Producto,
-  type ProductoDeStockAGuardar,
+  type ProductoAGuardar,
 } from "@/lib/productos";
+
+/** Con stock se cuentan unidades; a demanda se prepara al pedirlo y se informa el plazo de entrega. */
+type ModoStock = "stock" | "demanda";
+
+const MODOS_STOCK: Array<{ modo: ModoStock; etiqueta: string }> = [
+  { modo: "stock", etiqueta: "Con stock" },
+  { modo: "demanda", etiqueta: "A demanda" },
+];
 
 export const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2.5 text-[14.5px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
 export const LABEL = "mb-1.5 block text-[12.5px] font-semibold text-ink-secondary";
-
-/** Tope de variantes por producto, el mismo MAX_VARIANTES de la API. */
-export const MAX_VARIANTES = 50;
-
-type VarianteEnEdicion = {
-  clave: string;
-  sku: string;
-  nombre: string;
-  precio: string;
-  stock: string;
-  stockMinimo: string;
-  disponible: boolean;
-};
-
-function nuevaVariante(): VarianteEnEdicion {
-  return {
-    clave: crypto.randomUUID(),
-    sku: "",
-    nombre: "",
-    precio: "",
-    stock: "",
-    stockMinimo: "",
-    disponible: true,
-  };
-}
-
-function desdeProducto(producto: Producto): VarianteEnEdicion[] {
-  return producto.variantes.map((variante) => ({
-    clave: variante.id,
-    sku: variante.sku,
-    nombre: variante.nombre,
-    precio: centavosParaInput(variante.precioCentavos),
-    stock: variante.stock === null ? "" : String(variante.stock),
-    stockMinimo: variante.stockMinimo === null ? "" : String(variante.stockMinimo),
-    disponible: variante.disponible,
-  }));
-}
 
 /** Lo que se está tipeando en la sección Descuento. */
 type DescuentoEnEdicion = {
@@ -93,15 +66,12 @@ function descuentoDesdeProducto(producto: Producto | null): DescuentoEnEdicion {
  * La sección Descuento → lo que se manda, null si no tiene, o el texto del
  * error. Mismas reglas que la API, para no gastar un viaje en un error obvio.
  */
-function armarDescuento(
-  descuento: DescuentoEnEdicion,
-  variantes: ProductoDeStockAGuardar["variantes"],
-): DescuentoAGuardar | null | string {
+function armarDescuento(descuento: DescuentoEnEdicion, precioCentavos: number): DescuentoAGuardar | null | string {
   if (!descuento.tiene) return null;
   const valor = leerValorDescuento(descuento.tipo, descuento.valor);
   const problema = problemaDeDescuento({ tipo: descuento.tipo, valor, desde: descuento.desde, hasta: descuento.hasta });
   if (problema || valor === null) return problema ?? "Revisá el descuento.";
-  if (descuento.tipo === "monto" && variantes.every((v) => valor >= v.precioCentavos)) {
+  if (descuento.tipo === "monto" && valor >= precioCentavos) {
     return "El descuento no puede ser igual o mayor que el precio.";
   }
   return {
@@ -113,6 +83,11 @@ function armarDescuento(
   };
 }
 
+/** Un número guardado → el texto del input (vacío si no hay). */
+function textoDeNumero(valor: number | null | undefined): string {
+  return valor == null ? "" : String(valor);
+}
+
 function entero(texto: string): number | null | "invalido" {
   const limpio = texto.trim();
   if (limpio === "") return null;
@@ -120,9 +95,32 @@ function entero(texto: string): number | null | "invalido" {
 }
 
 /**
- * Alta o edición completa de un producto de stock, en su propia pantalla
- * (/productos/nuevo/stock o /productos/[id]): variantes con precio, stock y
- * descuento. Los productos a medida tienen su propio editor, EditorAMedida.
+ * Con stock: unidades obligatorias y mínimo opcional. A demanda: sólo el plazo
+ * de entrega (sin unidades ni mínimo que vigilar).
+ */
+function armarDisponibilidad(
+  modo: ModoStock,
+  stock: string,
+  stockMinimo: string,
+  plazoEntrega: string,
+): Pick<ProductoAGuardar, "stock" | "stockMinimo" | "plazoEntregaDias"> | string {
+  if (modo === "demanda") {
+    const plazo = entero(plazoEntrega);
+    if (typeof plazo !== "number" || plazo < 1 || plazo > PLAZO_ENTREGA_MAX_DIAS) {
+      return `Poné en cuántos días lo entregás (de 1 a ${PLAZO_ENTREGA_MAX_DIAS}).`;
+    }
+    return { stock: null, stockMinimo: null, plazoEntregaDias: plazo };
+  }
+  const unidades = entero(stock);
+  const minimo = entero(stockMinimo);
+  if (unidades === "invalido" || minimo === "invalido") return "El stock tiene que ser un número entero.";
+  if (unidades === null) return "Poné cuántas unidades tenés en stock.";
+  return { stock: unidades, stockMinimo: minimo, plazoEntregaDias: null };
+}
+
+/**
+ * Alta o edición completa de un producto, en su propia pantalla
+ * (/productos/nuevo o /productos/[id]): datos, fotos, precio, stock y descuento.
  */
 export function EditorProducto({
   producto: productoInicial,
@@ -133,42 +131,59 @@ export function EditorProducto({
   producto: Producto | null;
   onCerrar: () => void;
   onGuardado: (producto: Producto) => void;
-  /** La foto se guarda sola (no espera al "Guardar"): avisa para refrescar el listado. */
+  /** Las fotos se guardan solas (no esperan al "Guardar"): avisa para refrescar el listado. */
   onFotoCambiada?: () => void;
 }) {
   const idCampos = useId();
   const primerCampo = useRef<HTMLInputElement>(null);
-  // Si se guardó pero la foto elegida antes no subió, la pantalla sigue abierta sobre el producto ya creado.
+  // Si se guardó pero alguna foto elegida antes no subió, la pantalla sigue abierta sobre el producto ya creado.
   const [guardado, setGuardado] = useState<Producto | null>(null);
   const producto = guardado ?? productoInicial;
-  const [fotoPendiente, setFotoPendiente] = useState<File | null>(null);
+  const [fotosPendientes, setFotosPendientes] = useState<File[]>([]);
   const [codigo, setCodigo] = useState(productoInicial?.codigo ?? "");
   const [nombre, setNombre] = useState(productoInicial?.nombre ?? "");
   const [categoria, setCategoria] = useState(productoInicial?.categoria ?? "");
   const [descripcion, setDescripcion] = useState(productoInicial?.descripcion ?? "");
   const [moneda, setMoneda] = useState<Moneda>(productoInicial?.moneda ?? "ARS");
-  const [cuotasMax, setCuotasMax] = useState<number | null>(productoInicial?.cuotasMax ?? null);
-  const [variantes, setVariantes] = useState<VarianteEnEdicion[]>(
-    productoInicial ? desdeProducto(productoInicial) : [nuevaVariante()],
+  const [cuotas, setCuotas] = useState<CuotasEnEdicion>(() => cuotasDesdeProducto(productoInicial?.cuotas));
+  const [preguntas, setPreguntas] = useState<PreguntaEnEdicion[]>(() => preguntasDesdeProducto(productoInicial?.preguntas));
+  const [precio, setPrecio] = useState(productoInicial ? centavosParaInput(productoInicial.precioCentavos) : "");
+  // Un producto existente sin cantidad es a demanda; uno nuevo arranca con stock.
+  const [modoStock, setModoStock] = useState<ModoStock>(
+    productoInicial?.stock === null ? "demanda" : "stock",
   );
+  const [stock, setStock] = useState(textoDeNumero(productoInicial?.stock));
+  const [plazoEntrega, setPlazoEntrega] = useState(
+    textoDeNumero(productoInicial?.plazoEntregaDias),
+  );
+  const [stockMinimo, setStockMinimo] = useState(
+    textoDeNumero(productoInicial?.stockMinimo),
+  );
+  // No se edita acá (se pausa desde el listado): se reenvía para no pisarlo.
+  const disponible = productoInicial?.disponible ?? true;
   const [descuento, setDescuento] = useState<DescuentoEnEdicion>(() => descuentoDesdeProducto(productoInicial));
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Foto del formulario al abrirlo, para saber si hay algo sin guardar.
-  const firmar = (foto: File | null) =>
+  const firmar = (fotos: File[]) =>
     JSON.stringify([
       codigo,
       nombre,
       categoria,
       descripcion,
       moneda,
-      cuotasMax,
-      variantes.map((v) => [v.sku, v.nombre, v.precio, v.stock, v.stockMinimo, v.disponible]),
+      cuotas,
+      preguntas,
+      precio,
+      modoStock,
+      stock,
+      stockMinimo,
+      plazoEntrega,
       descuento,
-      foto?.name ?? null,
+      fotos.map((foto) => foto.name),
     ]);
-  const formulario = firmar(fotoPendiente);
+  const formulario = firmar(fotosPendientes);
   const [formularioInicial, setFormularioInicial] = useState(formulario);
   const hayCambios = formulario !== formularioInicial;
 
@@ -176,42 +191,33 @@ export function EditorProducto({
     primerCampo.current?.focus();
   }, []);
 
-  const cambiarVariante = (clave: string, cambios: Partial<VarianteEnEdicion>) =>
-    setVariantes((actuales) => actuales.map((v) => (v.clave === clave ? { ...v, ...cambios } : v)));
-
   /** Valida en el navegador lo mismo que la API, para no gastar un viaje en un error obvio. */
-  const armar = (): ProductoDeStockAGuardar | string => {
+  const armar = (): ProductoAGuardar | string => {
     if (!codigo.trim()) return "Poné un código para el producto.";
     if (nombre.trim().length < 2) return "Poné el nombre del producto.";
-    const base = {
+    const precioCentavos = leerCentavos(precio);
+    if (precioCentavos === null) return "Revisá el precio.";
+    const disponibilidad = armarDisponibilidad(modoStock, stock, stockMinimo, plazoEntrega);
+    if (typeof disponibilidad === "string") return disponibilidad;
+    const descuentoArmado = armarDescuento(descuento, precioCentavos);
+    if (typeof descuentoArmado === "string") return descuentoArmado;
+    const cuotasArmadas = armarCuotas(cuotas, precioCentavos, moneda);
+    if (typeof cuotasArmadas === "string") return cuotasArmadas;
+    const preguntasArmadas = armarPreguntas(preguntas);
+    if (typeof preguntasArmadas === "string") return preguntasArmadas;
+    return {
       codigo: codigo.trim(),
       nombre: nombre.trim(),
       categoria: categoria.trim() || null,
       descripcion: descripcion.trim(),
       moneda,
-      cuotasMax,
+      cuotas: cuotasArmadas,
+      preguntas: preguntasArmadas,
+      precioCentavos,
+      ...disponibilidad,
+      disponible,
+      descuento: descuentoArmado,
     };
-    const armadas: ProductoDeStockAGuardar["variantes"] = [];
-    for (const [indice, variante] of variantes.entries()) {
-      const cual = variantes.length > 1 ? ` de la variante ${indice + 1}` : "";
-      const precioCentavos = leerCentavos(variante.precio);
-      if (precioCentavos === null) return `Revisá el precio${cual}.`;
-      const stock = entero(variante.stock);
-      const stockMinimo = entero(variante.stockMinimo);
-      if (stock === "invalido" || stockMinimo === "invalido") return `El stock${cual} tiene que ser un número entero.`;
-      if (variantes.length > 1 && !variante.nombre.trim()) return `Poné el nombre de la variante ${indice + 1} (ej. "Talle M").`;
-      armadas.push({
-        ...(variante.sku.trim() ? { sku: variante.sku.trim() } : {}),
-        nombre: variante.nombre.trim(),
-        precioCentavos,
-        stock,
-        stockMinimo,
-        disponible: variante.disponible,
-      });
-    }
-    const descuentoArmado = armarDescuento(descuento, armadas);
-    if (typeof descuentoArmado === "string") return descuentoArmado;
-    return { ...base, variantes: armadas, descuento: descuentoArmado };
   };
 
   const guardar = (e: React.FormEvent) => {
@@ -223,13 +229,13 @@ export function EditorProducto({
     }
     setGuardando(true);
     setError(null);
-    guardarConFoto(datos, producto?.id, producto ? null : fotoPendiente)
+    guardarConFotos(datos, producto?.id, producto ? [] : fotosPendientes)
       .then(({ producto: nuevo, errorFoto }) => {
         if (!errorFoto) return onGuardado(nuevo);
-        // Quedó guardado sin la foto: la pantalla sigue abierta sobre el producto creado para reintentarla.
+        // Quedó guardado sin alguna foto: la pantalla sigue abierta sobre el producto creado para reintentarla.
         setGuardado(nuevo);
-        setFotoPendiente(null);
-        setFormularioInicial(firmar(null));
+        setFotosPendientes([]);
+        setFormularioInicial(firmar([]));
         setError(errorFoto);
         onFotoCambiada?.();
       })
@@ -239,22 +245,29 @@ export function EditorProducto({
       .finally(() => setGuardando(false));
   };
 
+  // El precio que ve el cliente, con el descuento propio si está activo: la base de las cuotas.
+  const precioLista = leerCentavos(precio);
+  const valorDescuento = descuento.tiene && descuento.activo ? leerValorDescuento(descuento.tipo, descuento.valor) : null;
+  const precioConDescuento =
+    precioLista === null
+      ? null
+      : precioLista - (valorDescuento === null ? 0 : montoDeDescuento({ tipo: descuento.tipo, valor: valorDescuento }, precioLista));
+
   return (
     <PantallaProducto
-      titulo={producto ? "Editar producto" : "Nuevo producto de stock"}
+      titulo={producto ? "Editar producto" : "Nuevo producto"}
       migas={
         producto
           ? [{ label: "Productos", href: "/productos" }, { label: producto.nombre }]
-          : [{ label: "Productos", href: "/productos" }, { label: "Nuevo", href: "/productos/nuevo" }, { label: "De stock" }]
+          : [{ label: "Productos", href: "/productos" }, { label: "Nuevo" }]
       }
-      junto={<Badge tone="primary">De stock</Badge>}
       hayCambios={hayCambios}
       guardando={guardando}
       error={error}
       onCerrar={onCerrar}
       onGuardar={guardar}
     >
-      {/* En pantallas grandes, dos columnas: datos y descuento a la izquierda, variantes a la derecha. */}
+      {/* En pantallas grandes, dos columnas: datos y fotos a la izquierda; precio, stock y descuento a la derecha. */}
       <div className="grid gap-4 lg:grid-cols-2 lg:items-start lg:gap-6">
         <div className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
@@ -312,190 +325,159 @@ export function EditorProducto({
             />
           </div>
 
-          <FotoProducto
-            productoId={producto?.id ?? null}
-            imagenActualizada={producto?.imagenActualizada ?? null}
-            onCambio={() => onFotoCambiada?.()}
-            pendiente={fotoPendiente}
-            onPendiente={setFotoPendiente}
-          />
+          {producto ? (
+            <FotosProducto
+              key={producto.id}
+              productoId={producto.id}
+              fotosIniciales={producto.imagenes}
+              onCambio={() => onFotoCambiada?.()}
+            />
+          ) : (
+            <FotosPendientes archivos={fotosPendientes} onCambio={setFotosPendientes} />
+          )}
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <fieldset className="flex flex-col gap-3">
+            <legend className={LABEL}>Precio y stock</legend>
+            <div role="radiogroup" aria-label="Moneda del precio">
+              <span className={LABEL} aria-hidden="true">
+                Moneda
+              </span>
+              <div className="flex gap-1 rounded-md border border-line bg-sunken p-1">
+                {MONEDAS.map((opcion) => (
+                  <label
+                    key={opcion}
+                    className={cn(SEGMENTO, moneda === opcion ? "bg-card text-ink shadow-sm" : "text-ink-secondary")}
+                  >
+                    <input
+                      type="radio"
+                      name="moneda-producto"
+                      value={opcion}
+                      checked={moneda === opcion}
+                      onChange={() => setMoneda(opcion)}
+                      className="sr-only"
+                    />
+                    {NOMBRE_MONEDA[opcion]}
+                  </label>
+                ))}
+              </div>
+              {moneda === "USD" && (
+                <p className="mt-1.5 text-[12.5px] text-muted">
+                  El asistente lo ofrece en dólares y esos pedidos se cobran a mano: Mercado Pago cobra en pesos, por eso no hay cuotas.
+                </p>
+              )}
+            </div>
+            <div className="grid gap-3 rounded-md bg-sunken p-3 sm:grid-cols-2">
+              <div role="radiogroup" aria-label="Disponibilidad" className="sm:col-span-2">
+                <span className={LABEL} aria-hidden="true">
+                  Disponibilidad
+                </span>
+                <div className="flex gap-1 rounded-md border border-line bg-card p-1">
+                  {MODOS_STOCK.map(({ modo, etiqueta }) => (
+                    <label
+                      key={modo}
+                      className={cn(SEGMENTO, "relative", modoStock === modo ? "bg-sunken text-ink shadow-sm" : "text-ink-secondary")}
+                    >
+                      <input
+                        type="radio"
+                        name="modo-stock-producto"
+                        value={modo}
+                        checked={modoStock === modo}
+                        onChange={() => setModoStock(modo)}
+                        className="absolute inset-0 m-0 cursor-pointer opacity-0"
+                      />
+                      {etiqueta}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label htmlFor={`${idCampos}-precio`} className={LABEL}>
+                  Precio
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>
+                  <input
+                    id={`${idCampos}-precio`}
+                    inputMode="decimal"
+                    value={precio}
+                    placeholder="0"
+                    onChange={(e) => setPrecio(e.target.value)}
+                    className={INPUT}
+                  />
+                </div>
+              </div>
+              {modoStock === "demanda" ? (
+                <div>
+                  <label htmlFor={`${idCampos}-plazo`} className={LABEL}>
+                    Tiempo de entrega <span className="font-normal text-muted">(días)</span>
+                  </label>
+                  <input
+                    id={`${idCampos}-plazo`}
+                    inputMode="numeric"
+                    value={plazoEntrega}
+                    placeholder="Ej. 7"
+                    aria-describedby={`${idCampos}-plazo-ayuda`}
+                    onChange={(e) => setPlazoEntrega(e.target.value)}
+                    className={INPUT}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor={`${idCampos}-stock`} className={LABEL}>
+                    Stock (unidades)
+                  </label>
+                  <input
+                    id={`${idCampos}-stock`}
+                    inputMode="numeric"
+                    value={stock}
+                    placeholder="0"
+                    onChange={(e) => setStock(e.target.value)}
+                    className={INPUT}
+                  />
+                </div>
+              )}
+              {modoStock === "demanda" ? (
+                <p id={`${idCampos}-plazo-ayuda`} className="text-[12.5px] text-muted sm:col-span-2">
+                  Lo preparás cuando te lo piden: el asistente le avisa al cliente en cuántos días se entrega.
+                </p>
+              ) : (
+                <div className="sm:col-span-2">
+                  <label htmlFor={`${idCampos}-minimo`} className={LABEL}>
+                    Avisarme cuando queden menos de <span className="font-normal text-muted">(unidades)</span>
+                  </label>
+                  <input
+                    id={`${idCampos}-minimo`}
+                    inputMode="numeric"
+                    value={stockMinimo}
+                    placeholder="Opcional"
+                    onChange={(e) => setStockMinimo(e.target.value)}
+                    className={INPUT}
+                  />
+                </div>
+              )}
+            </div>
+          </fieldset>
 
           <SeccionDescuento
             descuento={descuento}
             moneda={moneda}
-            precios={variantes.map((v) => ({ clave: v.clave, nombre: v.nombre.trim(), centavos: leerCentavos(v.precio) }))}
+            precioCentavos={leerCentavos(precio)}
             onCambio={(cambios) => setDescuento((actual) => ({ ...actual, ...cambios }))}
           />
         </div>
-
-        <fieldset className="flex flex-col gap-3">
-          <legend className={LABEL}>
-            {variantes.length > 1 ? "Variantes (talle, color, sabor…)" : "Precio y stock"}
-          </legend>
-          <div role="radiogroup" aria-label="Moneda del precio">
-            <span className={LABEL} aria-hidden="true">
-              Moneda
-            </span>
-            <div className="flex gap-1 rounded-md border border-line bg-sunken p-1">
-              {MONEDAS.map((opcion) => (
-                <label
-                  key={opcion}
-                  className={cn(SEGMENTO, moneda === opcion ? "bg-card text-ink shadow-sm" : "text-ink-secondary")}
-                >
-                  <input
-                    type="radio"
-                    name="moneda-producto"
-                    value={opcion}
-                    checked={moneda === opcion}
-                    onChange={() => setMoneda(opcion)}
-                    className="sr-only"
-                  />
-                  {NOMBRE_MONEDA[opcion]}
-                </label>
-              ))}
-            </div>
-            {moneda === "USD" && (
-              <p className="mt-1.5 text-[12.5px] text-muted">
-                El asistente lo ofrece en dólares y esos pedidos se cobran a mano: Mercado Pago cobra en pesos.
-              </p>
-            )}
-          </div>
-          {moneda === "ARS" && (
-            <div>
-              <label htmlFor={`${idCampos}-cuotas`} className={LABEL}>
-                Cuotas
-              </label>
-              <select
-                id={`${idCampos}-cuotas`}
-                value={cuotasMax ?? ""}
-                onChange={(e) => setCuotasMax(e.target.value === "" ? null : Number(e.target.value))}
-                className={INPUT}
-              >
-                <option value="">Con todos tus planes de cuotas</option>
-                <option value="1">Sólo en un pago</option>
-                {Array.from({ length: MAX_CUOTAS - 1 }, (_, i) => i + 2).map((n) => (
-                  <option key={n} value={n}>
-                    Hasta {n} cuotas
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1.5 text-[12.5px] text-muted">
-                Los planes se arman en Cuenta → Formas de pago. En un pedido con varios productos vale el tope más bajo.
-              </p>
-            </div>
-          )}
-          {variantes.map((variante, indice) => {
-            const id = (campo: string) => `${idCampos}-${variante.clave}-${campo}`;
-            return (
-              <div key={variante.clave} className="grid gap-3 rounded-md bg-sunken p-3 sm:grid-cols-2">
-                {variantes.length > 1 && (
-                  <div className="sm:col-span-2">
-                    <label htmlFor={id("nombre")} className={LABEL}>
-                      Nombre de la variante {indice + 1}
-                    </label>
-                    <input
-                      id={id("nombre")}
-                      value={variante.nombre}
-                      placeholder='ej. "Talle M"'
-                      maxLength={60}
-                      onChange={(e) => cambiarVariante(variante.clave, { nombre: e.target.value })}
-                      className={INPUT}
-                    />
-                  </div>
-                )}
-                <div>
-                  <label htmlFor={id("precio")} className={LABEL}>
-                    Precio
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>
-                    <input
-                      id={id("precio")}
-                      inputMode="decimal"
-                      value={variante.precio}
-                      placeholder="0"
-                      onChange={(e) => cambiarVariante(variante.clave, { precio: e.target.value })}
-                      className={INPUT}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor={id("sku")} className={LABEL}>
-                    Código interno (SKU) <span className="font-normal text-muted">(opcional)</span>
-                  </label>
-                  <input
-                    id={id("sku")}
-                    value={variante.sku}
-                    maxLength={60}
-                    onChange={(e) => cambiarVariante(variante.clave, { sku: e.target.value })}
-                    className={INPUT}
-                  />
-                </div>
-                <div>
-                  <label htmlFor={id("stock")} className={LABEL}>
-                    Stock (unidades)
-                  </label>
-                  <input
-                    id={id("stock")}
-                    inputMode="numeric"
-                    value={variante.stock}
-                    placeholder="Vacío = sin control de stock"
-                    onChange={(e) => cambiarVariante(variante.clave, { stock: e.target.value })}
-                    className={INPUT}
-                  />
-                </div>
-                {variante.stock.trim() === "" ? (
-                  // Sin cantidad cargada, la disponibilidad se marca a mano.
-                  <div className="flex flex-col justify-end">
-                    <span className={LABEL}>¿Está disponible?</span>
-                    <label className="flex min-h-[44px] items-center gap-2 text-[14px] text-ink">
-                      <input
-                        type="checkbox"
-                        checked={variante.disponible}
-                        onChange={(e) => cambiarVariante(variante.clave, { disponible: e.target.checked })}
-                      />
-                      Hay stock
-                    </label>
-                  </div>
-                ) : (
-                  <div>
-                    <label htmlFor={id("minimo")} className={LABEL}>
-                      Avisarme cuando queden menos de <span className="font-normal text-muted">(unidades)</span>
-                    </label>
-                    <input
-                      id={id("minimo")}
-                      inputMode="numeric"
-                      value={variante.stockMinimo}
-                      placeholder="Opcional"
-                      onChange={(e) => cambiarVariante(variante.clave, { stockMinimo: e.target.value })}
-                      className={INPUT}
-                    />
-                  </div>
-                )}
-                {variantes.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setVariantes((actuales) => actuales.filter((v) => v.clave !== variante.clave))}
-                    className="cursor-pointer text-left text-[12.5px] text-danger-text sm:col-span-2"
-                  >
-                    Quitar esta variante
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          {variantes.length < MAX_VARIANTES && (
-            <Button
-              variant="secondary"
-              size="sm"
-              className="self-start"
-              onClick={() => setVariantes((actuales) => [...actuales, nuevaVariante()])}
-            >
-              Agregar variante
-            </Button>
-          )}
-        </fieldset>
       </div>
+
+      {moneda === "ARS" && (
+        <SeccionCuotas
+          cuotas={cuotas}
+          baseCentavos={precioConDescuento}
+          onCambio={(cambios) => setCuotas((actual) => ({ ...actual, ...cambios }))}
+        />
+      )}
+
+      <SeccionPreguntas preguntas={preguntas} onCambio={setPreguntas} />
     </PantallaProducto>
   );
 }
@@ -511,24 +493,17 @@ const SEGMENTO = "flex-1 cursor-pointer rounded-sm px-3 py-2 text-center text-[1
 function SeccionDescuento({
   descuento,
   moneda,
-  precios,
+  precioCentavos,
   onCambio,
 }: Readonly<{
   descuento: DescuentoEnEdicion;
   moneda: Moneda;
-  precios: Array<{ clave: string; nombre: string; centavos: number | null }>;
+  precioCentavos: number | null;
   onCambio: (cambios: Partial<DescuentoEnEdicion>) => void;
 }>) {
   const valor = leerValorDescuento(descuento.tipo, descuento.valor);
-  const previas =
-    valor === null
-      ? []
-      : precios
-          .flatMap((precio) => {
-            const vista = precio.centavos === null ? null : vistaPrevia({ tipo: descuento.tipo, valor }, precio.centavos, moneda);
-            return vista ? [{ ...vista, clave: precio.clave, nombre: precio.nombre }] : [];
-          })
-          .slice(0, 3);
+  const previa =
+    valor === null || precioCentavos === null ? null : vistaPrevia({ tipo: descuento.tipo, valor }, precioCentavos, moneda);
 
   return (
     <fieldset
@@ -538,15 +513,12 @@ function SeccionDescuento({
       )}
     >
       <legend className="px-1 text-[13.5px] font-bold text-ink">Descuento</legend>
-      <label className="flex items-center gap-2 text-[14px] font-semibold text-ink">
-        <input
-          type="checkbox"
-          checked={descuento.tiene}
-          onChange={(e) => onCambio({ tiene: e.target.checked })}
-          className="size-4 accent-[var(--color-semantic-primary-default)]"
-        />
-        <span>Este producto tiene descuento</span>
-      </label>
+      <FilaInterruptor
+        titulo="Este producto tiene descuento"
+        ayuda={descuento.tiene ? "Elegí cuánto se descuenta y, si querés, durante qué fechas." : "Apagado: se cobra el precio completo."}
+        checked={descuento.tiene}
+        onChange={(tiene) => onCambio({ tiene })}
+      />
 
       {descuento.tiene && (
         <>
@@ -626,31 +598,21 @@ function SeccionDescuento({
             </div>
           </div>
 
-          <label className="flex items-center justify-between gap-3 text-[14px] font-semibold text-ink">
-            <span>Activo</span>
-            <input
-              type="checkbox"
-              role="switch"
-              checked={descuento.activo}
-              onChange={(e) => onCambio({ activo: e.target.checked })}
-              aria-label="Descuento activo"
-              className="size-5 accent-[var(--color-semantic-primary-default)]"
-            />
-          </label>
+          <FilaInterruptor
+            titulo="Descuento activo"
+            ayuda={descuento.activo ? "Se cobra con el descuento." : "Pausado: se cobra el precio completo, sin perder lo configurado."}
+            checked={descuento.activo}
+            onChange={(activo) => onCambio({ activo })}
+          />
 
-          {previas.length > 0 && (
+          {previa && (
             <div className="rounded-md bg-card px-3 py-2.5">
               <p className="text-[11.5px] font-bold tracking-[0.04em] text-muted uppercase">Así lo va a cobrar el asistente</p>
-              <ul className="mt-1 flex flex-col gap-0.5 text-[14px] text-ink">
-                {previas.map((previa) => (
-                  <li key={previa.clave}>
-                    {previa.nombre && <span className="text-ink-secondary">{previa.nombre}: </span>}
-                    <span className="text-muted line-through">{previa.lista}</span> →{" "}
-                    <strong className="text-[var(--color-primitive-coral-700)]">{previa.final}</strong>
-                    <span className="text-ink-secondary"> · ahorra {previa.ahorro}</span>
-                  </li>
-                ))}
-              </ul>
+              <p className="mt-1 text-[14px] text-ink">
+                <span className="text-muted line-through">{previa.lista}</span> →{" "}
+                <strong className="text-[var(--color-primitive-coral-700)]">{previa.final}</strong>
+                <span className="text-ink-secondary"> · ahorra {previa.ahorro}</span>
+              </p>
             </div>
           )}
           <p className="text-[12.5px] leading-[1.5] text-ink-secondary">

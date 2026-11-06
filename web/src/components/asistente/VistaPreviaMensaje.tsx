@@ -1,5 +1,7 @@
 import { cn } from "@/lib/cn";
-import { partesDelTexto, type DefinicionMensaje, type MensajeConfigurado } from "@/lib/mensajes";
+import { conFotos, partesDelTexto, type DefinicionMensaje, type MensajeConfigurado } from "@/lib/mensajes";
+
+type Parte = { texto: string; dato: boolean };
 
 /**
  * Cómo le llega el mensaje al cliente por WhatsApp, con datos de ejemplo. Los
@@ -21,12 +23,28 @@ export function VistaPreviaMensaje({
   className?: string;
 }) {
   const propio = mensaje.modo === "propio";
-  const partes = partesDelTexto(propio ? mensaje.texto : definicion.ejemploAuto, datos);
+  const fotos = conFotos(definicion, mensaje);
+  // Con fotos, cada producto es una foto con su texto al pie; en automático el pie es el estándar.
+  const texto = propio ? mensaje.texto : fotos && definicion.fotos ? definicion.fotos.pieEstandar : definicion.ejemploAuto;
+  const productos = definicion.porProducto ?? [];
+  // Sin fotos, un formato por producto se ve repetido, uno por línea, como llega en una lista.
+  const burbujas: Parte[][] = fotos
+    ? productos.map((producto) => partesDelTexto(texto, { ...datos, ...producto }))
+    : [
+        definicion.porProducto
+          ? productos.flatMap((producto, indice) => [
+              ...(indice > 0 ? [{ texto: "\n", dato: false }] : []),
+              ...partesDelTexto(texto, { ...datos, ...producto }),
+            ])
+          : partesDelTexto(texto, datos),
+      ];
   const nota = propio
     ? "Lo resaltado se completa con los datos de cada cliente."
     : definicion.fijo
       ? "Así le llega al cliente. Los datos son de ejemplo."
-      : `Ejemplo: ${nombreBot} lo escribe distinto en cada charla.`;
+      : fotos
+        ? `Así le llegan las fotos, con el pie estándar. Los productos sin foto los lista ${nombreBot} con sus palabras.`
+        : `Ejemplo: ${nombreBot} lo escribe distinto en cada charla.`;
 
   return (
     <div className={cn("flex flex-col gap-2.5", className)}>
@@ -48,19 +66,33 @@ export function VistaPreviaMensaje({
           <div className="max-w-[82%] self-start rounded-[4px_12px_12px_12px] bg-card px-3 py-2 text-sm text-ink shadow-sm">
             {definicion.ejemploCliente}
           </div>
-          <div className="max-w-[86%] self-end rounded-[12px_4px_12px_12px] bg-[#d9f3e2] px-3 py-2 text-sm text-ink shadow-sm">
-            <p className="whitespace-pre-line [overflow-wrap:anywhere]">
-              {partes.map((parte, indice) =>
-                parte.dato ? (
-                  <mark key={indice} className="rounded-[4px] bg-[var(--color-primitive-coral-100)] font-bold text-ink">
-                    {parte.texto}
-                  </mark>
-                ) : (
-                  <span key={indice}>{parte.texto}</span>
-                ),
+          {burbujas.map((partes, indice) => (
+            <div
+              key={indice}
+              className="max-w-[86%] self-end rounded-[12px_4px_12px_12px] bg-[#d9f3e2] px-3 py-2 text-sm text-ink shadow-sm"
+            >
+              {fotos && (
+                <div
+                  role="img"
+                  aria-label="Foto del producto"
+                  className="mb-2 grid aspect-[4/3] w-[220px] max-w-full place-items-center rounded-[8px] bg-sunken text-[13px] font-semibold text-ink-secondary"
+                >
+                  Foto
+                </div>
               )}
-            </p>
-          </div>
+              <p className="whitespace-pre-line [overflow-wrap:anywhere]">
+                {partes.map((parte, i) =>
+                  parte.dato ? (
+                    <mark key={i} className="rounded-[4px] bg-[var(--color-primitive-coral-100)] font-bold text-ink">
+                      {parte.texto}
+                    </mark>
+                  ) : (
+                    <span key={i}>{parte.texto}</span>
+                  ),
+                )}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
       <p className="text-[13px] text-ink-secondary">{nota}</p>

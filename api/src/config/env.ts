@@ -1,3 +1,6 @@
+import { loginDevPermitido } from '../auth/usuario-dev.js';
+import { ESCRIBIENDO_VENCE_POR_DEFECTO_MS } from '../whatsapp/ritmo-humano.js';
+
 /** Variables de entorno que la API necesita sí o sí para arrancar. */
 export type Env = {
   NODE_ENV: 'development' | 'production' | 'test';
@@ -28,8 +31,10 @@ export type Env = {
   OPENROUTER_DECISIONS_MODEL: string;
   /** La Decisions API de OpenRouter no cuelga de /api/v1. Los E2E la apuntan al stub. */
   OPENROUTER_DECISIONS_URL: string;
-  /** Contraseña del login de desarrollo. Vacía = login dev apagado. Prohibida en producción. */
+  /** Contraseña del login de desarrollo. Vacía = login dev apagado. Prohibida en producción (salvo Railway develop). */
   DEV_LOGIN_PASSWORD: string;
+  /** Nombre del entorno de Railway (`develop` / `production`); vacío fuera de Railway. */
+  RAILWAY_ENVIRONMENT_NAME: string;
   MERCADOPAGO_ACCESS_TOKEN: string;
   MERCADOPAGO_WEBHOOK_SECRET: string;
   /**
@@ -48,10 +53,8 @@ export type Env = {
    * GOOGLE_CALLBACK_URL, que ya es la API.
    */
   API_PUBLIC_URL: string;
-  /** Precio mensual del plan Básico (1.500 chats). */
+  /** Precio mensual del plan único. */
   SUSCRIPCION_PRECIO_ARS: number;
-  /** Precio mensual del plan Pro (4.500 chats). */
-  SUSCRIPCION_PRECIO_PRO_ARS: number;
   /**
    * Hasta cuánto para atrás ve el modelo el historial de un chat
    * (HISTORIAL_IA_VENTANA, "14d", "1d", "2h", "30m"). Lo más viejo sigue en
@@ -67,6 +70,8 @@ export type Env = {
   LINEAR_TEAM_ID: string;
   /** Etiqueta opcional que se les pone (ej. "Sugerencia"). */
   LINEAR_LABEL_ID: string;
+  /** Proyecto opcional donde quedan (ej. "Trato"); su id, del mismo equipo. Vacío = sin proyecto. */
+  LINEAR_PROJECT_ID: string;
   /** Endpoint GraphQL de Linear. Sólo lo cambiaría un stub. */
   LINEAR_API_URL: string;
   /** API de Mercado Libre para la importación rápida (LAU-31). Sólo la cambiaría un stub. */
@@ -85,6 +90,11 @@ export type Env = {
    * producción no arranca con esto puesto.
    */
   IMPORTACION_HOSTS_DE_PRUEBA: string;
+  /**
+   * Cuántos segundos dura el "escribiendo…" de un cliente sin un aviso de que
+   * paró, antes de contestarle igual (ver AgrupadorDeRafagas).
+   */
+  WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: number;
 };
 
 const REQUIRED = [
@@ -166,9 +176,11 @@ export function validateEnv(raw: Record<string, unknown>): Env {
 
   const nodeEnv = (raw.NODE_ENV as Env['NODE_ENV']) ?? 'development';
   const devLoginPassword = String(raw.DEV_LOGIN_PASSWORD ?? '');
+  const entornoRailway = String(raw.RAILWAY_ENVIRONMENT_NAME ?? '');
   // El login con contraseña saltea Google entero: si alguien la deja puesta en
-  // Railway, mejor que el deploy no arranque a que quede una puerta abierta.
-  if (nodeEnv === 'production' && devLoginPassword) {
+  // el entorno production de Railway, mejor que el deploy no arranque a que
+  // quede una puerta abierta. En Railway develop sí se permite.
+  if (devLoginPassword && !loginDevPermitido(nodeEnv, entornoRailway)) {
     throw new Error('DEV_LOGIN_PASSWORD no puede estar definida en producción. Borrala de las variables del deploy.');
   }
 
@@ -202,6 +214,14 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     throw new Error('MERCADOLIBRE_CLIENT_ID y MERCADOLIBRE_CLIENT_SECRET van juntas: definí las dos o ninguna.');
   }
 
+  const escribiendoVence = String(raw.WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS || ESCRIBIENDO_VENCE_POR_DEFECTO_MS / 1000);
+  const escribiendoVenceSegundos = Number(escribiendoVence);
+  if (!Number.isInteger(escribiendoVenceSegundos) || escribiendoVenceSegundos < 5 || escribiendoVenceSegundos > 300) {
+    throw new Error(
+      `WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS tiene que ser un número entero de segundos entre 5 y 300; vino "${escribiendoVence}".`,
+    );
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: Number(raw.PORT ?? 4000),
@@ -221,6 +241,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     OPENROUTER_DECISIONS_MODEL: String(raw.OPENROUTER_DECISIONS_MODEL || 'typesafe/jev-1.13'),
     OPENROUTER_DECISIONS_URL: sinBarrasFinales(String(raw.OPENROUTER_DECISIONS_URL || OPENROUTER_DECISIONS_URL_POR_DEFECTO)),
     DEV_LOGIN_PASSWORD: devLoginPassword,
+    RAILWAY_ENVIRONMENT_NAME: entornoRailway,
     MERCADOPAGO_ACCESS_TOKEN: String(raw.MERCADOPAGO_ACCESS_TOKEN ?? ''),
     MERCADOPAGO_WEBHOOK_SECRET: String(raw.MERCADOPAGO_WEBHOOK_SECRET ?? ''),
     MERCADOPAGO_CLIENT_ID: String(raw.MERCADOPAGO_CLIENT_ID ?? ''),
@@ -228,16 +249,17 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     MERCADOPAGO_BASE_URL: sinBarrasFinales(String(raw.MERCADOPAGO_BASE_URL || MERCADOPAGO_BASE_URL_POR_DEFECTO)),
     MERCADOPAGO_AUTH_URL: sinBarrasFinales(String(raw.MERCADOPAGO_AUTH_URL || 'https://auth.mercadopago.com')),
     API_PUBLIC_URL: sinBarrasFinales(String(raw.API_PUBLIC_URL || origenDe(String(raw.GOOGLE_CALLBACK_URL)))),
-    SUSCRIPCION_PRECIO_ARS: Number(raw.SUSCRIPCION_PRECIO_ARS ?? 20000),
-    SUSCRIPCION_PRECIO_PRO_ARS: Number(raw.SUSCRIPCION_PRECIO_PRO_ARS ?? 59000),
+    SUSCRIPCION_PRECIO_ARS: Number(raw.SUSCRIPCION_PRECIO_ARS ?? 75000),
     HISTORIAL_IA_VENTANA_MS: ventanaHistorialMs,
     LINEAR_API_KEY: String(raw.LINEAR_API_KEY ?? ''),
     LINEAR_TEAM_ID: String(raw.LINEAR_TEAM_ID ?? ''),
     LINEAR_LABEL_ID: String(raw.LINEAR_LABEL_ID ?? ''),
+    LINEAR_PROJECT_ID: String(raw.LINEAR_PROJECT_ID ?? ''),
     LINEAR_API_URL: linearApiUrl,
     MERCADOLIBRE_API_URL: mercadoLibreApiUrl,
     MERCADOLIBRE_CLIENT_ID: mercadoLibreClientId,
     MERCADOLIBRE_CLIENT_SECRET: mercadoLibreClientSecret,
     IMPORTACION_HOSTS_DE_PRUEBA: hostsDePrueba,
+    WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: escribiendoVenceSegundos,
   };
 }

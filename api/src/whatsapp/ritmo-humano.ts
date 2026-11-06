@@ -8,11 +8,41 @@
 
 /**
  * Silencio que se espera después del último mensaje del cliente antes de
- * contestar: la gente escribe en ráfagas, y no hay forma de saber si sigue
- * escribiendo (ver AgrupadorDeRafagas), así que la espera es generosa.
+ * contestar: la gente escribe en ráfagas. Cada mensaje nuevo reinicia la
+ * cuenta. Si WhatsApp avisa que está escribiendo, además se espera a que pare
+ * (ESPERA_TRAS_ESCRIBIR_MS); si no avisa, queda sólo este silencio.
  */
-export const ESPERA_RAFAGA_MS = 6_000;
-/** Tope de espera desde el primer mensaje de la ráfaga, para que alguien que escribe sin parar igual tenga respuesta. */
+export const ESPERA_RAFAGA_MS = 8_000;
+
+/** Después de que el cliente deja de escribir, lo que se le da por si retoma antes de contestar. */
+export const ESPERA_TRAS_ESCRIBIR_MS = 2_000;
+
+/**
+ * Por defecto, cuánto dura un "escribiendo…" del cliente sin un aviso de que
+ * paró: si el aviso se pierde, el chat no queda esperando para siempre.
+ * Se configura con WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS.
+ */
+export const ESCRIBIENDO_VENCE_POR_DEFECTO_MS = 30_000;
+
+/** Lo que "tarda en reaccionar" alguien después de escuchar un audio, además de su duración. */
+const REACCION_AUDIO_MIN_MS = 2_000;
+const REACCION_AUDIO_MAX_MS = 4_000;
+
+/**
+ * Cuánto retener un audio antes de sumarlo a la ráfaga, para que la respuesta
+ * llegue como si alguien lo hubiera escuchado entero: su duración más 2 a 4 s
+ * (`azar`, 0..1). Se descuenta ESPERA_RAFAGA_MS porque la ráfaga igual espera
+ * ese silencio después: un audio de 30 s se contesta a los ~32-34 s, no a los 38.
+ */
+export function esperaDeEscucha(segundos: number, azar = 0.5): number {
+  const reaccion = REACCION_AUDIO_MIN_MS + (REACCION_AUDIO_MAX_MS - REACCION_AUDIO_MIN_MS) * azar;
+  return Math.max(0, Math.round(segundos * 1000 + reaccion - ESPERA_RAFAGA_MS));
+}
+/**
+ * Tope del silencio desde el primer mensaje de la ráfaga, para que alguien que
+ * manda mensajes sin parar igual tenga respuesta. No corta un "escribiendo…"
+ * en curso: ese tiene su propio vencimiento.
+ */
 export const MAXIMO_RAFAGA_MS = 20_000;
 /**
  * Topes de una ráfaga: un cliente que manda cientos de mensajes seguidos no
@@ -75,7 +105,13 @@ export function partirEnMensajes(texto: string, maximo = MAX_PARTES): string[] {
  */
 export const MAX_CANCELACIONES_POR_RAFAGA = 2;
 
-/** Cuánto esperar antes de vaciar una ráfaga: el silencio pedido, sin pasarse del tope desde el primer mensaje. */
-export function esperaDeRafaga(desde: number, ahora: number): number {
-  return Math.max(0, Math.min(ESPERA_RAFAGA_MS, desde + MAXIMO_RAFAGA_MS - ahora));
+/**
+ * Cuánto esperar antes de vaciar una ráfaga: el silencio desde el último
+ * mensaje (`ultimo`), sin pasarse del tope desde el primero (`desde`), y
+ * además hasta que venza el "escribiendo…" del cliente (`escribiendoHasta`),
+ * si hay uno.
+ */
+export function esperaDeRafaga(desde: number, ultimo: number, ahora: number, escribiendoHasta = 0): number {
+  const silencio = Math.min(ultimo + ESPERA_RAFAGA_MS, desde + MAXIMO_RAFAGA_MS);
+  return Math.max(0, silencio - ahora, escribiendoHasta - ahora);
 }

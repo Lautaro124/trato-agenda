@@ -52,6 +52,13 @@ ruta con `NODE_ENV=production`, el handler contesta 404 si falta la contraseña,
 `validateEnv` no arranca si `DEV_LOGIN_PASSWORD` aparece en producción. El front
 tampoco incluye el formulario en el build de producción.
 
+La única excepción es el entorno **develop** de Railway: los dos entornos corren
+con `NODE_ENV=production`, pero si `RAILWAY_ENVIRONMENT_NAME=develop` (la pone
+Railway sola) los tres candados dejan pasar el login dev, y el build de la web
+incluye el formulario. Para usarlo, definí `DEV_LOGIN_PASSWORD` en el servicio
+`api` de develop. Ahí la recuperación por código para usuarios dev con teléfono
+no funciona (`/auth/dev/ultimo-codigo` devuelve `null`).
+
 ## Variables de entorno
 
 Hay dos archivos, ninguno versionado:
@@ -98,6 +105,7 @@ Las tres primeras arman a la vez las credenciales del servicio `db` y la
 | `OPENROUTER_DECISIONS_MODEL` | Opcional. Modelo de decisiones con el que el asistente de ventas ordena las categorías (o productos) que le sugiere al cliente cuando pregunta "¿qué tenés?". Por defecto `typesafe/jev-1.13` (Jev, de TypeSafe), que tiene endpoint ZDR. No es un modelo de chat: se llama por la Decisions API de OpenRouter. Si falla o no hay `OPENROUTER_API_KEY`, las sugerencias salen ordenadas por cantidad de productos. |
 | `OPENROUTER_DECISIONS_URL` | Opcional. Endpoint de esa Decisions API. Por defecto `https://openrouter.ai/api/alpha/decisions`; sólo el stack de E2E lo cambia. |
 | `HISTORIAL_IA_VENTANA` | Opcional. Hasta cuánto para atrás ve el modelo el historial de cada chat: un entero seguido de `m`, `h` o `d` (`14d`, `1d`, `2h`, `30m`). Por defecto `14d`. Lo más viejo **no se borra** (sigue en `Message` y en el checkpointer hasta la retención de siempre): sólo deja de mandarse al modelo, junto con el resumen del cliente. En develop conviene algo corto (`2h`, `1d`) para probar. Mal escrita, la API no arranca. |
+| `WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS` | Opcional. El asistente espera 8 s de silencio desde el último mensaje del cliente y, si WhatsApp avisa que está escribiendo, hasta que pare y 2 s más. Esto es cuánto dura un "escribiendo…" sin aviso de que paró, para no quedar esperando para siempre. Entero entre 5 y 300; por defecto `30`. Fuera de rango, la API no arranca. |
 
 Sobre el modelo: **toda** llamada a OpenRouter viaja con
 `provider: { data_collection: 'deny', zdr: true }` (`POLITICA_DE_PROVEEDOR` en
@@ -113,20 +121,20 @@ bajo ZDR (p50 de 5.9s a 12.1s, con casos que pasan el timeout de 40s del
 runtime). Los números y las alternativas están en
 [`docs/modelo-y-zdr.md`](docs/modelo-y-zdr.md); la decisión de qué modelo usar
 está pendiente.
-| `DEV_LOGIN_PASSWORD` | Opcional, **sólo desarrollo**. Prende el login con contraseña y el calendario falso (ver arriba). Si está definida con `NODE_ENV=production`, la API no arranca. |
+| `DEV_LOGIN_PASSWORD` | Opcional, **sólo desarrollo**. Prende el login con contraseña y el calendario falso (ver arriba). Si está definida con `NODE_ENV=production`, la API no arranca, salvo en Railway develop. |
 | `MERCADOPAGO_ACCESS_TOKEN` | Access token de la aplicación de [Mercado Pago](https://www.mercadopago.com.ar/developers/panel) con la que se cobra la suscripción. Sin ella la API arranca igual; sólo falla el checkout. **Secreto real, nunca commitear.** |
 | `MERCADOPAGO_WEBHOOK_SECRET` | Clave secreta de las notificaciones de esa misma aplicación: con ella se verifica la firma `x-signature` de cada webhook. Sin ella, los webhooks se descartan. |
 | `MERCADOPAGO_CLIENT_ID` | Client ID de esa misma aplicación de Mercado Pago, con OAuth habilitado. Con esto cada comercio conecta **su** cuenta desde `/cuenta` y el asistente de ventas cobra con links a su nombre. Sin ella, "Conectar Mercado Pago" queda deshabilitado y los pedidos quedan para cobrar a mano. |
 | `MERCADOPAGO_CLIENT_SECRET` | Client secret de la aplicación, para canjear y renovar los tokens OAuth de los comercios. **Secreto real, nunca commitear.** En el panel de Mercado Pago, la Redirect URL tiene que ser `<API_PUBLIC_URL>/mercadopago/callback`. |
 | `API_PUBLIC_URL` | Opcional. URL pública de la API (redirect del OAuth y `notification_url` de los links de pago). Por defecto, el origen de `GOOGLE_CALLBACK_URL`. |
 | `MERCADOPAGO_BASE_URL` / `MERCADOPAGO_AUTH_URL` | Opcionales. `https://api.mercadopago.com` y `https://auth.mercadopago.com` por defecto; los E2E las apuntan al Mercado Pago falso (`e2e/mercadopago-stub`). |
-| `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan Básico (hasta 1.500 chats por mes) en pesos. Por defecto `20000`. |
-| `SUSCRIPCION_PRECIO_PRO_ARS` | Importe mensual del plan Pro (hasta 4.500 chats por mes) en pesos. Por defecto `59000`. |
+| `SUSCRIPCION_PRECIO_ARS` | Importe mensual del plan único (hasta 4.500 chats por mes) en pesos. Por defecto `75000`. |
 | `LINEAR_API_KEY` | Opcional. API key personal de Linear (Settings → Security & access → Personal API keys) con permiso para crear issues. Con ella y `LINEAR_TEAM_ID`, cada sugerencia de mejora que manda un dueño desde el panel se copia como issue. Sin ellas se guardan igual en la tabla `SugerenciaMejora` y quedan pendientes; un barrido cada 10 minutos las reintenta cuando aparecen. |
 | `LINEAR_TEAM_ID` | Opcional. Id (UUID) del equipo de Linear donde se crean esos issues — no la clave `LAU`. |
 | `LINEAR_LABEL_ID` | Opcional. Id de una etiqueta para marcarlos (ej. "Sugerencia"). |
+| `LINEAR_PROJECT_ID` | Opcional. Id (UUID) del proyecto donde quedan esos issues (ej. "Trato"); tiene que ser del mismo equipo. Sin ella se crean en el equipo, sin proyecto. |
 | `LINEAR_API_URL` | Opcional. Endpoint GraphQL de Linear. Por defecto `https://api.linear.app/graphql`. |
-| `MERCADOLIBRE_CLIENT_ID` / `MERCADOLIBRE_CLIENT_SECRET` | Opcionales, van juntas. Una app de [developers.mercadolibre.com.ar](https://developers.mercadolibre.com.ar): con ellas la importación rápida (plan Pro) pide un token de aplicación y lee las publicaciones por la API oficial, con variantes y SKU. Si la búsqueda de la API no responde, una tienda (`/tienda/…`) se lee sacando los ids de publicación de su página. Sin ellas Mercado Libre rechaza la API y muestra una verificación de cuenta en lugar de la página: no se importa nada de Mercado Libre (el log dice `mercadolibre_no_disponible/sin_credenciales`). En la práctica Mercado Libre restringe también la búsqueda y las publicaciones de otros vendedores, y responde 403 a sus páginas desde un servidor (`…+pagina_denegada`): la web avisa que esos productos se cargan a mano. |
+| `MERCADOLIBRE_CLIENT_ID` / `MERCADOLIBRE_CLIENT_SECRET` | Opcionales, van juntas. Una app de [developers.mercadolibre.com.ar](https://developers.mercadolibre.com.ar): con ellas la importación rápida (plan único) pide un token de aplicación y lee las publicaciones por la API oficial, con variantes (cada una se importa como un producto) y SKU. Si la búsqueda de la API no responde, una tienda (`/tienda/…`) se lee sacando los ids de publicación de su página. Sin ellas Mercado Libre rechaza la API y muestra una verificación de cuenta en lugar de la página: no se importa nada de Mercado Libre (el log dice `mercadolibre_no_disponible/sin_credenciales`). En la práctica Mercado Libre restringe también la búsqueda y las publicaciones de otros vendedores, y responde 403 a sus páginas desde un servidor (`…+pagina_denegada`): la web avisa que esos productos se cargan a mano. |
 | `MERCADOLIBRE_API_URL` | Opcional. Por defecto `https://api.mercadolibre.com`; en producción tiene que ser https. Sólo la cambia el stub de los e2e. |
 | `IMPORTACION_HOSTS_DE_PRUEBA` | **Sólo e2e.** Hosts a los que la importación rápida puede pedir aunque sean http o de la red interna (el stub de la tienda). La API no arranca con esto en producción. |
 | `SENTRY_DSN` | Opcional. DSN del proyecto de Sentry de la API. Vacía = sin Sentry (lo normal en local). La lee `src/instrument.ts`, que corre con `node --import` antes que la app, así que no pasa por `validateEnv`. |
@@ -319,7 +327,8 @@ En el servicio `api`, además de las de la tabla de arriba:
   cifra los refresh tokens de Google, y una vez elegida no se rota sin invalidar
   todas las cuentas ya vinculadas.
 - `TZ=America/Argentina/Buenos_Aires`.
-- **Nunca** `DEV_LOGIN_PASSWORD`: la API se niega a arrancar si la ve.
+- **Nunca** `DEV_LOGIN_PASSWORD` en production: la API se niega a arrancar si la ve
+  (en develop sí se permite, ver "Entrar sin Google").
 
 En el servicio `web`, `NEXT_PUBLIC_API_URL` apunta al dominio de la API. Se
 resuelve **en el build** (Railway la pasa como build arg porque `web/Dockerfile`

@@ -20,10 +20,10 @@ type Tab =
   | "productos"
   | "ventas"
   | "chat"
+  | "chats"
   | "plan"
   | "cuenta"
   | "asistente"
-  | "costos"
   | "rendimiento";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
@@ -44,12 +44,13 @@ function pestanasDe(user: Usuario): Pestana[] {
   const inicio: Pestana = { tab: "inicio", href: "/inicio", label: "Inicio" };
   const plan: Pestana = { tab: "plan", href: "/plan", label: "Plan" };
   const asistente: Pestana = { tab: "asistente", href: "/asistente", label: "Asistente" };
+  // Las conversaciones de WhatsApp y el control bot/humano (LAU-81).
+  const chats: Pestana = { tab: "chats", href: "/chats", label: "Chats" };
   if (user.tipoAsistente === "ventas") {
     return [
       inicio,
+      chats,
       { tab: "productos", href: "/productos", label: "Productos" },
-      // Con qué materiales y costos cotiza el asistente los productos a medida (LAU-26).
-      { tab: "costos", href: "/costos", label: "Costos" },
       { tab: "ventas", href: "/ventas", label: "Ventas" },
       // Cómo les va a los productos en los chats: conversión, etapas y abandono (LAU-30).
       { tab: "rendimiento", href: "/rendimiento", label: "Rendimiento" },
@@ -59,6 +60,7 @@ function pestanasDe(user: Usuario): Pestana[] {
   }
   return [
     inicio,
+    chats,
     { tab: "calendario", href: "/calendario", label: "Calendario" },
     { tab: "reuniones", href: "/reuniones", label: "Reuniones" },
     asistente,
@@ -236,26 +238,16 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
               >
                 Vinculación
               </Link>
-              {/* En el celular la barra de abajo no tiene lugar para "Costos", "Rendimiento" ni "Asistente": se llega desde acá. */}
+              {/* En el celular la barra de abajo no tiene lugar para "Rendimiento" ni "Asistente": se llega desde acá. */}
               {user.tipoAsistente === "ventas" && (
-                <>
-                  <Link
-                    href="/rendimiento"
-                    role="menuitem"
-                    onClick={() => setMenuAbierto(false)}
-                    className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "rendimiento" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
-                  >
-                    Rendimiento
-                  </Link>
-                  <Link
-                    href="/costos"
-                    role="menuitem"
-                    onClick={() => setMenuAbierto(false)}
-                    className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "costos" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
-                  >
-                    Materiales y costos
-                  </Link>
-                </>
+                <Link
+                  href="/rendimiento"
+                  role="menuitem"
+                  onClick={() => setMenuAbierto(false)}
+                  className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "rendimiento" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
+                >
+                  Rendimiento
+                </Link>
               )}
               <Link
                 href="/asistente"

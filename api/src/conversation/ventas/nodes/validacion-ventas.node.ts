@@ -8,19 +8,13 @@ import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
 import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
+import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
 import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
 import { llamadasDe, type OperacionPendiente } from '../../graph/state.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
-import {
-  LARGO_MAX_DETALLE_DERIVACION,
-  LARGO_MAX_RESUMEN,
-  MAX_RESPUESTAS,
-} from '../../../comercio/pedido-a-medida.rules.js';
-import { LARGO_MAX_RESPUESTA, MAX_CANTIDAD_VARIANTE_FIJA } from '../../../comercio/solicitud.rules.js';
-import { estadoVisible } from '../../../comercio/ventas.rules.js';
-import { MAX_BUSQUEDAS_POR_MENSAJE, productosMostrados, variantesMostradas } from '../reglas-ventas.js';
+import { MAX_BUSQUEDAS_POR_MENSAJE, productosMostrados } from '../reglas-ventas.js';
 import { claveDeFoto, fotosMandadas, HERRAMIENTA_IMAGEN, imagenesDeLaVuelta } from '../imagenes-de-la-vuelta.js';
 import { accionesDeVentas, ESQUEMAS_PROPIETARIO_VENTAS, ESQUEMAS_VENTAS } from '../ventas-tools.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
@@ -37,9 +31,7 @@ type Veredicto = { ok: true; operacion: OperacionPendiente } | { ok: false; moti
 export type HistorialValidacion = {
   /** buscar_productos ya aprobadas en este mensaje del cliente. */
   busquedasEnElMensaje: number;
-  /** Ids de variante que aparecieron en búsquedas dentro de la ventana que ve el modelo. */
-  variantesVistas: Set<string>;
-  /** Ids de producto ("[producto …]") de búsquedas y del catálogo dentro de la ventana. */
+  /** Ids de producto que aparecieron en búsquedas dentro de la ventana que ve el modelo. */
   productosVistos: Set<string>;
   /**
    * Productos cuya foto ya sale en esta vuelta: las que mandó el nodo
@@ -61,14 +53,25 @@ export type HistorialValidacion = {
  * El id tiene que haber salido de una búsqueda de esta charla: uno recordado
  * de antes de la ventana o inventado es un producto que nadie le mostró.
  */
-function variantesNoVistas(items: ItemPedido[], historial: HistorialValidacion): string | null {
-  return items.some((item) => !historial.variantesVistas.has(item.varianteId))
-    ? 'Hay variantes que no salieron de ninguna búsqueda de esta charla. Buscá cada producto con ' +
-        'buscar_productos y usá los ids de variante que te devuelva.'
+/** Las respuestas que mandó el modelo con la forma esperada; las malformadas se descartan (el servicio exige las obligatorias). */
+function respuestasDe(crudas: unknown): RespuestaDelModelo[] {
+  if (!Array.isArray(crudas)) return [];
+  return crudas.flatMap((cruda: unknown) => {
+    const { productoId, pregunta, respuesta } = (cruda ?? {}) as Record<string, unknown>;
+    return typeof productoId === 'string' && Number.isInteger(pregunta) && typeof respuesta === 'string'
+      ? [{ productoId, pregunta: pregunta as number, respuesta }]
+      : [];
+  });
+}
+
+function productosNoVistos(items: ItemPedido[], historial: HistorialValidacion): string | null {
+  return items.some((item) => !historial.productosVistos.has(item.productoId))
+    ? 'Hay productos que no salieron de ninguna búsqueda de esta charla. Buscá cada producto con ' +
+        'buscar_productos y usá el id [producto …] que te devuelva.'
     : null;
 }
 
-/** Cuenta las búsquedas de esta vuelta y junta las variantes que se le mostraron al modelo. */
+/** Cuenta las búsquedas de esta vuelta y junta los productos que se le mostraron al modelo. */
 export function historialValidacion(state: EstadoVentasValue): HistorialValidacion {
   const textoDe = (mensaje: BaseMessage) =>
     typeof mensaje.content === 'string' ? mensaje.content : JSON.stringify(mensaje.content);
@@ -80,7 +83,6 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
       .slice(state.indiceDesde ?? 0)
       .filter((mensaje) => mensaje.getType() === 'tool' && (mensaje as ToolMessage).name === 'buscar_productos').length,
     // Por el contenido y no por el nombre: los ToolMessage sembrados desde la tabla Message no lo traen.
-    variantesVistas: variantesMostradas(resultados.map(textoDe)),
     productosVistos: productosMostrados(resultados.map(textoDe)),
     fotosEnElMensaje: new Set(imagenesDeLaVuelta(state.messages.slice(state.indiceDesde ?? 0)).map(claveDeFoto)),
     fotosPedidas: fotosMandadas(
@@ -94,8 +96,8 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
 }
 
 function esquemaPara(state: EstadoVentasValue, nombre: string): EsquemaHerramienta | undefined {
-  const { agent, tieneAMedida } = state.contexto;
-  if (esAccionDeVentas(nombre) && accionesDeVentas(agent.allowedActions, { aMedida: tieneAMedida }).includes(nombre)) {
+  const { agent } = state.contexto;
+  if (esAccionDeVentas(nombre) && accionesDeVentas(agent.allowedActions).includes(nombre)) {
     return ESQUEMAS_VENTAS[nombre];
   }
   if (state.esPropietario) return ESQUEMAS_PROPIETARIO_VENTAS[nombre];
@@ -152,7 +154,7 @@ export function validarLlamadaVentas(
   if (llamada.nombre === 'ver_formas_de_pago') {
     if (args.items === undefined) return { ok: true, operacion: { ...llamada, args: {} } };
     const items = args.items as ItemPedido[];
-    const problema = problemaDeForma(items) ?? variantesNoVistas(items, historial);
+    const problema = problemaDeForma(items) ?? productosNoVistos(items, historial);
     if (problema) return { ok: false, motivo: problema };
     return { ok: true, operacion: { ...llamada, args: { items: agruparItems(items) } } };
   }
@@ -178,14 +180,23 @@ export function validarLlamadaVentas(
     if (!productoId || productoId.length > MAX_LARGO_ID) {
       return { ok: false, motivo: 'Falta el id del producto: usá el que figura entre corchetes en la búsqueda.' };
     }
-    const varianteId = typeof args.varianteId === 'string' ? args.varianteId.trim() : '';
-    if (varianteId && !historial.variantesVistas.has(varianteId)) {
-      return {
-        ok: false,
-        motivo: 'Esa versión no salió de ninguna búsqueda de esta charla: usá el id entre corchetes de la versión, o mandá sólo el producto.',
-      };
+    if (args.detalles === true) {
+      // Las fotos de detalle son hasta MAX_IMAGENES_POR_MENSAJE - 1: van solas en la respuesta.
+      const clave = `${productoId}#detalles`;
+      if (historial.fotosEnElMensaje.has(clave)) {
+        return { ok: false, motivo: 'Esas fotos ya salen con esta respuesta: no las pidas de nuevo.' };
+      }
+      if (historial.fotosPedidas > 0) {
+        return {
+          ok: false,
+          motivo: 'Las fotos de detalle van solas: mandá esta respuesta con lo que ya pediste y ofrecele las demás después.',
+        };
+      }
+      historial.fotosEnElMensaje.add(clave);
+      historial.fotosPedidas = MAX_IMAGENES_POR_MENSAJE;
+      return { ok: true, operacion: { ...llamada, args: { productoId, detalles: true } } };
     }
-    const clave = claveDeFoto({ productoId, ...(varianteId ? { varianteId } : {}) });
+    const clave = claveDeFoto({ productoId });
     const fotos = historial.fotosEnElMensaje;
     if (fotos.has(clave)) {
       return { ok: false, motivo: 'Esa foto ya sale con esta respuesta: no la pidas de nuevo.' };
@@ -204,107 +215,7 @@ export function validarLlamadaVentas(
     // Se anota acá y no al aprobar en el nodo: dos pedidos de foto en la misma respuesta también cuentan.
     fotos.add(clave);
     historial.fotosPedidas += 1;
-    return { ok: true, operacion: { ...llamada, args: { productoId, ...(varianteId ? { varianteId } : {}) } } };
-  }
-
-  if (llamada.nombre === 'pedir_variante') {
-    const varianteId = String(args.varianteId ?? '').trim();
-    if (!varianteId || varianteId.length > MAX_LARGO_ID || !historial.variantesVistas.has(varianteId)) {
-      return {
-        ok: false,
-        motivo:
-          'Esa versión no salió de ninguna búsqueda de esta charla. Buscá el producto con buscar_productos y usá el ' +
-          'id que figura entre corchetes como [variante …] en sus versiones con precio fijo.',
-      };
-    }
-    const cantidad = Number(args.cantidad);
-    if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > MAX_CANTIDAD_VARIANTE_FIJA) {
-      return { ok: false, motivo: `La cantidad tiene que ser un número entero entre 1 y ${MAX_CANTIDAD_VARIANTE_FIJA}.` };
-    }
-    const nombreCliente = String(args.nombreCliente ?? '').trim() || state.contexto.conversation.nombreCliente?.trim() || '';
-    if (!nombreCliente) return { ok: false, motivo: 'Falta el nombre de la persona: preguntáselo antes de pedirlo.' };
-    // Una versión pedida tal cual se cierra como un pedido de stock: con la entrega y los datos que pide el negocio.
-    const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args, 'pedir_variante');
-    if (!datos.ok) return { ok: false, motivo: datos.motivo };
-    return {
-      ok: true,
-      operacion: {
-        ...llamada,
-        args: { varianteId, cantidad, nombreCliente, entrega: datos.entrega, datosCliente: datos.datos },
-      },
-    };
-  }
-
-  if (llamada.nombre === 'registrar_solicitud') {
-    const productoId = String(args.productoId ?? '').trim();
-    if (!productoId || productoId.length > MAX_LARGO_ID || !historial.productosVistos.has(productoId)) {
-      return {
-        ok: false,
-        motivo:
-          'Ese producto no salió de ninguna búsqueda de esta charla. Buscalo con buscar_productos y usá el id que ' +
-          'figura entre corchetes como [producto …].',
-      };
-    }
-    const nombreCliente = String(args.nombreCliente ?? '').trim() || state.contexto.conversation.nombreCliente?.trim() || '';
-    if (!nombreCliente) return { ok: false, motivo: 'Falta el nombre de la persona: preguntáselo antes de anotar la solicitud.' };
-    const respuestas = ((args.respuestas ?? []) as Array<{ pregunta: string; respuesta: string }>)
-      .map((dato) => ({ pregunta: String(dato.pregunta).trim(), respuesta: String(dato.respuesta).trim() }))
-      .filter((dato) => dato.pregunta && dato.respuesta)
-      .slice(0, MAX_RESPUESTAS)
-      .map((dato) => ({ pregunta: dato.pregunta.slice(0, 120), respuesta: dato.respuesta.slice(0, LARGO_MAX_RESPUESTA) }));
-    const resumen = String(args.resumen ?? '').trim().slice(0, LARGO_MAX_RESUMEN);
-    const varianteBaseId = typeof args.varianteBaseId === 'string' ? args.varianteBaseId.trim() : '';
-    const cambios = typeof args.cambios === 'string' ? args.cambios.trim().slice(0, LARGO_MAX_RESPUESTA) : '';
-    if (varianteBaseId && !historial.variantesVistas.has(varianteBaseId)) {
-      return {
-        ok: false,
-        motivo: 'Esa versión no salió de ninguna búsqueda de esta charla: usá el id entre corchetes de la versión, o no mandes ninguna.',
-      };
-    }
-    if (varianteBaseId && !cambios) {
-      return {
-        ok: false,
-        motivo:
-          'Con varianteBaseId contá en cambios qué quiere distinto. Si la quiere tal cual, no es una solicitud: usá pedir_variante.',
-      };
-    }
-    return {
-      ok: true,
-      operacion: {
-        ...llamada,
-        args: { productoId, nombreCliente, respuestas, resumen, ...(varianteBaseId ? { varianteBaseId, cambios } : {}) },
-      },
-    };
-  }
-
-  if (llamada.nombre === 'aceptar_presupuesto') {
-    const pedidoId = String(args.pedidoId ?? '').trim();
-    const pedido = state.contexto.pedidosAMedida.find((venta) => venta.id === pedidoId);
-    if (!pedido) {
-      return { ok: false, motivo: 'Ese pedido no es de esta conversación. Usá el id entre corchetes de "Pedidos a medida".' };
-    }
-    const estado = estadoVisible(pedido);
-    if (!['cotizado', 'vencida', 'pendiente_pago'].includes(estado) || !pedido.presupuestos.some((p) => p.estado === 'enviado')) {
-      return {
-        ok: false,
-        motivo: 'Ese pedido todavía no tiene un presupuesto para aceptar (o ya está cerrado). No hay nada que cobrar.',
-      };
-    }
-    // Ya esperando el pago no hay nada que pedir: cobrar devuelve el mismo cobro.
-    if (estado === 'pendiente_pago') return { ok: true, operacion: { ...llamada, args: { pedidoId } } };
-    const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args, 'aceptar_presupuesto');
-    if (!datos.ok) return { ok: false, motivo: datos.motivo };
-    return { ok: true, operacion: { ...llamada, args: { pedidoId, entrega: datos.entrega, datosCliente: datos.datos } } };
-  }
-
-  if (llamada.nombre === 'derivar_a_persona') {
-    const pedidoId = typeof args.pedidoId === 'string' ? args.pedidoId.trim() : '';
-    if (pedidoId && !state.contexto.pedidosAMedida.some((venta) => venta.id === pedidoId)) {
-      return { ok: false, motivo: 'Ese pedido no es de esta conversación. Usá el id entre corchetes de "Pedidos a medida", o no mandes ninguno.' };
-    }
-    const detalle = String(args.detalle ?? '').trim().slice(0, LARGO_MAX_DETALLE_DERIVACION);
-    if (!detalle) return { ok: false, motivo: 'Contá en una frase qué pasa, para que el equipo no le pregunte de nuevo.' };
-    return { ok: true, operacion: { ...llamada, args: { ...(pedidoId ? { pedidoId } : {}), motivo: args.motivo, detalle } } };
+    return { ok: true, operacion: { ...llamada, args: { productoId } } };
   }
 
   if (llamada.nombre === 'crear_pedido') {
@@ -315,7 +226,7 @@ export function validarLlamadaVentas(
     const items = (args.items ?? []) as ItemPedido[];
     const problema = problemaDeForma(items);
     if (problema) return { ok: false, motivo: problema };
-    const noVistas = variantesNoVistas(items, historial);
+    const noVistas = productosNoVistos(items, historial);
     if (noVistas) return { ok: false, motivo: noVistas };
     if (args.formaPago === 'cuotas' && args.cuotas === undefined) {
       return { ok: false, motivo: 'Con formaPago "cuotas" mandá también `cuotas`: un plan de ver_formas_de_pago.' };
@@ -334,6 +245,7 @@ export function validarLlamadaVentas(
           cuotas: args.formaPago === 'cuotas' ? args.cuotas : undefined,
           entrega: datos.entrega,
           datosCliente: datos.datos,
+          respuestas: respuestasDe(args.respuestas),
         },
       },
     };

@@ -4,23 +4,17 @@ import { Fragment, useEffect, useId, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { useAvisos, type Confirmacion } from "@/components/ui/Avisos";
 import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/cn";
-import { ErrorDeApi, formatearCentavos, formatearMonto } from "@/lib/productos";
+import { ErrorDeApi, formatearMonto } from "@/lib/productos";
 import {
-  cambiarAtencion,
   cancelarVenta,
-  cobrarPedido,
-  crearPresupuesto,
-  descartarPresupuesto,
-  enviarPresupuesto,
+  devolverAlAsistente,
   ETIQUETA_ESTADO,
   fechaCorta,
   marcarPagada,
-  presupuestoDesdeReceta,
   type DetalleVenta as Detalle,
 } from "@/lib/ventas";
+import { AtencionPedido } from "./AtencionPedido";
 import { loAtendesVos, TONO_ESTADO, totalDeVenta } from "./ListaVentas";
-import { Atencion, PedidoAMedida, type AccionesPedido } from "./PedidoAMedida";
 
 /** El detalle de un pedido, con las acciones del dueño si todavía no se pagó. */
 export function DetalleVenta({
@@ -35,10 +29,7 @@ export function DetalleVenta({
   const titulo = useId();
   const [trabajando, setTrabajando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
-  const aMedida = venta.tipo === "a_medida";
   const sinPagar = venta.estado === "pendiente_pago" || venta.estado === "vencida";
-  const cancelable = sinPagar || ["solicitado", "a_cotizar", "cotizado"].includes(venta.estado);
 
   useEffect(() => {
     const alEscape = (e: KeyboardEvent) => {
@@ -50,86 +41,17 @@ export function DetalleVenta({
 
   const { confirmar } = useAvisos();
 
-  /** Corre una acción sobre el pedido y lo reemplaza por lo que devuelve la API. true si salió bien. */
-  const correr = async (hacer: () => Promise<Detalle>, confirmacion?: Confirmacion): Promise<boolean> => {
-    if (confirmacion && !(await confirmar(confirmacion))) return false;
+  /** Corre una acción sobre el pedido y lo reemplaza por lo que devuelve la API. */
+  const correr = async (hacer: () => Promise<Detalle>, confirmacion?: Confirmacion): Promise<void> => {
+    if (confirmacion && !(await confirmar(confirmacion))) return;
     setTrabajando(true);
     setError(null);
-    setAviso(null);
     return hacer()
-      .then((actualizado) => {
-        onCambio(actualizado);
-        return true;
-      })
-      .catch((err: unknown) => {
-        setError(err instanceof ErrorDeApi ? err.message : "No se pudo. Probá de nuevo.");
-        return false;
-      })
+      .then(onCambio)
+      .catch((err: unknown) => setError(err instanceof ErrorDeApi ? err.message : "No se pudo. Probá de nuevo."))
       .finally(() => setTrabajando(false));
   };
   const accion = (hacer: () => Promise<Detalle>, confirmacion: Confirmacion) => void correr(hacer, confirmacion);
-
-  /** Cuando el chat no está vinculado el presupuesto queda guardado igual: se avisa que no llegó. */
-  const avisarSiNoLlego = (actualizado: Detalle & { mandado?: boolean }) => {
-    if (actualizado.mandado === false && !actualizado.dePrueba) {
-      setAviso("Quedó como presupuesto vigente, pero no le pudimos mandar el mensaje: pasáselo vos por WhatsApp.");
-    }
-    return actualizado;
-  };
-
-  const acciones: AccionesPedido = {
-    trabajando,
-    atender: () =>
-      accion(
-        () => cambiarAtencion(venta.id, true),
-        {
-          titulo: "¿Lo atendés vos?",
-          texto: "Tu asistente deja de contestar en ese chat hasta que se lo devuelvas.",
-          confirmar: "Sí, lo atiendo yo",
-          tono: "cuidado",
-        },
-      ),
-    devolver: (nota) => void correr(() => cambiarAtencion(venta.id, false, nota)),
-    guardarPresupuesto: (presupuesto) =>
-      correr(
-        () => crearPresupuesto(venta.id, presupuesto).then(avisarSiNoLlego),
-        presupuesto.enviar
-          ? {
-              titulo: "¿Mandárselo al cliente?",
-              texto: "Le llega por su chat y pasa a ser el presupuesto vigente. Si había otro link de pago, deja de valer.",
-              confirmar: "Mandar",
-              tono: "cuidado",
-            }
-          : undefined,
-      ),
-    enviarPresupuesto: (presupuesto) =>
-      accion(
-        () => enviarPresupuesto(venta.id, presupuesto.id).then(avisarSiNoLlego),
-        {
-          titulo: "¿Mandárselo al cliente?",
-          texto: "Le llega por su chat y pasa a ser el presupuesto vigente.",
-          confirmar: "Mandar",
-          tono: "cuidado",
-        },
-      ),
-    descartarPresupuesto: (presupuesto) =>
-      accion(() => descartarPresupuesto(venta.id, presupuesto.id), {
-        titulo: "¿Descartar este presupuesto sin mandarlo?",
-        confirmar: "Descartar",
-        tono: "neutro",
-      }),
-    desdeReceta: () => void correr(() => presupuestoDesdeReceta(venta.id)),
-    cobrar: () =>
-      accion(
-        () => cobrarPedido(venta.id),
-        {
-          titulo: "¿Generar el cobro del presupuesto vigente?",
-          texto: "Si tenés Mercado Pago conectado se crea el link; si no, queda para coordinar.",
-          confirmar: "Generar cobro",
-          tono: "cuidado",
-        },
-      ),
-  };
 
   return (
     <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/30 sm:items-center sm:p-6" onClick={onCerrar}>
@@ -138,10 +60,7 @@ export function DetalleVenta({
         aria-modal="true"
         aria-labelledby={titulo}
         onClick={(e) => e.stopPropagation()}
-        className={cn(
-          "max-h-[92dvh] w-full overflow-y-auto rounded-t-lg bg-card p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-md sm:rounded-lg sm:pb-5",
-          aMedida ? "max-w-[720px]" : "max-w-[560px]",
-        )}
+        className="max-h-[92dvh] w-full max-w-[560px] overflow-y-auto rounded-t-lg bg-card p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-md sm:rounded-lg sm:pb-5"
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
@@ -152,7 +71,6 @@ export function DetalleVenta({
           </div>
           <div className="flex flex-wrap justify-end gap-1">
             {venta.dePrueba && <Badge tone="info">Prueba</Badge>}
-            {aMedida && <Badge tone="neutral">A medida</Badge>}
             {loAtendesVos(venta) && <Badge tone="danger">Lo atendés vos</Badge>}
             <Badge tone={TONO_ESTADO[venta.estado]}>{ETIQUETA_ESTADO[venta.estado]}</Badge>
             {venta.sinStockAlPagar && <Badge tone="danger">Sin stock al pagar</Badge>}
@@ -166,23 +84,22 @@ export function DetalleVenta({
           </p>
         )}
 
-        {aMedida && <PedidoAMedida venta={venta} acciones={acciones} />}
-
-        {/* Un pedido de stock sólo pasa a vos por el cobro manual: se ve y se puede devolver. */}
-        {!aMedida && loAtendesVos(venta) && (
+        {loAtendesVos(venta) && (
           <div className="mb-4">
-            <Atencion venta={venta} acciones={acciones} />
+            <AtencionPedido
+              venta={venta}
+              trabajando={trabajando}
+              onDevolver={(nota) => void correr(() => devolverAlAsistente(venta.id, nota))}
+            />
           </div>
         )}
 
-        {!aMedida && (
         <table className="mb-4 w-full text-[13.5px]">
           <tbody>
             {venta.items.map((item, i) => (
               <tr key={`${item.codigo}-${i}`} className="border-b border-line">
                 <td className="py-2 text-ink">
                   {item.cantidad} × {item.nombreProducto}
-                  {item.nombreVariante && <span className="text-ink-secondary"> ({item.nombreVariante})</span>}
                   <span className="block text-[11.5px] text-muted">
                     {item.codigo} · {formatearMonto(item.precioUnitarioCentavos, venta.moneda)} c/u
                     {item.descuentoCentavos > 0 && item.precioListaCentavos !== null && (
@@ -193,6 +110,15 @@ export function DetalleVenta({
                       </>
                     )}
                   </span>
+                  {item.respuestas.length > 0 && (
+                    <ul className="mt-1 text-[12.5px] text-ink-secondary">
+                      {item.respuestas.map((r) => (
+                        <li key={r.pregunta}>
+                          {r.pregunta} <span className="font-semibold text-ink">{r.respuesta}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </td>
                 <td className="py-2 text-right text-ink tabular-nums">{formatearMonto(item.subtotalCentavos, venta.moneda)}</td>
               </tr>
@@ -203,16 +129,13 @@ export function DetalleVenta({
             </tr>
           </tbody>
         </table>
-        )}
 
         <dl className="mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
           <dt className="text-muted">Cobro</dt>
           <dd className="text-ink">
             {venta.medioPago === "mercadopago"
               ? "Link de Mercado Pago"
-              : venta.medioPago === "manual"
-                ? "A coordinar con vos"
-                : "Todavía no se cobra"}
+              : "A coordinar con vos"}
           </dd>
           {venta.formaPago && (
             <>
@@ -224,22 +147,6 @@ export function DetalleVenta({
                     (venta.recargoCentavos > 0
                       ? ` (incluye ${formatearMonto(venta.recargoCentavos, venta.moneda)} de recargo)`
                       : " sin interés")}
-              </dd>
-            </>
-          )}
-          {aMedida && venta.totalCentavos !== null && (
-            <>
-              <dt className="text-muted">Total</dt>
-              <dd className="font-semibold text-ink tabular-nums">{formatearCentavos(venta.totalCentavos)}</dd>
-            </>
-          )}
-          {aMedida && venta.estado === "pendiente_pago" && venta.linkPago && (
-            <>
-              <dt className="text-muted">Link de pago</dt>
-              <dd className="break-all">
-                <a href={venta.linkPago} target="_blank" rel="noopener noreferrer" className="text-link">
-                  {venta.linkPago}
-                </a>
               </dd>
             </>
           )}
@@ -273,7 +180,7 @@ export function DetalleVenta({
           )}
           {venta.estado === "pendiente_pago" && venta.reservaVenceAt && (
             <>
-              <dt className="text-muted">{aMedida ? "El cobro vale hasta" : "Reservado hasta"}</dt>
+              <dt className="text-muted">Reservado hasta</dt>
               <dd className="text-ink">{fechaCorta(venta.reservaVenceAt)}</dd>
             </>
           )}
@@ -302,14 +209,9 @@ export function DetalleVenta({
             {error}
           </p>
         )}
-        {aviso && (
-          <p role="status" className="mb-3 text-sm text-warning-text">
-            {aviso}
-          </p>
-        )}
 
         <div className="flex flex-wrap justify-end gap-2">
-          {cancelable && (
+          {sinPagar && (
             <Button
               variant="secondary"
               disabled={trabajando}
@@ -318,7 +220,7 @@ export function DetalleVenta({
                   () => cancelarVenta(venta.id),
                   {
                     titulo: "¿Cancelar el pedido?",
-                    texto: aMedida ? "Si tenía un link de pago, deja de valer." : "Se libera la reserva del stock.",
+                    texto: "Se libera la reserva del stock.",
                     confirmar: "Sí, cancelar pedido",
                     cancelar: "Volver",
                   },
@@ -338,13 +240,14 @@ export function DetalleVenta({
                     venta.medioPago === "mercadopago"
                       ? {
                           titulo: "¿Te pagó por otro medio?",
-                          texto: `Si lo marcás pagado${aMedida ? "" : " se descuenta el stock;"} si además paga el link de Mercado Pago, vas a tener que devolverle uno de los dos pagos.`,
+                          texto:
+                            "Si lo marcás pagado se descuenta el stock; si además paga el link de Mercado Pago, vas a tener que devolverle uno de los dos pagos.",
                           confirmar: "Marcar pagada",
                           tono: "cuidado",
                         }
                       : {
                           titulo: "¿Marcar el pedido como pagado?",
-                          texto: aMedida ? undefined : "Se descuenta el stock.",
+                          texto: "Se descuenta el stock.",
                           confirmar: "Marcar pagada",
                           tono: "cuidado",
                         },
@@ -355,7 +258,7 @@ export function DetalleVenta({
               </Button>
             </>
           )}
-          {!cancelable && (
+          {!sinPagar && (
             <Button variant="secondary" onClick={onCerrar}>
               Cerrar
             </Button>
