@@ -1,4 +1,5 @@
 import { loginDevPermitido } from '../auth/usuario-dev.js';
+import { ESCRIBIENDO_VENCE_POR_DEFECTO_MS } from '../whatsapp/ritmo-humano.js';
 
 /** Variables de entorno que la API necesita sí o sí para arrancar. */
 export type Env = {
@@ -87,6 +88,11 @@ export type Env = {
    * producción no arranca con esto puesto.
    */
   IMPORTACION_HOSTS_DE_PRUEBA: string;
+  /**
+   * Cuántos segundos dura el "escribiendo…" de un cliente sin un aviso de que
+   * paró, antes de contestarle igual (ver AgrupadorDeRafagas).
+   */
+  WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: number;
 };
 
 const REQUIRED = [
@@ -206,6 +212,14 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     throw new Error('MERCADOLIBRE_CLIENT_ID y MERCADOLIBRE_CLIENT_SECRET van juntas: definí las dos o ninguna.');
   }
 
+  const escribiendoVence = String(raw.WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS || ESCRIBIENDO_VENCE_POR_DEFECTO_MS / 1000);
+  const escribiendoVenceSegundos = Number(escribiendoVence);
+  if (!Number.isInteger(escribiendoVenceSegundos) || escribiendoVenceSegundos < 5 || escribiendoVenceSegundos > 300) {
+    throw new Error(
+      `WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS tiene que ser un número entero de segundos entre 5 y 300; vino "${escribiendoVence}".`,
+    );
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: Number(raw.PORT ?? 4000),
@@ -243,5 +257,6 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     MERCADOLIBRE_CLIENT_ID: mercadoLibreClientId,
     MERCADOLIBRE_CLIENT_SECRET: mercadoLibreClientSecret,
     IMPORTACION_HOSTS_DE_PRUEBA: hostsDePrueba,
+    WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: escribiendoVenceSegundos,
   };
 }
