@@ -36,6 +36,7 @@ export class LinearClient {
     const teamId = this.config.get('LINEAR_TEAM_ID', { infer: true });
     if (!apiKey || !teamId) throw new LinearError('LINEAR_API_KEY o LINEAR_TEAM_ID no están configuradas.');
     const labelId = this.config.get('LINEAR_LABEL_ID', { infer: true });
+    const projectId = this.config.get('LINEAR_PROJECT_ID', { infer: true });
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -53,6 +54,7 @@ export class LinearClient {
               title: issue.titulo,
               description: issue.descripcion,
               ...(labelId ? { labelIds: [labelId] } : {}),
+              ...(projectId ? { projectId } : {}),
             },
           },
         }),

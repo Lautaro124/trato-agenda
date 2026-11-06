@@ -70,6 +70,8 @@ export type Env = {
   LINEAR_TEAM_ID: string;
   /** Etiqueta opcional que se les pone (ej. "Sugerencia"). */
   LINEAR_LABEL_ID: string;
+  /** Proyecto opcional donde quedan (ej. "Trato"); su id, del mismo equipo. Vacío = sin proyecto. */
+  LINEAR_PROJECT_ID: string;
   /** Endpoint GraphQL de Linear. Sólo lo cambiaría un stub. */
   LINEAR_API_URL: string;
   /** API de Mercado Libre para la importación rápida (LAU-31). Sólo la cambiaría un stub. */
@@ -252,6 +254,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     LINEAR_API_KEY: String(raw.LINEAR_API_KEY ?? ''),
     LINEAR_TEAM_ID: String(raw.LINEAR_TEAM_ID ?? ''),
     LINEAR_LABEL_ID: String(raw.LINEAR_LABEL_ID ?? ''),
+    LINEAR_PROJECT_ID: String(raw.LINEAR_PROJECT_ID ?? ''),
     LINEAR_API_URL: linearApiUrl,
     MERCADOLIBRE_API_URL: mercadoLibreApiUrl,
     MERCADOLIBRE_CLIENT_ID: mercadoLibreClientId,
