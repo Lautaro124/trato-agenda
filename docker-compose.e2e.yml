@@ -90,6 +90,12 @@ services:
       MERCADOLIBRE_CLIENT_ID: e2e-ml-app
       MERCADOLIBRE_CLIENT_SECRET: e2e-ml-secret
       IMPORTACION_HOSTS_DE_PRUEBA: importacion-stub
+      # Sin Linear: api/.env puede traer la API key real, y los specs de
+      # sugerencias crearían issues de verdad en cada corrida. Vacías, las
+      # sugerencias se guardan en la base del stack y quedan pendientes.
+      LINEAR_API_KEY: ""
+      LINEAR_TEAM_ID: ""
+      LINEAR_PROJECT_ID: ""
     depends_on:
       openrouter-stub:
         condition: service_healthy
