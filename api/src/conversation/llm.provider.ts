@@ -28,6 +28,14 @@ const TIMEOUT_MS = 40_000;
  */
 const RAZONAMIENTO = { effort: 'low', exclude: true } as const;
 
+/**
+ * Tope de tokens de salida por llamada al modelo de conversación. En OpenRouter
+ * `max_tokens` incluye el razonamiento, así que no puede ser tan bajo que corte
+ * la respuesta después de pensar. El de entrada es MAX_TOKENS_ENTRADA
+ * (graph/ventana-historial.ts).
+ */
+export const MAX_TOKENS_SALIDA = 6_000;
+
 export const llmProvider = {
   provide: LLM_CONVERSACION,
   inject: [ConfigService],
@@ -37,6 +45,7 @@ export const llmProvider = {
       apiKey: config.get('OPENROUTER_API_KEY', { infer: true }) || 'sin-configurar',
       timeout: TIMEOUT_MS,
       maxRetries: 1,
+      maxTokens: MAX_TOKENS_SALIDA,
       // `provider` es la misma política de no-entrenamiento / ZDR que usa el
       // meta-agente: viaja en cada request, no sólo en la política de privacidad.
       modelKwargs: { reasoning: RAZONAMIENTO, provider: POLITICA_DE_PROVEEDOR },

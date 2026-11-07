@@ -10,13 +10,15 @@ import type { NotificacionesService } from '../notificaciones/notificaciones.ser
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { SubscriptionService } from '../subscription/subscription.service.js';
 import { MAX_RECONEXIONES_SIN_VINCULAR, MINIMO_TRAS_REEMPLAZO_MS, MINUTOS_CAIDO_PARA_AVISAR } from './reconexion.js';
-import { ESPERA_RAFAGA_MS } from './ritmo-humano.js';
-import type { TranscripcionClient } from './transcripcion.client.js';
+import { ESPERA_RAFAGA_MS, MAX_ESCUCHA_AUDIO_MS } from './ritmo-humano.js';
+import { MAX_BYTES_AUDIO, MAX_SEGUNDOS_AUDIO, type TranscripcionClient } from './transcripcion.client.js';
 import {
   AVISO_AUDIO_FALLIDO,
   AVISO_AUDIO_LARGO,
   AVISO_FUERA_DE_HORARIO,
   PREFIJO_AUDIO,
+  MAX_AUDIOS_EN_CURSO,
+  MAX_CARACTERES_AUDIO,
   MAX_CODIGOS_POR_CUENTA,
   MAX_CODIGOS_POR_NUMERO_HORA,
   NAVEGADOR_WHATSAPP,
@@ -309,7 +311,7 @@ describe('WhatsappService — mensajes de clientes', () => {
       await vi.runAllTimersAsync();
       await recepcion;
 
-      expect(transcripcion.transcribir).toHaveBeenCalledWith(Buffer.from('opus'), 'ogg');
+      expect(transcripcion.transcribir).toHaveBeenCalledWith(Buffer.from('opus'), 'ogg', 10);
       expect(conversationService.responder).toHaveBeenCalledWith(
         'user-1',
         JID,
@@ -369,17 +371,69 @@ describe('WhatsappService — mensajes de clientes', () => {
       expect(conversationService.responder).not.toHaveBeenCalled();
     });
 
-    it('de más de 2 minutos: no lo descarga y avisa que no puede', async () => {
+    it('de más de 1 h 30 min: no lo descarga y avisa que no puede', async () => {
       const { service, conversationService, transcripcion } = crearServicio();
       const sock = socketDeChat();
 
-      await recibirAudio(service, sock, { seconds: 121 });
+      await recibirAudio(service, sock, { seconds: MAX_SEGUNDOS_AUDIO + 1 });
       await vi.runAllTimersAsync();
 
       expect(downloadMediaMessage).not.toHaveBeenCalled();
       expect(transcripcion.transcribir).not.toHaveBeenCalled();
       expect(conversationService.responder).not.toHaveBeenCalled();
       expect(sock.sendMessage).toHaveBeenCalledExactlyOnceWith(JID, { text: AVISO_AUDIO_LARGO });
+    });
+
+    it('uno de 1 h 30 min se transcribe y se contesta sin esperar su duración entera', async () => {
+      const { service, conversationService, transcripcion } = crearServicio();
+      vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Dale!', imagenes: [] });
+      const largo = 'quiero un turno '.repeat(5_000);
+      vi.mocked(transcripcion.transcribir).mockResolvedValue(largo);
+      const sock = socketDeChat();
+
+      const recepcion = recibirAudio(service, sock, { seconds: MAX_SEGUNDOS_AUDIO });
+      await vi.advanceTimersByTimeAsync(MAX_ESCUCHA_AUDIO_MS + 5_000);
+      await recepcion;
+
+      expect(transcripcion.transcribir).toHaveBeenCalledWith(expect.anything(), 'ogg', MAX_SEGUNDOS_AUDIO);
+      // La transcripción no se corta al tope de lo tipeado (MAX_CARACTERES_RAFAGA).
+      expect(conversationService.responder).toHaveBeenCalledExactlyOnceWith(
+        'user-1',
+        JID,
+        `${PREFIJO_AUDIO}${largo}`.slice(0, MAX_CARACTERES_AUDIO),
+        expect.anything(),
+      );
+    });
+
+    it(`con ${MAX_AUDIOS_EN_CURSO} audios descargándose, el siguiente no se descarga y avisa`, async () => {
+      const { service } = crearServicio();
+      vi.mocked(downloadMediaMessage).mockImplementation(() => new Promise(() => undefined));
+      const sock = socketDeChat();
+      (service as unknown as { sockets: Map<string, unknown> }).sockets.set('user-1', sock);
+      const chats = Array.from({ length: MAX_AUDIOS_EN_CURSO + 1 }, (_, i) => `54911000${i}@s.whatsapp.net`);
+
+      const lote = (
+        service as unknown as { handleMessagesUpsert: (u: string, s: unknown, e: unknown) => Promise<void> }
+      ).handleMessagesUpsert('user-1', sock, {
+        type: 'notify',
+        messages: chats.map((jid, i) => ({
+          key: { remoteJid: jid, fromMe: false, id: `a-${i}` },
+          message: { audioMessage: { ...AUDIO_DE_WHATSAPP, mimetype: 'audio/ogg', seconds: 5 } },
+        })),
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(downloadMediaMessage).toHaveBeenCalledTimes(MAX_AUDIOS_EN_CURSO);
+      expect(sock.sendMessage).toHaveBeenCalledExactlyOnceWith(chats.at(-1), { text: AVISO_AUDIO_FALLIDO });
+
+      // Vencidas las descargas, el cupo se libera.
+      await vi.runAllTimersAsync();
+      await lote;
+      vi.mocked(downloadMediaMessage).mockReset().mockImplementation(async () => Readable.from([Buffer.from('opus')]) as never);
+      const recepcion = recibirAudio(service, sock, {}, 'a-otra');
+      await vi.runAllTimersAsync();
+      await recepcion;
+      expect(downloadMediaMessage).toHaveBeenCalledOnce();
     });
 
     it('si pesa demasiado aunque no informe la duración, tampoco lo descarga', async () => {
@@ -397,7 +451,7 @@ describe('WhatsappService — mensajes de clientes', () => {
     it('si el archivo real pasa el tope aunque declare poco, corta la descarga y avisa', async () => {
       const { service, transcripcion } = crearServicio();
       vi.mocked(downloadMediaMessage).mockImplementation(
-        async () => Readable.from([Buffer.alloc(3 * 1024 * 1024), Buffer.alloc(3 * 1024 * 1024)]) as never,
+        async () => Readable.from([Buffer.alloc(MAX_BYTES_AUDIO), Buffer.alloc(1024)]) as never,
       );
       const sock = socketDeChat();
 

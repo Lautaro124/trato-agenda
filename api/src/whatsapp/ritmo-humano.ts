@@ -29,14 +29,24 @@ const REACCION_AUDIO_MIN_MS = 2_000;
 const REACCION_AUDIO_MAX_MS = 4_000;
 
 /**
+ * Lo más que se "escucha" un audio antes de contestar. Con audios de hasta
+ * 1 h 30 min, esperar la duración entera dejaba el chat colgado: pasados los
+ * 2 minutos se contesta igual (alguien que recibe un audio largo responde
+ * antes de terminarlo o lo escucha acelerado).
+ */
+export const MAX_ESCUCHA_AUDIO_MS = 120_000;
+
+/**
  * Cuánto retener un audio antes de sumarlo a la ráfaga, para que la respuesta
  * llegue como si alguien lo hubiera escuchado entero: su duración más 2 a 4 s
  * (`azar`, 0..1). Se descuenta ESPERA_RAFAGA_MS porque la ráfaga igual espera
  * ese silencio después: un audio de 30 s se contesta a los ~32-34 s, no a los 38.
+ * La duración cuenta hasta MAX_ESCUCHA_AUDIO_MS.
  */
 export function esperaDeEscucha(segundos: number, azar = 0.5): number {
   const reaccion = REACCION_AUDIO_MIN_MS + (REACCION_AUDIO_MAX_MS - REACCION_AUDIO_MIN_MS) * azar;
-  return Math.max(0, Math.round(segundos * 1000 + reaccion - ESPERA_RAFAGA_MS));
+  const escucha = Math.min(segundos * 1000, MAX_ESCUCHA_AUDIO_MS);
+  return Math.max(0, Math.round(escucha + reaccion - ESPERA_RAFAGA_MS));
 }
 /**
  * Tope del silencio desde el primer mensaje de la ráfaga, para que alguien que

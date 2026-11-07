@@ -107,13 +107,21 @@ export const AVISO_FUERA_DE_HORARIO = 'El vendedor que te atendió no está disp
 
 /** Respuesta fija a un audio de más de MAX_SEGUNDOS_AUDIO: no se descarga ni se transcribe. */
 export const AVISO_AUDIO_LARGO =
-  'No puedo descargar audios de más de 2 minutos. ¿Me lo escribís o me mandás uno más corto?';
+  'No puedo descargar audios de más de 1 hora y media. ¿Me lo escribís o me mandás uno más corto?';
 
 /** Respuesta fija a un audio que no se pudo descargar o transcribir. */
 export const AVISO_AUDIO_FALLIDO = 'No pude descargar el audio. ¿Me lo escribís?';
 
 /** Marca del texto transcripto, para que el dueño en Chats y el asistente sepan que fue un audio. */
 export const PREFIJO_AUDIO = '🎤 ';
+
+/**
+ * Tope de caracteres de la transcripción de un audio. Es mayor que
+ * MAX_CARACTERES_RAFAGA (que es para lo que se tipea): 1 h 30 min de habla son
+ * unas 13.000 palabras, ~85.000 caracteres. Lo que entra al modelo lo acota
+ * igual MAX_TOKENS_ENTRADA.
+ */
+export const MAX_CARACTERES_AUDIO = 90_000;
 
 /**
  * Cómo se presenta el socket ante WhatsApp. Tiene que ser un navegador que
@@ -156,7 +164,8 @@ type MensajeEntrante = {
 };
 
 /** Lo que se sacó de un mensaje del cliente: su texto, o el aviso fijo con el que se contesta. */
-type Entrada = { texto: string; escucharHasta?: number } | { aviso: string };
+/** `maxCaracteres`: el tope del texto si no es MAX_CARACTERES_RAFAGA (una transcripción). */
+type Entrada = { texto: string; escucharHasta?: number; maxCaracteres?: number } | { aviso: string };
 
 /** `fileLength` de WhatsApp puede llegar como Long. */
 function aNumero(valor: number | { toNumber(): number } | null | undefined): number {
@@ -167,8 +176,25 @@ function aNumero(valor: number | { toNumber(): number } | null | undefined): num
 /** Host de media de WhatsApp cuando el mensaje no trae `url`. */
 const HOST_MEDIA_WHATSAPP = 'mmg.whatsapp.net';
 
-/** Lo máximo que puede tardar la descarga de un audio, incluido el reintento por reupload. */
+/**
+ * Audios que se descargan y transcriben a la vez, entre todas las cuentas. Uno
+ * de 25 MB ocupa en memoria varias veces su tamaño (partes, Buffer, base64 y el
+ * body JSON): sin tope, varios en paralelo pueden tirar la única réplica y con
+ * ella todas las sesiones de Baileys. Con el cupo lleno se avisa como un audio
+ * que no se pudo descargar.
+ */
+export const MAX_AUDIOS_EN_CURSO = 3;
+
+/** Lo mínimo que se espera la descarga de un audio, incluido el reintento por reupload. */
 export const PLAZO_DESCARGA_AUDIO_MS = 30_000;
+/** Lo que se suma al plazo por cada MB que declara el audio: uno de 25 MB tiene unos 2 min. */
+const PLAZO_DESCARGA_POR_MB_MS = 4_000;
+
+/** El plazo de descarga de un audio que declara `bytes` (acotado a MAX_BYTES_AUDIO: lo declara el que manda). */
+export function plazoDeDescarga(bytes: number): number {
+  const megas = (Number.isFinite(bytes) ? Math.min(Math.max(bytes, 0), MAX_BYTES_AUDIO) : 0) / (1024 * 1024);
+  return PLAZO_DESCARGA_AUDIO_MS + Math.round(megas * PLAZO_DESCARGA_POR_MB_MS);
+}
 
 /**
  * El host del que se puede bajar el audio, o undefined si el mensaje apunta a
@@ -270,6 +296,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * pisan la espera.
    */
   private readonly esperandoQr = new Map<WASocket, () => void>();
+  /** Descargas y transcripciones de audio en curso (ver MAX_AUDIOS_EN_CURSO). */
+  private audiosEnCurso = 0;
   private readonly codigosPorNumero = new Limitador(MAX_CODIGOS_POR_NUMERO_HORA, UNA_HORA_MS);
   private readonly codigosPorCuenta = new Limitador(MAX_CODIGOS_POR_CUENTA, QUINCE_MINUTOS_MS);
   /** Un pedido de código a la vez por cuenta: dos seguidos se cerraban el socket entre sí. */
@@ -705,6 +733,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const formato = formatoDeAudio(audio.mimetype);
     const host = hostDeMedia(audio);
     if (!formato || !host) return { aviso: AVISO_AUDIO_FALLIDO };
+    if (this.audiosEnCurso >= MAX_AUDIOS_EN_CURSO) {
+      this.logger.warn(`Audio de ${userId} sin escuchar: hay ${this.audiosEnCurso} en curso.`);
+      return { aviso: AVISO_AUDIO_FALLIDO };
+    }
+    this.audiosEnCurso++;
     try {
       // En stream y con tope: `seconds` y `fileLength` los declara el que manda y pueden mentir.
       // `host` fijo: el reintento por reupload no puede volver a sacarlo de `url`.
@@ -716,14 +749,18 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         () =>
           downloadMediaMessage(soloElAudio, 'stream', { host }, { logger: this.baileysLogger, reuploadRequest: sock.updateMediaMessage }),
         MAX_BYTES_AUDIO,
-        PLAZO_DESCARGA_AUDIO_MS,
+        plazoDeDescarga(aNumero(audio.fileLength)),
       );
       if (!contenido) return { aviso: AVISO_AUDIO_LARGO };
-      const texto = await this.transcripcion.transcribir(contenido, formato);
-      return texto ? { texto: `${PREFIJO_AUDIO}${texto}`, escucharHasta } : { aviso: AVISO_AUDIO_FALLIDO };
+      const texto = await this.transcripcion.transcribir(contenido, formato, audio.seconds ?? 0);
+      return texto
+        ? { texto: `${PREFIJO_AUDIO}${texto}`, escucharHasta, maxCaracteres: MAX_CARACTERES_AUDIO }
+        : { aviso: AVISO_AUDIO_FALLIDO };
     } catch (error) {
       this.logger.error(`No se pudo escuchar un audio de ${userId}: ${resumenDeError(error)}`);
       return { aviso: AVISO_AUDIO_FALLIDO };
+    } finally {
+      this.audiosEnCurso--;
     }
   }
 
@@ -748,8 +785,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // Un audio que no se pudo escuchar no se guarda: el dueño lo tiene en su teléfono.
       const entrada = await leer();
       if (!('texto' in entrada)) return;
-      const texto = entrada.texto;
-      await guardarMensajeEnPausa(this.prisma, userId, remoteJid, texto.slice(0, MAX_CARACTERES_RAFAGA)).catch((error: unknown) =>
+      const texto = entrada.texto.slice(0, entrada.maxCaracteres ?? MAX_CARACTERES_RAFAGA);
+      await guardarMensajeEnPausa(this.prisma, userId, remoteJid, texto).catch((error: unknown) =>
           this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
         );
       return;
@@ -800,7 +837,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       remoteJid,
       sock,
       key: mensaje.key,
-      texto: entrada.texto.slice(0, MAX_CARACTERES_RAFAGA),
+      texto: entrada.texto.slice(0, entrada.maxCaracteres ?? MAX_CARACTERES_RAFAGA),
       enviadoEn: timestampEnMs(mensaje.messageTimestamp),
       recibidoEn: Date.now(),
     });

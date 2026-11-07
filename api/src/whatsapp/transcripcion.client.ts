@@ -6,16 +6,32 @@ import type { Env } from '../config/env.js';
 /** Modelo de voz a texto de los audios de WhatsApp. */
 export const MODELO_TRANSCRIPCION = 'openai/whisper-large-v3-turbo';
 
-/** Audios más largos no se descargan ni se transcriben. */
-export const MAX_SEGUNDOS_AUDIO = 120;
+/** Audios de más de 1 h 30 min no se descargan ni se transcriben. */
+export const MAX_SEGUNDOS_AUDIO = 90 * 60;
 
 /**
- * Tope de bytes por si WhatsApp no informa la duración o miente: una nota de
- * voz opus de 2 minutos pesa menos de 1 MB, así que 5 MB deja margen de sobra.
+ * Tope de bytes por si WhatsApp no informa la duración o miente, y el límite
+ * de archivo que documentan OpenRouter (25 MB por archivo) y Groq (25 MB en el
+ * plan gratuito). Una nota de voz opus de WhatsApp (16-32 kbps) de 1 h 30 min
+ * entra; un mp3 adjunto de buena calidad de esa duración no, y se contesta como
+ * audio largo.
  */
-export const MAX_BYTES_AUDIO = 5 * 1024 * 1024;
+export const MAX_BYTES_AUDIO = 25 * 1024 * 1024;
 
-const TIMEOUT_MS = 30_000;
+/** Plazo mínimo de una transcripción: el de un audio corto. */
+const TIMEOUT_BASE_MS = 30_000;
+/** Lo que se suma por cada segundo de audio: Whisper turbo va muy por encima del tiempo real. */
+const TIMEOUT_POR_SEGUNDO_MS = 50;
+
+/**
+ * Cuánto se espera a OpenRouter para un audio de `segundos`: 30 s para uno
+ * corto y unos 5 min para uno de 1 h 30 min. `segundos` lo declara el que
+ * manda, por eso queda acotado a MAX_SEGUNDOS_AUDIO.
+ */
+export function plazoDeTranscripcion(segundos: number): number {
+  const acotado = Number.isFinite(segundos) ? Math.min(Math.max(segundos, 0), MAX_SEGUNDOS_AUDIO) : 0;
+  return TIMEOUT_BASE_MS + Math.round(acotado * TIMEOUT_POR_SEGUNDO_MS);
+}
 
 /** Se lanza cuando OpenRouter no está configurado o la transcripción falla. */
 export class TranscripcionError extends Error {}
@@ -32,13 +48,17 @@ export class TranscripcionError extends Error {}
 export class TranscripcionClient {
   constructor(private readonly config: ConfigService<Env, true>) {}
 
-  /** `formato` es la extensión que entiende OpenRouter (`ogg`, `mp3`, `m4a`…). */
-  async transcribir(audio: Buffer, formato: string): Promise<string> {
+  /**
+   * `formato` es la extensión que entiende OpenRouter (`ogg`, `mp3`, `m4a`…).
+   * `segundos` (la duración que informa WhatsApp) sólo alarga el plazo.
+   */
+  async transcribir(audio: Buffer, formato: string, segundos = 0): Promise<string> {
     const apiKey = this.config.get('OPENROUTER_API_KEY', { infer: true });
     if (!apiKey) throw new TranscripcionError('OPENROUTER_API_KEY no está configurada.');
 
+    const plazoMs = plazoDeTranscripcion(segundos);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), plazoMs);
     const baseUrl = this.config.get('OPENROUTER_BASE_URL', { infer: true });
 
     try {
@@ -71,7 +91,7 @@ export class TranscripcionClient {
     } catch (error) {
       if (error instanceof TranscripcionError) throw error;
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new TranscripcionError(`OpenRouter no transcribió el audio en ${TIMEOUT_MS}ms.`);
+        throw new TranscripcionError(`OpenRouter no transcribió el audio en ${plazoMs}ms.`);
       }
       throw new TranscripcionError(`No se pudo transcribir el audio: ${resumenDeError(error)}`);
     } finally {
