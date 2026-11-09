@@ -1,21 +1,27 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import { AvisosProvider } from "@/components/ui/Avisos";
 import { SessionProvider } from "@/lib/session";
 import { SuscripcionProvider } from "@/lib/suscripcion";
 import { TutorialProvider } from "@/lib/tutorial";
 import "./globals.css";
 
-const manrope = Manrope({
+// Fuentes guardadas en el repo (subset latin, variables de peso 400–700, licencia
+// OFL al lado). Con next/font/google el build bajaba el CSS de Google y Turbopack
+// fallaba al procesarlo según lo que respondiera ("next/font/google queries have
+// exactly one entry"), lo que tumbó el deploy de la web en Railway.
+const manrope = localFont({
+  src: "./fonts/manrope-latin.woff2",
   variable: "--font-manrope",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: "400 700",
+  display: "swap",
 });
 
-const jakarta = Plus_Jakarta_Sans({
+const jakarta = localFont({
+  src: "./fonts/plus-jakarta-sans-latin.woff2",
   variable: "--font-jakarta",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: "400 700",
+  display: "swap",
 });
 
 export const metadata: Metadata = {

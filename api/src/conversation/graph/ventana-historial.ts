@@ -3,16 +3,19 @@
  * hilo entero (y la tabla `Message` también): nada de esto borra, sólo decide
  * qué se le manda al modelo en cada mensaje. Lo usan los dos grafos.
  *
- * Dos razones para recortar:
+ * Tres razones para recortar:
  * - una ventana de tiempo (HISTORIAL_IA_VENTANA): lo que el cliente dijo hace
  *   semanas no tiene por qué seguir pesando en la charla de hoy;
  * - un hilo que quedó cortado a mitad de una vuelta (un AIMessage con tool
  *   calls sin su ToolMessage) hace que el proveedor rechace el pedido entero,
  *   y sin esto ese chat quedaba roto para siempre (Sentry TRATO-API-3).
+ * - un tope de tokens de entrada por llamada (MAX_TOKENS_ENTRADA), que
+ *   aplica el nodo de conversación con `ajustarAlPresupuesto`.
  *
  * Todo puro, sin base ni red.
  */
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import { z } from 'zod';
 import { HISTORIAL_IA_VENTANA_POR_DEFECTO, parsearDuracion } from '../../config/env.js';
 
 /** La ventana cuando no se configura (la misma que toma validateEnv). */
@@ -118,4 +121,145 @@ export function prepararHistorial(messages: BaseMessage[], ahora: Date, ventanaM
     visibles: mensajesVisibles(conMarca, inicio),
     hayHistorialOculto: inicio > 0,
   };
+}
+
+/**
+ * Tope de tokens de entrada por llamada al modelo de conversación: system
+ * prompt, herramientas e historial juntos. El de salida es MAX_TOKENS_SALIDA
+ * (llm.provider.ts). Una ventana de tiempo sola no alcanza: un chat muy activo
+ * o un audio largo transcripto pueden llenarla dentro de las mismas 24 h.
+ */
+export const MAX_TOKENS_ENTRADA = 40_000;
+
+/**
+ * Caracteres por token de la estimación. No hay tokenizer del modelo acá; el
+ * español ronda 4 caracteres por token y 3,5 deja margen para el formato de los
+ * mensajes y las tool calls: mejor recortar un poco de más que pasarse.
+ */
+const CARACTERES_POR_TOKEN = 3.5;
+
+/** Lo que se agrega al final de un mensaje que hubo que acortar. */
+export const MARCA_RECORTE = ' […]';
+
+export function estimarTokens(texto: string): number {
+  return Math.ceil(texto.length / CARACTERES_POR_TOKEN);
+}
+
+function textoDe(mensaje: BaseMessage): string {
+  const contenido = typeof mensaje.content === 'string' ? mensaje.content : JSON.stringify(mensaje.content);
+  const llamadas = mensaje.getType() === 'ai' ? ((mensaje as AIMessage).tool_calls ?? []) : [];
+  return llamadas.length > 0 ? contenido + JSON.stringify(llamadas) : contenido;
+}
+
+/** Lo que pesan las herramientas en el pedido: nombre, descripción y schema JSON. */
+export function textoDeHerramientas(
+  herramientas: ReadonlyArray<{ name: string; description: string; schema: z.ZodType }>,
+): string {
+  return herramientas
+    .map((herramienta) => {
+      let schema = '';
+      try {
+        schema = JSON.stringify(z.toJSONSchema(herramienta.schema));
+      } catch {
+        // Un schema que no se puede convertir no frena la vuelta: se cuenta sin él.
+      }
+      return `${herramienta.name}${herramienta.description}${schema}`;
+    })
+    .join('');
+}
+
+export type EntradaAjustada = {
+  /** Lo que se le manda al modelo después del system prompt. */
+  mensajes: BaseMessage[];
+  /** Tokens estimados del pedido entero (fijo + mensajes). */
+  tokens: number;
+  /** Mensajes de vueltas anteriores que quedaron afuera. */
+  descartados: number;
+  /** Si hubo que acortar el texto de un mensaje del cliente de la vuelta en curso. */
+  acortado: boolean;
+  /** Si igual quedó por encima del tope (el system prompt solo ya lo pasa). */
+  excedido: boolean;
+};
+
+/**
+ * Deja el pedido dentro de `presupuesto` tokens. `fijo` es lo que no se
+ * recorta (system prompt y herramientas). Primero saca vueltas viejas
+ * enteras, cortando siempre en un mensaje del cliente para no separar una tool
+ * call de su resultado; la vuelta en curso (desde el último mensaje del
+ * cliente) queda siempre. Si eso no alcanza, acorta el mensaje del cliente más
+ * largo de la vuelta en curso (un audio transcripto, en la práctica). No muta
+ * los mensajes del estado.
+ */
+export function ajustarAlPresupuesto(
+  fijo: string,
+  mensajes: BaseMessage[],
+  presupuesto: number = MAX_TOKENS_ENTRADA,
+): EntradaAjustada {
+  const pesos = mensajes.map((mensaje) => estimarTokens(textoDe(mensaje)));
+  const inicioVueltaActual = Math.max(
+    mensajes.findLastIndex((mensaje) => mensaje.getType() === 'human'),
+    0,
+  );
+  const sinViejas = descartarVueltasViejas(mensajes, pesos, inicioVueltaActual, estimarTokens(fijo), presupuesto);
+  const resultado = mensajes.slice(sinViejas.desde);
+  let total = sinViejas.total;
+  let acortado = false;
+
+  if (total > presupuesto) {
+    const pesosVisibles = pesos.slice(sinViejas.desde);
+    const mayor = mayorDelClienteDesde(resultado, pesosVisibles, inicioVueltaActual - sinViejas.desde);
+    if (mayor !== -1) {
+      const peso = pesosVisibles[mayor]!;
+      const disponible = Math.max(presupuesto - (total - peso) - estimarTokens(MARCA_RECORTE), 0);
+      const acortadoEn = acortarMensaje(resultado[mayor]!, Math.floor(disponible * CARACTERES_POR_TOKEN));
+      resultado[mayor] = acortadoEn;
+      total = total - peso + estimarTokens(acortadoEn.content as string);
+      acortado = true;
+    }
+  }
+
+  return { mensajes: resultado, tokens: total, descartados: sinViejas.desde, acortado, excedido: total > presupuesto };
+}
+
+/**
+ * Saca vueltas viejas enteras mientras el total pase el presupuesto, sin tocar
+ * la vuelta en curso. Corta siempre en un mensaje del cliente. Devuelve desde
+ * qué índice queda el historial y el total que resulta.
+ */
+function descartarVueltasViejas(
+  mensajes: BaseMessage[],
+  pesos: number[],
+  inicioVueltaActual: number,
+  tokensFijos: number,
+  presupuesto: number,
+): { desde: number; total: number } {
+  let total = tokensFijos + pesos.reduce((suma, peso) => suma + peso, 0);
+  let desde = 0;
+  while (total > presupuesto && desde < inicioVueltaActual) {
+    // El próximo mensaje del cliente después de `desde`: ahí empieza la vuelta siguiente.
+    let hasta = desde + 1;
+    while (hasta < inicioVueltaActual && mensajes[hasta]!.getType() !== 'human') hasta++;
+    for (let i = desde; i < hasta; i++) total -= pesos[i]!;
+    desde = hasta;
+  }
+  return { desde, total };
+}
+
+/** Índice del mensaje del cliente más largo desde `inicio` cuyo contenido es texto, o -1. */
+function mayorDelClienteDesde(mensajes: BaseMessage[], pesos: number[], inicio: number): number {
+  let mayor = -1;
+  for (let i = inicio; i < mensajes.length; i++) {
+    const mensaje = mensajes[i]!;
+    const esTextoDelCliente = mensaje.getType() === 'human' && typeof mensaje.content === 'string';
+    if (esTextoDelCliente && (mayor === -1 || pesos[i]! > pesos[mayor]!)) mayor = i;
+  }
+  return mayor;
+}
+
+/** Una copia del mensaje del cliente con el texto cortado a `caracteres` y la marca de recorte. */
+function acortarMensaje(original: BaseMessage, caracteres: number): HumanMessage {
+  let corte = (original.content as string).slice(0, caracteres);
+  // No dejar medio emoji (un par sustituto UTF-16 partido).
+  if (/[\uD800-\uDBFF]$/.test(corte)) corte = corte.slice(0, -1);
+  return new HumanMessage({ content: corte + MARCA_RECORTE, id: original.id, response_metadata: original.response_metadata });
 }

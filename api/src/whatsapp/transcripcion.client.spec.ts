@@ -2,7 +2,14 @@ import type { ConfigService } from '@nestjs/config';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { POLITICA_DE_PROVEEDOR } from '../agents/openrouter.client.js';
 import type { Env } from '../config/env.js';
-import { MODELO_TRANSCRIPCION, TranscripcionClient, TranscripcionError, formatoDeAudio } from './transcripcion.client.js';
+import {
+  MAX_SEGUNDOS_AUDIO,
+  MODELO_TRANSCRIPCION,
+  TranscripcionClient,
+  TranscripcionError,
+  formatoDeAudio,
+  plazoDeTranscripcion,
+} from './transcripcion.client.js';
 
 function cliente(apiKey = 'clave') {
   const valores: Record<string, string> = { OPENROUTER_API_KEY: apiKey, OPENROUTER_BASE_URL: 'https://openrouter.test/api/v1' };
@@ -53,5 +60,18 @@ describe('formatoDeAudio', () => {
     expect(formatoDeAudio(undefined)).toBe('ogg');
     expect(formatoDeAudio('video/mp4')).toBeUndefined();
     expect(formatoDeAudio('__proto__')).toBeUndefined();
+  });
+});
+
+describe('plazoDeTranscripcion', () => {
+  it('da 30 s a un audio corto y unos 5 min a uno de 1 h 30 min', () => {
+    expect(plazoDeTranscripcion(0)).toBe(30_000);
+    expect(plazoDeTranscripcion(MAX_SEGUNDOS_AUDIO)).toBe(300_000);
+  });
+
+  it('no se estira con una duración declarada más allá del tope ni negativa', () => {
+    expect(plazoDeTranscripcion(MAX_SEGUNDOS_AUDIO * 100)).toBe(plazoDeTranscripcion(MAX_SEGUNDOS_AUDIO));
+    expect(plazoDeTranscripcion(-10)).toBe(30_000);
+    expect(plazoDeTranscripcion(Number.NaN)).toBe(30_000);
   });
 });
