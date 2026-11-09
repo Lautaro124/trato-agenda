@@ -88,6 +88,8 @@ export type RespuestaConversacion = {
   imagenes: ImagenAEnviar[];
   /** El chat lo atiende una persona (LAU-81): el asistente no corrió y no hay que mandar nada. */
   enAtencionHumana?: boolean;
+  /** La cuenta no tiene agente: a un cliente no se le contesta nada (el aviso es para el dueño, en el banco de pruebas). */
+  sinAgente?: boolean;
 };
 
 /**
@@ -135,7 +137,8 @@ export class ConversationService {
     const soloTexto = (mensaje: string): RespuestaConversacion => ({ texto: mensaje, imagenes: [] });
     const agent = await this.prisma.agent.findUnique({ where: { userId: ownerUserId } });
     if (!agent) {
-      return soloTexto(MENSAJE_SIN_AGENTE);
+      // Un cliente no debe leer "avisale al dueño": eso sólo lo ve el dueño, probando.
+      return esConversacionDePrueba(remoteJid) ? soloTexto(MENSAJE_SIN_AGENTE) : { texto: '', imagenes: [], sinAgente: true };
     }
 
     const conversation = await this.prisma.conversation.upsert({
