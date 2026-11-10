@@ -18,7 +18,7 @@ import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
 import { llamadasDe, type OperacionPendiente } from '../../graph/state.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
-import { MAX_BUSQUEDAS_POR_MENSAJE, productosMostrados } from '../reglas-ventas.js';
+import { MAX_BUSQUEDAS_POR_MENSAJE, modalidadQuePidio, productosMostrados } from '../reglas-ventas.js';
 import { claveDeFoto, fotosMandadas, HERRAMIENTA_IMAGEN, imagenesDeLaVuelta } from '../imagenes-de-la-vuelta.js';
 import {
   accionesDeVentas,
@@ -57,6 +57,8 @@ export type HistorialValidacion = {
   fotosPedidas: number;
   /** Fotos (claveDeFoto) que ya le llegaron al cliente en la parte de la charla que ve el modelo. */
   fotosYaMandadas: Set<string>;
+  /** La modalidad de envío que nombró el cliente por última vez, si nombró una. */
+  modalidadPedida: string | null;
 };
 
 /**
@@ -102,6 +104,11 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
     ).size,
     // El asistente las manda solo cuando muestra productos: se corta repetir una.
     fotosYaMandadas: fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)),
+    modalidadPedida: modalidadQuePidio(
+      mensajesVisibles(state.messages, state.inicioVisible ?? 0)
+        .filter((mensaje) => mensaje.getType() === 'human')
+        .map(textoDe),
+    ),
   };
 }
 
@@ -132,11 +139,23 @@ function ubicacionDe(args: Record<string, unknown>): Record<string, string> {
  * resolvedor da contradicción y el envío no se cobra en el link (se coordina
  * aparte). Un texto es el motivo para el modelo.
  */
+/** El motivo para el modelo si cotiza una modalidad distinta de la que nombró el cliente; null si coinciden. */
+function modalidadDistinta(modalidad: unknown, historial: HistorialValidacion): string | null {
+  const pedida = historial.modalidadPedida;
+  if (!pedida || typeof modalidad !== 'string' || modalidad === pedida) return null;
+  const nombre = pedida === 'sucursal' ? 'retiro en sucursal del correo' : 'envío a domicilio';
+  return (
+    `El cliente pidió ${nombre}: mandá modalidad "${pedida}". Si cambió de idea, que te lo diga él; ` +
+    'no elijas vos la otra porque salga más barata.'
+  );
+}
+
 function envioDelPedido(
   crudo: unknown,
   entrega: unknown,
   enviosActivo: boolean,
   deEntrega: { provincia?: string; codigoPostal?: string },
+  historial: HistorialValidacion,
 ): { modalidad: string; provincia?: string; localidad?: string; codigoPostal?: string } | undefined | string {
   if (!enviosActivo || entrega !== 'envio') return undefined;
   const faltaEnvio =
@@ -146,6 +165,8 @@ function envioDelPedido(
   const envio = crudo as Record<string, unknown>;
   const ubicacion = ubicacionDe(envio);
   if (Object.keys(ubicacion).length === 0) return faltaEnvio;
+  const distinta = modalidadDistinta(envio.modalidad, historial);
+  if (distinta) return distinta;
   return { modalidad: String(envio.modalidad), ...ubicacion, ...deEntrega };
 }
 
@@ -202,6 +223,24 @@ export function validarLlamadaVentas(
     const problema = problemaDeForma(items) ?? productosNoVistos(items, historial);
     if (problema) return { ok: false, motivo: problema };
     return { ok: true, operacion: { ...llamada, args: { items: agruparItems(items) } } };
+  }
+
+  if (llamada.nombre === 'cotizar_pedido') {
+    const items = (args.items ?? []) as ItemPedido[];
+    const problema = problemaDeForma(items) ?? productosNoVistos(items, historial);
+    if (problema) return { ok: false, motivo: problema };
+    const normalizados = { items: agruparItems(items) };
+    // El esquema sólo trae `envio` con el módulo de envíos activo.
+    if (typeof args.envio !== 'object' || args.envio === null) return { ok: true, operacion: { ...llamada, args: normalizados } };
+    const envio = args.envio as Record<string, unknown>;
+    const ubicacion = ubicacionDe(envio);
+    if (Object.keys(ubicacion).length === 0) {
+      return { ok: false, motivo: 'Para cotizar el envío falta la ubicación: preguntale la localidad o el código postal.' };
+    }
+    const distinta = modalidadDistinta(envio.modalidad, historial);
+    if (distinta) return { ok: false, motivo: distinta };
+    const modalidad = typeof envio.modalidad === 'string' ? { modalidad: envio.modalidad } : {};
+    return { ok: true, operacion: { ...llamada, args: { ...normalizados, envio: { ...ubicacion, ...modalidad } } } };
   }
 
   if (llamada.nombre === HERRAMIENTA_ENVIO) {
@@ -299,6 +338,7 @@ export function validarLlamadaVentas(
       datos.entrega,
       state.contexto.enviosActivo === true,
       ubicacionDeEntrega(config, datos.datos),
+      historial,
     );
     if (typeof envio === 'string') return { ok: false, motivo: envio };
     return {

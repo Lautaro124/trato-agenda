@@ -90,14 +90,14 @@ describe('tool calls maliciosos o mal formados (matriz C)', () => {
     expect(calendarService.cancelarEvento).toHaveBeenCalledTimes(1);
   });
 
-  it('C-009: un AIMessage con content vacío y sin tool_calls no reintenta conversacion', async () => {
+  it('C-009: un AIMessage con content vacío y sin tool_calls se reintenta una sola vez, sin bucle', async () => {
     const prisma = crearPrisma();
     const calendarService = crearCalendar();
-    const llm = crearModelo([new AIMessage('')]);
+    const llm = crearModelo([new AIMessage(''), new AIMessage('')]);
 
     await correr({ prisma, calendarService, llm });
 
-    expect(llm.invoke).toHaveBeenCalledTimes(1);
+    expect(llm.invoke).toHaveBeenCalledTimes(2);
   });
 
   it('C-010: un bucle de tool calls inválidas corta en el límite de recursión, no cuelga', async () => {

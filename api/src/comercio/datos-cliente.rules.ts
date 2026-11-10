@@ -275,8 +275,9 @@ export function validarDatosPedido(
     return {
       ok: false,
       motivo:
-        `No se puede crear el pedido todavía: ${partes.join('; ')}. Pedíselo al cliente en un solo mensaje y ` +
-        `volvé a llamar crear_pedido con todos sus datos.`,
+        `No se puede crear el pedido todavía: ${partes.join('; ')}. Si el cliente ya te lo dijo en la charla, ` +
+        `no se lo vuelvas a pedir: volvé a llamar crear_pedido ahora, con cada dato en \`datosCliente\` ` +
+        `({ campo, valor }). Si no te lo dio, pedíselo en un solo mensaje y después llamá crear_pedido con todos sus datos.`,
     };
   }
   return { ok: true, entrega, datos };

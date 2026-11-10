@@ -148,7 +148,12 @@ export function formatearResolucionEnvio(r: ResolucionEnvio, pedido: PedidoDelEn
               ? 'Si se cotiza según el pedido, preguntale qué productos quiere y avisale que el costo se lo confirmamos por este chat; no lo calcules.'
               : null,
             r.retiroEnLocal ? RETIRO : null,
-            'Pasale el costo del envío separado del de los productos: nunca los sumes vos en un total.',
+            r.modalidades.filter((m) => m.estado !== 'sin_cobertura').length > 1
+              ? 'Si el cliente ya dijo cómo lo quiere (a domicilio o retiro en sucursal), usá esa modalidad aunque la ' +
+                'otra salga más barata; si no lo dijo, preguntale cuál elige antes de cotizar el total o crear el pedido.'
+              : null,
+            'Pasale el costo del envío separado del de los productos: nunca los sumes vos. Si quiere el total con envío, ' +
+              'llamá cotizar_pedido con los productos, esta ubicación y la modalidad.',
             pedido
               ? 'Lo que falta para el envío gratis ya está calculado: usalo tal cual, no restes vos.'
               : 'Si el cliente quiere saber cuánto le falta para el envío gratis, volvé a llamar consultar_envio con ' +

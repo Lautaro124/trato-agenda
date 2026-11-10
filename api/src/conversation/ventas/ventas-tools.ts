@@ -147,6 +147,14 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
         .describe('Opcional: lo que el cliente eligió en esta charla, para darle los totales.'),
     }),
   },
+  cotizar_pedido: {
+    name: 'cotizar_pedido',
+    description:
+      'Calcula cuánto sale lo que eligió el cliente: cada producto, el subtotal, el total en un pago, en efectivo y ' +
+      'en cuotas. Usala SIEMPRE que el cliente pregunte cuánto es, el total o cuánto le queda, y antes de resumirle ' +
+      'el pedido: pasale los montos tal cual. Nunca sumes, restes ni multipliques vos importes.',
+    schema: z.object({ items: esquemaCrearPedido.shape.items }),
+  },
   crear_pedido: {
     name: 'crear_pedido',
     description:
@@ -264,7 +272,12 @@ export const esquemaConsultarEnvio = z.object({
 export const esquemaCrearPedidoConEnvio = esquemaCrearPedido.extend({
   envio: z
     .object({
-      modalidad: z.enum(MODALIDADES).describe('La modalidad que eligió el cliente, de las que devolvió consultar_envio.'),
+      modalidad: z
+        .enum(MODALIDADES)
+        .describe(
+          'La modalidad que pidió el cliente ("domicilio" o "sucursal"), de las que devolvió consultar_envio. Si no lo ' +
+            'dijo, preguntale antes; nunca la elijas vos.',
+        ),
       provincia: esquemaConsultarEnvio.shape.provincia,
       localidad: esquemaConsultarEnvio.shape.localidad,
       codigoPostal: esquemaConsultarEnvio.shape.codigoPostal,
@@ -276,14 +289,39 @@ export const esquemaCrearPedidoConEnvio = esquemaCrearPedido.extend({
     ),
 });
 
+/** cotizar_pedido con el módulo de envíos activo: además la ubicación y, si eligió, la modalidad. */
+export const ESQUEMA_COTIZAR_PEDIDO_CON_ENVIO: EsquemaHerramienta = {
+  ...ESQUEMAS_VENTAS.cotizar_pedido,
+  description:
+    `${ESQUEMAS_VENTAS.cotizar_pedido.description} Si es con envío, mandá también \`envio\` con la ubicación y, si ` +
+    'ya eligió, la modalidad: devuelve el costo del envío y el total con envío.',
+  schema: z.object({
+    items: esquemaCrearPedido.shape.items,
+    envio: z
+      .object({
+        modalidad: z
+          .enum(MODALIDADES)
+          .optional()
+          .describe('Sólo si el cliente ya dijo cómo lo quiere ("domicilio" o "sucursal"); nunca la elijas vos.'),
+        provincia: esquemaConsultarEnvio.shape.provincia,
+        localidad: esquemaConsultarEnvio.shape.localidad,
+        codigoPostal: esquemaConsultarEnvio.shape.codigoPostal,
+      })
+      .optional()
+      .describe('Sólo si es con envío: la ubicación que dio el cliente y la modalidad, si eligió.'),
+  }),
+};
+
 export const ESQUEMA_CREAR_PEDIDO_CON_ENVIO: EsquemaHerramienta = {
   ...ESQUEMAS_VENTAS.crear_pedido,
   schema: esquemaCrearPedidoConEnvio,
 };
 
-/** El esquema de una acción de ventas: crear_pedido cambia con el módulo de envíos. */
+/** El esquema de una acción de ventas: crear_pedido y cotizar_pedido cambian con el módulo de envíos. */
 export function esquemaDeAccion(id: AccionVentasId, enviosActivo: boolean): EsquemaHerramienta {
-  return id === 'crear_pedido' && enviosActivo ? ESQUEMA_CREAR_PEDIDO_CON_ENVIO : ESQUEMAS_VENTAS[id];
+  if (enviosActivo && id === 'crear_pedido') return ESQUEMA_CREAR_PEDIDO_CON_ENVIO;
+  if (enviosActivo && id === 'cotizar_pedido') return ESQUEMA_COTIZAR_PEDIDO_CON_ENVIO;
+  return ESQUEMAS_VENTAS[id];
 }
 
 export const ESQUEMA_ENVIO: EsquemaHerramienta = {
@@ -301,6 +339,7 @@ const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = [
   'ver_catalogo',
   'ver_descuentos',
   'ver_formas_de_pago',
+  'cotizar_pedido',
   'enviar_imagen_producto',
 ];
 

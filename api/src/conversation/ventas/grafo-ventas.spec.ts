@@ -456,6 +456,26 @@ describe('grafo de ventas', () => {
       await expect(entrada.cotizarEnvio(8_000_000, 'ARS')).resolves.toMatchObject({ modalidad: 'domicilio', centavos: 0 });
     });
 
+    it('si el cliente pidió sucursal, no acepta que el modelo cotice o cree el pedido a domicilio', async () => {
+      const ventas = crearVentas();
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('crear_pedido', {
+          nombreCliente: 'Juan',
+          items: [{ productoId: 'p-1', cantidad: 1 }],
+          envio: { modalidad: 'domicilio', localidad: 'Córdoba capital' },
+        }),
+        new AIMessage('¿Lo confirmamos con retiro en sucursal?'),
+      ]);
+      const resultado = await correr(
+        { prisma: crearPrisma({ agent: CON_ENVIOS, enviosActivo: true }), llm, busqueda: buscaMate(), ventas, envios: { resolver: resolverReal() } },
+        false,
+        [new HumanMessage('Quiero el mate, mandalo a una sucursal del correo en Córdoba capital')],
+      );
+      expect(ventas.crearPedido).not.toHaveBeenCalled();
+      expect(String(toolMessages(resultado.messages)[1].content)).toContain('El cliente pidió retiro en sucursal del correo');
+    });
+
     it('crear_pedido cotiza el envío con la provincia de los datos de entrega, no con la que diga el modelo', async () => {
       const resolver = resolverReal();
       const ventas = crearVentas();
@@ -1548,6 +1568,58 @@ describe('grafo de ventas', () => {
 
       expect(resultado.messages.at(-1)?.content).toBe(MENSAJE_PRECIO_SIN_VERIFICAR);
       expect(llm.invoke).toHaveBeenCalledTimes(2);
+    });
+
+    it('un monto partido en dos líneas no se escapa al quitar líneas: va la pregunta fija', async () => {
+      const respuesta = 'Dale, te anoto el mate.\nEl total te queda $\n25.000.';
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage(respuesta), new AIMessage(respuesta)]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate() });
+
+      expect(resultado.messages.at(-1)?.content).toBe(MENSAJE_PRECIO_SIN_VERIFICAR);
+    });
+
+    it('si el modelo cierra la vuelta vacío, se le da otra oportunidad antes del "¿Podés repetirlo?"', async () => {
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage(''), new AIMessage('Tengo el mate de calabaza a $ 8.000.')]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate() });
+
+      expect(resultado.messages.at(-1)?.content).toBe('Tengo el mate de calabaza a $ 8.000.');
+    });
+
+    it('si insiste a mitad de un pedido, quita sólo la línea con el monto y la charla sigue', async () => {
+      const respuesta = 'Dale, te anoto el mate.\nEl total te queda $ 25.000.\n¿Me pasás tu nombre?';
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage(respuesta), new AIMessage(respuesta)]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate() });
+
+      expect(resultado.messages.at(-1)?.content).toBe('Dale, te anoto el mate.\n¿Me pasás tu nombre?');
+    });
+
+    it('cotizar_pedido calcula el total en código y el modelo lo informa con respaldo', async () => {
+      const ventas = crearVentas();
+      ventas.cotizarFormasDePago.mockResolvedValue({
+        moneda: 'ARS',
+        renglones: [{ nombreProducto: 'Mate de calabaza', cantidad: 3, subtotalCentavos: 2_400_000 }],
+        contadoCentavos: 2_400_000,
+        efectivoCentavos: null,
+        planes: [],
+        sinCuotas: 'un_pago',
+      });
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('cotizar_pedido', { items: [{ productoId: 'p-1', cantidad: 3 }] }, 'call-cotizar'),
+        new AIMessage('Los 3 mates te quedan $ 24.000 en un pago.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), ventas });
+
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('cotizar_pedido');
+      expect(ventas.cotizarFormasDePago).toHaveBeenCalledWith('user-1', [{ productoId: 'p-1', cantidad: 3 }]);
+      expect(String(resultadoDe(resultado.messages, 'cotizar_pedido').content)).toContain('- En un pago: $ 24.000');
+      expect(resultado.messages.at(-1)?.content).toBe('Los 3 mates te quedan $ 24.000 en un pago.');
+      expect(sistemaDe(llm)).toContain('llamá cotizar_pedido');
     });
 
     it('un precio que sí devolvió la búsqueda pasa sin tocar', async () => {

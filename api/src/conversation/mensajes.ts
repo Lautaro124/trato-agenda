@@ -20,4 +20,4 @@ export const MENSAJE_CUAL_TE_INTERESA = '¿Cuál te interesa?';
 
 /** Cuando el asistente de ventas insiste con un precio que no sale del catálogo: mejor preguntar que inventar. */
 export const MENSAJE_PRECIO_SIN_VERIFICAR =
-  'No quiero pasarte un dato equivocado. ¿Me decís de nuevo qué producto buscás así lo reviso en el catálogo?';
+  'No quiero pasarte un importe equivocado. ¿Me confirmás qué productos y cuántos querés, así te paso la cotización exacta?';

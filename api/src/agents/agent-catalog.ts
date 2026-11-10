@@ -32,6 +32,7 @@ export const ACCIONES_VENTAS = {
   ver_catalogo: 'Mostrar qué productos hay (o qué categorías sugerir, si son muchos) cuando el cliente pregunta qué tenés.',
   ver_descuentos: 'Pasarle al cliente todos los descuentos y promociones vigentes cuando los pide.',
   ver_formas_de_pago: 'Contar las cuotas de los productos y el descuento en efectivo, con el total de un pedido en cada forma.',
+  cotizar_pedido: 'Pasarle al cliente cuánto sale lo que eligió (productos, envío y total), con montos calculados por el sistema.',
   crear_pedido: 'Reservar el stock de lo que el cliente eligió y generar el link de pago (o dejar el pedido a coordinar).',
   consultar_pedido: 'Contar el estado de los pedidos de esta conversación.',
   cancelar_pedido: 'Cancelar el pedido sin pagar de esta conversación y liberar su reserva.',

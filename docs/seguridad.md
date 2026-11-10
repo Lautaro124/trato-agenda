@@ -437,8 +437,8 @@ como una secuencia que el proveedor rechaza para siempre. Ahora:
   acepta productos que salieron de una búsqueda visible, y el nodo
   `verificar_respuesta` descarta una respuesta con un monto `$ …` que no sale del
   catálogo, de los pedidos ni de lo que escribió el cliente: el modelo la
-  reescribe con una nota de corrección, y si insiste se contesta
-  `MENSAJE_PRECIO_SIN_VERIFICAR` y se avisa a Sentry (warning
+  reescribe con una nota de corrección, y si insiste se quitan las líneas con esos
+  montos (si no queda nada, se contesta `MENSAJE_PRECIO_SIN_VERIFICAR`) y se avisa a Sentry (warning
   `precio-sin-respaldo`, sólo ids y la cantidad de montos, nunca el texto).
 
 ## Envío dentro del pedido (2026-11-10, LAU-102)

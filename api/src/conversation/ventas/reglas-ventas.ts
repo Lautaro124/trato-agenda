@@ -36,6 +36,8 @@ import {
 } from '../../comercio/ventas.rules.js';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { Agent, ItemVenta, Venta } from '../../generated/prisma/client.js';
+import type { Modalidad } from '../../envios/envios.rules.js';
+import { normalizar } from '../../envios/geo/normalizacion.js';
 import {
   completarPlantilla,
   instruccionMandarTalCual,
@@ -83,13 +85,30 @@ export type Monto = { moneda: Moneda; centavos: number };
  * pesos, "$1.500,50" → 150050 en pesos, "US$ 10" (o "U$S 10", "USD 10") → 1000
  * en dólares. El "$ 10" que hay dentro de "US$ 10" no cuenta como pesos.
  */
+const MONTO_CON_SIMBOLO = /(?:(US\$|U\$S|USD)|ARS|\$)\s{0,3}(\d[\d.]*)(?:,(\d{1,2}))?/gi;
+// El lookbehind impide arrancar en medio de un número: sin él, una tira larga de dígitos sin sufijo es cuadrática (ReDoS).
+const MONTO_CON_PALABRA = /(?<![\d.])(\d[\d.]*)(?:,(\d{1,2}))?\s{0,3}(?:(d[oó]lares|usd)|pesos|ars)\b/gi;
+
+function centavosDe(enteros: string, decimales: string | undefined): number {
+  return Number(enteros.replaceAll('.', '')) * 100 + Number((decimales ?? '0').padEnd(2, '0'));
+}
+
+/**
+ * También "$  5.000" (más de un espacio, o un salto de línea), "ARS 5000",
+ * "5.000 pesos", "20 dólares" y el "＄" de ancho completo (NFKC): un formato que
+ * no se reconocía era un precio que salía sin verificar.
+ */
 export function montosEnTexto(texto: string): Monto[] {
-  return [...texto.matchAll(/(?:(US\$|U\$S|USD)\s?|\$\s?)(\d[\d.]*)(?:,(\d{1,2}))?/gi)].map(
-    ([, dolares, enteros, decimales]) => ({
-      moneda: dolares ? 'USD' : 'ARS',
-      centavos: Number(enteros.replaceAll('.', '')) * 100 + Number((decimales ?? '0').padEnd(2, '0')),
-    }),
-  );
+  const normalizado = texto.normalize('NFKC');
+  const conSimbolo = [...normalizado.matchAll(MONTO_CON_SIMBOLO)].map(([, dolares, enteros, decimales]) => ({
+    moneda: (dolares ? 'USD' : 'ARS') as Moneda,
+    centavos: centavosDe(enteros, decimales),
+  }));
+  const conPalabra = [...normalizado.matchAll(MONTO_CON_PALABRA)].map(([, enteros, decimales, dolares]) => ({
+    moneda: (dolares ? 'USD' : 'ARS') as Moneda,
+    centavos: centavosDe(enteros, decimales),
+  }));
+  return [...conSimbolo, ...conPalabra];
 }
 
 const claveDeMonto = (monto: Monto) => `${monto.moneda}:${monto.centavos}`;
@@ -121,6 +140,17 @@ export function preciosSinRespaldo(respuesta: string, fuentes: string[], delClie
   );
 }
 
+/**
+ * Las líneas de una respuesta que mencionan alguno de estos montos. Si el
+ * modelo insiste con un precio sin respaldo, se quitan sólo esas líneas y el
+ * resto sale: reemplazar la respuesta entera por una pregunta fija trababa el
+ * chat a mitad de un pedido.
+ */
+export function lineasConMontos(respuesta: string, montos: Monto[]): string[] {
+  const claves = new Set(montos.map(claveDeMonto));
+  return respuesta.split('\n').filter((linea) => montosEnTexto(linea).some((monto) => claves.has(claveDeMonto(monto))));
+}
+
 /** La nota que vuelve al modelo cuando mencionó precios que no salen del catálogo. */
 export function correccionDePrecios(montos: Monto[]): string {
   return (
@@ -129,7 +159,8 @@ export function correccionDePrecios(montos: Monto[]): string {
     'que no te devolvió buscar_productos (o ver_catalogo), y escribí cada precio en la moneda en que aparece ("$" ' +
     'son pesos, "US$" son dólares). Si ese monto lo calculaste vos sumando o restando importes (por ejemplo, ' +
     'un total de producto más envío), no lo hagas: pasá cada importe por separado, tal como salió. Si el cliente pide un ' +
-    'producto, buscalo con buscar_productos; si no aparece, decile que no lo tenés. Escribí la respuesta de nuevo.'
+    'producto, buscalo con buscar_productos; si no aparece, decile que no lo tenés. Si quiere un total, llamá ' +
+    'cotizar_pedido y pasale lo que devuelve. Escribí la respuesta de nuevo.'
   );
 }
 
@@ -209,12 +240,42 @@ export function productosMostrados(resultados: string[]): Set<string> {
  * Con el módulo de envíos activo (LAU-102): costos y plazos salen sólo de
  * consultar_envio, que resuelve con las reglas vigentes del comercio.
  */
+/**
+ * Todo monto que no sea un precio de lista sale de cotizar_pedido: el modelo
+ * sólo lo informa. Cuando sumaba él, el verificador descartaba la respuesta.
+ */
+export const REGLA_COTIZACION =
+  `- Cuánto sale lo que eligió el cliente (subtotal, total, efectivo, cuotas, con envío): llamá cotizar_pedido con ` +
+  `esos productos y pasale los montos tal cual los devuelve. Nunca hagas una cuenta vos (ni sumar, ni restar, ni ` +
+  `multiplicar), tampoco para resumirle el pedido.`;
+
+const PIDE_SUCURSAL = /\b(?:sucursal|correo)\b/;
+const PIDE_DOMICILIO = /\b(?:domicilio|a (?:mi |la |su )?casa)\b/;
+
+/**
+ * La modalidad de envío que nombró el cliente por última vez ("a una sucursal
+ * del correo", "a domicilio"), o null si no nombró ninguna o nombró las dos en
+ * el mismo mensaje (una pregunta por ambas). El modelo a veces cotizaba la
+ * gratis aunque el cliente hubiera pedido la otra.
+ */
+export function modalidadQuePidio(mensajesDelCliente: string[]): Modalidad | null {
+  for (const texto of [...mensajesDelCliente].reverse()) {
+    const normalizado = normalizar(texto);
+    const sucursal = PIDE_SUCURSAL.test(normalizado);
+    const domicilio = PIDE_DOMICILIO.test(normalizado);
+    if (sucursal && domicilio) return null;
+    if (sucursal) return 'sucursal';
+    if (domicilio) return 'domicilio';
+  }
+  return null;
+}
+
 export const REGLA_ENVIOS =
   `- Costos, cobertura y plazos de envío: sólo los que devuelve consultar_envio en este mismo mensaje, llamada con ` +
   `lo que el cliente dijo de su ubicación (provincia, localidad o código postal; no le pidas la dirección completa ` +
   `para eso). Nunca los supongas ni repitas un costo de envío de antes en la charla: si el cliente cambia el ` +
   `destino o los productos, volvé a llamarla. Pasá siempre el importe de los productos y el del envío por ` +
-  `separado, nunca un total que los sumes vos (el único total con envío es el que devuelve crear_pedido); lo que falta para el envío gratis sale de consultar_envio llamada con los ` +
+  `separado, nunca un total que sumes vos: el total con envío sale de cotizar_pedido (con \`envio\`) o de crear_pedido; lo que falta para el envío gratis sale de consultar_envio llamada con los ` +
   `productos, no lo restes vos. Los plazos son estimados, nunca una fecha garantizada. Si no hay ` +
   `regla para ese destino, no digas que no llegamos: hacé lo que te indique. Al crear el pedido con envío, mandale a ` +
   `crear_pedido \`envio\` con la modalidad que eligió el cliente y la misma ubicación: si hay tarifa, el envío va ` +
@@ -266,6 +327,7 @@ export function reglasDeVenta(
     `${enviosActivo ? '' : datos.haceEnvios ? 'costos o plazos de envío, ' : 'envíos, '}formas de pago, un reclamo), pasáselo al ` +
     `equipo con derivar_consulta y decile que en un rato le escribimos por este chat.\n` +
     `- Los ids de producto son internos: nunca se los muestres al cliente.\n` +
+    `${REGLA_COTIZACION}\n` +
     `${REGLA_FOTOS_PEDIDAS}\n` +
     `${REGLA_FOTOS_SOLAS}\n` +
     `- Para vender: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, ` +

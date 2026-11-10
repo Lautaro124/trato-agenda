@@ -59,6 +59,17 @@ const capital = () => zona({ nombre: 'Córdoba capital', coberturas: [localidad(
 const restoCordoba = () => zona({ nombre: 'Resto de Córdoba', coberturas: [provincia(CORDOBA)], tarifaDomicilioCentavos: 750_000 });
 
 describe('resolverEnvio: provincia y localidad', () => {
+  it('"Capital" con la provincia es su capital: "Capital, La Rioja, CP F5300" se cotiza', () => {
+    const laRiojaCapital = zona({ nombre: 'La Rioja capital', coberturas: [localidad('46014010', '46')], tarifaDomicilioCentavos: 3_500_000 });
+    const r = resolverEnvio(config, [laRiojaCapital], { localidad: 'Capital', provincia: 'La Rioja', codigoPostal: 'F5300' }, opciones);
+    expect(r.estado).toBe('resuelto');
+    expect(r.destino).toMatchObject({ localidadId: '46014010', localidad: 'La Rioja', provinciaId: '46' });
+    expect(r.modalidades[0]).toMatchObject({ tarifaCentavos: 3_500_000 });
+    expect(resolverEnvio(config, [laRiojaCapital], { localidad: 'la capital', provincia: 'La Rioja' }, opciones).estado).toBe('resuelto');
+    // Sin la provincia no adivina cuál capital es.
+    expect(resolverEnvio(config, [laRiojaCapital], { localidad: 'Capital' }, opciones).estado).not.toBe('resuelto');
+  });
+
   it('responde directo a una provincia con regla uniforme', () => {
     const r = resolverEnvio(config, [restoCordoba()], { provincia: 'Córdoba' }, opciones);
     expect(r.estado).toBe('resuelto');
@@ -251,7 +262,7 @@ describe('resolverEnvio: estados, conflictos y condiciones', () => {
     const r = resolverEnvio(config, [z], { provincia: 'Córdoba' }, { ...opciones, subtotalCentavos: 2_000_000, monedaSubtotal: 'ARS' });
     const texto = formatearResolucionEnvio(r, pedido);
     expect(texto).toContain('le faltan $ 60.000');
-    expect(texto).toContain('nunca los sumes vos en un total');
+    expect(texto).toContain('nunca los sumes vos. Si quiere el total con envío, llamá cotizar_pedido');
     expect(texto).not.toContain('$ 25.000');
     // Lo que trababa el chat: el verificador descartaba el monto que restaba el modelo.
     expect(preciosSinRespaldo('El envío sale $ 5.000; te faltan $ 60.000 para que sea gratis.', [texto])).toEqual([]);

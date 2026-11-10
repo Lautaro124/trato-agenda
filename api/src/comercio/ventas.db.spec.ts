@@ -682,6 +682,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       const cotizacion = await ventas.cotizarFormasDePago(dueno.id, [{ productoId: sinControl, cantidad: 2 }]);
       expect(cotizacion).toEqual({
         moneda: 'ARS',
+        renglones: [{ nombreProducto: expect.any(String), cantidad: 2, subtotalCentavos: 700_000 }],
         contadoCentavos: 700_000,
         efectivoCentavos: 630_000,
         planes: [
