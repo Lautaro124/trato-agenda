@@ -19,6 +19,7 @@ type Tab =
   | "reuniones"
   | "productos"
   | "ventas"
+  | "envios"
   | "chat"
   | "chats"
   | "plan"
@@ -52,6 +53,8 @@ function pestanasDe(user: Usuario): Pestana[] {
       chats,
       { tab: "productos", href: "/productos", label: "Productos" },
       { tab: "ventas", href: "/ventas", label: "Ventas" },
+      // Zonas, tarifas y respuestas del asistente sobre envíos (LAU-102).
+      { tab: "envios", href: "/envios", label: "Envíos" },
       // Cómo les va a los productos en los chats: conversión, etapas y abandono (LAU-30).
       { tab: "rendimiento", href: "/rendimiento", label: "Rendimiento" },
       asistente,
@@ -238,7 +241,17 @@ export function AppHeader({ active, user }: { active: Tab; user: Usuario }) {
               >
                 Vinculación
               </Link>
-              {/* En el celular la barra de abajo no tiene lugar para "Rendimiento" ni "Asistente": se llega desde acá. */}
+              {/* En el celular la barra de abajo no tiene lugar para "Envíos", "Rendimiento" ni "Asistente": se llega desde acá. */}
+              {user.tipoAsistente === "ventas" && (
+                <Link
+                  href="/envios"
+                  role="menuitem"
+                  onClick={() => setMenuAbierto(false)}
+                  className={`block px-4 py-2 text-[13.5px] md:hidden ${active === "envios" ? "font-semibold text-ink" : "text-ink-secondary"} hover:bg-sunken`}
+                >
+                  Envíos
+                </Link>
+              )}
               {user.tipoAsistente === "ventas" && (
                 <Link
                   href="/rendimiento"
