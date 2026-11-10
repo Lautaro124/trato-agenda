@@ -18,7 +18,7 @@ describe('demoraDeEscritura', () => {
 
     expect(corta).toBe(1_000);
     expect(media).toBeGreaterThan(corta);
-    expect(larga).toBe(7_000);
+    expect(larga).toBe(4_000);
   });
 
   it('el azar suma hasta un 20 %, nunca resta', () => {
@@ -80,8 +80,8 @@ describe('esperaDeEscucha', () => {
     expect(esperaDeEscucha(30, 1) + ESPERA_RAFAGA_MS).toBe(34_000);
   });
 
-  it('un audio corto no espera más que la ráfaga', () => {
-    expect(esperaDeEscucha(2, 1)).toBe(0);
+  it('un audio corto no espera más que su duración y la reacción', () => {
+    expect(esperaDeEscucha(2, 1) + ESPERA_RAFAGA_MS).toBe(6_000);
     expect(esperaDeEscucha(0, 0.5)).toBe(0);
   });
 
