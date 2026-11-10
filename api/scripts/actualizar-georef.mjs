@@ -20,8 +20,22 @@ const { localidades, cantidad, total } = await leer(
 );
 if (cantidad !== total) throw new Error(`Georef devolvió ${cantidad} de ${total} localidades: subí el máximo.`);
 
+// Lo que llega de la red termina dentro de un módulo TypeScript: se valida la
+// forma de cada fila antes de escribir nada, y cualquier cosa rara corta el script.
+const ID = /^\d{2,12}$/;
+const NOMBRE = /^[\p{L}\p{M}\p{N} .,'()º°-]{1,120}$/u;
+function validar(fila, origen) {
+  const [id, nombre, ...resto] = fila;
+  const ok =
+    ID.test(id) &&
+    NOMBRE.test(nombre) &&
+    resto.every((valor, i) => (i === 0 && origen === 'localidad' ? ID.test(valor) : valor === '' || NOMBRE.test(valor)));
+  if (!ok) throw new Error(`Georef devolvió una ${origen} con un formato inesperado: ${JSON.stringify(fila).slice(0, 120)}`);
+  return fila;
+}
+
 const porNombre = (a, b) => a[1].localeCompare(b[1], 'es') || a[0].localeCompare(b[0]);
-const filasProvincias = provincias.map((p) => [p.id, p.nombre]).sort(porNombre);
+const filasProvincias = provincias.map((p) => validar([p.id, p.nombre], 'provincia')).sort(porNombre);
 // Georef repite un lugar como localidad simple (id de 8 dígitos) y como
 // componente de una localidad compuesta (10 dígitos), con el mismo nombre y
 // departamento: se queda una sola, la de id más corto. Si no, "Córdoba"
@@ -33,14 +47,13 @@ for (const l of localidades) {
   if (!previa || l.id.length < previa.id.length || (l.id.length === previa.id.length && l.id < previa.id)) unicas.set(clave, l);
 }
 const filasLocalidades = [...unicas.values()]
-  .map((l) => [l.id, l.nombre, l.provincia.id, l.departamento?.nombre ?? ''])
+  .map((l) => validar([l.id, l.nombre, l.provincia.id, l.departamento?.nombre ?? ''], 'localidad'))
   .sort(porNombre);
 
 const fecha = new Date().toISOString().slice(0, 10);
 const contenido =
   `// Generado por scripts/actualizar-georef.mjs el ${fecha}. No editar a mano.\n` +
   `// Fuente: API Georef (https://datosgobar.github.io/georef-ar-api/), CC-BY 4.0.\n` +
-  `/* eslint-disable */\n` +
   `export const FECHA_GEOREF = '${fecha}';\n\n` +
   `/** [id, nombre] */\n` +
   `export const PROVINCIAS: ReadonlyArray<readonly [string, string]> = ${JSON.stringify(filasProvincias)};\n\n` +

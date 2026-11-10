@@ -318,7 +318,7 @@ function tarifaDe(zona: ZonaRegla, modalidad: Modalidad): number | null {
 /** Lo que el cliente terminaría escuchando: dos lugares con la misma firma reciben la misma respuesta. */
 function firma(regla: Regla, modalidad: Modalidad): string {
   if (regla.tipo === 'sin_configurar') return 'sin_configurar';
-  if (regla.tipo === 'conflicto') return `conflicto:${regla.zonas.map((z) => z.id).sort().join(',')}`;
+  if (regla.tipo === 'conflicto') return `conflicto:${regla.zonas.map((z) => z.id).sort((a, b) => a.localeCompare(b)).join(',')}`;
   const z = regla.zona;
   return JSON.stringify([
     z.estado,

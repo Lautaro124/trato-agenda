@@ -280,7 +280,7 @@ export function EditorZona({
           {zona ? "Editar zona" : "Nueva zona"}
         </h2>
         <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-ink">
-          Nombre de la zona
+          <span>Nombre de la zona</span>
           <input
             value={b.zona.nombre}
             maxLength={LARGO_MAX_NOMBRE_ZONA}
@@ -298,6 +298,7 @@ export function EditorZona({
               return (
                 <label
                   key={opcion.valor}
+                  aria-label={opcion.titulo}
                   className={cn(
                     "flex cursor-pointer items-start gap-2.5 rounded-md border p-3",
                     elegida ? "border-2 border-success bg-success-subtle" : "border-line",
@@ -366,7 +367,7 @@ export function EditorZona({
             }
             className="size-4 accent-[var(--color-semantic-primary-hover)]"
           />
-          Usar como regla general para todo el país (aplica donde no haya otra zona)
+          <span>Usar como regla general para todo el país (aplica donde no haya otra zona)</span>
         </label>
       </section>
 
@@ -430,7 +431,7 @@ export function EditorZona({
                   onChange={(e) => setB((actual) => ({ ...actual, conGratis: e.target.checked }))}
                   className="size-4 accent-[var(--color-semantic-primary-hover)]"
                 />
-                Envío gratis desde un monto
+                <span>Envío gratis desde un monto</span>
               </label>
               {b.conGratis && (
                 <div className="w-56">
@@ -511,7 +512,7 @@ export function EditorZona({
             </div>
           </fieldset>
           <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-ink">
-            Aclaraciones para el cliente (opcional)
+            <span>Aclaraciones para el cliente (opcional)</span>
             <textarea
               rows={2}
               maxLength={LARGO_MAX_INSTRUCCIONES}
@@ -539,7 +540,7 @@ export function EditorZona({
             onChange={(e) => cambiarZona({ activa: e.target.checked })}
             className="size-4 accent-[var(--color-semantic-success-text)]"
           />
-          Zona activa
+          <span>Zona activa</span>
         </label>
         <div className="flex flex-wrap gap-3">
           <Button variant="ghost" onClick={onCancelar} disabled={guardando}>

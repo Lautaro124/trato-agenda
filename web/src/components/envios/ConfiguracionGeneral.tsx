@@ -63,7 +63,7 @@ export function ConfiguracionGeneral({
           <span className="rounded-md border border-line bg-sunken px-3 py-2.5 text-ink">Argentina</span>
         </div>
         <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-ink">
-          Moneda de las tarifas
+          <span>Moneda de las tarifas</span>
           <select
             value={config.moneda}
             disabled={guardando}
@@ -100,6 +100,7 @@ export function ConfiguracionGeneral({
             return (
               <label
                 key={opcion.valor}
+                aria-label={opcion.titulo}
                 className={cn(
                   "flex cursor-pointer items-start gap-2.5 rounded-md border p-3",
                   elegida ? "border-2 border-primary bg-primary-subtle" : "border-line",

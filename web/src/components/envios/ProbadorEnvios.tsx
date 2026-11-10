@@ -116,7 +116,7 @@ export function ProbadorEnvios() {
           className="flex flex-col gap-3"
         >
           <label className="flex flex-col gap-1.5 text-[14px] font-semibold text-ink">
-            Mensaje del cliente
+            <span>Mensaje del cliente</span>
             <textarea
               rows={3}
               maxLength={500}

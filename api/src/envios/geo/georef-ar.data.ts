@@ -1,7 +1,6 @@
-// Generado por scripts/actualizar-georef.mjs el 2026-11-09. No editar a mano.
+// Generado por scripts/actualizar-georef.mjs el 2026-11-10. No editar a mano.
 // Fuente: API Georef (https://datosgobar.github.io/georef-ar-api/), CC-BY 4.0.
-/* eslint-disable */
-export const FECHA_GEOREF = '2026-11-09';
+export const FECHA_GEOREF = '2026-11-10';
 
 /** [id, nombre] */
 export const PROVINCIAS: ReadonlyArray<readonly [string, string]> = [["06","Buenos Aires"],["10","Catamarca"],["22","Chaco"],["26","Chubut"],["02","Ciudad Autónoma de Buenos Aires"],["14","Córdoba"],["18","Corrientes"],["30","Entre Ríos"],["34","Formosa"],["38","Jujuy"],["42","La Pampa"],["46","La Rioja"],["50","Mendoza"],["54","Misiones"],["58","Neuquén"],["62","Río Negro"],["66","Salta"],["70","San Juan"],["74","San Luis"],["78","Santa Cruz"],["82","Santa Fe"],["86","Santiago del Estero"],["94","Tierra del Fuego, Antártida e Islas del Atlántico Sur"],["90","Tucumán"]];
