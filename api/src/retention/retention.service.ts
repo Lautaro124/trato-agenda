@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import {
   DIAS_RETENCION_AVISOS_LEIDOS,
+  DIAS_RETENCION_CONSULTAS_ENVIO,
   DIAS_RETENCION_DATOS_CLIENTE,
   DIAS_RETENCION_MENSAJES,
   DIAS_RETENCION_SUGERENCIAS,
@@ -60,6 +61,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       const sugerencias = await this.purgarSugerencias();
       const performance = await this.desligarPerformance();
       const preguntas = await this.purgarPreguntas();
+      const envios = await this.purgarConsultasEnvio();
       if (
         mensajes > 0 ||
         anonimizadas > 0 ||
@@ -68,13 +70,14 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
         altas > 0 ||
         sugerencias > 0 ||
         performance > 0 ||
-        preguntas > 0
+        preguntas > 0 ||
+        envios > 0
       ) {
         this.logger.log(
           `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
             `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas, ` +
             `${sugerencias} sugerencias ya enviadas borradas, ${performance} registros de performance desligados, ` +
-            `${preguntas} preguntas de clientes sin texto.`,
+            `${preguntas} preguntas de clientes sin texto, ${envios} consultas de envío sin resolver borradas.`,
         );
       }
     } catch (error) {
@@ -212,6 +215,14 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
         OR: [{ createdAt: { lt: fechaLimite(DIAS_RETENCION_MENSAJES, ahora) } }, { etapaChat: { conversationId: null } }],
       },
       data: { texto: null },
+    });
+    return count;
+  }
+
+  /** Consultas de envío sin resolver de hace más de `DIAS_RETENCION_CONSULTAS_ENVIO`. */
+  private async purgarConsultasEnvio(ahora: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.consultaEnvioSinResolver.deleteMany({
+      where: { createdAt: { lt: fechaLimite(DIAS_RETENCION_CONSULTAS_ENVIO, ahora) } },
     });
     return count;
   }

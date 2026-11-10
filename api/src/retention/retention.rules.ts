@@ -39,6 +39,13 @@ export const DIAS_RETENCION_AVISOS_LEIDOS = 90;
 export const DIAS_RETENCION_SUGERENCIAS = 90;
 
 /**
+ * Consultas de envío que el asistente no pudo responder (LAU-102): sólo la
+ * ubicación normalizada y el motivo, para que el dueño vea qué le falta
+ * configurar. El panel muestra los últimos 30 días.
+ */
+export const DIAS_RETENCION_CONSULTAS_ENVIO = 90;
+
+/**
  * Alta por WhatsApp que nunca escaneó el QR: un usuario sin Google ni
  * teléfono. No tiene datos de nadie, pero sí un socket y una fila; a la hora
  * se descarta (la cookie del alta vence a los 15 minutos).

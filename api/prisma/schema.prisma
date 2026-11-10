@@ -73,6 +73,9 @@ model User {
   etapasChat        EtapaChat[]
   interesProductos  InteresProducto[]
   preguntasChat     PreguntaChat[]
+  configEnvios      ConfiguracionEnvios?
+  zonasEnvio        ZonaEnvio[]
+  consultasEnvio    ConsultaEnvioSinResolver[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -873,4 +876,96 @@ model PreguntaChat {
 
   @@index([userId, createdAt])
   @@index([etapaChatId])
+}
+
+/// Módulo de envíos de un comercio (LAU-102). Si hace envíos o retiro sigue
+/// en `Agent.haceEnvios` y `Agent.local.retiroEnLocal`; acá sólo lo que usa el
+/// resolvedor (src/envios/envios.rules.ts). Sin fila = módulo apagado.
+model ConfiguracionEnvios {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  activo    Boolean @default(false)
+  /// Sólo "AR" por ahora. Explícito: no se asume un país si no se eligió.
+  pais      String  @default("AR")
+  /// Moneda de todas las tarifas y umbrales: "ARS" | "USD".
+  moneda    String  @default("ARS")
+  /// Qué hace el asistente si un destino no tiene regla: "cotizar_aparte" | "derivar".
+  sinTarifa String  @default("derivar")
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Una zona de envío: dónde aplica (CoberturaZona) y qué se responde ahí.
+model ZonaEnvio {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  nombre String
+  activa Boolean @default(true)
+  /// "tarifa" | "cotizacion" | "sin_cobertura"
+  estado String
+
+  /// Modalidades que ofrece (no aplican a "sin_cobertura").
+  domicilio Boolean @default(false)
+  sucursal  Boolean @default(false)
+  /// Null = sin precio; 0 = sin cargo, explícito.
+  tarifaDomicilioCentavos Int?
+  tarifaSucursalCentavos  Int?
+  /// Gratis desde este subtotal de productos (inclusive). Null = nunca.
+  gratisDesdeCentavos     Int?
+
+  /// Plazos estimados en días hábiles.
+  preparacionDias     Int?
+  transporteDesdeDias Int?
+  transporteHastaDias Int?
+  /// "lun" … "dom"
+  diasDespacho        String[] @default([])
+  instrucciones       String?
+
+  coberturas CoberturaZona[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+/// Un lugar que cubre una zona. Los ids son los de Georef (src/envios/geo).
+/// Un CP lleva la provincia que eligió el dueño (o la de su letra CPA) y,
+/// opcionalmente, la localidad: no hay catálogo CP → localidad.
+model CoberturaZona {
+  id     String    @id @default(cuid())
+  zonaId String
+  zona   ZonaEnvio @relation(fields: [zonaId], references: [id], onDelete: Cascade)
+
+  /// "cp" | "localidad" | "provincia" | "pais"
+  nivel       String
+  provinciaId String?
+  localidadId String?
+  /// Cuatro dígitos, sin letra ni sufijo.
+  cp          String?
+
+  @@index([zonaId])
+}
+
+/// Una consulta de envío que el asistente no pudo responder, para que el
+/// dueño vea qué le falta configurar. Sin conversación, dirección ni teléfono:
+/// sólo la ubicación normalizada. Se borra a los 90 días (retention.rules.ts).
+model ConsultaEnvioSinResolver {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "sin_configurar" | "conflicto" | "ambigua" | "contradiccion" | "error"
+  motivo      String
+  provinciaId String?
+  localidadId String?
+  cp          String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }

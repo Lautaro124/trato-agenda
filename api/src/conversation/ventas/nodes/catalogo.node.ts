@@ -42,6 +42,10 @@ import {
   yaSeHablaronDescuentos,
 } from '../reglas-ventas.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
+import type { EnviosService } from '../../../envios/envios.service.js';
+import { formatearResolucionEnvio } from '../../../envios/envios.respuesta.js';
+import type { ConsultaEnvio } from '../../../envios/envios.rules.js';
+import { artifactDeEnvio } from '../envios-de-la-vuelta.js';
 
 export type DepsCatalogo = {
   busqueda: Pick<BusquedaService, 'buscar'>;
@@ -50,6 +54,8 @@ export type DepsCatalogo = {
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
+  /** Módulo de envíos (LAU-102): el resolvedor de tarifas. Sin él (evals), consultar_envio no se ofrece. */
+  envios?: Pick<EnviosService, 'resolver'>;
   /** Módulo de performance (LAU-30): qué productos vio o pidió el chat y si se derivó. Sin él (evals), nada. */
   registro?: Pick<
     RegistroPerformanceService,
@@ -58,7 +64,10 @@ export type DepsCatalogo = {
 };
 
 /** Lo que vuelve al modelo y, si hay fotos aprobadas, lo que la fachada le manda al cliente. */
-type Resultado = string | { texto: string; imagen: ImagenAEnviar | ImagenAEnviar[] };
+type Resultado =
+  | string
+  | { texto: string; imagen: ImagenAEnviar | ImagenAEnviar[] }
+  | { texto: string; artifact: ReturnType<typeof artifactDeEnvio> };
 
 /**
  * Las fotos que salen solas con el listado de ver_catalogo, sea la lista
@@ -193,6 +202,38 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     }
   }
 
+  /**
+   * Costo y plazo de envío con las reglas vigentes del comercio. El subtotal
+   * para el envío gratis sale de la cotización del sistema (con las promos de
+   * los productos, sin recargo de cuotas ni descuento en efectivo), nunca de
+   * un número del modelo.
+   */
+  async function consultarEnvio(state: EstadoVentasValue, args: Args): Promise<Resultado> {
+    if (!deps.envios) return 'Las tarifas de envío no están disponibles: el envío se coordina por este chat.';
+    let subtotalCentavos: number | null = null;
+    let monedaSubtotal: string | null = null;
+    if (Array.isArray(args.items) && args.items.length > 0) {
+      try {
+        const cotizacion = await deps.ventas.cotizarFormasDePago(state.ownerUserId, args.items as ItemPedido[]);
+        subtotalCentavos = cotizacion.contadoCentavos;
+        monedaSubtotal = cotizacion.moneda;
+      } catch (error) {
+        if (!(error instanceof PedidoRechazadoError)) throw error;
+      }
+    }
+    const consulta: ConsultaEnvio = {
+      ...(typeof args.provincia === 'string' ? { provincia: args.provincia } : {}),
+      ...(typeof args.localidad === 'string' ? { localidad: args.localidad } : {}),
+      ...(typeof args.codigoPostal === 'string' ? { codigoPostal: args.codigoPostal } : {}),
+    };
+    const resolucion = await deps.envios.resolver(state.ownerUserId, consulta, {
+      subtotalCentavos,
+      monedaSubtotal,
+      registrar: !state.esPropietario,
+    });
+    return { texto: formatearResolucionEnvio(resolucion), artifact: artifactDeEnvio(resolucion) };
+  }
+
   async function derivarConsulta(state: EstadoVentasValue, args: Args): Promise<string> {
     const { agent, conversation } = state.contexto;
     const titular = agent.nombreTitular || 'el negocio';
@@ -325,6 +366,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         return crearPedido(state, args);
       case 'derivar_consulta':
         return derivarConsulta(state, args);
+      case 'consultar_envio':
+        return consultarEnvio(state, args);
       case 'listar_ventas':
       case 'resumen_ventas':
         return historicoDeVentas(state, operacion);
@@ -358,7 +401,12 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         logger.error(`Falló ${operacion.nombre} en la conversación ${state.contexto.conversation.id}: ${(error as Error).message}`);
         resultado = MENSAJE_CATALOGO_CAIDO;
       }
-      const [texto, artifact] = typeof resultado === 'string' ? [resultado, undefined] : [resultado.texto, resultado.imagen];
+      const [texto, artifact] =
+        typeof resultado === 'string'
+          ? [resultado, undefined]
+          : 'imagen' in resultado
+            ? [resultado.texto, resultado.imagen]
+            : [resultado.texto, resultado.artifact];
       // `artifact` no lo ve el modelo: lo levanta la fachada (imagenes-de-la-vuelta.ts).
       mensajes.push(new ToolMessage({ content: texto, tool_call_id: operacion.id, name: operacion.nombre, artifact }));
     }
