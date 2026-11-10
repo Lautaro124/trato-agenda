@@ -21,6 +21,7 @@ import {
   montosEnTexto,
   OFERTA_DE_DESCUENTOS,
   preciosSinRespaldo,
+  correccionDePrecios,
   reglaDeFormasDePago,
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
@@ -124,6 +125,13 @@ describe('precios con descuento', () => {
     expect(preciosSinRespaldo('Sale $ 10.000, con 20% off te queda en $ 8.000: ahorrás $ 2.000.', fuentes)).toEqual([]);
     expect(preciosSinRespaldo('Te lo dejo en $ 7.000.', fuentes)).toEqual([pesos(700_000)]);
   });
+
+  it('un total sumado por el modelo no tiene respaldo y la corrección le dice que pase cada importe aparte', () => {
+    const fuentes = ['- precio: $ 200.000', '- Retiro en sucursal del correo: cuesta $ 35.000.'];
+    const sinRespaldo = preciosSinRespaldo('Esquinero $ 200.000 + envío $ 35.000: total $ 235.000.', fuentes);
+    expect(sinRespaldo).toEqual([pesos(23_500_000)]);
+    expect(correccionDePrecios(sinRespaldo)).toContain('pasá cada importe por separado');
+  });
 });
 
 describe('formatearStockDueno', () => {
@@ -171,6 +179,20 @@ describe('formatearPedidoCreado', () => {
     expect(formatearPedidoCreado(AGENT, VENTA)).toBe(
       'Pedido creado para "Juan": 2 × Mate ($ 16.000). Total $ 16.000. Link de pago (mandáselo tal cual): ' +
         'https://mp/pagar — vale hasta las 17:42; si no paga antes, el pedido se libera.',
+    );
+  });
+
+  it('con el envío en el pedido lo muestra aparte antes del total y avisa que va en el link', () => {
+    const venta = { ...(VENTA as object), entrega: 'envio', envioModalidad: 'sucursal', envioCentavos: 3_500_000, totalCentavos: 5_100_000 } as never;
+    const texto = formatearPedidoCreado(AGENT, venta);
+    expect(texto).toContain('2 × Mate ($ 16.000). Envío a sucursal del correo: $ 35.000. Total $ 51.000.');
+    expect(texto).toContain('El envío ya está incluido en el total y en el link de pago');
+    const aparte = formatearPedidoCreado(AGENT, { ...(VENTA as object), entrega: 'envio', envioModalidad: null } as never);
+    expect(aparte).toContain('no van en este total');
+    // El mensaje propio del dueño dice de dónde sale el total: el detalle lleva el envío.
+    const agent = { nombreTitular: 'Sofás', mensajes: { linkPago: { modo: 'propio', texto: '{detalle} por {total}: {link}' } } } as never;
+    expect(formatearPedidoCreado(agent, venta)).toContain(
+      '"2 × Mate ($ 16.000), envío a sucursal del correo ($ 35.000) por $ 51.000: https://mp/pagar"',
     );
   });
 

@@ -123,6 +123,16 @@ export function DetalleVenta({
                 <td className="py-2 text-right text-ink tabular-nums">{formatearMonto(item.subtotalCentavos, venta.moneda)}</td>
               </tr>
             ))}
+            {venta.envioModalidad && (
+              <tr className="border-b border-line">
+                <td className="py-2 text-ink">
+                  {venta.envioModalidad === "sucursal" ? "Envío a sucursal del correo" : "Envío a domicilio"}
+                </td>
+                <td className="py-2 text-right text-ink tabular-nums">
+                  {venta.envioCentavos > 0 ? formatearMonto(venta.envioCentavos, venta.moneda) : "Gratis"}
+                </td>
+              </tr>
+            )}
             <tr>
               <td className="pt-2 font-semibold text-ink">Total</td>
               <td className="pt-2 text-right font-semibold text-ink tabular-nums">{totalDeVenta(venta)}</td>
@@ -153,7 +163,13 @@ export function DetalleVenta({
           {venta.entrega && (
             <>
               <dt className="text-muted">Entrega</dt>
-              <dd className="text-ink">{venta.entrega === "envio" ? "Con envío" : "Lo retira"}</dd>
+              <dd className="text-ink">
+                {venta.entrega !== "envio"
+                  ? "Lo retira"
+                  : venta.envioModalidad
+                    ? "Con envío, incluido en el total"
+                    : "Con envío, a coordinar aparte"}
+              </dd>
             </>
           )}
           {/* `?? []`: una venta cacheada de antes de este campo no lo trae. */}

@@ -3,7 +3,7 @@
  * campanita del panel y a su propio chat de WhatsApp.
  */
 import { formatearMonto } from '../comercio/catalogo.rules.js';
-import { detalleDeRenglones, fechaYHora, type RenglonVenta } from '../comercio/ventas.rules.js';
+import { detalleDePedido, fechaYHora, type RenglonVenta } from '../comercio/ventas.rules.js';
 
 export const TIPOS_NOTIFICACION = [
   'venta_pagada',
@@ -42,6 +42,9 @@ type VentaAvisable = {
   /** "efectivo" | "cuotas" (LAU-34); ausente o null = contado. */
   formaPago?: string | null;
   cuotas?: number | null;
+  /** Envío que va en el pedido (LAU-102); ausente = sin envío en el total. */
+  envioModalidad?: string | null;
+  envioCentavos?: number;
   reservaVenceAt: Date | null;
   sinStockAlPagar: boolean;
   dePrueba: boolean;
@@ -81,7 +84,7 @@ export function avisoVentaPagada(venta: VentaAvisable): Aviso {
     tipo: 'venta_pagada',
     titulo: `${prueba(venta)}Venta pagada: ${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)}`,
     cuerpo:
-      `${quien(venta)} pagó ${detalleDeRenglones(venta.items, venta.moneda)} por Mercado Pago. ` +
+      `${quien(venta)} pagó ${detalleDePedido(venta)} por Mercado Pago. ` +
       `Coordiná la entrega por WhatsApp.${entrega(venta)}${alerta}`,
     enlace: `/ventas?venta=${venta.id}`,
   };
@@ -92,7 +95,7 @@ export function avisoPedidoManual(venta: VentaAvisable): Aviso {
     tipo: 'pedido_manual',
     titulo: `${prueba(venta)}Pedido para cobrar: ${formatearMonto(venta.totalCentavos ?? 0, venta.moneda)}`,
     cuerpo:
-      `${quien(venta)} pidió ${detalleDeRenglones(venta.items, venta.moneda)}.` +
+      `${quien(venta)} pidió ${detalleDePedido(venta)}.` +
       (venta.reservaVenceAt ? ` Queda reservado hasta el ${fechaYHora(venta.reservaVenceAt)}.` : '') +
       `${formaDePago(venta)} Cobrale por WhatsApp y marcalo pagado en Ventas.${entrega(venta)}` +
       (venta.atencion === 'humana' ? ` ${PAUSA_HASTA_QUE_ACTUES}` : ''),

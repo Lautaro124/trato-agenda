@@ -716,3 +716,17 @@ export function resolucionConError(config: ConfigRegla | null, retiroEnLocal: bo
   const cfg: ConfigRegla = config ?? { activo: true, pais: 'AR', moneda: 'ARS', sinTarifa: 'derivar' };
   return vacia('error', cfg, { retiroEnLocal });
 }
+
+/**
+ * Lo que se cobra de envío dentro del pedido (y del link de pago): la tarifa
+ * de esa modalidad, 0 si ya es gratis. null cuando no hay una tarifa fija y
+ * confiable para cobrar (falta un dato, se cotiza según el pedido, no hay
+ * regla, no llega, hay conflicto) o cuando es de otra moneda que el pedido: en
+ * esos casos el link cobra sólo los productos y el envío se coordina aparte.
+ */
+export function envioParaCobrar(r: ResolucionEnvio, modalidad: Modalidad, moneda: string): number | null {
+  if (r.estado !== 'resuelto') return null;
+  const m = r.modalidades.find((candidata) => candidata.modalidad === modalidad);
+  if (!m || m.estado !== 'tarifa' || m.tarifaCentavos === null || m.moneda !== moneda) return null;
+  return m.tarifaCentavos;
+}

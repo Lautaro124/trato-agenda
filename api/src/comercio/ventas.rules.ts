@@ -181,6 +181,25 @@ export function detalleDeRenglones(items: RenglonVenta[], moneda: string = 'ARS'
     .join(', ');
 }
 
+/**
+ * Lo que suma el total de un pedido: los renglones y, si va en el pedido, el
+ * envío ("…, envío a sucursal del correo ($ 35.000)"). Así un mensaje que dice
+ * el total también dice de dónde sale.
+ */
+export function detalleDePedido(venta: {
+  items: RenglonVenta[];
+  moneda?: string;
+  envioModalidad?: string | null;
+  envioCentavos?: number;
+}): string {
+  const moneda = venta.moneda ?? 'ARS';
+  const renglones = detalleDeRenglones(venta.items, moneda);
+  if (!venta.envioModalidad) return renglones;
+  const nombre = venta.envioModalidad === 'sucursal' ? 'envío a sucursal del correo' : 'envío a domicilio';
+  const costo = (venta.envioCentavos ?? 0) > 0 ? formatearMonto(venta.envioCentavos ?? 0, moneda) : 'gratis';
+  return `${renglones}, ${nombre} (${costo})`;
+}
+
 const PARTES_FECHA = new Intl.DateTimeFormat('es-AR', {
   timeZone: 'America/Argentina/Buenos_Aires',
   weekday: 'long',

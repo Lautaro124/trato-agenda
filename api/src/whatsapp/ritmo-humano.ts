@@ -10,9 +10,11 @@
  * Silencio que se espera después del último mensaje del cliente antes de
  * contestar: la gente escribe en ráfagas. Cada mensaje nuevo reinicia la
  * cuenta. Si WhatsApp avisa que está escribiendo, además se espera a que pare
- * (ESPERA_TRAS_ESCRIBIR_MS); si no avisa, queda sólo este silencio.
+ * (ESPERA_TRAS_ESCRIBIR_MS); si no avisa, queda sólo este silencio. Corto
+ * para no demorar: si el cliente manda otro mensaje después, la respuesta a
+ * medio armar se descarta y se rehace (MAX_CANCELACIONES_POR_RAFAGA).
  */
-export const ESPERA_RAFAGA_MS = 8_000;
+export const ESPERA_RAFAGA_MS = 4_000;
 
 /** Después de que el cliente deja de escribir, lo que se le da por si retoma antes de contestar. */
 export const ESPERA_TRAS_ESCRIBIR_MS = 2_000;
@@ -66,10 +68,10 @@ export const MAX_CARACTERES_RAFAGA = 4_000;
 /** WhatsApp borra el "escribiendo…" a los ~10 s si no se renueva. */
 export const RENOVAR_ESCRIBIENDO_MS = 8_000;
 
-/** Velocidad de tipeo simulada: unos 30 caracteres por segundo, rápida pero creíble en un celular. */
-const MS_POR_CARACTER = 33;
+/** Velocidad de tipeo simulada: unos 50 caracteres por segundo, rápida pero creíble en un celular. */
+const MS_POR_CARACTER = 20;
 const DEMORA_MINIMA_MS = 1_000;
-const DEMORA_MAXIMA_MS = 7_000;
+const DEMORA_MAXIMA_MS = 4_000;
 
 /** Como mucho tantos mensajes por respuesta: más que eso ya parece un spam de burbujas. */
 export const MAX_PARTES = 3;

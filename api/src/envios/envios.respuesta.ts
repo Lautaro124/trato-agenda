@@ -54,8 +54,17 @@ function plazoEnTexto(m: ResolucionModalidad): string | null {
   return `demora ${rango} días hábiles (estimado, no es una fecha garantizada)`;
 }
 
-function lineaModalidad(m: ResolucionModalidad): string {
+/**
+ * El subtotal de productos del pedido que se consultó, cuando se conoce: con
+ * él, lo que falta para el envío gratis sale calculado de acá. Si el modelo lo
+ * restaba solo, verificar-respuesta no encontraba ese monto y descartaba la
+ * respuesta. Productos y envío se informan siempre por separado, sin total.
+ */
+export type PedidoDelEnvio = { subtotalCentavos: number; moneda: string };
+
+function lineaModalidad(m: ResolucionModalidad, pedido: PedidoDelEnvio | null): string {
   const nombre = NOMBRE_MODALIDAD[m.modalidad];
+  const subtotal = pedido && pedido.moneda === m.moneda ? pedido.subtotalCentavos : null;
   if (m.estado === 'sin_cobertura') return `- ${nombre}: no llegamos a ese destino.`;
   if (m.estado === 'conflicto') return `- ${nombre}: no hay una tarifa confiable para ese destino.`;
   if (m.estado === 'sin_configurar') return `- ${nombre}: sin tarifa cargada para ese destino; no lo ofrezcas.`;
@@ -71,7 +80,8 @@ function lineaModalidad(m: ResolucionModalidad): string {
     const desde = formatearMonto(m.gratis.desdeCentavos, m.moneda);
     detalles.push(
       m.gratis.aplica === 'no'
-        ? `es gratis en compras desde ${desde} y este pedido todavía no llega`
+        ? `es gratis en compras desde ${desde} y este pedido todavía no llega` +
+            (subtotal === null ? '' : ` (le faltan ${formatearMonto(m.gratis.desdeCentavos - subtotal, m.moneda)})`)
         : `es gratis en compras desde ${desde} (sin el pedido armado no sabés si llega: contá la condición, no digas que es gratis)`,
     );
   }
@@ -93,7 +103,7 @@ function sinTarifa(r: ResolucionEnvio, motivo: string): string {
 
 const NOMBRE_FALTANTE = { provincia: 'la provincia', localidad: 'la localidad', codigo_postal: 'el código postal' } as const;
 
-export function formatearResolucionEnvio(r: ResolucionEnvio): string {
+export function formatearResolucionEnvio(r: ResolucionEnvio, pedido: PedidoDelEnvio | null = null): string {
   switch (r.estado) {
     case 'inactivo':
       return 'El negocio no cargó tarifas de envío: el envío se coordina por este chat. No prometas costos ni plazos.';
@@ -129,7 +139,7 @@ export function formatearResolucionEnvio(r: ResolucionEnvio): string {
       return sinTarifa(r, `No hay una regla de envío cargada para ${destinoEnTexto(r)}.`);
     case 'resuelto': {
       const todasSinCobertura = r.modalidades.every((m) => m.estado === 'sin_cobertura');
-      const lineas = r.modalidades.map(lineaModalidad);
+      const lineas = r.modalidades.map((m) => lineaModalidad(m, pedido));
       const cierre = todasSinCobertura
         ? `No hacemos envíos a ${destinoEnTexto(r)}.${r.retiroEnLocal ? ` ${RETIRO}` : ' No ofrezcas otra alternativa.'}`
         : [
@@ -137,8 +147,14 @@ export function formatearResolucionEnvio(r: ResolucionEnvio): string {
               ? 'Si se cotiza según el pedido, preguntale qué productos quiere y avisale que el costo se lo confirmamos por este chat; no lo calcules.'
               : null,
             r.retiroEnLocal ? RETIRO : null,
-            'Pasale sólo estas opciones y estos importes, con los plazos como estimados. El link de pago no incluye el ' +
-              'envío: se paga aparte. Pagar al recibir no hace gratis el envío. Si el cliente cambia el destino o los ' +
+            'Pasale el costo del envío separado del de los productos: nunca los sumes vos en un total.',
+            pedido
+              ? 'Lo que falta para el envío gratis ya está calculado: usalo tal cual, no restes vos.'
+              : 'Si el cliente quiere saber cuánto le falta para el envío gratis, volvé a llamar consultar_envio con ' +
+                'los productos: no restes vos.',
+            'Pasale sólo estas opciones y estos importes, con los plazos como estimados. Si arma el pedido, el envío va ' +
+              'en el mismo link de pago: mandale a crear_pedido `envio` con la modalidad que elija y esta ubicación. ' +
+              'Pagar al recibir no hace gratis el envío. Si el cliente cambia el destino o los ' +
               'productos, volvé a llamar consultar_envio.',
           ]
             .filter(Boolean)
