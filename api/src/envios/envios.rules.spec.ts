@@ -286,6 +286,22 @@ describe('resolverEnvio: estados, conflictos y condiciones', () => {
   });
 });
 
+describe('resolverEnvio: costo acotado', () => {
+  it('con el máximo de lugares por cuenta responde rápido', () => {
+    // 4 zonas × 500 CP dentro de Córdoba, con tarifas distintas: el peor caso para una consulta por provincia.
+    const zonas = Array.from({ length: 4 }, (_, z) =>
+      zona({
+        coberturas: Array.from({ length: 500 }, (_, i) => cp(String(1000 + z * 500 + i), CORDOBA)),
+        tarifaDomicilioCentavos: 100_000 * (z + 1),
+      }),
+    );
+    const inicio = performance.now();
+    const r = resolverEnvio(config, [...zonas, restoCordoba()], { provincia: 'Córdoba' }, opciones);
+    expect(r.estado).toBe('falta_dato');
+    expect(performance.now() - inicio).toBeLessThan(3_000);
+  });
+});
+
 describe('validarZona', () => {
   const base: DatosZona = {
     nombre: 'Córdoba capital',

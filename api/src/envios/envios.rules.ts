@@ -35,6 +35,12 @@ export const LARGO_MAX_NOMBRE_ZONA = 60;
 export const LARGO_MAX_INSTRUCCIONES = 300;
 export const MAX_ZONAS = 200;
 export const MAX_COBERTURAS = 500;
+/**
+ * Tope de lugares entre todas las zonas de una cuenta: el resolvedor compara
+ * cada lugar con los demás (cuadrático), y una sola cuenta no puede trabar la
+ * API que atiende a todas.
+ */
+export const MAX_COBERTURAS_POR_CUENTA = 2_000;
 export const MAX_DIAS_PLAZO = 365;
 /** $100.000.000 en centavos: más que eso es un error de tipeo. */
 export const MAX_IMPORTE_CENTAVOS = 10_000_000_000;
@@ -372,10 +378,19 @@ function evaluarParcial(
 ): { uniforme: true } | { uniforme: false; faltante: Faltante; distintos: string[] } {
   const base = firmaPunto(zonas, modalidades, d);
   const distintas: CoberturaRegla[] = [];
+  // Cada lugar posible se evalúa una sola vez aunque lo cubran varias zonas.
+  const firmas = new Map<string, string>();
   for (const zona of zonas) {
     for (const c of zona.coberturas) {
       if (!puedeCaerDentro(c, d)) continue;
-      if (firmaPunto(zonas, modalidades, completar(d, c)) !== base) distintas.push(c);
+      const punto = completar(d, c);
+      const clave = `${punto.provinciaId}|${punto.localidadId}|${punto.cp}`;
+      let firmaDelPunto = firmas.get(clave);
+      if (firmaDelPunto === undefined) {
+        firmaDelPunto = firmaPunto(zonas, modalidades, punto);
+        firmas.set(clave, firmaDelPunto);
+      }
+      if (firmaDelPunto !== base) distintas.push(c);
     }
   }
   if (distintas.length === 0) return { uniforme: true };

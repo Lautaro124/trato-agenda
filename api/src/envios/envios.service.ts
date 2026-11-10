@@ -6,6 +6,7 @@ import { FECHA_GEOREF } from './geo/georef-ar.data.js';
 import { buscarUbicaciones, localidadPorIdOrNull, provinciaPorIdOrNull, type Ubicacion } from './geo/catalogo.js';
 import {
   ACCIONES_SIN_TARIFA,
+  MAX_COBERTURAS_POR_CUENTA,
   MAX_ZONAS,
   MONEDAS_ENVIO,
   PAISES_ENVIO,
@@ -182,6 +183,10 @@ export class EnviosService {
           throw new ZonaInvalidaError(`Podés tener hasta ${MAX_ZONAS} zonas.`);
         }
         id = (await tx.zonaEnvio.create({ data: { ...fila, userId, activa: false }, select: { id: true } })).id;
+      }
+      const deOtrasZonas = await tx.coberturaZona.count({ where: { zona: { userId }, zonaId: { not: id } } });
+      if (deOtrasZonas + validacion.coberturas.length > MAX_COBERTURAS_POR_CUENTA) {
+        throw new ZonaInvalidaError(`Entre todas tus zonas podés cargar hasta ${MAX_COBERTURAS_POR_CUENTA} lugares.`);
       }
       await tx.coberturaZona.createMany({ data: validacion.coberturas.map((c) => ({ ...c, zonaId: id })) });
       return this.activarSiNoChoca(tx, userId, id, datos.activa);
