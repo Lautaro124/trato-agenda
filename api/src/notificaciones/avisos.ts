@@ -45,6 +45,8 @@ type VentaAvisable = {
   /** Envío que va en el pedido (LAU-102); ausente = sin envío en el total. */
   envioModalidad?: string | null;
   envioCentavos?: number;
+  /** Con qué destino se cotizó ese envío. */
+  envioDestino?: string | null;
   reservaVenceAt: Date | null;
   sinStockAlPagar: boolean;
   dePrueba: boolean;
@@ -61,7 +63,13 @@ function formaDePago(venta: Pick<VentaAvisable, 'formaPago' | 'cuotas'>): string
   return '';
 }
 
-function entrega(venta: Pick<VentaAvisable, 'entrega'>): string {
+function entrega(venta: Pick<VentaAvisable, 'entrega' | 'envioDestino'>): string {
+  if (venta.entrega === 'envio' && venta.envioDestino) {
+    return (
+      ` Es con envío, cotizado para ${venta.envioDestino}: antes de despachar, revisá en Ventas que coincida con ` +
+      'la dirección.'
+    );
+  }
   if (venta.entrega === 'envio') return ' Es con envío: los datos están en Ventas.';
   if (venta.entrega === 'retiro') return ' Lo retira.';
   return '';

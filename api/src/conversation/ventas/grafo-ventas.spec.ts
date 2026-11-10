@@ -442,14 +442,49 @@ describe('grafo de ventas', () => {
         { entrega: string; cotizarEnvio: (subtotal: number, moneda: string) => Promise<unknown> },
       ];
       expect(entrada.entrega).toBe('envio');
-      await expect(entrada.cotizarEnvio(1_000_000, 'ARS')).resolves.toEqual({ modalidad: 'domicilio', centavos: 500_000 });
+      await expect(entrada.cotizarEnvio(1_000_000, 'ARS')).resolves.toEqual({
+        modalidad: 'domicilio',
+        centavos: 500_000,
+        destino: expect.stringContaining('Córdoba'),
+      });
       expect(resolver).toHaveBeenLastCalledWith(
         'user-1',
         { localidad: 'Córdoba capital' },
         { subtotalCentavos: 1_000_000, monedaSubtotal: 'ARS', registrar: false },
       );
       // Llega al envío gratis: va en el pedido sin cargo.
-      await expect(entrada.cotizarEnvio(8_000_000, 'ARS')).resolves.toEqual({ modalidad: 'domicilio', centavos: 0 });
+      await expect(entrada.cotizarEnvio(8_000_000, 'ARS')).resolves.toMatchObject({ modalidad: 'domicilio', centavos: 0 });
+    });
+
+    it('crear_pedido cotiza el envío con la provincia de los datos de entrega, no con la que diga el modelo', async () => {
+      const resolver = resolverReal();
+      const ventas = crearVentas();
+      ventas.crearPedido.mockResolvedValue(VENTA);
+      const conProvincia = { ...CON_ENVIOS, datosCliente: [{ tipo: 'provincia', obligatorio: true }] };
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('crear_pedido', {
+          nombreCliente: 'Juan',
+          items: [{ productoId: 'p-1', cantidad: 1 }],
+          // Cotiza con Córdoba capital, pero la entrega es en Mendoza.
+          envio: { modalidad: 'domicilio', localidad: 'Córdoba capital' },
+          datosCliente: [{ campo: 'Provincia', valor: 'Mendoza' }],
+        }),
+        new AIMessage('Listo.'),
+      ]);
+      await correr({
+        prisma: crearPrisma({ agent: conProvincia, enviosActivo: true }),
+        llm,
+        busqueda: buscaMate(),
+        ventas,
+        envios: { resolver },
+      });
+      const [entrada] = ventas.crearPedido.mock.calls[0] as unknown as [
+        { cotizarEnvio: (subtotal: number, moneda: string) => Promise<unknown> },
+      ];
+      // No cierra con la localidad: no se cobra una tarifa en el link, se coordina aparte.
+      await expect(entrada.cotizarEnvio(1_000_000, 'ARS')).resolves.toBeNull();
+      expect(resolver.mock.calls.at(-1)?.[1]).toEqual({ localidad: 'Córdoba capital', provincia: 'Mendoza' });
     });
   });
 

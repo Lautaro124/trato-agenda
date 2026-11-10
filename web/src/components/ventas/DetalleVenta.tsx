@@ -127,6 +127,11 @@ export function DetalleVenta({
               <tr className="border-b border-line">
                 <td className="py-2 text-ink">
                   {venta.envioModalidad === "sucursal" ? "Envío a sucursal del correo" : "Envío a domicilio"}
+                  {venta.envioDestino && (
+                    <p className="text-[12px] text-muted">
+                      Cotizado para {venta.envioDestino}: revisá que coincida con la dirección antes de despachar.
+                    </p>
+                  )}
                 </td>
                 <td className="py-2 text-right text-ink tabular-nums">
                   {venta.envioCentavos > 0 ? formatearMonto(venta.envioCentavos, venta.moneda) : "Gratis"}

@@ -267,12 +267,17 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
   it('el envío con tarifa va en el total y en el mismo link; sin tarifa, el link es sólo de los productos', async () => {
     cuentas.tokenDe.mockResolvedValue({ accessToken: 'TOKEN', mpUserId: '777' });
     mp.crearPreferencia.mockReset().mockResolvedValue({ id: 'pref-envio', init_point: 'https://mp/pagar' });
-    const cotizarEnvio = vi.fn().mockResolvedValue({ modalidad: 'domicilio', centavos: 500_000 });
+    const cotizarEnvio = vi.fn().mockResolvedValue({ modalidad: 'domicilio', centavos: 500_000, destino: 'Córdoba, CP 5000' });
 
     const conEnvio = await pedido([{ productoId: termo, cantidad: 1 }], { medioPago: 'mercadopago', entrega: 'envio', cotizarEnvio });
     // El envío gratis se decide con el subtotal reservado, no con uno del modelo.
     expect(cotizarEnvio).toHaveBeenCalledWith(4_500_050, 'ARS');
-    expect(conEnvio).toMatchObject({ envioCentavos: 500_000, envioModalidad: 'domicilio', totalCentavos: 5_000_050 });
+    expect(conEnvio).toMatchObject({
+      envioCentavos: 500_000,
+      envioModalidad: 'domicilio',
+      envioDestino: 'Córdoba, CP 5000',
+      totalCentavos: 5_000_050,
+    });
     expect(mp.crearPreferencia.mock.calls[0][1].items).toEqual([
       expect.objectContaining({ quantity: 1, unit_price: 45000.5 }),
       expect.objectContaining({ id: 'envio', title: 'Envío a domicilio', quantity: 1, unit_price: 5000 }),
@@ -283,7 +288,7 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       entrega: 'envio',
       cotizarEnvio: vi.fn().mockResolvedValue(null),
     });
-    expect(sinTarifa).toMatchObject({ envioCentavos: 0, envioModalidad: null, totalCentavos: 4_500_050 });
+    expect(sinTarifa).toMatchObject({ envioCentavos: 0, envioModalidad: null, envioDestino: null, totalCentavos: 4_500_050 });
     expect(mp.crearPreferencia.mock.calls[1][1].items).toHaveLength(1);
 
     // Lo retira: no se cotiza envío.
