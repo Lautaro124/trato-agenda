@@ -81,6 +81,8 @@ export function contextoFijoVentas(
     yaSePresento: boolean;
     etapa?: EtapaDeCompra | null;
     pistaEmoji?: string;
+    /** Módulo de envíos activo (LAU-102). */
+    enviosActivo?: boolean;
   },
   ahora: Date = new Date(),
 ): string {
@@ -90,8 +92,8 @@ export function contextoFijoVentas(
   const base = `Fecha y hora actual: ${fecha} (zona horaria ${TIMEZONE}).`;
   const presentacion = bloqueDeSaludo(agent, opciones.yaSePresento);
   const reglas =
-    `${reglasDeVenta(agent, opciones.mpConectado, opciones.etapa ?? null)}\n\n` +
-    `${reglasDeAlcanceVentas(agent, esPropietario)}\n\n` +
+    `${reglasDeVenta(agent, opciones.mpConectado, opciones.etapa ?? null, opciones.enviosActivo === true)}\n\n` +
+    `${reglasDeAlcanceVentas(agent, esPropietario, opciones.enviosActivo === true)}\n\n` +
     `${reglasDeEstiloVentas(agent)}${opciones.pistaEmoji ?? ''}\n\n${naturalidadVentas(agent)}${presentacion}`;
 
   if (esPropietario) {
@@ -130,7 +132,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
     const ventanaMs = deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS;
-    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones] = await Promise.all([
+    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones, filaEnvios] = await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
         where: { userId: state.ownerUserId, activo: true, categoria: { not: null } },
@@ -148,7 +150,10 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       etapaDeCompra(deps, agent, historial.visibles, conversation),
       ultimaAtencionHumana(deps.prisma, guardada, new Date(Date.now() - ventanaMs)),
       deps.prisma.condicionesPago.findUnique({ where: { userId: state.ownerUserId } }),
+      deps.prisma.configuracionEnvios.findUnique({ where: { userId: state.ownerUserId }, select: { activo: true } }),
     ]);
+    // Sin el módulo (o sin envíos) el asistente sigue como siempre: coordina el envío por el chat.
+    const enviosActivo = agent.haceEnvios && filaEnvios?.activo === true;
     const mpConectado = cuentaMp !== null;
     const condicionesPago = leerCondiciones(filaCondiciones);
     // El banco de pruebas del Home no cuenta para el módulo de performance.
@@ -161,12 +166,14 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       conversation,
       mpConectado,
       condicionesPago,
+      enviosActivo,
       bloqueSistema:
         `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, {
           mpConectado,
           yaSePresento: yaSePresento(historial.visibles),
           etapa,
           pistaEmoji: pistaDeEmoji(historial.visibles),
+          enviosActivo,
         })}\n\n` +
         `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n` +
         `${bloquePedidos(agent, mpConectado, pedidos, new Date(), condicionesPago)}` +

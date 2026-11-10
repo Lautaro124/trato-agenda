@@ -17,6 +17,8 @@ import { LIMITE_RECURSION } from './graph/graph.factory.js';
 import { CLAVE_YA_GUARDADO } from './graph/nodes/persistir.node.js';
 import { VENTANA_HISTORIAL, mensajesDesdeFilas } from './graph/historial.js';
 import { LIMITE_RECURSION_VENTAS } from './ventas/grafo-ventas.factory.js';
+import { resolucionesEnvioDeLaVuelta } from './ventas/envios-de-la-vuelta.js';
+import type { ResolucionEnvio } from '../envios/envios.rules.js';
 import { imagenesDeLaVuelta, type ImagenAEnviar } from './ventas/imagenes-de-la-vuelta.js';
 import {
   MENSAJE_DISCULPA_GENERICO,
@@ -35,6 +37,14 @@ const WEB_TEST_JID_PREFIX = 'web-test:';
 export function jidDePrueba(userId: string): string {
   return `${WEB_TEST_JID_PREFIX}${userId}`;
 }
+
+/** JID sintético del probador de envíos (LAU-102): otro hilo, para no mezclarse con el banco del Home. */
+export function jidDePruebaEnvios(userId: string): string {
+  return `${WEB_TEST_JID_PREFIX}envios:${userId}`;
+}
+
+/** Prefijo común de las conversaciones de prueba: las listas de chats las excluyen todas. */
+export const PREFIJO_JID_DE_PRUEBA = WEB_TEST_JID_PREFIX;
 
 /**
  * true si `remoteJid` es del banco de pruebas del Home (quien habla es el
@@ -90,6 +100,8 @@ export type RespuestaConversacion = {
   enAtencionHumana?: boolean;
   /** La cuenta no tiene agente: a un cliente no se le contesta nada (el aviso es para el dueño, en el banco de pruebas). */
   sinAgente?: boolean;
+  /** Lo que resolvió consultar_envio en esta vuelta (LAU-102): lo muestra el probador del panel. */
+  resolucionesEnvio?: ResolucionEnvio[];
 };
 
 /**
@@ -185,11 +197,13 @@ export class ConversationService {
         config,
       );
 
+      const resolucionesEnvio = esVentas ? resolucionesEnvioDeLaVuelta(resultado.messages) : [];
       const ultimo = resultado.messages.at(-1);
       const contenido = typeof ultimo?.content === 'string' ? ultimo.content.trim() : '';
       return {
         texto: contenido || MENSAJE_SIN_RESPUESTA,
         imagenes: esVentas ? imagenesDeLaVuelta(resultado.messages) : [],
+        ...(resolucionesEnvio.length > 0 ? { resolucionesEnvio } : {}),
       };
     } catch (error) {
       if (opciones.cancelacion?.cancelada || error instanceof VueltaCancelada) {

@@ -19,6 +19,7 @@ import { imagenesDeLaVuelta } from './imagenes-de-la-vuelta.js';
 import { MENSAJE_CATALOGO_CAIDO } from './nodes/catalogo.node.js';
 import { OFERTA_DE_DESCUENTOS, YA_TE_PRESENTASTE } from './reglas-ventas.js';
 import { PedidoRechazadoError } from '../../comercio/ventas.service.js';
+import { resolverEnvio, type ConsultaEnvio } from '../../envios/envios.rules.js';
 
 const AGENT = {
   id: 'agent-1',
@@ -58,6 +59,7 @@ function crearPrisma(
     agent?: Record<string, unknown>;
     /** La fila de CondicionesPago (LAU-34); sin ella, no hay descuento en efectivo ni cobro manual. */
     condicionesPago?: { descuentoEfectivoPorcentaje: number | null };
+    enviosActivo?: boolean;
   } = {},
 ) {
   return {
@@ -69,6 +71,7 @@ function crearPrisma(
     },
     cuentaMercadoPago: { findUnique: vi.fn().mockResolvedValue(opciones.mpConectado ? { id: 'mp-1' } : null) },
     condicionesPago: { findUnique: vi.fn().mockResolvedValue(opciones.condicionesPago ?? null) },
+    configuracionEnvios: { findUnique: vi.fn().mockResolvedValue(opciones.enviosActivo ? { activo: true } : null) },
     venta: {
       findMany: vi.fn().mockResolvedValue(opciones.pedidos ?? []),
       findFirst: vi.fn().mockResolvedValue(null),
@@ -180,6 +183,7 @@ function correr(
     imagenes?: Pick<ImagenesService, 'estadoDeFoto'>;
     decisiones?: { ordenar: Mock<(pedido: unknown) => Promise<string[]>>; configurado: boolean };
     registro?: ReturnType<typeof crearRegistro>;
+    envios?: { resolver: Mock };
   },
   esPropietario = false,
   mensajes: BaseMessage[] = [new HumanMessage('¿tenés mates?')],
@@ -288,6 +292,111 @@ describe('grafo de ventas', () => {
     const llm = crearModelo([new AIMessage('Hola.')]);
     await correr({ prisma: crearPrisma({ totalProductos: 0 }), llm, busqueda: { buscar: vi.fn() } });
     expect(sistemaDe(llm)).toContain('todavía no cargó productos');
+  });
+
+  describe('envíos (LAU-102)', () => {
+    const CON_ENVIOS = { ...AGENT, haceEnvios: true };
+    const zonaCapital = {
+      id: 'z-1',
+      nombre: 'Córdoba capital',
+      activa: true,
+      estado: 'tarifa' as const,
+      domicilio: true,
+      sucursal: false,
+      tarifaDomicilioCentavos: 500_000,
+      tarifaSucursalCentavos: null,
+      gratisDesdeCentavos: 8_000_000,
+      preparacionDias: 1,
+      transporteDesdeDias: 1,
+      transporteHastaDias: 3,
+      diasDespacho: [],
+      instrucciones: null,
+      coberturas: [{ nivel: 'localidad' as const, provinciaId: '14', localidadId: '14014010', cp: null }],
+    };
+    const resolverReal = () =>
+      vi.fn(async (_userId: string, consulta: ConsultaEnvio, opciones: { subtotalCentavos?: number | null }) =>
+        resolverEnvio({ activo: true, pais: 'AR', moneda: 'ARS', sinTarifa: 'derivar' }, [zonaCapital], consulta, {
+          retiroEnLocal: false,
+          subtotalCentavos: opciones.subtotalCentavos ?? null,
+          monedaSubtotal: 'ARS',
+        }),
+      );
+
+    it('con el módulo apagado no ofrece consultar_envio y sigue coordinando por el chat', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ agent: CON_ENVIOS }), llm, busqueda: { buscar: vi.fn() }, envios: { resolver: vi.fn() } });
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).not.toContain('consultar_envio');
+      expect(sistemaDe(llm)).toContain('no prometas plazos ni costos');
+    });
+
+    it('con el módulo activo pero sin envíos tampoco la ofrece', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ enviosActivo: true }), llm, busqueda: { buscar: vi.fn() } });
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).not.toContain('consultar_envio');
+    });
+
+    it('activo, resuelve con el backend y el precio que informa queda respaldado', async () => {
+      const resolver = resolverReal();
+      const llm = crearModelo([
+        llamada('consultar_envio', { localidad: ' Córdoba capital ' }),
+        new AIMessage('Sí, el envío a Córdoba cuesta $ 5.000 y demora entre 2 y 4 días hábiles.'),
+      ]);
+      const resultado = await correr(
+        { prisma: crearPrisma({ agent: CON_ENVIOS, enviosActivo: true }), llm, busqueda: { buscar: vi.fn() }, envios: { resolver } },
+        false,
+        [new HumanMessage('¿Cuánto sale el envío a Córdoba capital?')],
+      );
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('consultar_envio');
+      expect(sistemaDe(llm)).toContain('sólo los que devuelve consultar_envio');
+      expect(resolver).toHaveBeenCalledWith('user-1', { localidad: 'Córdoba capital' }, expect.objectContaining({ registrar: true }));
+      const tool = resultadoDe(resultado.messages, 'consultar_envio');
+      expect(tool.content).toContain('cuesta $ 5.000');
+      expect(tool.content).toContain('es gratis en compras desde $ 80.000');
+      expect(resultado.messages.at(-1)?.content).toBe('Sí, el envío a Córdoba cuesta $ 5.000 y demora entre 2 y 4 días hábiles.');
+    });
+
+    it('el subtotal para el envío gratis sale de la cotización del sistema, no del modelo', async () => {
+      const resolver = resolverReal();
+      const ventas = crearVentas();
+      ventas.cotizarFormasDePago.mockResolvedValue({ moneda: 'ARS', contadoCentavos: 8_000_000, efectivoCentavos: null, planes: [], sinCuotas: 'un_pago' });
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('consultar_envio', { localidad: 'Córdoba', items: [{ productoId: 'p-1', cantidad: 10 }] }, 'call-envio'),
+        new AIMessage('El envío te sale gratis.'),
+      ]);
+      const resultado = await correr(
+        { prisma: crearPrisma({ agent: CON_ENVIOS, enviosActivo: true }), llm, busqueda: buscaMate(), ventas, envios: { resolver } },
+      );
+      expect(ventas.cotizarFormasDePago).toHaveBeenCalledWith('user-1', [{ productoId: 'p-1', cantidad: 10 }]);
+      expect(resolver.mock.calls[0][2]).toMatchObject({ subtotalCentavos: 8_000_000, monedaSubtotal: 'ARS' });
+      expect(resultadoDe(resultado.messages, 'consultar_envio').content).toContain('gratis para este pedido');
+    });
+
+    it('sin ubicación no llama al resolvedor y le pide al modelo que pregunte', async () => {
+      const resolver = resolverReal();
+      const llm = crearModelo([llamada('consultar_envio', {}), new AIMessage('¿A qué localidad?')]);
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: CON_ENVIOS, enviosActivo: true }),
+        llm,
+        busqueda: { buscar: vi.fn() },
+        envios: { resolver },
+      });
+      expect(resolver).not.toHaveBeenCalled();
+      expect(String(toolMessages(resultado.messages)[0].content)).toContain('Falta la ubicación');
+    });
+
+    it('el banco de pruebas del dueño no registra consultas sin resolver', async () => {
+      const resolver = resolverReal();
+      const llm = crearModelo([llamada('consultar_envio', { provincia: 'Mendoza' }), new AIMessage('Te lo confirmamos.')]);
+      await correr(
+        { prisma: crearPrisma({ agent: CON_ENVIOS, enviosActivo: true }), llm, busqueda: { buscar: vi.fn() }, envios: { resolver } },
+        true,
+      );
+      expect(resolver.mock.calls[0][2]).toMatchObject({ registrar: false });
+    });
   });
 
   it('a un cliente le ofrece sólo las herramientas de venta', async () => {
