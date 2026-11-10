@@ -594,6 +594,9 @@ model Venta {
   envioCentavos   Int     @default(0)
   /// "domicilio" | "sucursal" si el envío va en el pedido; null si no.
   envioModalidad  String?
+  /// El destino con el que se cotizó ("La Rioja, CP 5300"), con los nombres del
+  /// catálogo Georef: el dueño lo compara con la dirección antes de despachar.
+  envioDestino    String?
 
   totalCentavos Int?
   moneda        String @default("ARS")

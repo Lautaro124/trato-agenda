@@ -38,7 +38,8 @@ export function comoDato(texto: string): string {
 
 const RETIRO = 'Si le sirve, también puede retirarlo por el local (los datos están en el bloque del local).';
 
-function destinoEnTexto(r: ResolucionEnvio): string {
+/** El destino resuelto, con los nombres del catálogo (no el texto del cliente). */
+export function destinoEnTexto(r: ResolucionEnvio): string {
   const partes = [
     r.destino.localidad,
     r.destino.provincia && r.destino.provincia !== r.destino.localidad ? r.destino.provincia : null,

@@ -77,8 +77,12 @@ export class PedidoRechazadoError extends Error {}
 
 export type VentaConItems = Venta & { items: ItemVenta[] };
 
-/** El envío que va dentro de un pedido: la modalidad y lo que se cobra (0 si es gratis). */
-export type EnvioDelPedido = { modalidad: string; centavos: number };
+/**
+ * El envío que va dentro de un pedido: la modalidad, lo que se cobra (0 si es
+ * gratis) y el destino con el que se cotizó, para que el dueño lo compare con
+ * la dirección de entrega.
+ */
+export type EnvioDelPedido = { modalidad: string; centavos: number; destino: string };
 
 export type CrearPedidoInput = {
   userId: string;
@@ -540,6 +544,7 @@ export class VentasService {
         recargoCentavos: recargo,
         envioCentavos: envio?.centavos ?? 0,
         envioModalidad: envio?.modalidad ?? null,
+        envioDestino: envio?.destino ?? null,
         totalCentavos: subtotal + recargo + (envio?.centavos ?? 0),
         moneda,
         reservaVenceAt: vencimientoDeReserva(input.medioPago, ahora),

@@ -43,7 +43,7 @@ import {
 } from '../reglas-ventas.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 import type { EnviosService } from '../../../envios/envios.service.js';
-import { formatearResolucionEnvio } from '../../../envios/envios.respuesta.js';
+import { destinoEnTexto, formatearResolucionEnvio } from '../../../envios/envios.respuesta.js';
 import { envioParaCobrar, type ConsultaEnvio, type Modalidad } from '../../../envios/envios.rules.js';
 import { artifactDeEnvio } from '../envios-de-la-vuelta.js';
 
@@ -206,7 +206,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         registrar: false,
       });
       const centavos = envioParaCobrar(resolucion, modalidad, moneda);
-      return centavos === null ? null : { modalidad, centavos };
+      return centavos === null ? null : { modalidad, centavos, destino: destinoEnTexto(resolucion) };
     };
   }
 

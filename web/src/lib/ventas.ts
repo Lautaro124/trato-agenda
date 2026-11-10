@@ -23,6 +23,8 @@ export type Venta = {
   envioCentavos: number;
   /** "domicilio" | "sucursal" si el envío va en el pedido; null si se coordina aparte. */
   envioModalidad: "domicilio" | "sucursal" | null;
+  /** Destino con el que se cotizó el envío ("La Rioja, CP 5300"); compararlo con la dirección. */
+  envioDestino: string | null;
   nombreCliente: string | null;
   telefonoCliente: string | null;
   totalCentavos: number | null;

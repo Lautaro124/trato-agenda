@@ -171,6 +171,24 @@ export function camposAPedir(config: ConfigDatosCliente, entrega: Entrega | null
   return config.campos;
 }
 
+/**
+ * La provincia y el código postal de entrega que dio el cliente (campos
+ * estándar ya validados). El envío se cotiza con ellos: así no se cobra la
+ * tarifa de un destino y se entrega en otro.
+ */
+export function ubicacionDeEntrega(
+  config: ConfigDatosCliente,
+  datos: DatoCliente[],
+): { provincia?: string; codigoPostal?: string } {
+  const ubicacion: { provincia?: string; codigoPostal?: string } = {};
+  for (const campo of config.campos) {
+    if (campo.tipo !== 'provincia' && campo.tipo !== 'codigoPostal') continue;
+    const dato = datos.find((candidato) => candidato.etiqueta === campo.etiqueta);
+    if (dato) ubicacion[campo.tipo] = dato.valor;
+  }
+  return ubicacion;
+}
+
 // Las etiquetas del dominio no llevan puntos: sin cuantificadores superpuestos, no hay backtracking (ReDoS).
 const EMAIL = /^[^\s@]{1,64}@[^\s@.]+(?:\.[^\s@.]+)+$/;
 const DNI = /^\d{6,10}$/;

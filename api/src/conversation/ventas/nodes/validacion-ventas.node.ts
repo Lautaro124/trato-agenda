@@ -6,7 +6,11 @@
  */
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
-import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
+import {
+  leerConfigDatosCliente,
+  ubicacionDeEntrega,
+  validarDatosPedido,
+} from '../../../comercio/datos-cliente.rules.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
 import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
@@ -123,12 +127,16 @@ function ubicacionDe(args: Record<string, unknown>): Record<string, string> {
 
 /**
  * El envío de crear_pedido, normalizado: sólo con el módulo de envíos activo y
- * entrega "envio" (si no, se ignora). Un texto es el motivo para el modelo.
+ * entrega "envio" (si no, se ignora). La provincia y el código postal de los
+ * datos de entrega pisan los del modelo: si no cierran con la localidad, el
+ * resolvedor da contradicción y el envío no se cobra en el link (se coordina
+ * aparte). Un texto es el motivo para el modelo.
  */
 function envioDelPedido(
   crudo: unknown,
   entrega: unknown,
   enviosActivo: boolean,
+  deEntrega: { provincia?: string; codigoPostal?: string },
 ): { modalidad: string; provincia?: string; localidad?: string; codigoPostal?: string } | undefined | string {
   if (!enviosActivo || entrega !== 'envio') return undefined;
   const faltaEnvio =
@@ -138,7 +146,7 @@ function envioDelPedido(
   const envio = crudo as Record<string, unknown>;
   const ubicacion = ubicacionDe(envio);
   if (Object.keys(ubicacion).length === 0) return faltaEnvio;
-  return { modalidad: String(envio.modalidad), ...ubicacion };
+  return { modalidad: String(envio.modalidad), ...ubicacion, ...deEntrega };
 }
 
 export function validarLlamadaVentas(
@@ -283,9 +291,15 @@ export function validarLlamadaVentas(
     if (args.formaPago === 'cuotas' && args.cuotas === undefined) {
       return { ok: false, motivo: 'Con formaPago "cuotas" mandá también `cuotas`: un plan de ver_formas_de_pago.' };
     }
-    const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args);
+    const config = leerConfigDatosCliente(state.contexto.agent);
+    const datos = validarDatosPedido(config, args);
     if (!datos.ok) return { ok: false, motivo: datos.motivo };
-    const envio = envioDelPedido(args.envio, datos.entrega, state.contexto.enviosActivo === true);
+    const envio = envioDelPedido(
+      args.envio,
+      datos.entrega,
+      state.contexto.enviosActivo === true,
+      ubicacionDeEntrega(config, datos.datos),
+    );
     if (typeof envio === 'string') return { ok: false, motivo: envio };
     return {
       ok: true,
