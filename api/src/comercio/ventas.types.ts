@@ -21,6 +21,8 @@ export type VentaPublica = Pick<
   | 'formaPago'
   | 'cuotas'
   | 'recargoCentavos'
+  | 'envioCentavos'
+  | 'envioModalidad'
   | 'nombreCliente'
   | 'telefonoCliente'
   | 'totalCentavos'
@@ -77,6 +79,8 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
     formaPago: venta.formaPago,
     cuotas: venta.cuotas,
     recargoCentavos: venta.recargoCentavos,
+    envioCentavos: venta.envioCentavos,
+    envioModalidad: venta.envioModalidad,
     nombreCliente: venta.nombreCliente,
     telefonoCliente: venta.telefonoCliente,
     totalCentavos: venta.totalCentavos,

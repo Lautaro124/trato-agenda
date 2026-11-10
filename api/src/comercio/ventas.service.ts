@@ -77,6 +77,9 @@ export class PedidoRechazadoError extends Error {}
 
 export type VentaConItems = Venta & { items: ItemVenta[] };
 
+/** El envío que va dentro de un pedido: la modalidad y lo que se cobra (0 si es gratis). */
+export type EnvioDelPedido = { modalidad: string; centavos: number };
+
 export type CrearPedidoInput = {
   userId: string;
   conversationId: string | null;
@@ -92,6 +95,12 @@ export type CrearPedidoInput = {
   cuotas?: number | null;
   /** null si el comercio no hace envíos. */
   entrega?: Entrega | null;
+  /**
+   * Con entrega "envio" y el módulo de envíos activo: cuánto se cobra de envío
+   * con el subtotal de los renglones ya reservados (para el envío gratis).
+   * null = no va en el pedido: el link cobra sólo los productos.
+   */
+  cotizarEnvio?: ((subtotalCentavos: number, moneda: Moneda) => Promise<EnvioDelPedido | null>) | null;
   /** Lo que el cliente contestó, ya validado contra lo que pide el comercio. */
   datosCliente?: DatoCliente[];
   /** Pedido del banco de pruebas del Home: real, pero fuera del histórico. */
@@ -338,6 +347,16 @@ export class VentasService {
         currency_id: venta.moneda,
       });
     }
+    // El envío también, así el cliente paga todo junto en el mismo link.
+    if (venta.envioCentavos > 0) {
+      items.push({
+        id: 'envio',
+        title: venta.envioModalidad === 'sucursal' ? 'Envío a sucursal del correo' : 'Envío a domicilio',
+        quantity: 1,
+        unit_price: venta.envioCentavos / 100,
+        currency_id: venta.moneda,
+      });
+    }
     return this.mp.crearPreferencia(accessToken, {
       items,
       ...(venta.formaPago === 'cuotas' && venta.cuotas ? { cuotas: venta.cuotas } : { maxCuotas: 1 }),
@@ -502,7 +521,10 @@ export class VentasService {
       },
     );
     const subtotal = sumaDe(renglones);
+    // El recargo de cuotas es sólo sobre los productos: el envío se cobra a su tarifa.
     const recargo = cuotas !== null ? recargoDelPedido(renglones, cuotasDe, cuotas) : 0;
+    const entrega = leerEntrega(input.entrega);
+    const envio = entrega === 'envio' && input.cotizarEnvio ? await input.cotizarEnvio(subtotal, moneda) : null;
 
     const pausa = input.medioPago === 'manual' && condiciones.cobroManual !== null && input.conversationId !== null;
     const venta = await tx.venta.create({
@@ -516,11 +538,13 @@ export class VentasService {
         formaPago,
         cuotas,
         recargoCentavos: recargo,
-        totalCentavos: subtotal + recargo,
+        envioCentavos: envio?.centavos ?? 0,
+        envioModalidad: envio?.modalidad ?? null,
+        totalCentavos: subtotal + recargo + (envio?.centavos ?? 0),
         moneda,
         reservaVenceAt: vencimientoDeReserva(input.medioPago, ahora),
         dePrueba: input.dePrueba ?? false,
-        entrega: leerEntrega(input.entrega),
+        entrega,
         ...datosParaGuardar(input.datosCliente),
         items: { create: renglones },
         // Con el cobro manual configurado, el asistente manda los datos de pago y

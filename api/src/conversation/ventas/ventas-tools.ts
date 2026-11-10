@@ -6,6 +6,7 @@
  */
 import { z } from 'zod';
 import { esAccionDeVentas, type AccionVentasId } from '../../agents/agent-catalog.js';
+import { MODALIDADES } from '../../envios/envios.rules.js';
 import type { EsquemaHerramienta } from '../conversation-tools.js';
 
 export const esquemaBuscarProductos = z.object({
@@ -256,6 +257,35 @@ export const esquemaConsultarEnvio = z.object({
     .describe('Opcional: lo que el cliente eligió en esta charla, para saber si llega al envío gratis.'),
 });
 
+/**
+ * crear_pedido con el módulo de envíos activo: además lleva la modalidad y la
+ * ubicación, y el sistema resuelve la tarifa y la suma al mismo link de pago.
+ */
+export const esquemaCrearPedidoConEnvio = esquemaCrearPedido.extend({
+  envio: z
+    .object({
+      modalidad: z.enum(MODALIDADES).describe('La modalidad que eligió el cliente, de las que devolvió consultar_envio.'),
+      provincia: esquemaConsultarEnvio.shape.provincia,
+      localidad: esquemaConsultarEnvio.shape.localidad,
+      codigoPostal: esquemaConsultarEnvio.shape.codigoPostal,
+    })
+    .optional()
+    .describe(
+      'Con entrega "envio": la modalidad y la ubicación con las que llamaste a consultar_envio. El costo lo pone el ' +
+        'sistema y va en el mismo link de pago que los productos.',
+    ),
+});
+
+export const ESQUEMA_CREAR_PEDIDO_CON_ENVIO: EsquemaHerramienta = {
+  ...ESQUEMAS_VENTAS.crear_pedido,
+  schema: esquemaCrearPedidoConEnvio,
+};
+
+/** El esquema de una acción de ventas: crear_pedido cambia con el módulo de envíos. */
+export function esquemaDeAccion(id: AccionVentasId, enviosActivo: boolean): EsquemaHerramienta {
+  return id === 'crear_pedido' && enviosActivo ? ESQUEMA_CREAR_PEDIDO_CON_ENVIO : ESQUEMAS_VENTAS[id];
+}
+
 export const ESQUEMA_ENVIO: EsquemaHerramienta = {
   name: HERRAMIENTA_ENVIO,
   description:
@@ -301,7 +331,7 @@ export function herramientasDeVentas(
   // El contexto llega tipado como el común de los grafos; el de ventas trae `enviosActivo`.
   const enviosActivo = (contexto as { enviosActivo?: unknown } | undefined)?.enviosActivo === true;
   return [
-    ...accionesDeVentas(allowedActions).map((id) => ESQUEMAS_VENTAS[id]),
+    ...accionesDeVentas(allowedActions).map((id) => esquemaDeAccion(id, enviosActivo)),
     ...(enviosActivo ? [ESQUEMA_ENVIO] : []),
     ...(esPropietario ? Object.values(ESQUEMAS_PROPIETARIO_VENTAS) : []),
   ];

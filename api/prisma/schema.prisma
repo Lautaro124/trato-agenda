@@ -589,6 +589,11 @@ model Venta {
   cuotas          Int?
   /// Sólo en cuotas: lo que se sumó al total por el plan (ya incluido en `totalCentavos`).
   recargoCentavos Int     @default(0)
+  /// Envío cobrado con el pedido (LAU-102), ya incluido en `totalCentavos`; 0 si es
+  /// gratis o si no va en el pedido (se coordina aparte). Sale del resolvedor, nunca del modelo.
+  envioCentavos   Int     @default(0)
+  /// "domicilio" | "sucursal" si el envío va en el pedido; null si no.
+  envioModalidad  String?
 
   totalCentavos Int?
   moneda        String @default("ARS")

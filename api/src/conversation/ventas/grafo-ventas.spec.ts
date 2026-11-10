@@ -397,6 +397,60 @@ describe('grafo de ventas', () => {
       );
       expect(resolver.mock.calls[0][2]).toMatchObject({ registrar: false });
     });
+
+    it('crear_pedido con envío pide la modalidad y la ubicación antes de crear el pedido', async () => {
+      const ventas = crearVentas();
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('crear_pedido', { nombreCliente: 'Juan', items: [{ productoId: 'p-1', cantidad: 1 }] }),
+        new AIMessage('¿A qué localidad te lo mando?'),
+      ]);
+      const resultado = await correr({
+        prisma: crearPrisma({ agent: CON_ENVIOS, enviosActivo: true }),
+        llm,
+        busqueda: buscaMate(),
+        ventas,
+        envios: { resolver: resolverReal() },
+      });
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string; schema: { shape: object } }>];
+      expect(herramientas.find((h) => h.name === 'crear_pedido')?.schema.shape).toHaveProperty('envio');
+      expect(ventas.crearPedido).not.toHaveBeenCalled();
+      expect(String(toolMessages(resultado.messages)[1].content)).toContain('mandá también `envio`');
+    });
+
+    it('crear_pedido con envío cotiza la tarifa en el backend con el subtotal que reserva el pedido', async () => {
+      const resolver = resolverReal();
+      const ventas = crearVentas();
+      ventas.crearPedido.mockResolvedValue(VENTA);
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('crear_pedido', {
+          nombreCliente: 'Juan',
+          items: [{ productoId: 'p-1', cantidad: 1 }],
+          envio: { modalidad: 'domicilio', localidad: ' Córdoba capital ' },
+        }),
+        new AIMessage('Listo, te paso el link.'),
+      ]);
+      await correr({
+        prisma: crearPrisma({ agent: CON_ENVIOS, enviosActivo: true, mpConectado: true }),
+        llm,
+        busqueda: buscaMate(),
+        ventas,
+        envios: { resolver },
+      });
+      const [entrada] = ventas.crearPedido.mock.calls[0] as unknown as [
+        { entrega: string; cotizarEnvio: (subtotal: number, moneda: string) => Promise<unknown> },
+      ];
+      expect(entrada.entrega).toBe('envio');
+      await expect(entrada.cotizarEnvio(1_000_000, 'ARS')).resolves.toEqual({ modalidad: 'domicilio', centavos: 500_000 });
+      expect(resolver).toHaveBeenLastCalledWith(
+        'user-1',
+        { localidad: 'Córdoba capital' },
+        { subtotalCentavos: 1_000_000, monedaSubtotal: 'ARS', registrar: false },
+      );
+      // Llega al envío gratis: va en el pedido sin cargo.
+      await expect(entrada.cotizarEnvio(8_000_000, 'ARS')).resolves.toEqual({ modalidad: 'domicilio', centavos: 0 });
+    });
   });
 
   it('a un cliente le ofrece sólo las herramientas de venta', async () => {

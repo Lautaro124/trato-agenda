@@ -20,7 +20,7 @@ import {
   accionesDeVentas,
   ESQUEMA_ENVIO,
   ESQUEMAS_PROPIETARIO_VENTAS,
-  ESQUEMAS_VENTAS,
+  esquemaDeAccion,
   HERRAMIENTA_ENVIO,
 } from '../ventas-tools.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
@@ -104,11 +104,41 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
 function esquemaPara(state: EstadoVentasValue, nombre: string): EsquemaHerramienta | undefined {
   const { agent } = state.contexto;
   if (esAccionDeVentas(nombre) && accionesDeVentas(agent.allowedActions).includes(nombre)) {
-    return ESQUEMAS_VENTAS[nombre];
+    return esquemaDeAccion(nombre, state.contexto.enviosActivo === true);
   }
   if (nombre === HERRAMIENTA_ENVIO) return state.contexto.enviosActivo ? ESQUEMA_ENVIO : undefined;
   if (state.esPropietario) return ESQUEMAS_PROPIETARIO_VENTAS[nombre];
   return undefined;
+}
+
+/** Los campos de ubicación de un envío, recortados y sin los vacíos. */
+function ubicacionDe(args: Record<string, unknown>): Record<string, string> {
+  const ubicacion: Record<string, string> = {};
+  for (const campo of ['provincia', 'localidad', 'codigoPostal'] as const) {
+    const valor = typeof args[campo] === 'string' ? args[campo].trim() : '';
+    if (valor) ubicacion[campo] = valor;
+  }
+  return ubicacion;
+}
+
+/**
+ * El envío de crear_pedido, normalizado: sólo con el módulo de envíos activo y
+ * entrega "envio" (si no, se ignora). Un texto es el motivo para el modelo.
+ */
+function envioDelPedido(
+  crudo: unknown,
+  entrega: unknown,
+  enviosActivo: boolean,
+): { modalidad: string; provincia?: string; localidad?: string; codigoPostal?: string } | undefined | string {
+  if (!enviosActivo || entrega !== 'envio') return undefined;
+  const faltaEnvio =
+    'Con entrega "envio" mandá también `envio`: la modalidad que eligió el cliente y la ubicación con la que ' +
+    'llamaste a consultar_envio.';
+  if (typeof crudo !== 'object' || crudo === null) return faltaEnvio;
+  const envio = crudo as Record<string, unknown>;
+  const ubicacion = ubicacionDe(envio);
+  if (Object.keys(ubicacion).length === 0) return faltaEnvio;
+  return { modalidad: String(envio.modalidad), ...ubicacion };
 }
 
 export function validarLlamadaVentas(
@@ -167,11 +197,7 @@ export function validarLlamadaVentas(
   }
 
   if (llamada.nombre === HERRAMIENTA_ENVIO) {
-    const ubicacion: Record<string, string> = {};
-    for (const campo of ['provincia', 'localidad', 'codigoPostal'] as const) {
-      const valor = typeof args[campo] === 'string' ? args[campo].trim() : '';
-      if (valor) ubicacion[campo] = valor;
-    }
+    const ubicacion = ubicacionDe(args);
     if (Object.keys(ubicacion).length === 0) {
       return {
         ok: false,
@@ -259,6 +285,8 @@ export function validarLlamadaVentas(
     }
     const datos = validarDatosPedido(leerConfigDatosCliente(state.contexto.agent), args);
     if (!datos.ok) return { ok: false, motivo: datos.motivo };
+    const envio = envioDelPedido(args.envio, datos.entrega, state.contexto.enviosActivo === true);
+    if (typeof envio === 'string') return { ok: false, motivo: envio };
     return {
       ok: true,
       operacion: {
@@ -270,6 +298,7 @@ export function validarLlamadaVentas(
           items: agruparItems(items),
           cuotas: args.formaPago === 'cuotas' ? args.cuotas : undefined,
           entrega: datos.entrega,
+          envio,
           datosCliente: datos.datos,
           respuestas: respuestasDe(args.respuestas),
         },

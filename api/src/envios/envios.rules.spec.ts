@@ -1,6 +1,8 @@
+import { preciosSinRespaldo } from '../conversation/ventas/reglas-ventas.js';
 import { formatearResolucionEnvio } from './envios.respuesta.js';
 import {
   detectarConflictos,
+  envioParaCobrar,
   resolverEnvio,
   validarZona,
   type CoberturaRegla,
@@ -189,7 +191,7 @@ describe('resolverEnvio: estados, conflictos y condiciones', () => {
     expect(santaFe.modalidades[0].estado).toBe('cotizacion');
     expect(mendoza.estado).toBe('sin_configurar');
     expect(mendoza.siguienteAccion).toBe('derivar');
-    const textos = [fuego, santaFe, mendoza].map(formatearResolucionEnvio);
+    const textos = [fuego, santaFe, mendoza].map((r) => formatearResolucionEnvio(r));
     expect(new Set(textos).size).toBe(3);
     expect(textos[0]).toContain('no llegamos');
     expect(textos[2]).toContain('No digas que no llegamos');
@@ -241,6 +243,33 @@ describe('resolverEnvio: estados, conflictos y condiciones', () => {
     expect(sinPedido.modalidades[0]).toMatchObject({ tarifaCentavos: 500_000, gratis: { aplica: 'condicion' } });
     expect(otraMoneda.modalidades[0].gratis?.aplica).toBe('condicion');
     expect(formatearResolucionEnvio(sinPedido)).toContain('no digas que es gratis');
+  });
+
+  it('con el pedido, lo que falta para el gratis sale calculado y el envío se informa aparte, sin total', () => {
+    const z = zona({ coberturas: [provincia(CORDOBA)], gratisDesdeCentavos: 8_000_000 });
+    const pedido = { subtotalCentavos: 2_000_000, moneda: 'ARS' };
+    const r = resolverEnvio(config, [z], { provincia: 'Córdoba' }, { ...opciones, subtotalCentavos: 2_000_000, monedaSubtotal: 'ARS' });
+    const texto = formatearResolucionEnvio(r, pedido);
+    expect(texto).toContain('le faltan $ 60.000');
+    expect(texto).toContain('nunca los sumes vos en un total');
+    expect(texto).not.toContain('$ 25.000');
+    // Lo que trababa el chat: el verificador descartaba el monto que restaba el modelo.
+    expect(preciosSinRespaldo('El envío sale $ 5.000; te faltan $ 60.000 para que sea gratis.', [texto])).toEqual([]);
+    expect(formatearResolucionEnvio(r, { ...pedido, moneda: 'USD' })).not.toContain('le faltan');
+    expect(formatearResolucionEnvio(r)).toContain('volvé a llamar consultar_envio con los productos');
+  });
+
+  it('en el pedido se cobra sólo una tarifa fija de esa modalidad y en la moneda del pedido', () => {
+    const z = zona({ coberturas: [provincia(CORDOBA)], gratisDesdeCentavos: 8_000_000 });
+    const conSubtotal = (subtotalCentavos: number) =>
+      resolverEnvio(config, [z], { provincia: 'Córdoba' }, { ...opciones, subtotalCentavos, monedaSubtotal: 'ARS' });
+    expect(envioParaCobrar(conSubtotal(1_000_000), 'domicilio', 'ARS')).toBe(500_000);
+    expect(envioParaCobrar(conSubtotal(8_000_000), 'domicilio', 'ARS')).toBe(0);
+    expect(envioParaCobrar(conSubtotal(1_000_000), 'domicilio', 'USD')).toBeNull();
+    expect(envioParaCobrar(conSubtotal(1_000_000), 'sucursal', 'ARS')).toBeNull();
+    const cotiza = zona({ coberturas: [provincia(CORDOBA)], estado: 'cotizacion', tarifaDomicilioCentavos: null });
+    expect(envioParaCobrar(resolverEnvio(config, [cotiza], { provincia: 'Córdoba' }, opciones), 'domicilio', 'ARS')).toBeNull();
+    expect(envioParaCobrar(resolverEnvio(config, [z], {}, opciones), 'domicilio', 'ARS')).toBeNull();
   });
 
   it('la tarifa cero es sin cargo, distinta de no tener precio', () => {

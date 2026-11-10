@@ -19,6 +19,10 @@ export type Venta = {
   cuotas: number | null;
   /** Lo que se sumó al total por pagar en cuotas (ya incluido en el total). */
   recargoCentavos: number;
+  /** Envío cobrado con el pedido (ya incluido en el total); 0 si es gratis o va aparte. */
+  envioCentavos: number;
+  /** "domicilio" | "sucursal" si el envío va en el pedido; null si se coordina aparte. */
+  envioModalidad: "domicilio" | "sucursal" | null;
   nombreCliente: string | null;
   telefonoCliente: string | null;
   totalCentavos: number | null;

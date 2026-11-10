@@ -1,6 +1,8 @@
 # Módulo de envíos (LAU-102)
 
-Cada comercio carga a dónde llega, cuánto cuesta y cuánto demora. El asistente de ventas interpreta la consulta del cliente y la redacta. La cobertura, el precio y el plazo los decide un resolvedor determinístico (`api/src/envios/envios.rules.ts`). El MVP **sólo informa** tarifas configuradas: no cotiza con transportistas, no calcula por peso o volumen y no suma el envío al pedido ni al link de Mercado Pago (el asistente aclara que se paga aparte).
+Cada comercio carga a dónde llega, cuánto cuesta y cuánto demora. El asistente de ventas interpreta la consulta del cliente y la redacta. La cobertura, el precio y el plazo los decide un resolvedor determinístico (`api/src/envios/envios.rules.ts`). Usa sólo tarifas configuradas: no cotiza con transportistas ni calcula por peso o volumen.
+
+**Envío en el pedido.** Con el módulo activo, `crear_pedido` recibe `envio` (modalidad y ubicación) cuando la entrega es con envío. Dentro de la reserva, `VentasService` vuelve a resolver la tarifa con el subtotal de los renglones reservados (para el envío gratis), con `envioParaCobrar`. Si hay tarifa fija en la moneda del pedido, la guarda en `Venta.envioCentavos`/`envioModalidad`, la suma a `totalCentavos` y la manda como un renglón más del link de Mercado Pago: el cliente paga todo junto y la conciliación compara contra ese total. El recargo de cuotas se calcula sólo sobre los productos. Sin tarifa fija (se cotiza según el pedido, falta un dato, no hay regla), el link es sólo de los productos y el envío se coordina aparte por el chat. El asistente informa siempre el importe de los productos y el del envío por separado; el único total con envío es el que devuelve `crear_pedido`, calculado en código.
 
 ## Cómo se configura
 

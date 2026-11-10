@@ -44,7 +44,7 @@ import {
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 import type { EnviosService } from '../../../envios/envios.service.js';
 import { formatearResolucionEnvio } from '../../../envios/envios.respuesta.js';
-import type { ConsultaEnvio } from '../../../envios/envios.rules.js';
+import { envioParaCobrar, type ConsultaEnvio, type Modalidad } from '../../../envios/envios.rules.js';
 import { artifactDeEnvio } from '../envios-de-la-vuelta.js';
 
 export type DepsCatalogo = {
@@ -163,6 +163,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     const porDefecto: MedioDePago = mpConectado ? 'mercadopago' : 'manual';
     const medioPago: MedioDePago =
       args.medioPago === 'manual' || args.medioPago === 'mercadopago' ? args.medioPago : porDefecto;
+    const cotizador = cotizadorDeEnvio(state, args.envio);
     try {
       const venta = await deps.ventas.crearPedido({
         userId: state.ownerUserId,
@@ -175,6 +176,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         formaPago: esFormaDePago(args.formaPago) ? args.formaPago : null,
         cuotas: typeof args.cuotas === 'number' ? args.cuotas : null,
         entrega: leerEntrega(args.entrega),
+        ...(cotizador ? { cotizarEnvio: cotizador } : {}),
         datosCliente: leerDatosDeVenta(args.datosCliente),
         // El banco de pruebas del Home (quien habla es el dueño): pedido real, fuera del histórico.
         dePrueba: state.esPropietario,
@@ -186,6 +188,26 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       if (error instanceof PedidoRechazadoError) return `No se pudo crear el pedido: ${error.message}`;
       throw error;
     }
+  }
+
+  /**
+   * Con el envío que validó validacion-ventas: la tarifa se resuelve con las
+   * reglas vigentes y el subtotal que reservó el pedido, nunca con un monto del
+   * modelo. Sin tarifa fija, el pedido va sin envío y se coordina aparte.
+   */
+  function cotizadorDeEnvio(state: EstadoVentasValue, crudo: unknown) {
+    const envios = deps.envios;
+    if (!envios || typeof crudo !== 'object' || crudo === null) return null;
+    const { modalidad, ...consulta } = crudo as ConsultaEnvio & { modalidad: Modalidad };
+    return async (subtotalCentavos: number, moneda: string) => {
+      const resolucion = await envios.resolver(state.ownerUserId, consulta, {
+        subtotalCentavos,
+        monedaSubtotal: moneda,
+        registrar: false,
+      });
+      const centavos = envioParaCobrar(resolucion, modalidad, moneda);
+      return centavos === null ? null : { modalidad, centavos };
+    };
   }
 
   async function verFormasDePago(state: EstadoVentasValue, args: Args): Promise<string> {
@@ -231,7 +253,9 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       monedaSubtotal,
       registrar: !state.esPropietario,
     });
-    return { texto: formatearResolucionEnvio(resolucion), artifact: artifactDeEnvio(resolucion) };
+    const pedido =
+      subtotalCentavos !== null && monedaSubtotal !== null ? { subtotalCentavos, moneda: monedaSubtotal } : null;
+    return { texto: formatearResolucionEnvio(resolucion, pedido), artifact: artifactDeEnvio(resolucion) };
   }
 
   async function derivarConsulta(state: EstadoVentasValue, args: Args): Promise<string> {
