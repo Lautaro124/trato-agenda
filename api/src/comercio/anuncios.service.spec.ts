@@ -8,6 +8,8 @@ import type { BusquedaService } from './busqueda.service.js';
 import type { DecisionesClient } from './decisiones.client.js';
 import type { VisionClient } from './vision.client.js';
 
+import { procesarImagen } from './imagenes.rules.js';
+
 vi.mock('./imagenes.rules.js', async (original) => ({
   ...(await original<typeof import('./imagenes.rules.js')>()),
   procesarImagen: vi.fn(async (datos: Buffer) => ({ datos, bytes: datos.length, ancho: 10, alto: 10 })),
@@ -305,8 +307,45 @@ describe('AnunciosService.registrar con un anuncio que cargó el dueño', () => 
     await expect(service.registrar('u-1', 'jid', conLink)).resolves.toBe('a-1');
   });
 
+  it('un anuncio ya guardado no se reescribe con lo que manda el cliente: sólo se completa lo que falta', async () => {
+    const { service, prisma } = crear({ asociacion: 'manual' });
+    prisma.anuncio.findUnique.mockResolvedValue({
+      id: 'a-1',
+      sourceType: 'ad',
+      sourceUrl: null,
+      titulo: 'Nombre del dueño',
+      cuerpo: null,
+      miniatura: new Uint8Array([1]),
+    });
+    await service.registrar('u-1', 'jid', { ...REF, titulo: 'Otro título', cuerpo: 'Texto nuevo', sourceUrl: 'https://fb.me/x', sourceType: 'x' });
+    const { update } = prisma.anuncio.upsert.mock.calls[0][0];
+    expect(update).toMatchObject({ cuerpo: 'Texto nuevo', sourceUrl: 'https://fb.me/x' });
+    expect(update).not.toHaveProperty('titulo');
+    expect(update).not.toHaveProperty('miniatura');
+    expect(update).not.toHaveProperty('sourceType');
+  });
+
+  it('el primer chat de un anuncio cargado con su link completa texto y miniatura, sin pisar el nombre del dueño', async () => {
+    const { service, prisma } = crear({ asociacion: 'manual' });
+    const delDueno = { id: 'a-0', sourceType: null, sourceUrl: null, titulo: 'Nombre del dueño', cuerpo: null, miniatura: null };
+    prisma.anuncio.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(delDueno);
+    prisma.anuncio.findFirst.mockResolvedValueOnce({ id: 'a-0', sourceId: null, productoId: 'p-1', asociacion: 'manual' });
+    await service.registrar('u-1', 'jid', conLink);
+    const { update } = prisma.anuncio.upsert.mock.calls[0][0];
+    expect(update).toMatchObject({ cuerpo: REF.cuerpo, miniatura: expect.any(Uint8Array) });
+    expect(update).not.toHaveProperty('titulo');
+  });
+
+  it('con miniatura ya guardada no procesa otra', async () => {
+    const { service, prisma } = crear({ asociacion: 'manual' });
+    prisma.anuncio.findUnique.mockResolvedValue({ id: 'a-1', sourceType: 'ad', sourceUrl: null, titulo: 'x', cuerpo: 'y', miniatura: new Uint8Array([1]) });
+    await service.registrar('u-1', 'jid', REF);
+    expect(procesarImagen).not.toHaveBeenCalled();
+  });
+
   it('lo que no vino en el mensaje no borra el nombre que le puso el dueño', async () => {
     const { service, prisma } = crear({ asociacion: 'manual' });
+    prisma.anuncio.findUnique.mockResolvedValue({ id: 'a-1', sourceType: null, sourceUrl: null, titulo: 'Nombre del dueño', cuerpo: null, miniatura: null });
     await service.registrar('u-1', 'jid', { ...REF, titulo: null, miniatura: null });
     const { update } = prisma.anuncio.upsert.mock.calls[0][0];
     expect(update).not.toHaveProperty('titulo');

@@ -69,6 +69,13 @@ function sinNulos<T extends Record<string, unknown>>(valores: T): { [K in keyof 
   };
 }
 
+/** De `nuevos`, los campos que `actual` todavía no tiene: lo ya guardado no se pisa. */
+function soloVacios<T extends Record<string, unknown>>(actual: Partial<Record<keyof T, unknown>>, nuevos: T): { [K in keyof T]: T[K] | null } {
+  return Object.fromEntries(Object.entries(nuevos).map(([k, v]) => [k, actual[k] === null || actual[k] === undefined ? v : null])) as {
+    [K in keyof T]: T[K] | null;
+  };
+}
+
 /**
  * Anuncios nuevos que se registran por cuenta y por hora. Los datos del
  * anuncio (o del estado) los manda el cliente: sin tope, ids inventados
@@ -123,24 +130,33 @@ export class AnunciosService {
     const ahora = new Date();
     const existente = await this.prisma.anuncio.findUnique({
       where: { userId_sourceId: { userId, sourceId: ref.sourceId } },
-      select: { id: true },
+      select: { id: true, sourceType: true, sourceUrl: true, titulo: true, cuerpo: true, miniatura: true },
     });
     if (!existente && !this.nuevosPorCuenta.permitir(userId)) {
       this.logger.warn(`Anuncio sin registrar para ${userId}: pasó ${MAX_ANUNCIOS_NUEVOS_POR_HORA} anuncios nuevos en una hora.`);
       return null;
     }
-    const original = (!existente && imagenCompleta ? await imagenCompleta() : null) ?? ref.miniatura;
+    // Con miniatura ya guardada no se procesa otra: no se usaría.
+    const original = existente?.miniatura ? null : ((!existente && imagenCompleta ? await imagenCompleta() : null) ?? ref.miniatura);
     // La miniatura pasa por la misma validación que las fotos: firma, tope de píxeles, JPEG sin metadatos.
     const miniatura = original
       ? await procesarImagen(original).then((r) => new Uint8Array(r.datos)).catch(() => null)
       : null;
     const textos = { sourceType: ref.sourceType, sourceUrl: ref.sourceUrl, titulo: ref.titulo, cuerpo: ref.cuerpo };
     const heredado = await this.reconocerCargado(userId, ref);
+    // Un anuncio que cargó el dueño con su link recibe su sourceId recién en reconocerCargado: se lee ahí.
+    const actual =
+      existente ??
+      (await this.prisma.anuncio.findUnique({
+        where: { userId_sourceId: { userId, sourceId: ref.sourceId } },
+        select: { id: true, sourceType: true, sourceUrl: true, titulo: true, cuerpo: true, miniatura: true },
+      }));
     const anuncio = await this.prisma.anuncio.upsert({
       where: { userId_sourceId: { userId, sourceId: ref.sourceId } },
       create: { userId, sourceId: ref.sourceId, ...textos, miniatura, chats: 1, ultimoChatAt: ahora, ...heredado },
-      // Lo que no vino en este mensaje no borra lo que había (el nombre que le puso el dueño, por ejemplo).
-      update: { ...sinNulos({ ...textos, miniatura }), chats: { increment: 1 }, ultimoChatAt: ahora },
+      // Gana lo primero que se guardó: el cliente manda estos datos y un mensaje posterior (o falso) no
+      // puede reescribir lo que el asistente le cuenta a los demás. Sólo se completa lo que falta.
+      update: { ...(actual ? sinNulos(soloVacios(actual, { ...textos, miniatura })) : {}), chats: { increment: 1 }, ultimoChatAt: ahora },
       select: { id: true, asociacion: true },
     });
     await this.prisma.conversation.updateMany({
