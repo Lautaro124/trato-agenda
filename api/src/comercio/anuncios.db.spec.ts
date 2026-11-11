@@ -67,7 +67,7 @@ describe.skipIf(!hayBaseDePrueba)('anuncios (Postgres real)', () => {
     expect(id).toBe(cargado.id);
     expect(busqueda.buscar).not.toHaveBeenCalled();
     const [fila] = await anuncios.listar(dueno.id);
-    expect(fila).toMatchObject({ asociacion: 'manual', chats: 1, titulo: 'Rinconero brick 3c', producto: { id: productoId } });
+    expect(fila).toMatchObject({ asociacion: 'manual', chats: 1, titulo: 'Promo rinconero', producto: { id: productoId } });
   });
 
   it('uno cargado con el link lo reconoce el primer chat, y otro anuncio de la misma publicación hereda el producto', async () => {
