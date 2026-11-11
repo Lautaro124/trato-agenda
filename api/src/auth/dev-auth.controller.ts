@@ -216,6 +216,7 @@ export class DevAuthController {
             titulo: dto.anuncio.titulo ?? null,
             cuerpo: dto.anuncio.cuerpo ?? null,
             chats: 1,
+            ultimoChatAt: new Date(),
           },
           update: { chats: { increment: 1 }, ultimoChatAt: new Date() },
           select: { id: true },
