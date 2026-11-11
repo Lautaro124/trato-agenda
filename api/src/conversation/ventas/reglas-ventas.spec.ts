@@ -21,6 +21,7 @@ import {
   montosEnTexto,
   OFERTA_DE_DESCUENTOS,
   preciosSinRespaldo,
+  modalidadQuePidio,
   correccionDePrecios,
   reglaDeFormasDePago,
   reglasDeAlcanceVentas,
@@ -652,6 +653,18 @@ describe('montos y su respaldo', () => {
   it('lee los montos como los escribe formatearCentavos y como los escribe la gente', () => {
     expect(montosEnTexto('Sale $ 8.000, o $15.000,50 la grande. Envío $0.')).toEqual([pesos(800_000), pesos(1_500_050), pesos(0)]);
     expect(montosEnTexto('no hay precios acá')).toEqual([]);
+    // Formatos que antes no se reconocían y salían sin verificar.
+    expect(montosEnTexto('Total $  5.000')).toEqual([pesos(500_000)]);
+    expect(montosEnTexto('Total $\n\n5.000')).toEqual([pesos(500_000)]);
+    expect(montosEnTexto('Te queda en ARS 5000')).toEqual([pesos(500_000)]);
+    expect(montosEnTexto('Son 5.000 pesos')).toEqual([pesos(500_000)]);
+    expect(montosEnTexto('Total ＄5000')).toEqual([pesos(500_000)]);
+    expect(montosEnTexto('Son 20 dólares')).toEqual([{ moneda: 'USD', centavos: 2_000 }]);
+    // Una tira larga de dígitos sin sufijo no tiene que ser cuadrática (ReDoS): antes, 64.000 tardaban segundos.
+    const inicio = performance.now();
+    montosEnTexto('1'.repeat(64_000));
+    montosEnTexto('1.'.repeat(32_000));
+    expect(performance.now() - inicio).toBeLessThan(200);
   });
 
   it('un precio que no sale de ninguna fuente no tiene respaldo', () => {
@@ -803,7 +816,7 @@ describe('fotos sin repetir', () => {
 describe('formas de pago (LAU-34)', () => {
   const CONDICIONES = { descuentoEfectivoPorcentaje: 10, cobroManual: null };
   const NINGUNA = { descuentoEfectivoPorcentaje: null, cobroManual: null };
-  const base = { moneda: 'ARS' as const, contadoCentavos: 1_000_000, efectivoCentavos: 900_000 };
+  const base = { moneda: 'ARS' as const, renglones: [], contadoCentavos: 1_000_000, efectivoCentavos: 900_000 };
 
   it('las cuotas son de cada producto y el efectivo de la cuenta; pide cotizar con la herramienta', () => {
     const texto = reglaDeFormasDePago(CONDICIONES, true);
@@ -838,6 +851,7 @@ describe('formas de pago (LAU-34)', () => {
   it('dice por qué no hay cuotas', () => {
     const texto = formatearFormasDePago(CONDICIONES, true, {
       moneda: 'USD',
+      renglones: [],
       contadoCentavos: 10_000,
       efectivoCentavos: 9_000,
       planes: [],
@@ -851,5 +865,18 @@ describe('formas de pago (LAU-34)', () => {
     expect(formatearFormasDePago(CONDICIONES, true, { ...base, planes: [], sinCuotas: 'sin_comun' })).toContain(
       'no tienen cuotas en común',
     );
+  });
+});
+
+describe('modalidadQuePidio', () => {
+  it('toma la última modalidad que nombró el cliente', () => {
+    expect(modalidadQuePidio(['Lo mando a una sucursal del correo en La Rioja', 'Dale, lo quiero así'])).toBe('sucursal');
+    expect(modalidadQuePidio(['a sucursal', 'mejor mandámelo a mi casa'])).toBe('domicilio');
+    expect(modalidadQuePidio(['Envío a domicilio por favor'])).toBe('domicilio');
+  });
+
+  it('sin nombrar ninguna, o con las dos en el mismo mensaje, no decide', () => {
+    expect(modalidadQuePidio(['¿Cuánto sale el envío?'])).toBeNull();
+    expect(modalidadQuePidio(['¿Cuánto sale a domicilio y a sucursal?'])).toBeNull();
   });
 });

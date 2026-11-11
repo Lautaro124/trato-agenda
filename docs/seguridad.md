@@ -437,9 +437,30 @@ como una secuencia que el proveedor rechaza para siempre. Ahora:
   acepta productos que salieron de una búsqueda visible, y el nodo
   `verificar_respuesta` descarta una respuesta con un monto `$ …` que no sale del
   catálogo, de los pedidos ni de lo que escribió el cliente: el modelo la
-  reescribe con una nota de corrección, y si insiste se contesta
-  `MENSAJE_PRECIO_SIN_VERIFICAR` y se avisa a Sentry (warning
+  reescribe con una nota de corrección, y si insiste se quitan las líneas con esos
+  montos (si no queda nada, se contesta `MENSAJE_PRECIO_SIN_VERIFICAR`) y se avisa a Sentry (warning
   `precio-sin-respaldo`, sólo ids y la cantidad de montos, nunca el texto).
+
+## Envío dentro del pedido (2026-11-10, LAU-102)
+
+Con el módulo de envíos activo, `crear_pedido` suma el envío al total y al link
+de Mercado Pago. El monto nunca viene del modelo: `VentasService` lo resuelve
+dentro de la reserva con las reglas del comercio y el subtotal reservado
+(`envioParaCobrar`). Lo que sí sale de la charla es **el destino** con que se
+cotiza, y un cliente (o una inyección de prompt) podría cotizar un lugar barato y
+dar una dirección en otro:
+
+- La provincia y el código postal de los datos de entrega validados
+  (`ubicacionDeEntrega`) pisan los del modelo; si no cierran con la localidad, el
+  resolvedor da contradicción y el envío no va en el link (se coordina aparte).
+- El destino resuelto, con los nombres del catálogo Georef, queda en
+  `Venta.envioDestino` y se muestra en el detalle de la venta y en el aviso al
+  dueño, con la indicación de compararlo con la dirección antes de despachar.
+
+**Riesgo aceptado:** si el comercio no pide provincia ni código postal (o el
+cliente no los da), o si las tarifas cambian por localidad dentro de una
+provincia, el destino cotizado depende de lo que se dijo en el chat. El control
+es del dueño, que ve el destino cotizado junto a la dirección antes de despachar.
 
 ## Controles automáticos
 

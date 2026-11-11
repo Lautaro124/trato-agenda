@@ -57,6 +57,15 @@ export function avisoDeRecorte(conversationId: string, entrada: EntradaAjustada)
   return `Entrada al modelo recortada en la conversación ${conversationId}: ${detalles.join(', ')}.`;
 }
 
+/** Sin texto y sin tool calls: no hay nada que mandarle al cliente. */
+export function respuestaVacia(mensaje: BaseMessage): boolean {
+  const llamadas = (mensaje as AIMessage).tool_calls ?? [];
+  if (llamadas.length > 0) return false;
+  const { content } = mensaje;
+  if (typeof content === 'string') return content.trim() === '';
+  return !content.some((parte) => typeof parte === 'object' && parte.type === 'text' && String(parte.text ?? '').trim() !== '');
+}
+
 export function crearNodoConversacion(deps: DepsConversacion) {
   const logger = new Logger('ConversacionNode');
 
@@ -83,9 +92,15 @@ export function crearNodoConversacion(deps: DepsConversacion) {
       if (aviso) logger.warn(aviso);
       const mensajes = [new SystemMessage(sistema), ...entrada.mensajes];
       // Con la señal, descartar la vuelta corta también el pedido al proveedor, no sólo el grafo.
-      const respuesta = state.cancelacion
-        ? await modelo.invoke(mensajes, { signal: state.cancelacion.signal })
-        : await modelo.invoke(mensajes);
+      const invocar = () =>
+        state.cancelacion ? modelo.invoke(mensajes, { signal: state.cancelacion.signal }) : modelo.invoke(mensajes);
+      let respuesta = await invocar();
+      // A veces el modelo cierra la vuelta sin texto ni tool calls (visto después de
+      // una búsqueda): una sola vez más antes de caer en MENSAJE_SIN_RESPUESTA.
+      if (respuestaVacia(respuesta)) {
+        logger.warn(`El modelo respondió vacío en la conversación ${contexto.conversation.id}: se reintenta una vez.`);
+        respuesta = await invocar();
+      }
       return { messages: [respuesta] };
     } catch (error) {
       // El cliente mandó otro mensaje y la vuelta se descartó: no es un fallo del modelo.

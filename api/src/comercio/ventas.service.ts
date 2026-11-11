@@ -77,8 +77,12 @@ export class PedidoRechazadoError extends Error {}
 
 export type VentaConItems = Venta & { items: ItemVenta[] };
 
-/** El envío que va dentro de un pedido: la modalidad y lo que se cobra (0 si es gratis). */
-export type EnvioDelPedido = { modalidad: string; centavos: number };
+/**
+ * El envío que va dentro de un pedido: la modalidad, lo que se cobra (0 si es
+ * gratis) y el destino con el que se cotizó, para que el dueño lo compare con
+ * la dirección de entrega.
+ */
+export type EnvioDelPedido = { modalidad: string; centavos: number; destino: string };
 
 export type CrearPedidoInput = {
   userId: string;
@@ -148,6 +152,8 @@ type ProductoConPrecio = Pick<ProductoBloqueado, 'id' | 'codigo' | 'nombre' | 'c
 /** Cuánto sale cada forma de pago de un mismo pedido (ver_formas_de_pago). */
 export type CotizacionFormasDePago = {
   moneda: Moneda;
+  /** Los renglones con el precio que se cobra (promos incluidas), para detallar la cotización. */
+  renglones: Array<{ nombreProducto: string; cantidad: number; subtotalCentavos: number }>;
   /** Con las promos vigentes: lo de siempre. */
   contadoCentavos: number;
   /** Con el mejor entre las promos y el descuento en efectivo; null si no hay. */
@@ -403,6 +409,7 @@ export class VentasService {
         : sumaDe(renglonesConPrecio(items, porId, descuentosDe(descuentos, condiciones, 'efectivo'), moneda, ahora));
     return {
       moneda,
+      renglones: renglones.map(({ nombreProducto, cantidad, subtotalCentavos }) => ({ nombreProducto, cantidad, subtotalCentavos })),
       contadoCentavos: contado,
       efectivoCentavos: efectivo,
       planes: enComun.map((plan) => {
@@ -540,6 +547,7 @@ export class VentasService {
         recargoCentavos: recargo,
         envioCentavos: envio?.centavos ?? 0,
         envioModalidad: envio?.modalidad ?? null,
+        envioDestino: envio?.destino ?? null,
         totalCentavos: subtotal + recargo + (envio?.centavos ?? 0),
         moneda,
         reservaVenceAt: vencimientoDeReserva(input.medioPago, ahora),

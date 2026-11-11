@@ -13,7 +13,8 @@ import { leerDatosDeVenta, leerEntrega } from '../../../comercio/datos-cliente.r
 import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
-import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
+import { PedidoRechazadoError, type CotizacionFormasDePago, type VentasService } from '../../../comercio/ventas.service.js';
+import { formatearCotizacion } from '../cotizacion.js';
 import type { SugerenciasService } from '../../../comercio/sugerencias.service.js';
 import { avisoConsultaDerivada } from '../../../notificaciones/avisos.js';
 import type { NotificacionesService } from '../../../notificaciones/notificaciones.service.js';
@@ -43,7 +44,7 @@ import {
 } from '../reglas-ventas.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 import type { EnviosService } from '../../../envios/envios.service.js';
-import { formatearResolucionEnvio } from '../../../envios/envios.respuesta.js';
+import { destinoEnTexto, formatearResolucionEnvio } from '../../../envios/envios.respuesta.js';
 import { envioParaCobrar, type ConsultaEnvio, type Modalidad } from '../../../envios/envios.rules.js';
 import { artifactDeEnvio } from '../envios-de-la-vuelta.js';
 
@@ -206,7 +207,34 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         registrar: false,
       });
       const centavos = envioParaCobrar(resolucion, modalidad, moneda);
-      return centavos === null ? null : { modalidad, centavos };
+      return centavos === null ? null : { modalidad, centavos, destino: destinoEnTexto(resolucion) };
+    };
+  }
+
+  /**
+   * La cotización completa de lo que eligió el cliente, toda calculada acá:
+   * productos con sus promos, envío por modalidad (con el subtotal para el
+   * envío gratis) y el total en cada forma de pago. El modelo sólo la informa.
+   */
+  async function cotizarPedido(state: EstadoVentasValue, args: Args): Promise<Resultado> {
+    let cotizacion: CotizacionFormasDePago;
+    try {
+      cotizacion = await deps.ventas.cotizarFormasDePago(state.ownerUserId, args.items as ItemPedido[]);
+    } catch (error) {
+      if (error instanceof PedidoRechazadoError) return `No se pudo cotizar: ${error.message}`;
+      throw error;
+    }
+    const crudo = args.envio as (ConsultaEnvio & { modalidad?: Modalidad }) | undefined;
+    if (!crudo || !deps.envios) return formatearCotizacion(cotizacion, null);
+    const { modalidad, ...consulta } = crudo;
+    const resolucion = await deps.envios.resolver(state.ownerUserId, consulta, {
+      subtotalCentavos: cotizacion.contadoCentavos,
+      monedaSubtotal: cotizacion.moneda,
+      registrar: !state.esPropietario,
+    });
+    return {
+      texto: formatearCotizacion(cotizacion, { resolucion, modalidad: modalidad ?? null }),
+      artifact: artifactDeEnvio(resolucion),
     };
   }
 
@@ -382,6 +410,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         return formatearDescuentos(await deps.sugerencias.descuentosVigentes(state.ownerUserId));
       case 'ver_formas_de_pago':
         return verFormasDePago(state, args);
+      case 'cotizar_pedido':
+        return cotizarPedido(state, args);
       case 'consultar_stock': {
         const consulta = String(args.consulta);
         return formatearStockDueno(consulta, await deps.busqueda.buscar(state.ownerUserId, consulta));

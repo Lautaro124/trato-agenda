@@ -7,8 +7,10 @@
  *
  * - si hay alguno sin respaldo, se descarta la respuesta y el modelo vuelve a
  *   intentarlo con una nota que le dice qué corregir;
- * - si en el segundo intento insiste, se reemplaza por una pregunta fija y se
- *   avisa a Sentry (sólo códigos e ids, nunca el texto).
+ * - si en el segundo intento insiste, se quitan sólo las líneas con esos montos
+ *   (o, si no queda nada, se contesta una pregunta fija) y se avisa a Sentry
+ *   (sólo códigos e ids, nunca el texto). Reemplazar siempre la respuesta
+ *   entera trababa el chat a mitad de un pedido.
  *
  * También revisa que no repita, con su precio, los productos que ya le llegaron
  * en foto con el nombre y el precio al pie (el listado de ver_catalogo): se le
@@ -23,6 +25,7 @@ import { imagenesDeLaVuelta } from '../imagenes-de-la-vuelta.js';
 import {
   correccionDeListaRepetida,
   correccionDePrecios,
+  lineasConMontos,
   lineasQueRepitenFotos,
   preciosSinRespaldo,
   sinLineasRepetidas,
@@ -89,13 +92,21 @@ export function crearNodoVerificarRespuesta() {
       return { messages: [new RemoveMessage({ id: ultimo.id })], correccion: correccionDePrecios(sinRespaldo) };
     }
 
-    logger.warn(`Precio sin respaldo otra vez en la conversación ${conversation.id}: se responde la pregunta fija.`);
+    // Sólo se quitan las líneas con esos montos: el resto de la respuesta sigue la charla.
+    const sinLineas = sinLineasRepetidas(textoDe(ultimo), lineasConMontos(textoDe(ultimo), sinRespaldo));
+    // Se vuelve a verificar lo que queda: un monto partido en dos líneas ("$\n5.000")
+    // no lo encuentra ninguna línea suelta y saldría igual.
+    const sinEsosMontos = sinLineas && preciosSinRespaldo(sinLineas, fuentes, delCliente).length === 0 ? sinLineas : null;
+    logger.warn(
+      `Precio sin respaldo otra vez en la conversación ${conversation.id}: ` +
+        (sinEsosMontos ? 'se quitan esas líneas.' : 'se responde la pregunta fija.'),
+    );
     avisarASentry('El asistente de ventas insistió con un precio que no sale del catálogo', {
       fingerprint: ['precio-sin-respaldo'],
       tags: { conversacion: conversation.id, montos: sinRespaldo.length },
       userId: agent.userId,
     });
     // Mismo id: el reducer reemplaza la respuesta inventada en vez de sumar otra.
-    return { messages: [new AIMessage({ id: ultimo.id, content: MENSAJE_PRECIO_SIN_VERIFICAR })] };
+    return { messages: [new AIMessage({ id: ultimo.id, content: sinEsosMontos ?? MENSAJE_PRECIO_SIN_VERIFICAR })] };
   };
 }

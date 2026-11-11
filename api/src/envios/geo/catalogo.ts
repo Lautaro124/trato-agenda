@@ -97,10 +97,50 @@ function variantes(normalizado: string): string[] {
   return sinCapital !== normalizado ? [normalizado, sinCapital] : [normalizado];
 }
 
+/**
+ * La capital de cada provincia, con su nombre en Georef: "Capital" a secas (o
+ * "la capital") con la provincia conocida es su capital. En el catálogo la de
+ * La Rioja se llama "La Rioja" (departamento Capital), así que "Capital, La
+ * Rioja" no coincidía con ninguna localidad y el envío quedaba sin cotizar.
+ */
+const CAPITAL_DE_PROVINCIA: Record<string, string> = {
+  '06': 'La Plata',
+  '10': 'San Fernando del Valle de Catamarca',
+  '14': 'Córdoba',
+  '18': 'Corrientes',
+  '22': 'Resistencia',
+  '26': 'Rawson',
+  '30': 'Paraná',
+  '34': 'Formosa',
+  '38': 'San Salvador de Jujuy',
+  '42': 'Santa Rosa',
+  '46': 'La Rioja',
+  '50': 'Mendoza',
+  '54': 'Posadas',
+  '58': 'Neuquén',
+  '62': 'Viedma',
+  '66': 'Salta',
+  '70': 'San Juan',
+  '74': 'San Luis',
+  '78': 'Río Gallegos',
+  '82': 'Santa Fe',
+  '86': 'Santiago del Estero',
+  '90': 'San Miguel de Tucumán',
+  '94': 'Ushuaia',
+};
+
+/** "capital", "la capital", "ciudad capital", "capital provincial". */
+const SOLO_CAPITAL = /^(?:la |ciudad |cdad )?capital(?: provincial)?$/;
+
 export function interpretarLocalidad(texto: string, provinciaIds?: readonly string[]): InterpretacionLocalidad {
   const normalizado = normalizar(texto);
   const enProvincias = (lista: Localidad[]) =>
     provinciaIds && provinciaIds.length > 0 ? lista.filter((l) => provinciaIds.includes(l.provinciaId)) : lista;
+  const capital = provinciaIds?.length === 1 ? CAPITAL_DE_PROVINCIA[provinciaIds[0]] : undefined;
+  if (capital && SOLO_CAPITAL.test(normalizado)) {
+    const exactas = enProvincias(localidadesPorNombre.get(normalizar(capital)) ?? []);
+    if (exactas.length > 0) return { exactas, enOtraProvincia: [], sugerencias: [] };
+  }
   for (const variante of variantes(normalizado)) {
     const todas = localidadesPorNombre.get(variante);
     if (!todas) continue;

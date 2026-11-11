@@ -23,6 +23,7 @@ export type VentaPublica = Pick<
   | 'recargoCentavos'
   | 'envioCentavos'
   | 'envioModalidad'
+  | 'envioDestino'
   | 'nombreCliente'
   | 'telefonoCliente'
   | 'totalCentavos'
@@ -81,6 +82,7 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
     recargoCentavos: venta.recargoCentavos,
     envioCentavos: venta.envioCentavos,
     envioModalidad: venta.envioModalidad,
+    envioDestino: venta.envioDestino,
     nombreCliente: venta.nombreCliente,
     telefonoCliente: venta.telefonoCliente,
     totalCentavos: venta.totalCentavos,

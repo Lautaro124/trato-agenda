@@ -42,6 +42,19 @@ describe('avisos', () => {
     );
   });
 
+  it('con el envío en el pedido dice el destino cotizado, para compararlo con la dirección', () => {
+    const conEnvio = {
+      ...VENTA,
+      entrega: 'envio',
+      envioModalidad: 'sucursal',
+      envioCentavos: 3_500_000,
+      envioDestino: 'La Rioja, CP 5300',
+    };
+    const cuerpo = avisoPedidoManual(conEnvio).cuerpo;
+    expect(cuerpo).toContain('envío a sucursal del correo ($ 35.000)');
+    expect(cuerpo).toContain('cotizado para La Rioja, CP 5300: antes de despachar, revisá en Ventas que coincida con la dirección.');
+  });
+
   it('stock bajo y agotado comparten la clave del producto', () => {
     const bajo = avisoStock({ productoId: 'p-1', nombreProducto: 'Remera Talle M', stock: 2 });
     const agotado = avisoStock({ productoId: 'p-1', nombreProducto: 'Remera Talle M', stock: 0 });
