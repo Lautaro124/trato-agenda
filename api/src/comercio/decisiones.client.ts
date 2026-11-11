@@ -31,6 +31,7 @@ type RespuestaDecisiones = {
   answers?: Record<string, { choice?: unknown; probabilities?: Record<string, unknown> }>;
 };
 
+
 /**
  * Wrapper delgado sobre la Decisions API de OpenRouter, que es la única forma
  * de hablar con Jev (`typesafe/jev-1.13`): no es un modelo de chat, recibe un
@@ -57,6 +58,27 @@ export class DecisionesClient {
   async ordenar(pedido: PedidoDeEleccion): Promise<string[]> {
     const ids = Object.keys(pedido.opciones);
     if (ids.length === 0) return [];
+    return ordenDeLaRespuesta(await this.consultar(pedido), ids);
+  }
+
+  /**
+   * La probabilidad que Jev le da a cada opción (`none` incluida), para quien
+   * necesita saber cuánta confianza tiene y no sólo el orden.
+   */
+  async probabilidades(pedido: PedidoDeEleccion): Promise<Record<string, number>> {
+    if (Object.keys(pedido.opciones).length === 0) return {};
+    const respuesta = (await this.consultar(pedido)).answers?.[PREGUNTA];
+    const probabilidades: Record<string, number> = {};
+    for (const [id, valor] of Object.entries(respuesta?.probabilities ?? {})) {
+      if (typeof valor === 'number' && Number.isFinite(valor) && (id === 'none' || Object.hasOwn(pedido.opciones, id))) {
+        probabilidades[id] = valor;
+      }
+    }
+    return probabilidades;
+  }
+
+  private async consultar(pedido: PedidoDeEleccion): Promise<RespuestaDecisiones> {
+    const ids = Object.keys(pedido.opciones);
     if (ids.length > MAX_OPCIONES_DECISION) {
       throw new DecisionesError(`Jev admite hasta ${MAX_OPCIONES_DECISION} opciones por pregunta.`);
     }
@@ -96,7 +118,7 @@ export class DecisionesClient {
         // Sin el cuerpo: puede repetir lo que escribió el cliente.
         throw new DecisionesError(`OpenRouter respondió ${res.status} al pedir una decisión.`);
       }
-      return ordenDeLaRespuesta((await res.json()) as RespuestaDecisiones, ids);
+      return (await res.json()) as RespuestaDecisiones;
     } catch (error) {
       if (error instanceof DecisionesError) throw error;
       if (error instanceof Error && error.name === 'AbortError') {

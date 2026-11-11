@@ -70,6 +70,24 @@ class MensajeSembradoDto {
   texto!: string;
 }
 
+/** El anuncio de Meta desde el que llegó el chat sembrado (LAU-103). */
+class AnuncioSembradoDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  sourceId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  titulo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  cuerpo?: string;
+}
+
 /** Un chat de WhatsApp sembrado para los E2E de Chats (LAU-81): no hay WhatsApp real en el stack. */
 export class ChatSembradoDto {
   @Matches(/^\d{8,15}$/)
@@ -86,6 +104,10 @@ export class ChatSembradoDto {
   @ValidateNested({ each: true })
   @Type(() => MensajeSembradoDto)
   mensajes!: MensajeSembradoDto[];
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnuncioSembradoDto)
+  anuncio?: AnuncioSembradoDto;
 }
 
 /**
@@ -184,10 +206,26 @@ export class DevAuthController {
       throw new NotFoundException();
     }
     const remoteJid = `${dto.telefono}@s.whatsapp.net`;
+    const anuncio = dto.anuncio
+      ? await this.prisma.anuncio.upsert({
+          where: { userId_sourceId: { userId: user.id, sourceId: dto.anuncio.sourceId } },
+          create: {
+            userId: user.id,
+            sourceId: dto.anuncio.sourceId,
+            sourceType: 'ad',
+            titulo: dto.anuncio.titulo ?? null,
+            cuerpo: dto.anuncio.cuerpo ?? null,
+            chats: 1,
+          },
+          update: { chats: { increment: 1 }, ultimoChatAt: new Date() },
+          select: { id: true },
+        })
+      : null;
+    const delAnuncio = anuncio ? { anuncioId: anuncio.id, anuncioAt: new Date() } : {};
     const conversation = await this.prisma.conversation.upsert({
       where: { userId_remoteJid: { userId: user.id, remoteJid } },
-      create: { userId: user.id, remoteJid, nombreCliente: dto.nombre ?? null },
-      update: {},
+      create: { userId: user.id, remoteJid, nombreCliente: dto.nombre ?? null, ...delAnuncio },
+      update: delAnuncio,
     });
     for (const mensaje of dto.mensajes) {
       await this.prisma.message.create({

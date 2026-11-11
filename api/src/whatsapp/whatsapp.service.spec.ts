@@ -2,7 +2,9 @@ import type { ConfigService } from '@nestjs/config';
 import { DisconnectReason, downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AnunciosService } from '../comercio/anuncios.service.js';
 import type { ImagenesService } from '../comercio/imagenes.service.js';
+import type { VisionClient } from '../comercio/vision.client.js';
 import type { Env } from '../config/env.js';
 import { Cancelacion, VueltaCancelada } from '../conversation/cancelacion.js';
 import type { ConversationService } from '../conversation/conversation.service.js';
@@ -16,7 +18,10 @@ import {
   AVISO_AUDIO_FALLIDO,
   AVISO_AUDIO_LARGO,
   AVISO_FUERA_DE_HORARIO,
+  IMAGEN_NO_VISTA,
+  MAX_BYTES_IMAGEN,
   PREFIJO_AUDIO,
+  PREFIJO_IMAGEN,
   MAX_AUDIOS_EN_CURSO,
   MAX_CARACTERES_AUDIO,
   MAX_CODIGOS_POR_CUENTA,
@@ -31,6 +36,12 @@ import type { HorarioAtencionService } from '../horario-atencion/horario-atencio
 vi.mock('@whiskeysockets/baileys', async (original) => ({
   ...(await original<typeof import('@whiskeysockets/baileys')>()),
   downloadMediaMessage: vi.fn(),
+}));
+
+// sharp corre fuera del event loop y no se lleva con los timers falsos: la imagen pasa tal cual.
+vi.mock('../comercio/imagenes.rules.js', async (original) => ({
+  ...(await original<typeof import('../comercio/imagenes.rules.js')>()),
+  procesarImagen: vi.fn(async (datos: Buffer) => ({ datos, bytes: datos.length, ancho: 10, alto: 10 })),
 }));
 
 type UsuarioMock = { id: string; googleId: string | null; phoneNumber: string | null };
@@ -57,6 +68,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
       upsert: vi.fn().mockResolvedValue({}),
     },
     whatsappClave: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    agent: { findUnique: vi.fn().mockResolvedValue({ tipoAsistente: 'ventas' }) },
     conversation: { findUnique: vi.fn().mockResolvedValue(null), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     message: { create: vi.fn().mockResolvedValue({}) },
     $executeRaw: vi.fn().mockResolvedValue(0),
@@ -78,6 +90,8 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
   const notificaciones = { avisar: vi.fn().mockResolvedValue(null) } as unknown as NotificacionesService;
   const horarioAtencion = { atencion: vi.fn().mockResolvedValue('atender') };
   const transcripcion = { transcribir: vi.fn().mockResolvedValue('quiero un turno') };
+  const anuncios = { registrar: vi.fn().mockResolvedValue('anuncio-1') };
+  const vision = { configurado: true, describir: vi.fn().mockResolvedValue('Un sillón gris con el texto "Rinconero brick 3c"') };
   const service = new WhatsappService(
     prisma,
     config,
@@ -87,6 +101,8 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     notificaciones,
     horarioAtencion as unknown as HorarioAtencionService,
     transcripcion as unknown as TranscripcionClient,
+    anuncios as unknown as AnunciosService,
+    vision as unknown as VisionClient,
   );
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
@@ -105,6 +121,8 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     notificaciones,
     horarioAtencion,
     transcripcion,
+    anuncios,
+    vision,
   };
 }
 
@@ -1156,5 +1174,236 @@ describe('NAVEGADOR_WHATSAPP', () => {
     expect(navegador).toBe('Chrome');
     expect(sistema).toBe('Ubuntu');
     expect(version).toMatch(/^\d+(\.\d+)+$/);
+  });
+});
+
+describe('WhatsappService — anuncios e imágenes de clientes (LAU-103)', () => {
+  const JID_CLIENTE = '5491177778888@s.whatsapp.net';
+  const MEDIA = {
+    url: 'https://mmg.whatsapp.net/v/t62.7118-24/456_n.enc?ccb=11-4',
+    directPath: '/v/t62.7118-24/456_n.enc?ccb=11-4',
+  };
+  const ANUNCIO = {
+    sourceId: '120210000000000001',
+    sourceType: 'ad',
+    title: 'Rinconero brick 3c',
+    body: 'Sillón con envío incluido',
+    ctwaClid: 'clid-que-no-se-guarda',
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(downloadMediaMessage).mockReset().mockImplementation(async () => Readable.from([Buffer.from('jpeg')]) as never);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  function socket() {
+    return {
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+      readMessages: vi.fn().mockResolvedValue(undefined),
+      sendPresenceUpdate: vi.fn().mockResolvedValue(undefined),
+      presenceSubscribe: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  async function recibir(service: WhatsappService, sock: unknown, message: Record<string, unknown>) {
+    (service as unknown as { sockets: Map<string, unknown> }).sockets.set('user-1', sock);
+    const recepcion = (
+      service as unknown as { handleMessagesUpsert: (u: string, s: unknown, e: unknown) => Promise<void> }
+    ).handleMessagesUpsert('user-1', sock, {
+      type: 'notify',
+      messages: [{ key: { remoteJid: JID_CLIENTE, fromMe: false, id: 'x-1' }, message }],
+    });
+    await vi.runAllTimersAsync();
+    await recepcion;
+  }
+
+  it('registra el anuncio del primer mensaje y lo pasa a la conversación al contestar', async () => {
+    const { service, conversationService, anuncios } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
+
+    await recibir(service, socket(), {
+      extendedTextMessage: { text: '¡Hola! Quiero más información.', contextInfo: { externalAdReply: ANUNCIO } },
+    });
+
+    expect(anuncios.registrar).toHaveBeenCalledWith(
+      'user-1',
+      JID_CLIENTE,
+      expect.objectContaining({ sourceId: ANUNCIO.sourceId, titulo: 'Rinconero brick 3c' }),
+      undefined,
+    );
+    expect(JSON.stringify(anuncios.registrar.mock.calls[0])).not.toContain('clid-que-no-se-guarda');
+    expect(conversationService.responder).toHaveBeenCalledWith(
+      'user-1',
+      JID_CLIENTE,
+      '¡Hola! Quiero más información.',
+      expect.objectContaining({ anuncioId: 'anuncio-1' }),
+    );
+  });
+
+  it('un mensaje sin anuncio no registra nada', async () => {
+    const { service, conversationService, anuncios } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
+
+    await recibir(service, socket(), { conversation: 'Como el sillón de la propaganda' });
+
+    expect(anuncios.registrar).not.toHaveBeenCalled();
+    expect(vi.mocked(conversationService.responder).mock.calls[0]![3]).not.toHaveProperty('anuncioId');
+  });
+
+  it('en una cuenta de agenda no registra el anuncio', async () => {
+    const { service, conversationService, anuncios, prisma } = crearServicio();
+    vi.mocked(prisma.agent.findUnique).mockResolvedValue({ tipoAsistente: 'agenda' } as never);
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
+
+    await recibir(service, socket(), {
+      extendedTextMessage: { text: 'Hola', contextInfo: { externalAdReply: ANUNCIO } },
+    });
+
+    expect(anuncios.registrar).not.toHaveBeenCalled();
+    expect(conversationService.responder).toHaveBeenCalled();
+  });
+
+  it('si falla el registro del anuncio, contesta igual', async () => {
+    const { service, conversationService, anuncios } = crearServicio();
+    anuncios.registrar.mockRejectedValue(new Error('base caída'));
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
+
+    await recibir(service, socket(), {
+      extendedTextMessage: { text: 'Hola', contextInfo: { externalAdReply: ANUNCIO } },
+    });
+
+    expect(conversationService.responder).toHaveBeenCalledWith('user-1', JID_CLIENTE, 'Hola', expect.anything());
+  });
+
+  it('ignora los estados que publican los contactos: no los mira ni los contesta', async () => {
+    const { service, conversationService, vision, anuncios } = crearServicio();
+    const sock = socket();
+    (service as unknown as { sockets: Map<string, unknown> }).sockets.set('user-1', sock);
+    const recepcion = (
+      service as unknown as { handleMessagesUpsert: (u: string, s: unknown, e: unknown) => Promise<void> }
+    ).handleMessagesUpsert('user-1', sock, {
+      type: 'notify',
+      messages: [
+        {
+          key: { remoteJid: 'status@broadcast', participant: JID_CLIENTE, fromMe: false, id: 'e-1' },
+          message: { imageMessage: { ...MEDIA, mimetype: 'image/jpeg', caption: 'Mis vacaciones' } },
+        },
+        { key: { remoteJid: 'status@broadcast', fromMe: true, id: 'e-2' }, message: { conversation: 'Ofertas' } },
+      ],
+    });
+    await vi.runAllTimersAsync();
+    await recepcion;
+
+    expect(downloadMediaMessage).not.toHaveBeenCalled();
+    expect(vision.describir).not.toHaveBeenCalled();
+    expect(anuncios.registrar).not.toHaveBeenCalled();
+    expect(conversationService.responder).not.toHaveBeenCalled();
+    expect(sock.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('una respuesta a un estado del negocio registra el estado con su imagen completa', async () => {
+    const { service, conversationService, anuncios } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
+    vi.mocked(downloadMediaMessage).mockImplementation(async () => Readable.from([Buffer.from('foto del estado')]) as never);
+
+    await recibir(service, socket(), {
+      extendedTextMessage: {
+        text: 'Precio?',
+        contextInfo: {
+          stanzaId: '3EB0ABC',
+          remoteJid: 'status@broadcast',
+          quotedMessage: { imageMessage: { ...MEDIA, mimetype: 'image/jpeg', caption: 'Rinconero brick 3c' } },
+        },
+      },
+    });
+
+    expect(anuncios.registrar).toHaveBeenCalledWith(
+      'user-1',
+      JID_CLIENTE,
+      { sourceId: 'estado:3EB0ABC', sourceType: 'estado', sourceUrl: null, titulo: null, cuerpo: 'Rinconero brick 3c', miniatura: null },
+      expect.any(Function),
+    );
+    // La imagen completa se baja sólo si AnunciosService la pide (la primera vez).
+    const imagenCompleta = anuncios.registrar.mock.calls[0]![3] as () => Promise<Buffer | null>;
+    await expect(imagenCompleta()).resolves.toEqual(Buffer.from('foto del estado'));
+    expect(conversationService.responder).toHaveBeenCalledWith(
+      'user-1',
+      JID_CLIENTE,
+      'Precio?',
+      expect.objectContaining({ anuncioId: 'anuncio-1' }),
+    );
+  });
+
+  it('una cuenta vencida no registra el anuncio ni baja nada', async () => {
+    const { service, anuncios, subscriptionService } = crearServicio();
+    vi.mocked(subscriptionService.asistenteActivo).mockResolvedValue(false);
+
+    await recibir(service, socket(), {
+      extendedTextMessage: { text: 'Hola', contextInfo: { externalAdReply: ANUNCIO } },
+    });
+
+    expect(anuncios.registrar).not.toHaveBeenCalled();
+    expect(downloadMediaMessage).not.toHaveBeenCalled();
+  });
+
+  it('si no se puede bajar la imagen del estado, lo registra con la miniatura', async () => {
+    const { service, anuncios, conversationService } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
+    vi.mocked(downloadMediaMessage).mockRejectedValue(new Error('410'));
+
+    await recibir(service, socket(), {
+      extendedTextMessage: {
+        text: 'Precio?',
+        contextInfo: {
+          stanzaId: '3EB0ABC',
+          remoteJid: 'status@broadcast',
+          quotedMessage: { imageMessage: { ...MEDIA, jpegThumbnail: new Uint8Array([0xff, 0xd8]) } },
+        },
+      },
+    });
+
+    const [, , ref, imagenCompleta] = anuncios.registrar.mock.calls[0]!;
+    expect(ref).toMatchObject({ sourceId: 'estado:3EB0ABC', miniatura: Buffer.from([0xff, 0xd8]) });
+    await expect((imagenCompleta as () => Promise<Buffer | null>)()).resolves.toBeNull();
+    expect(conversationService.responder).toHaveBeenCalled();
+  });
+
+  it('describe una imagen del cliente y se la pasa al asistente como dato, con el epígrafe', async () => {
+    const { service, conversationService, vision } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: 'Es el Rinconero', imagenes: [] });
+
+    await recibir(service, socket(), { imageMessage: { ...MEDIA, mimetype: 'image/jpeg', caption: 'este' } });
+
+    expect(vision.describir).toHaveBeenCalledWith(Buffer.from('jpeg'));
+    expect(conversationService.responder).toHaveBeenCalledWith(
+      'user-1',
+      JID_CLIENTE,
+      `${PREFIJO_IMAGEN}Un sillón gris con el texto "Rinconero brick 3c"\nTexto del cliente: este`,
+      expect.anything(),
+    );
+  });
+
+  it('una imagen que no se pudo ver llega como tal, para que el asistente pida una aclaración', async () => {
+    const { service, conversationService, vision } = crearServicio();
+    vision.describir.mockRejectedValue(new Error('OpenRouter respondió 503'));
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¿Me contás cuál?', imagenes: [] });
+
+    await recibir(service, socket(), { imageMessage: { ...MEDIA, mimetype: 'image/jpeg' } });
+
+    expect(conversationService.responder).toHaveBeenCalledWith('user-1', JID_CLIENTE, IMAGEN_NO_VISTA, expect.anything());
+  });
+
+  it('no descarga una imagen de otro host ni una más pesada que el tope', async () => {
+    const { service, conversationService, vision } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¿Me contás cuál?', imagenes: [] });
+
+    await recibir(service, socket(), {
+      imageMessage: { url: 'https://169.254.169.254/latest', directPath: '/latest', mimetype: 'image/jpeg' },
+    });
+    await recibir(service, socket(), { imageMessage: { ...MEDIA, mimetype: 'image/jpeg', fileLength: MAX_BYTES_IMAGEN + 1 } });
+
+    expect(downloadMediaMessage).not.toHaveBeenCalled();
+    expect(vision.describir).not.toHaveBeenCalled();
   });
 });

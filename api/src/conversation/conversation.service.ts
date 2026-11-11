@@ -80,6 +80,12 @@ export type OpcionesDeVuelta = {
    * devolverle el chat): no se vuelve a guardar (LAU-81).
    */
   yaGuardado?: boolean;
+  /**
+   * El anuncio de Meta desde el que llegó el mensaje (LAU-103), ya registrado
+   * para esta cuenta por AnunciosService. Queda en la conversación: si el
+   * cliente vuelve desde otro anuncio, gana el último.
+   */
+  anuncioId?: string;
 };
 
 /** Lo que se le contesta al cliente: el texto y, del asistente de ventas, las fotos a mandar antes. */
@@ -138,10 +144,11 @@ export class ConversationService {
       return soloTexto(MENSAJE_SIN_AGENTE);
     }
 
+    const delAnuncio = opciones.anuncioId ? { anuncioId: opciones.anuncioId, anuncioAt: new Date() } : {};
     const conversation = await this.prisma.conversation.upsert({
       where: { userId_remoteJid: { userId: ownerUserId, remoteJid } },
-      create: { userId: ownerUserId, remoteJid },
-      update: {},
+      create: { userId: ownerUserId, remoteJid, ...delAnuncio },
+      update: delAnuncio,
     });
 
     const esVentas = tipoAsistenteDe(agent) === 'ventas';
