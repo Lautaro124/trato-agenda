@@ -17,6 +17,7 @@ import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-h
 import type { Agent, Conversation } from '../../../generated/prisma/client.js';
 import { bloqueAtencionHumana, ultimaAtencionHumana } from '../../graph/atencion-humana.js';
 import {
+  bloqueAnuncio,
   bloqueCatalogo,
   bloqueLocal,
   bloquePedidos,
@@ -130,7 +131,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
     const ventanaMs = deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS;
-    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones] = await Promise.all([
+    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones, anuncio] = await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
         where: { userId: state.ownerUserId, activo: true, categoria: { not: null } },
@@ -148,7 +149,20 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       etapaDeCompra(deps, agent, historial.visibles, conversation),
       ultimaAtencionHumana(deps.prisma, guardada, new Date(Date.now() - ventanaMs)),
       deps.prisma.condicionesPago.findUnique({ where: { userId: state.ownerUserId } }),
+      // El anuncio desde el que llegó (LAU-103): queda en la base, así vale aunque pasen días.
+      guardada.anuncioId
+        ? deps.prisma.anuncio.findFirst({
+            where: { id: guardada.anuncioId, userId: state.ownerUserId },
+            select: {
+              titulo: true,
+              cuerpo: true,
+              descripcionMiniatura: true,
+              producto: { select: { id: true, nombre: true, activo: true } },
+            },
+          })
+        : null,
     ]);
+    const delAnuncio = bloqueAnuncio(anuncio);
     const mpConectado = cuentaMp !== null;
     const condicionesPago = leerCondiciones(filaCondiciones);
     // El banco de pruebas del Home no cuenta para el módulo de performance.
@@ -168,7 +182,9 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
           etapa,
           pistaEmoji: pistaDeEmoji(historial.visibles),
         })}\n\n` +
-        `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n` +
+        `${bloqueCatalogo(categorias, totalProductos)}\n\n` +
+        (delAnuncio ? `${delAnuncio}\n\n` : '') +
+        `${bloqueLocal(agent)}\n\n` +
         `${bloquePedidos(agent, mpConectado, pedidos, new Date(), condicionesPago)}` +
         (atencionHumana ? `\n\n${atencionHumana}` : ''),
     };

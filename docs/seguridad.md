@@ -348,6 +348,48 @@ teléfono" (`requestPairingCode` de Baileys). Superficie nueva:
   `registered: false`: el próximo arranque no reintenta esas credenciales y
   `/vincular` arranca de cero.
 
+## Anuncios de origen e imágenes de clientes (2026-11-11, LAU-103)
+
+- **Datos del anuncio**: `referenciaDeAnuncio` (`api/src/comercio/anuncios.rules.ts`)
+  toma de `contextInfo.externalAdReply` sólo `sourceId`, tipo, URL http(s),
+  título, texto (en una línea, sin caracteres de control, recortados) y la
+  miniatura que viene en el mensaje (tope de bytes y `procesarImagen`). No se
+  guarda `ctwaClid` ni se descargan `thumbnailUrl`/`mediaUrl`: nada de fetch a
+  URLs que elige un tercero.
+- **Estados**: los mensajes con `remoteJid` `status@broadcast` (estados que
+  publican los contactos o el propio negocio) se descartan al recibir: no se
+  descargan, no van al modelo de visión ni se contestan. Una respuesta de un
+  cliente a un estado del negocio trae el estado en `contextInfo.quotedMessage`
+  y se registra como anuncio de tipo `estado` (`sourceId` con prefijo
+  `estado:`, así no pisa un id de Meta). Su imagen se baja con las mismas
+  defensas que una imagen del cliente y se guarda como miniatura del anuncio,
+  sólo la primera vez que llega ese estado. Nada garantiza que el estado
+  exista o sea del negocio (lo arma el remitente): es un dato no confiable.
+- **Tope de anuncios**: los ids de anuncio y de estado los manda el cliente.
+  `AnunciosService` registra como mucho `MAX_ANUNCIOS_NUEVOS_POR_HORA`
+  anuncios nuevos por cuenta, y el registro corre después del chequeo de
+  suscripción: una cuenta vencida no gasta descargas ni visión. Un
+  `externalAdReply` con el prefijo `estado:` se descarta.
+- **Prompt injection**: los textos del anuncio y la descripción de una imagen
+  llegan al modelo con `JSON.stringify` y marcados como datos (`bloqueAnuncio`,
+  `PREFIJO_IMAGEN`). El modelo de visión tiene instrucción fija de transcribir y
+  no obedecer el texto de la imagen. Precio, promos y stock salen siempre del
+  catálogo: lo que diga el anuncio no se confirma.
+- **Imágenes**: misma defensa que los audios: host de media fijo (`hostDeMedia`),
+  descarga en stream con tope (`MAX_BYTES_IMAGEN`) y plazo, cupo global
+  (`MAX_IMAGENES_EN_CURSO`) y `procesarImagen` (firma, tope de píxeles,
+  re-encode a JPEG sin metadatos) antes de mandarla a OpenRouter con ZDR. La
+  imagen queda sólo en memoria; logs sólo con ids.
+- **Panel**: `/anuncios` filtra todo por `userId`; asociar un producto exige que
+  sea de la cuenta y esté activo. La asociación automática nunca pisa la del
+  dueño (`updateMany` condicionado a `asociacion = 'pendiente'`).
+- **Anuncios cargados por el dueño**: `POST /anuncios` acepta el ID de Meta
+  (sólo dígitos) o un link http(s) con dominio (`identificarAnuncio`); el link
+  se guarda como texto, se normaliza sin parámetros de tracking (`claveDeLink`)
+  y nunca se descarga. El nombre pasa por la misma limpieza que los textos del
+  anuncio y llega al modelo como dato. `DELETE /anuncios/:id` sólo borra
+  anuncios propios sin consultas, para no dejar conversaciones sin su anuncio.
+
 ## Code scanning (2026-09-29)
 
 Las alertas abiertas en *Security → Code scanning* se reprodujeron corriendo
