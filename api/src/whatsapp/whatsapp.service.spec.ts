@@ -749,6 +749,8 @@ describe('WhatsappService — mensajes de clientes', () => {
 
     await recibirMensaje(service, sock, 'hola', 'm-1');
     await vi.advanceTimersByTimeAsync(1_000);
+    // Se marca leído al segundo de llegar, sin esperar a la ráfaga.
+    expect(sock.readMessages).toHaveBeenCalledWith([{ remoteJid: JID, fromMe: false, id: 'm-1' }]);
     await recibirMensaje(service, sock, 'quería un turno', 'm-2');
     await vi.advanceTimersByTimeAsync(1_000);
     expect(conversationService.responder).not.toHaveBeenCalled();
@@ -760,10 +762,7 @@ describe('WhatsappService — mensajes de clientes', () => {
       cancelacion: expect.any(Cancelacion),
       yaGuardado: false,
     });
-    expect(sock.readMessages).toHaveBeenCalledWith([
-      { remoteJid: JID, fromMe: false, id: 'm-1' },
-      { remoteJid: JID, fromMe: false, id: 'm-2' },
-    ]);
+    expect(sock.readMessages).toHaveBeenCalledWith([{ remoteJid: JID, fromMe: false, id: 'm-2' }]);
     expect(sock.sendMessage).toHaveBeenCalledOnce();
   });
 

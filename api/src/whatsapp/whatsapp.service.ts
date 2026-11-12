@@ -57,6 +57,7 @@ import {
 } from './transcripcion.client.js';
 import { CacheConVencimiento, MensajesEnviados, TTL_REINTENTOS_MS } from './caches.js';
 import {
+  ESPERA_LEIDO_MS,
   MAX_CARACTERES_RAFAGA,
   RENOVAR_ESCRIBIENDO_MS,
   demoraDeEscritura,
@@ -949,10 +950,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Se marca leído a ESPERA_LEIDO_MS de que llegó, sin esperar a la ráfaga ni
+    // al audio: lo cosmético nunca frena la respuesta.
+    setTimeout(() => void sock.readMessages([mensaje.key]).catch(() => undefined), ESPERA_LEIDO_MS);
+
     const entrada = await leer();
     if (!('texto' in entrada)) {
       // Fuera del historial, igual que el aviso de fuera de horario.
-      await sock.readMessages([mensaje.key]).catch(() => undefined);
       await this.enviar(userId, sock, remoteJid, { text: entrada.aviso }).catch((error: unknown) =>
         this.logger.error(`No se pudo avisar que un audio no se escuchó a ${userId}: ${(error as Error).message}`),
       );
@@ -1086,7 +1090,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Contesta una ráfaga como lo haría una persona: la marca como leída, muestra
+   * Contesta una ráfaga como lo haría una persona: muestra
    * "escribiendo…" mientras el modelo piensa y manda la respuesta en uno a
    * MAX_PARTES mensajes, cada uno después de lo que tardaría en tipearlo. El
    * tiempo del modelo cuenta como tipeo del primero, así una respuesta lenta
@@ -1100,9 +1104,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const { userId, remoteJid, sock } = items.at(-1)!;
     const texto = items.map((item) => item.texto).join('\n');
 
-    // Lo cosmético (leído, "escribiendo…") nunca frena la respuesta.
-    const keys = items.flatMap((item) => (item.key ? [item.key] : []));
-    if (keys.length > 0) await sock.readMessages(keys).catch(() => undefined);
+    // Lo cosmético ("escribiendo…") nunca frena la respuesta.
     const escribiendo = this.mostrarEscribiendo(sock, remoteJid);
     const inicio = Date.now();
     try {
