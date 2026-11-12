@@ -57,6 +57,7 @@ import {
 } from './transcripcion.client.js';
 import { CacheConVencimiento, MensajesEnviados, TTL_REINTENTOS_MS } from './caches.js';
 import {
+  ESPERA_LEIDO_MS,
   MAX_CARACTERES_RAFAGA,
   RENOVAR_ESCRIBIENDO_MS,
   demoraDeEscritura,
@@ -902,6 +903,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     leer: () => Promise<Entrada>,
     anuncio: ReferenciaAnuncio | null = null,
   ): Promise<void> {
+    // Antes que nada: una reentrega de un mensaje ya atendido no se vuelve a
+    // contestar ni a guardar, aunque llegue horas después como `notify`.
+    if (!(await this.primeraEntrega(userId, mensaje))) return;
+
     // El chat lo atiende una persona (LAU-81): el asistente no contesta, ni
     // marca leído, ni muestra "escribiendo…". El mensaje queda guardado para
     // que el dueño lo vea en Chats y el asistente al retomar. Va antes de la
@@ -945,10 +950,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Se marca leído a ESPERA_LEIDO_MS de que llegó, sin esperar a la ráfaga ni
+    // al audio: lo cosmético nunca frena la respuesta.
+    setTimeout(() => void sock.readMessages([mensaje.key]).catch(() => undefined), ESPERA_LEIDO_MS);
+
     const entrada = await leer();
     if (!('texto' in entrada)) {
       // Fuera del historial, igual que el aviso de fuera de horario.
-      await sock.readMessages([mensaje.key]).catch(() => undefined);
       await this.enviar(userId, sock, remoteJid, { text: entrada.aviso }).catch((error: unknown) =>
         this.logger.error(`No se pudo avisar que un audio no se escuchó a ${userId}: ${(error as Error).message}`),
       );
@@ -974,6 +982,31 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       enviadoEn: timestampEnMs(mensaje.messageTimestamp),
       recibidoEn: Date.now(),
     });
+  }
+
+  /**
+   * Reclama el mensaje por su id de WhatsApp (`MensajeRecibido`): false si ya
+   * se había atendido. WhatsApp puede volver a entregarlo, sobre todo el
+   * reenvío que Baileys le pide al teléfono vinculado cuando no pudo
+   * descifrar un mensaje: llega cuando el teléfono se conecta, horas después,
+   * aunque el mensaje ya se hubiera descifrado y contestado. Se reclama antes
+   * de atenderlo: si algo falla después, no se reintenta, igual que el resto
+   * de los efectos ya comprometidos. Sin id o si la base falla, se atiende.
+   */
+  private async primeraEntrega(userId: string, mensaje: WAMessage): Promise<boolean> {
+    const waId = mensaje.key.id;
+    if (!waId) return true;
+    try {
+      const { count } = await this.prisma.mensajeRecibido.createMany({ data: [{ userId, waId }], skipDuplicates: true });
+      if (count > 0) return true;
+      const enviadoEn = timestampEnMs(mensaje.messageTimestamp);
+      const demora = enviadoEn === null ? '?' : `${Math.round((Date.now() - enviadoEn) / 1000)}s`;
+      this.logger.warn(`Mensaje reentregado a ${userId} ignorado: ya se había atendido (enviado hace ${demora}).`);
+      return false;
+    } catch (error) {
+      this.logger.error(`No se pudo registrar un mensaje recibido de ${userId}: ${resumenDeError(error)}`);
+      return true;
+    }
   }
 
   /**
@@ -1057,7 +1090,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Contesta una ráfaga como lo haría una persona: la marca como leída, muestra
+   * Contesta una ráfaga como lo haría una persona: muestra
    * "escribiendo…" mientras el modelo piensa y manda la respuesta en uno a
    * MAX_PARTES mensajes, cada uno después de lo que tardaría en tipearlo. El
    * tiempo del modelo cuenta como tipeo del primero, así una respuesta lenta
@@ -1071,9 +1104,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const { userId, remoteJid, sock } = items.at(-1)!;
     const texto = items.map((item) => item.texto).join('\n');
 
-    // Lo cosmético (leído, "escribiendo…") nunca frena la respuesta.
-    const keys = items.flatMap((item) => (item.key ? [item.key] : []));
-    if (keys.length > 0) await sock.readMessages(keys).catch(() => undefined);
+    // Lo cosmético ("escribiendo…") nunca frena la respuesta.
     const escribiendo = this.mostrarEscribiendo(sock, remoteJid);
     const inicio = Date.now();
     try {

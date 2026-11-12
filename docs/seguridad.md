@@ -110,6 +110,10 @@ Lo que agrega superficie nueva y cómo está cubierto:
   (`Venta.datosCliente`) a los 12 meses y los avisos se purgan (leídos a los 90 días, el resto a los 12
   meses); la baja de cuenta se lleva catálogo, ventas, avisos y tokens de
   Mercado Pago por cascada (`cuenta.db.spec.ts`).
+- **Mensajes reentregados**: `MensajeRecibido` guarda sólo `(userId, waId)`
+  de cada mensaje de cliente atendido, sin teléfono ni contenido, para no
+  contestar dos veces una reentrega de WhatsApp (`primeraEntrega`). Se purga a
+  los 30 días (`purgarMensajesRecibidos`) y cae con la cuenta por cascada.
 
 Pendiente:
 
