@@ -74,6 +74,7 @@ model User {
   interesProductos  InteresProducto[]
   preguntasChat     PreguntaChat[]
   anuncios          Anuncio[]
+  mensajesRecibidos MensajeRecibido[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -927,4 +928,21 @@ model Anuncio {
   @@unique([userId, sourceId])
   @@unique([userId, urlClave])
   @@index([userId, ultimoChatAt])
+}
+
+/// Mensajes de clientes que ya se atendieron, por su id de WhatsApp. WhatsApp
+/// puede volver a entregar un mensaje viejo (p. ej. el reenvío que Baileys le
+/// pide al teléfono vinculado cuando no pudo descifrarlo, que llega cuando el
+/// teléfono se conecta, horas después): sin esto el asistente lo contestaba
+/// otra vez. Sólo ids, sin teléfono ni contenido; la retención los borra.
+model MensajeRecibido {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// `key.id` del mensaje en WhatsApp.
+  waId   String
+
+  createdAt DateTime @default(now())
+
+  @@id([userId, waId])
+  @@index([createdAt])
 }

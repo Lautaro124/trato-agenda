@@ -902,6 +902,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     leer: () => Promise<Entrada>,
     anuncio: ReferenciaAnuncio | null = null,
   ): Promise<void> {
+    // Antes que nada: una reentrega de un mensaje ya atendido no se vuelve a
+    // contestar ni a guardar, aunque llegue horas después como `notify`.
+    if (!(await this.primeraEntrega(userId, mensaje))) return;
+
     // El chat lo atiende una persona (LAU-81): el asistente no contesta, ni
     // marca leído, ni muestra "escribiendo…". El mensaje queda guardado para
     // que el dueño lo vea en Chats y el asistente al retomar. Va antes de la
@@ -974,6 +978,31 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       enviadoEn: timestampEnMs(mensaje.messageTimestamp),
       recibidoEn: Date.now(),
     });
+  }
+
+  /**
+   * Reclama el mensaje por su id de WhatsApp (`MensajeRecibido`): false si ya
+   * se había atendido. WhatsApp puede volver a entregarlo, sobre todo el
+   * reenvío que Baileys le pide al teléfono vinculado cuando no pudo
+   * descifrar un mensaje: llega cuando el teléfono se conecta, horas después,
+   * aunque el mensaje ya se hubiera descifrado y contestado. Se reclama antes
+   * de atenderlo: si algo falla después, no se reintenta, igual que el resto
+   * de los efectos ya comprometidos. Sin id o si la base falla, se atiende.
+   */
+  private async primeraEntrega(userId: string, mensaje: WAMessage): Promise<boolean> {
+    const waId = mensaje.key.id;
+    if (!waId) return true;
+    try {
+      const { count } = await this.prisma.mensajeRecibido.createMany({ data: [{ userId, waId }], skipDuplicates: true });
+      if (count > 0) return true;
+      const enviadoEn = timestampEnMs(mensaje.messageTimestamp);
+      const demora = enviadoEn === null ? '?' : `${Math.round((Date.now() - enviadoEn) / 1000)}s`;
+      this.logger.warn(`Mensaje reentregado a ${userId} ignorado: ya se había atendido (enviado hace ${demora}).`);
+      return false;
+    } catch (error) {
+      this.logger.error(`No se pudo registrar un mensaje recibido de ${userId}: ${resumenDeError(error)}`);
+      return true;
+    }
   }
 
   /**
