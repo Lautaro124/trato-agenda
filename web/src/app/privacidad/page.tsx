@@ -371,6 +371,11 @@ export default function PrivacidadPage() {
               quedó inactiva, junto con el estado interno de esa conversación.
             </Punto>
             <Punto>
+              <Fuerte>Identificadores de mensajes recibidos:</Fuerte> guardamos el código interno
+              que WhatsApp le asigna a cada mensaje de tus clientes, sin teléfono ni contenido, para
+              no contestar dos veces el mismo mensaje. Se borran a los 30 días.
+            </Punto>
+            <Punto>
               <Fuerte>Anuncios:</Fuerte> los datos de cada anuncio desde el que te escribieron se
               conservan mientras tu cuenta exista; no tienen datos de tus clientes, sólo cuántas
               consultas llegaron desde cada uno.

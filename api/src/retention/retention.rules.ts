@@ -39,6 +39,13 @@ export const DIAS_RETENCION_AVISOS_LEIDOS = 90;
 export const DIAS_RETENCION_SUGERENCIAS = 90;
 
 /**
+ * Ids de WhatsApp de los mensajes ya atendidos (`MensajeRecibido`): sólo
+ * sirven para no contestar dos veces una reentrega, que llega en horas, no en
+ * semanas. No tienen teléfono ni contenido.
+ */
+export const DIAS_RETENCION_MENSAJES_RECIBIDOS = 30;
+
+/**
  * Alta por WhatsApp que nunca escaneó el QR: un usuario sin Google ni
  * teléfono. No tiene datos de nadie, pero sí un socket y una fila; a la hora
  * se descarta (la cookie del alta vence a los 15 minutos).

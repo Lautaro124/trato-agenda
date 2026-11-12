@@ -12,7 +12,10 @@
  * cuenta. Si WhatsApp avisa que está escribiendo, además se espera a que pare
  * (ESPERA_TRAS_ESCRIBIR_MS); si no avisa, queda sólo este silencio.
  */
-export const ESPERA_RAFAGA_MS = 8_000;
+export const ESPERA_RAFAGA_MS = 4_000;
+
+/** Cuánto después de que llega un mensaje se lo marca como leído, aunque la respuesta tarde más. */
+export const ESPERA_LEIDO_MS = 1_000;
 
 /** Después de que el cliente deja de escribir, lo que se le da por si retoma antes de contestar. */
 export const ESPERA_TRAS_ESCRIBIR_MS = 2_000;

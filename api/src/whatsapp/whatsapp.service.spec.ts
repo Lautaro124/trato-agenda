@@ -47,6 +47,8 @@ vi.mock('../comercio/imagenes.rules.js', async (original) => ({
 type UsuarioMock = { id: string; googleId: string | null; phoneNumber: string | null };
 
 function crearServicio(usuarios: UsuarioMock[] = []) {
+  // Como la clave primaria de MensajeRecibido: cada id de WhatsApp se reclama una sola vez.
+  const recibidos = new Set<string>();
   const prisma = {
     user: {
       findUnique: vi.fn().mockImplementation(({ where }: { where: { id?: string; phoneNumber?: string } }) =>
@@ -71,6 +73,17 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     agent: { findUnique: vi.fn().mockResolvedValue({ tipoAsistente: 'ventas' }) },
     conversation: { findUnique: vi.fn().mockResolvedValue(null), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     message: { create: vi.fn().mockResolvedValue({}) },
+    mensajeRecibido: {
+      createMany: vi.fn().mockImplementation(({ data }: { data: { userId: string; waId: string }[] }) => {
+        let count = 0;
+        for (const { userId, waId } of data) {
+          const clave = `${userId}\n${waId}`;
+          if (!recibidos.has(clave)) count++;
+          recibidos.add(clave);
+        }
+        return Promise.resolve({ count });
+      }),
+    },
     $executeRaw: vi.fn().mockResolvedValue(0),
     $transaction: vi.fn(),
   } as unknown as PrismaService;
@@ -620,6 +633,36 @@ describe('WhatsappService — mensajes de clientes', () => {
     expect(sock.sendPresenceUpdate).not.toHaveBeenCalled();
   }
 
+  it('no vuelve a contestar un mensaje que WhatsApp reentrega horas después', async () => {
+    // El caso del cliente: el reenvío que Baileys le pidió al teléfono llega
+    // como `notify` con el id y el timestamp del mensaje ya contestado.
+    const { service, conversationService, anuncios } = crearServicio();
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: 'Te paso la data', imagenes: [] });
+    const sock = socketDeChat();
+
+    await recibirMensaje(service, sock, '¿Me pasás info del sillón?', 'pdo-1');
+    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(44 * 60 * 1000);
+    await recibirMensaje(service, sock, '¿Me pasás info del sillón?', 'pdo-1');
+    await vi.runAllTimersAsync();
+
+    expect(conversationService.responder).toHaveBeenCalledOnce();
+    expect(sock.sendMessage).toHaveBeenCalledOnce();
+    expect(anuncios.registrar).not.toHaveBeenCalled();
+  });
+
+  it('si la base no puede registrar el id, contesta igual', async () => {
+    const { service, conversationService, prisma } = crearServicio();
+    vi.mocked(prisma.mensajeRecibido.createMany).mockRejectedValue(new Error('sin conexión'));
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
+    const sock = socketDeChat();
+
+    await recibirMensaje(service, sock);
+    await vi.runAllTimersAsync();
+
+    expect(conversationService.responder).toHaveBeenCalledOnce();
+  });
+
   it('con la prueba vigente contesta como siempre', async () => {
     const { service, conversationService } = crearServicio();
     vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola!', imagenes: [] });
@@ -706,6 +749,8 @@ describe('WhatsappService — mensajes de clientes', () => {
 
     await recibirMensaje(service, sock, 'hola', 'm-1');
     await vi.advanceTimersByTimeAsync(1_000);
+    // Se marca leído al segundo de llegar, sin esperar a la ráfaga.
+    expect(sock.readMessages).toHaveBeenCalledWith([{ remoteJid: JID, fromMe: false, id: 'm-1' }]);
     await recibirMensaje(service, sock, 'quería un turno', 'm-2');
     await vi.advanceTimersByTimeAsync(1_000);
     expect(conversationService.responder).not.toHaveBeenCalled();
@@ -717,10 +762,7 @@ describe('WhatsappService — mensajes de clientes', () => {
       cancelacion: expect.any(Cancelacion),
       yaGuardado: false,
     });
-    expect(sock.readMessages).toHaveBeenCalledWith([
-      { remoteJid: JID, fromMe: false, id: 'm-1' },
-      { remoteJid: JID, fromMe: false, id: 'm-2' },
-    ]);
+    expect(sock.readMessages).toHaveBeenCalledWith([{ remoteJid: JID, fromMe: false, id: 'm-2' }]);
     expect(sock.sendMessage).toHaveBeenCalledOnce();
   });
 
