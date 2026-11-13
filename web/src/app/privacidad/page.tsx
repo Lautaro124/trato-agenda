@@ -217,6 +217,20 @@ export default function PrivacidadPage() {
             llegan a ningún modelo.
           </p>
           <p>
+            <Fuerte>Imágenes y anuncios.</Fuerte> Cuando un cliente manda una imagen por WhatsApp (por
+            ejemplo, la captura de una publicidad), la mandamos al modelo de visión{" "}
+            <Scope>google/gemma-4-31b-it</Scope>, a través de OpenRouter y con la misma configuración
+            de no retención, para que describa qué producto se ve y su texto visible. La imagen no se
+            guarda: sólo esa descripción queda en el historial del chat, como cualquier mensaje. Si el
+            cliente escribe desde un anuncio de Facebook o Instagram, WhatsApp nos manda los datos del
+            anuncio: guardamos su identificador, su título, su texto, su enlace y su miniatura (no el
+            identificador de seguimiento de Meta), y la miniatura puede pasar una vez por el mismo
+            modelo de visión para reconocer el producto. Si el cliente responde un estado de tu
+            WhatsApp, guardamos de la misma forma el texto y la imagen de ese estado. Con eso el
+            asistente sabe de qué producto le habla el cliente. Los estados que publican tus
+            contactos no se leen ni se guardan.
+          </p>
+          <p>
             Para mostrarte qué preguntan tus clientes, cuando un chat de ventas queda quieto dos días
             o termina en un pago, mandamos una sola vez al mismo modelo los últimos mensajes de texto
             de ese chat, con la misma configuración de no retención, para que agrupe las preguntas por
@@ -359,6 +373,16 @@ export default function PrivacidadPage() {
             <Punto>
               <Fuerte>Mensajes de WhatsApp:</Fuerte> se borran a los 90 días de que la conversación
               quedó inactiva, junto con el estado interno de esa conversación.
+            </Punto>
+            <Punto>
+              <Fuerte>Identificadores de mensajes recibidos:</Fuerte> guardamos el código interno
+              que WhatsApp le asigna a cada mensaje de tus clientes, sin teléfono ni contenido, para
+              no contestar dos veces el mismo mensaje. Se borran a los 30 días.
+            </Punto>
+            <Punto>
+              <Fuerte>Anuncios:</Fuerte> los datos de cada anuncio desde el que te escribieron se
+              conservan mientras tu cuenta exista; no tienen datos de tus clientes, sólo cuántas
+              consultas llegaron desde cada uno.
             </Punto>
             <Punto>
               <Fuerte>Nombre y resumen de un cliente:</Fuerte> se borran a los 12 meses de inactividad

@@ -25,7 +25,8 @@ type Tab =
   | "plan"
   | "cuenta"
   | "asistente"
-  | "rendimiento";
+  | "rendimiento"
+  | "anuncios";
 
 type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 
@@ -57,6 +58,8 @@ function pestanasDe(user: Usuario): Pestana[] {
       { tab: "envios", href: "/envios", label: "Envíos" },
       // Cómo les va a los productos en los chats: conversión, etapas y abandono (LAU-30).
       { tab: "rendimiento", href: "/rendimiento", label: "Rendimiento" },
+      // Los anuncios de Facebook o Instagram desde los que escriben los clientes (LAU-103).
+      { tab: "anuncios", href: "/anuncios", label: "Anuncios" },
       asistente,
       plan,
     ];

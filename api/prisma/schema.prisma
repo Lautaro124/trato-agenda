@@ -76,6 +76,8 @@ model User {
   configEnvios      ConfiguracionEnvios?
   zonasEnvio        ZonaEnvio[]
   consultasEnvio    ConsultaEnvioSinResolver[]
+  anuncios          Anuncio[]
+  mensajesRecibidos MensajeRecibido[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -255,6 +257,12 @@ model Conversation {
   /// Lo mantiene un trigger de la base sobre "Message" (migración
   /// 20261103120000_atencion_por_conversacion), así no depende de quién escriba.
   ultimoMensajeAt DateTime?
+
+  /// Anuncio de Meta (Click-to-WhatsApp) desde el que llegó el cliente
+  /// (LAU-103). Si vuelve desde otro anuncio, queda el último.
+  anuncioId String?
+  anuncio   Anuncio?  @relation(fields: [anuncioId], references: [id], onDelete: SetNull)
+  anuncioAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -465,6 +473,7 @@ model Producto {
   /// Hasta MAX_IMAGENES_POR_PRODUCTO fotos; la de menor `orden` es la principal
   /// (la que sale al mostrar el producto) y el resto, las de detalle.
   imagenes        ImagenProducto[]
+  anuncios        Anuncio[]
   /// Cuotas del producto (LAU-34): { modo: "recargo", recargoPorcentaje, planes: [3, 6] }
   /// o { modo: "precios", planes: [{ cuotas, totalCentavos }] }; null = en un pago.
   /// Reglas en comercio/condiciones-pago.rules.ts.
@@ -967,5 +976,68 @@ model ConsultaEnvioSinResolver {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+/// Un anuncio de Meta (Click-to-WhatsApp) desde el que escribieron clientes
+/// (LAU-103). WhatsApp lo manda en `contextInfo.externalAdReply` del primer
+/// mensaje: se guarda el id, el texto y la miniatura (sin descargar URLs). El
+/// producto se asocia solo si la búsqueda da una única coincidencia, y el
+/// dueño lo confirma o cambia desde el panel. Reglas en
+/// src/comercio/anuncios.rules.ts.
+model Anuncio {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// `sourceId` de Meta: identifica el anuncio dentro de la cuenta. Un anuncio
+  /// que el dueño cargó sólo con su link no lo tiene hasta que llega el primer chat.
+  sourceId   String?
+  sourceType String?
+  sourceUrl  String?
+  /// Link del anuncio normalizado (`claveDeLink`): reconoce el primer chat de
+  /// un anuncio que el dueño cargó con el link en vez del id.
+  urlClave   String?
+  /// Textos del anuncio, tal como los manda WhatsApp (recortados): datos, nunca instrucciones.
+  titulo String?
+  cuerpo String?
+  /// Miniatura normalizada a JPEG (procesarImagen), sin metadatos.
+  miniatura            Bytes?
+  /// Lo que leyó el modelo de visión en la miniatura; se calcula una sola vez.
+  descripcionMiniatura String?
+
+  productoId String?
+  producto   Producto? @relation(fields: [productoId], references: [id], onDelete: SetNull)
+  /// "pendiente" | "automatica" | "manual" | "sin_producto".
+  asociacion String    @default("pendiente")
+
+  /// Chats que llegaron desde este anuncio y cuándo llegó el último.
+  chats        Int       @default(0)
+  ultimoChatAt DateTime?
+
+  conversaciones Conversation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, sourceId])
+  @@unique([userId, urlClave])
+  @@index([userId, ultimoChatAt])
+}
+
+/// Mensajes de clientes que ya se atendieron, por su id de WhatsApp. WhatsApp
+/// puede volver a entregar un mensaje viejo (p. ej. el reenvío que Baileys le
+/// pide al teléfono vinculado cuando no pudo descifrarlo, que llega cuando el
+/// teléfono se conecta, horas después): sin esto el asistente lo contestaba
+/// otra vez. Sólo ids, sin teléfono ni contenido; la retención los borra.
+model MensajeRecibido {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// `key.id` del mensaje en WhatsApp.
+  waId   String
+
+  createdAt DateTime @default(now())
+
+  @@id([userId, waId])
   @@index([createdAt])
 }

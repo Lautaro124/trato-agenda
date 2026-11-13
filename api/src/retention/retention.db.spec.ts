@@ -9,6 +9,7 @@ import {
   DIAS_RETENCION_AVISOS_LEIDOS,
   DIAS_RETENCION_DATOS_CLIENTE,
   DIAS_RETENCION_MENSAJES,
+  DIAS_RETENCION_MENSAJES_RECIBIDOS,
   DIAS_RETENCION_SUGERENCIAS,
   fechaLimite,
 } from './retention.rules.js';
@@ -146,6 +147,19 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     const quedan = await prisma.sugerenciaMejora.findMany({ where: { userId: dueno.id }, select: { id: true } });
     expect(quedan.map(({ id }) => id).sort()).toEqual([enviadaNueva.id, pendienteVieja.id].sort());
     expect(quedan.map(({ id }) => id)).not.toContain(enviadaVieja.id);
+  });
+  it('borra los ids de mensajes recibidos a los 30 días', async () => {
+    await prisma.mensajeRecibido.createMany({
+      data: [
+        { userId: dueno.id, waId: 'VIEJO', createdAt: pasado(DIAS_RETENCION_MENSAJES_RECIBIDOS) },
+        { userId: dueno.id, waId: 'NUEVO', createdAt: reciente(DIAS_RETENCION_MENSAJES_RECIBIDOS) },
+      ],
+    });
+
+    await servicio['purgarMensajesRecibidos'](AHORA);
+
+    const quedan = await prisma.mensajeRecibido.findMany({ where: { userId: dueno.id }, select: { waId: true } });
+    expect(quedan.map(({ waId }) => waId)).toEqual(['NUEVO']);
   });
   it('a los 12 meses el registro de performance se desliga del chat y queda como conteo', async () => {
     const conversation = await prisma.conversation.create({

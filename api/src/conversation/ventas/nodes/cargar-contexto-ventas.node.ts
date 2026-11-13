@@ -17,6 +17,7 @@ import { prepararHistorial, VENTANA_POR_DEFECTO_MS } from '../../graph/ventana-h
 import type { Agent, Conversation } from '../../../generated/prisma/client.js';
 import { bloqueAtencionHumana, ultimaAtencionHumana } from '../../graph/atencion-humana.js';
 import {
+  bloqueAnuncio,
   bloqueCatalogo,
   bloqueLocal,
   bloquePedidos,
@@ -132,7 +133,8 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
     const ventanaMs = deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS;
-    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones, filaEnvios] = await Promise.all([
+    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones, filaEnvios, anuncio] =
+      await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
         where: { userId: state.ownerUserId, activo: true, categoria: { not: null } },
@@ -151,9 +153,22 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       ultimaAtencionHumana(deps.prisma, guardada, new Date(Date.now() - ventanaMs)),
       deps.prisma.condicionesPago.findUnique({ where: { userId: state.ownerUserId } }),
       deps.prisma.configuracionEnvios.findUnique({ where: { userId: state.ownerUserId }, select: { activo: true } }),
+      // El anuncio desde el que llegó (LAU-103): queda en la base, así vale aunque pasen días.
+      guardada.anuncioId
+        ? deps.prisma.anuncio.findFirst({
+            where: { id: guardada.anuncioId, userId: state.ownerUserId },
+            select: {
+              titulo: true,
+              cuerpo: true,
+              descripcionMiniatura: true,
+              producto: { select: { id: true, nombre: true, activo: true } },
+            },
+          })
+        : null,
     ]);
     // Sin el módulo (o sin envíos) el asistente sigue como siempre: coordina el envío por el chat.
     const enviosActivo = agent.haceEnvios && filaEnvios?.activo === true;
+    const delAnuncio = bloqueAnuncio(anuncio);
     const mpConectado = cuentaMp !== null;
     const condicionesPago = leerCondiciones(filaCondiciones);
     // El banco de pruebas del Home no cuenta para el módulo de performance.
@@ -175,7 +190,9 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
           pistaEmoji: pistaDeEmoji(historial.visibles),
           enviosActivo,
         })}\n\n` +
-        `${bloqueCatalogo(categorias, totalProductos)}\n\n${bloqueLocal(agent)}\n\n` +
+        `${bloqueCatalogo(categorias, totalProductos)}\n\n` +
+        (delAnuncio ? `${delAnuncio}\n\n` : '') +
+        `${bloqueLocal(agent)}\n\n` +
         `${bloquePedidos(agent, mpConectado, pedidos, new Date(), condicionesPago)}` +
         (atencionHumana ? `\n\n${atencionHumana}` : ''),
     };

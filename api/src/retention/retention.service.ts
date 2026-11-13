@@ -8,6 +8,7 @@ import {
   DIAS_RETENCION_CONSULTAS_ENVIO,
   DIAS_RETENCION_DATOS_CLIENTE,
   DIAS_RETENCION_MENSAJES,
+  DIAS_RETENCION_MENSAJES_RECIBIDOS,
   DIAS_RETENCION_SUGERENCIAS,
   fechaLimite,
   fechaLimiteHoras,
@@ -62,6 +63,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       const performance = await this.desligarPerformance();
       const preguntas = await this.purgarPreguntas();
       const envios = await this.purgarConsultasEnvio();
+      const recibidos = await this.purgarMensajesRecibidos();
       if (
         mensajes > 0 ||
         anonimizadas > 0 ||
@@ -71,13 +73,15 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
         sugerencias > 0 ||
         performance > 0 ||
         preguntas > 0 ||
-        envios > 0
+        envios > 0 ||
+        recibidos > 0
       ) {
         this.logger.log(
           `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
             `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas, ` +
             `${sugerencias} sugerencias ya enviadas borradas, ${performance} registros de performance desligados, ` +
-            `${preguntas} preguntas de clientes sin texto, ${envios} consultas de envío sin resolver borradas.`,
+            `${preguntas} preguntas de clientes sin texto, ${envios} consultas de envío sin resolver borradas, ` +
+            `${recibidos} ids de mensajes recibidos borrados.`,
         );
       }
     } catch (error) {
@@ -179,6 +183,14 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
           { createdAt: { lt: fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora) } },
         ],
       },
+    });
+    return count;
+  }
+
+  /** Los ids de mensajes ya atendidos sólo frenan reentregas recientes (`DIAS_RETENCION_MENSAJES_RECIBIDOS`). */
+  private async purgarMensajesRecibidos(ahora: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.mensajeRecibido.deleteMany({
+      where: { createdAt: { lt: fechaLimite(DIAS_RETENCION_MENSAJES_RECIBIDOS, ahora) } },
     });
     return count;
   }

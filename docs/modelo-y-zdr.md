@@ -315,6 +315,14 @@ Inception.
   `reasoning`.
 - `api/src/importacion/extraccion-ia.ts` — último recurso de la importación
   rápida para leer productos de una landing sin datos estructurados.
+- `api/src/comercio/vision.client.ts` — `MODELO_VISION` (`google/gemma-4-31b-it`,
+  acepta imagen y tiene endpoints con ZDR): describe las imágenes que manda el
+  cliente y la imagen de un anuncio o de un estado del negocio (LAU-103). Si se cambia, el reemplazo
+  tiene que aceptar `image_url` con ZDR.
+- `api/src/comercio/anuncios.service.ts` — cuando el nombre del producto no
+  aparece en el texto de un anuncio o estado, Jev (`DecisionesClient.probabilidades`) revisa dos veces (todo el anuncio y la imagen sola) y elige
+  entre el catálogo con ese texto y la descripción de la imagen; gana el de mayor
+  probabilidad promedio si le gana a "ninguno" (`ganadorPromedio`, anuncios.rules.ts).
 - `api/src/config/env.ts` — defaults de `OPENROUTER_MODEL` y
   `OPENROUTER_MODEL_AGENTES`.
 - `api/evals/` — los evals, los perfiles y la lista de modelos con precios.

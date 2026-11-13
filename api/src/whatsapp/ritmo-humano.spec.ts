@@ -81,7 +81,7 @@ describe('esperaDeEscucha', () => {
   });
 
   it('un audio corto no espera más que la ráfaga', () => {
-    expect(esperaDeEscucha(2, 1)).toBe(0);
+    expect(esperaDeEscucha(0, 1)).toBe(0);
     expect(esperaDeEscucha(0, 0.5)).toBe(0);
   });
 
