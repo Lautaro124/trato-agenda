@@ -818,6 +818,8 @@ model EtapaChat {
   etapaJev String?
   /// El chat se derivó a una persona (derivar_consulta o atención humana).
   derivado Boolean @default(false)
+  /// Primera vez que el asistente le cotizó el envío (consultar_envio, LAU-102).
+  consultoEnvioAt DateTime?
 
   /// Provincia del cliente (paso de zona). Null = sin zona.
   provincia     String?

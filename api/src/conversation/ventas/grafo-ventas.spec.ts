@@ -127,6 +127,7 @@ function crearRegistro() {
     registrarInteres: vi.fn().mockResolvedValue(undefined),
     marcarDerivado: vi.fn().mockResolvedValue(undefined),
     registrarZonaDeDatos: vi.fn().mockResolvedValue(undefined),
+    marcarConsultaEnvio: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -356,6 +357,21 @@ describe('grafo de ventas', () => {
       expect(tool.content).toContain('cuesta $ 5.000');
       expect(tool.content).toContain('es gratis en compras desde $ 80.000');
       expect(resultado.messages.at(-1)?.content).toBe('Sí, el envío a Córdoba cuesta $ 5.000 y demora entre 2 y 4 días hábiles.');
+    });
+
+    it('cotizar el envío marca la consulta de envío del chat', async () => {
+      const registro = crearRegistro();
+      const llm = crearModelo([llamada('consultar_envio', { localidad: 'Córdoba capital' }), new AIMessage('Cuesta $ 5.000.')]);
+
+      await correr({
+        prisma: crearPrisma({ agent: CON_ENVIOS, enviosActivo: true }),
+        llm,
+        busqueda: { buscar: vi.fn() },
+        envios: { resolver: resolverReal() },
+        registro,
+      });
+
+      expect(registro.marcarConsultaEnvio).toHaveBeenCalledWith('user-1', 'conv-1');
     });
 
     it('el subtotal para el envío gratis sale de la cotización del sistema, no del modelo', async () => {

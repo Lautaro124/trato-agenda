@@ -59,7 +59,7 @@ export type DepsCatalogo = {
   /** Módulo de performance (LAU-30): qué productos vio o pidió el chat y si se derivó. Sin él (evals), nada. */
   registro?: Pick<
     RegistroPerformanceService,
-    'registrarInteres' | 'marcarDerivado' | 'registrarZonaDeDatos'
+    'registrarInteres' | 'marcarDerivado' | 'registrarZonaDeDatos' | 'marcarConsultaEnvio'
   >;
 };
 
@@ -231,6 +231,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       monedaSubtotal,
       registrar: !state.esPropietario,
     });
+    if (!state.esPropietario) await deps.registro?.marcarConsultaEnvio(state.ownerUserId, state.contexto.conversation.id);
     return { texto: formatearResolucionEnvio(resolucion), artifact: artifactDeEnvio(resolucion) };
   }
 
