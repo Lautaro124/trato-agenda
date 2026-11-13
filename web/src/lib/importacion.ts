@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import { ErrorDeApi, leerCentavos, type Moneda } from "./productos";
+import { leerEntero } from "./numeros";
 
 /** Espejo de los topes de la API (importacion/modelo.ts). */
 export const MAX_URLS_POR_PEDIDO = 10;
@@ -103,11 +104,8 @@ export function enRevision(borrador: BorradorProducto): ProductoEnRevision {
   };
 }
 
-function entero(texto: string): number | null | "invalido" {
-  const limpio = texto.trim();
-  if (!limpio) return null;
-  return /^\d{1,7}$/.test(limpio) ? Number(limpio) : "invalido";
-}
+/** Stock tipeado: hasta 7 dígitos, con o sin punto de miles. */
+const stockDe = (texto: string) => leerEntero(texto, 7);
 
 /** Qué le falta a un producto para poder importarlo, o null. Nada se completa solo, salvo la moneda (pesos). */
 export function problemaDelProducto(producto: ProductoEnRevision): string | null {
@@ -115,7 +113,7 @@ export function problemaDelProducto(producto: ProductoEnRevision): string | null
   if (producto.nombre.trim().length < 2) return "Falta el nombre.";
   if (!producto.precio.trim()) return "Falta el precio.";
   if (leerCentavos(producto.precio) === null) return "Revisá el precio.";
-  if (entero(producto.stock) === "invalido") return "El stock tiene que ser un número entero (o vacío).";
+  if (stockDe(producto.stock) === "invalido") return "El stock tiene que ser un número entero (o vacío).";
   return null;
 }
 
@@ -137,7 +135,7 @@ export function itemParaConfirmar(producto: ProductoEnRevision) {
       categoria: producto.categoria.trim() || null,
       moneda: producto.moneda,
       precioCentavos: leerCentavos(producto.precio),
-      stock: entero(producto.stock),
+      stock: stockDe(producto.stock),
     },
   };
 }

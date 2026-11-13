@@ -8,6 +8,7 @@ import { FilaInterruptor } from "@/components/ui/FilaInterruptor";
 import { MAX_CUOTAS, MIN_CUOTAS, problemaDeCuotas, RECARGO_MAX_PORCENTAJE, type CuotasProducto } from "@/lib/condiciones-pago";
 import { centavosParaInput, formatearMonto, leerCentavos } from "@/lib/productos";
 import { PASOS_CUOTAS } from "@/lib/tutoriales";
+import { CampoNumero } from "@/components/ui/CampoNumero";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2.5 text-[14.5px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
@@ -285,11 +286,11 @@ export function SeccionCuotas({
                     <li key={n} className="flex items-center gap-2">
                       <span className="min-w-[88px] flex-none text-[14px] text-ink">{n} cuotas</span>
                       <span className="flex-none text-[13px] text-muted">$</span>
-                      <input
+                      <CampoNumero
                         aria-label={`Total en ${n} cuotas`}
-                        inputMode="decimal"
+                        decimales
                         value={cuotas.totales[n] ?? ""}
-                        onChange={(e) => onCambio({ totales: { ...cuotas.totales, [n]: e.target.value } })}
+                        onValueChange={(total) => onCambio({ totales: { ...cuotas.totales, [n]: total } })}
                         className={INPUT}
                       />
                     </li>

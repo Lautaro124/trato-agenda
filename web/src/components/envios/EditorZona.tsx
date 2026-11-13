@@ -19,6 +19,7 @@ import {
   type ZonaAGuardar,
 } from "@/lib/envios";
 import { centavosParaInput, formatearMonto, leerCentavos } from "@/lib/productos";
+import { CampoNumero } from "@/components/ui/CampoNumero";
 
 const ESPERA_BUSQUEDA_MS = 250;
 
@@ -153,12 +154,12 @@ function CampoMonto({
         )}
       >
         <span className="flex items-center bg-sunken px-2.5 text-[14px] text-ink-secondary">{moneda === "USD" ? "US$" : "$"}</span>
-        <input
+        <CampoNumero
           id={id}
-          inputMode="decimal"
+          decimales
           value={valor}
           disabled={disabled}
-          onChange={(e) => onChange(e.target.value)}
+          onValueChange={onChange}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? `${id}-error` : undefined}
           className="min-w-0 flex-1 px-2.5 font-semibold text-ink outline-none disabled:bg-sunken"
