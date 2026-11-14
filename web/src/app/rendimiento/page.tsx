@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { chip } from "@/components/onboarding/controles";
 import { Conversion } from "@/components/rendimiento/Conversion";
+import { Envio } from "@/components/rendimiento/Envio";
 import { Etapas } from "@/components/rendimiento/Etapas";
 import { ErrorDeCarga } from "@/components/rendimiento/ErrorDeCarga";
 import { Preguntas } from "@/components/rendimiento/Preguntas";
@@ -333,6 +334,7 @@ function Rendimiento() {
             )}
             <Conversion performance={datos} />
             <Etapas performance={datos} />
+            {datos.envio && <Envio envio={datos.envio} definicion={datos.definiciones.envio} />}
             <TablaProductos performance={datos} />
             <Preguntas performance={datos} />
             <Zonas performance={datos} onElegir={setZona} />

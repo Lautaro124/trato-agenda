@@ -14,6 +14,8 @@ import {
   leerCentavos,
   type Producto,
 } from "@/lib/productos";
+import { CampoNumero } from "@/components/ui/CampoNumero";
+import { leerEntero } from "@/lib/numeros";
 
 const ETIQUETA = "text-[11.5px] font-semibold text-muted";
 const INPUT_CHICO =
@@ -41,11 +43,7 @@ function firmaDe(producto: Producto): string {
 }
 
 /** El stock tipeado: null = sin control, "invalido" si no es un entero. */
-function leerStock(texto: string): number | null | "invalido" {
-  const limpio = texto.trim();
-  if (limpio === "") return null;
-  return /^\d+$/.test(limpio) ? Number(limpio) : "invalido";
-}
+const leerStock = (texto: string) => leerEntero(texto);
 
 /**
  * Qué cambió respecto de lo guardado. Un precio o stock mal tipeado cuenta
@@ -292,11 +290,11 @@ function PrecioYStock({
         </span>
         <span className="flex items-center gap-1">
           <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>
-          <input
-            inputMode="decimal"
+          <CampoNumero
+            decimales
             value={borrador.precio}
             disabled={deshabilitada}
-            onChange={(e) => onCambio({ precio: e.target.value })}
+            onValueChange={(precio) => onCambio({ precio })}
             aria-label={`Precio de ${nombre}`}
             className={cn(INPUT_CHICO, borde(precioEditado))}
           />
@@ -305,12 +303,11 @@ function PrecioYStock({
 
       <label className="flex flex-col gap-1">
         <span className={ETIQUETA}>Stock (unidades)</span>
-        <input
-          inputMode="numeric"
+        <CampoNumero
           value={borrador.stock}
           placeholder="Sin control"
           disabled={deshabilitada}
-          onChange={(e) => onCambio({ stock: e.target.value })}
+          onValueChange={(stock) => onCambio({ stock })}
           aria-label={`Stock de ${nombre}`}
           className={cn(INPUT_CHICO, borde(stockEditado))}
         />

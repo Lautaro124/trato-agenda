@@ -21,6 +21,7 @@ import type {
   ConteosConversion,
   Conversion,
   DiaPerformance,
+  EnvioPerformance,
   EtapaPublica,
   FiltroZona,
   FiltrosPerformanceQuery,
@@ -57,7 +58,7 @@ export class LecturaPerformanceService {
     const rango = rangoDeDias(filtros.desde, filtros.hasta, ahora);
     const moneda = filtros.moneda ?? 'ARS';
     const zona = filtros.zona ?? null;
-    await this.exigirVentas(userId);
+    const { haceEnvios } = await this.exigirVentas(userId);
 
     const primero = await this.prisma.etapaChat.aggregate({ where: { userId }, _min: { createdAt: true } });
     const primerRegistro = primero._min.createdAt;
@@ -65,13 +66,14 @@ export class LecturaPerformanceService {
     const anterior = rangoAnterior(rango);
     const datosAnteriores = cobertura(anterior, primerRegistro);
 
-    const [porDia, porDiaAnterior, etapas, productos, zonas, preguntas] = await Promise.all([
+    const [porDia, porDiaAnterior, { etapas, envio }, productos, zonas, preguntas, configEnvios] = await Promise.all([
       this.porDia(userId, rango, moneda, zona),
       datosAnteriores === 'sin_datos' ? null : this.porDia(userId, anterior, moneda, zona),
       this.etapas(userId, rango, ahora, zona),
       this.productos(userId, rango, moneda, zona),
       this.zonas(userId, rango),
       this.preguntas(userId, rango, zona),
+      haceEnvios ? this.prisma.configuracionEnvios.findUnique({ where: { userId }, select: { activo: true } }) : null,
     ]);
 
     const conversion = conTasas(sumarDias(porDia));
@@ -94,6 +96,14 @@ export class LecturaPerformanceService {
       productos,
       zonas,
       preguntas: { ...preguntas, chats: conversion.chats },
+      envio: haceEnvios
+        ? {
+            moduloActivo: configEnvios?.activo === true,
+            ...envio,
+            consultaAPedido: tasa(envio.conPedido, envio.consultaron),
+            consultaAPago: tasa(envio.conPago, envio.consultaron),
+          }
+        : null,
     };
   }
 
@@ -249,18 +259,25 @@ export class LecturaPerformanceService {
     ]);
   }
 
-  private async etapas(userId: string, rango: Rango, ahora: Date, zona: FiltroZona | null): Promise<EtapaPublica[]> {
+  /** Cada etapa con el estado de sus chats y, de paso, los que consultaron el envío. */
+  private async etapas(
+    userId: string,
+    rango: Rango,
+    ahora: Date,
+    zona: FiltroZona | null,
+  ): Promise<{ etapas: EtapaPublica[]; envio: Pick<EnvioPerformance, 'consultaron' | 'cotizando' | 'conPedido' | 'conPago'> }> {
     const filas = await this.prisma.etapaChat.findMany({
       where: {
         userId,
         createdAt: { gte: rango.desde, lt: rango.hasta },
         ...(zona ? { provincia: zona === SIN_ZONA ? null : zona } : {}),
       },
-      select: { etapa: true, ultimaActividadAt: true, derivado: true },
+      select: { etapa: true, ultimaActividadAt: true, derivado: true, consultoEnvioAt: true },
     });
     const porEtapa = new Map<Etapa, EtapaPublica>(
-      ETAPAS.map((etapa) => [etapa, { etapa, total: 0, activos: 0, estancados: 0, abandonados: 0, derivados: 0 }]),
+      ETAPAS.map((etapa) => [etapa, { etapa, total: 0, activos: 0, estancados: 0, abandonados: 0, derivados: 0, consultaronEnvio: 0 }]),
     );
+    const envio = { consultaron: 0, cotizando: 0, conPedido: 0, conPago: 0 };
     for (const fila of filas) {
       const etapa = porEtapa.get(fila.etapa as Etapa);
       if (!etapa) continue;
@@ -270,8 +287,16 @@ export class LecturaPerformanceService {
       if (estado === 'activo') etapa.activos += 1;
       else if (estado === 'estancado') etapa.estancados += 1;
       else if (estado === 'abandonado') etapa.abandonados += 1;
+      if (fila.consultoEnvioAt) {
+        etapa.consultaronEnvio += 1;
+        envio.consultaron += 1;
+        const conPedido = CON_PEDIDO.includes(etapa.etapa);
+        if (conPedido) envio.conPedido += 1;
+        else if (estado === 'activo') envio.cotizando += 1;
+        if (etapa.etapa === 'pagado') envio.conPago += 1;
+      }
     }
-    return [...porEtapa.values()];
+    return { etapas: [...porEtapa.values()], envio };
   }
 
   private async productos(userId: string, rango: Rango, moneda: Moneda, zona: FiltroZona | null): Promise<ProductoPerformance[]> {
@@ -361,11 +386,12 @@ export class LecturaPerformanceService {
       .slice(0, MAX_PRODUCTOS_PERFORMANCE);
   }
 
-  private async exigirVentas(userId: string): Promise<void> {
-    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+  private async exigirVentas(userId: string): Promise<{ haceEnvios: boolean }> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true, haceEnvios: true } });
     if (!agent || agent.tipoAsistente !== 'ventas') {
       throw new ConflictException('El rendimiento de productos es para las cuentas que venden.');
     }
+    return { haceEnvios: agent.haceEnvios };
   }
 }
 

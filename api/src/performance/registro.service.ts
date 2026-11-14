@@ -86,6 +86,20 @@ export class RegistroPerformanceService {
     });
   }
 
+  /**
+   * El asistente le cotizó el envío al cliente (consultar_envio). Queda la
+   * primera vez: volver a consultar no la mueve.
+   */
+  async marcarConsultaEnvio(userId: string, conversationId: string, ahora: Date = new Date()): Promise<void> {
+    await this.seguro('marcarConsultaEnvio', conversationId, async () => {
+      if (!(await this.asegurar(userId, conversationId))) return;
+      await this.prisma.etapaChat.updateMany({
+        where: { userId, conversationId, consultoEnvioAt: null },
+        data: { consultoEnvioAt: ahora },
+      });
+    });
+  }
+
   /** Una venta pagada lleva su chat a esa etapa. Las de prueba no cuentan. */
   async avanzarPorVenta(venta: VentaDelChat, etapa: Etapa): Promise<void> {
     const { conversationId } = venta;

@@ -111,6 +111,8 @@ export const DEFINICIONES = {
   sinDatos: 'Sin datos: no hubo chats para calcularlo, o el período es anterior al registro. No es lo mismo que 0 %.',
   preguntas:
     'Las preguntas las agrupa automáticamente la inteligencia artificial cuando el chat queda quieto 48 horas o paga: es una estimación, no lo que se registró palabra por palabra.',
+  envio:
+    'Chats nuevos del período a los que el asistente les cotizó el envío con tus tarifas. "Cotizando ahora" son los que siguen activos y todavía no hicieron un pedido.',
   zona:
     'La provincia que dio el cliente en un pedido; si no la dio, la de la característica de su celular (inferida: es la zona de la línea, no necesariamente la del cliente).',
 } as const;

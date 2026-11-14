@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 3 de noviembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 9 de noviembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -140,6 +140,10 @@ export default function PrivacidadPage() {
             u otros que definas vos), también guardamos lo que el cliente conteste, sólo los datos que
             vos elegiste pedir. También el historial de cada pedido, si lo atiende una persona y por
             qué, y lo que el cliente y vos se escriban mientras el asistente está callado en ese chat.
+            Si cargás zonas de envío, guardamos sus tarifas y lugares; cuando el asistente no puede
+            responder el costo de un envío, anotamos sólo la provincia, localidad o código postal
+            consultado y el motivo (sin el chat, la dirección ni el número del cliente), para mostrarte
+            qué te falta configurar.
             Los avisos que te mostramos en el
             panel (ventas, pedidos, stock, consultas) repiten algunos de esos datos. Para mostrarte
             cómo rinden tus productos, de cada chat anotamos hasta qué paso llegó (consultó, vio
@@ -401,6 +405,10 @@ export default function PrivacidadPage() {
               quedan sólo como números de tu cuenta, sin forma de saber de qué cliente eran. El texto
               de las preguntas de los clientes se borra a los 90 días (antes, si el chat se desliga);
               el tema y si quedó contestada quedan como números.
+            </Punto>
+            <Punto>
+              <Fuerte>Consultas de envío sin responder:</Fuerte> la ubicación consultada y el motivo
+              se borran a los 90 días.
             </Punto>
             <Punto>
               <Fuerte>Avisos del panel:</Fuerte> los leídos se borran a los 90 días; los que nunca

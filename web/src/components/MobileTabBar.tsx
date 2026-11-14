@@ -6,7 +6,7 @@ import { useSession } from "@/lib/session";
 // "plan", "cuenta", "asistente", "rendimiento" y "anuncios" no tienen ítem propio (se llega desde el menú
 // de usuario): se incluyen para que esas pantallas puedan montar la barra sin
 // marcar ninguna pestaña como activa.
-type Tab = "inicio" | "calendario" | "reuniones" | "productos" | "ventas" | "chat" | "chats" | "plan" | "cuenta" | "asistente" | "rendimiento" | "anuncios";
+type Tab = "inicio" | "calendario" | "reuniones" | "productos" | "ventas" | "envios" | "chat" | "chats" | "plan" | "cuenta" | "asistente" | "rendimiento" | "anuncios";
 
 type Item = { tab: Tab; href: string; label: string; icon: React.ReactNode };
 

@@ -12,7 +12,7 @@ import { Limitador } from '../auth/limitador.js';
 import { ESTADOS_ABIERTOS } from '../comercio/ventas.rules.js';
 import { aMensajesPublicos } from '../comercio/ventas.types.js';
 import { telefonoDeJid } from '../comercio/ventas.rules.js';
-import { esConversacionDePrueba, jidDePrueba } from '../conversation/conversation.service.js';
+import { esConversacionDePrueba, PREFIJO_JID_DE_PRUEBA } from '../conversation/conversation.service.js';
 import { Prisma, type Conversation, type Message } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
@@ -180,7 +180,8 @@ export class ChatsService {
   // --- Internos -------------------------------------------------------------------------
 
   private dondeDelDueno(userId: string): Prisma.ConversationWhereInput {
-    return { userId, ultimoMensajeAt: { not: null }, NOT: { remoteJid: jidDePrueba(userId) } };
+    // Todas las de prueba: el banco del Home y el probador de envíos.
+    return { userId, ultimoMensajeAt: { not: null }, NOT: { remoteJid: { startsWith: PREFIJO_JID_DE_PRUEBA } } };
   }
 
   /** La conversación del dueño, o 404: nunca la de otro ni el banco de pruebas. */
