@@ -67,7 +67,8 @@ test.describe('sugerencias de mejora (LAU-14)', () => {
     await crearAgentePorApi(context.request);
     await page.goto('/inicio');
 
-    await page.locator('header button[aria-haspopup="menu"]').click();
+    await page.getByRole('button', { name: 'Abrir menú' }).click();
+    await page.getByRole('dialog', { name: 'Menú' }).getByRole('button', { name: /Cuenta y vinculación/ }).click();
     await page.getByRole('menuitem', { name: 'Sugerir mejora' }).click();
     const panel = page.getByRole('dialog', { name: 'Sugerí una mejora' });
     await panel.getByLabel('Tu sugerencia').fill(VALIDA);

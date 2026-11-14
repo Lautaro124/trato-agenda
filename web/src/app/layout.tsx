@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     "La atención al cliente de tu negocio por WhatsApp: un asistente que suena como alguien de tu equipo y se ocupa de los turnos, el stock y los cobros.",
 };
 
-// viewport-fit=cover habilita env(safe-area-inset-*) para la barra inferior móvil.
+// viewport-fit=cover habilita env(safe-area-inset-*) para los pies fijos del celular.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { ProbadorEnvios } from "@/components/envios/ProbadorEnvios";
 import { useRequireSession } from "@/lib/session";
 
@@ -43,7 +42,6 @@ export default function ProbarEnviosPage() {
         </div>
         <ProbadorEnvios />
       </main>
-      <MobileTabBar active="envios" />
     </div>
   );
 }

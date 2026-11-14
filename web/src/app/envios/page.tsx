@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { ConfiguracionGeneral } from "@/components/envios/ConfiguracionGeneral";
 import { ConsultasSinResolver } from "@/components/envios/ConsultasSinResolver";
 import { EditorZona } from "@/components/envios/EditorZona";
@@ -59,7 +58,6 @@ export default function EnviosPage() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="envios" user={user} />
       <Envios />
-      <MobileTabBar active="envios" />
     </div>
   );
 }
