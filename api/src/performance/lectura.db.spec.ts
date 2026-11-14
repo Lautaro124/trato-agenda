@@ -234,6 +234,40 @@ describe.skipIf(!hayBaseDePrueba)('lectura de performance (Postgres)', () => {
     expect(de('lista')).toMatchObject({ total: 0 });
   });
 
+  it('sin envíos en la cuenta no hay estado de envío; con envíos, cuenta las cotizaciones', async () => {
+    expect((await lectura.leer(dueno.id, OCTUBRE, AHORA)).envio).toBeNull();
+
+    // Tres chats de octubre cotizaron: uno activo sin pedido, el del pedido estancado y uno pagado.
+    const cotizaron = await prisma.etapaChat.findMany({
+      where: { userId: dueno.id, etapa: { in: ['consulta', 'pedido', 'pagado'] }, createdAt: { gte: dia(1) } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, etapa: true },
+    });
+    const ids = [
+      cotizaron.find((fila) => fila.etapa === 'consulta')!.id,
+      cotizaron.find((fila) => fila.etapa === 'pedido')!.id,
+      cotizaron.find((fila) => fila.etapa === 'pagado')!.id,
+    ];
+    await prisma.etapaChat.updateMany({ where: { id: { in: ids } }, data: { consultoEnvioAt: dia(10) } });
+    await prisma.agent.update({ where: { userId: dueno.id }, data: { haceEnvios: true } });
+    try {
+      const { envio, etapas } = await lectura.leer(dueno.id, OCTUBRE, AHORA);
+      expect(envio).toEqual({
+        moduloActivo: false,
+        consultaron: 3,
+        cotizando: 1,
+        conPedido: 2,
+        conPago: 1,
+        consultaAPedido: { valor: 0.6667 },
+        consultaAPago: { valor: 0.3333 },
+      });
+      expect(etapas.find((fila) => fila.etapa === 'consulta')).toMatchObject({ consultaronEnvio: 1 });
+    } finally {
+      await prisma.agent.update({ where: { userId: dueno.id }, data: { haceEnvios: false } });
+      await prisma.etapaChat.updateMany({ where: { id: { in: ids } }, data: { consultoEnvioAt: null } });
+    }
+  });
+
   it('por producto: vieron, pidieron, pagaron y dónde se cortan', async () => {
     const { productos } = await lectura.leer(dueno.id, OCTUBRE, AHORA);
 

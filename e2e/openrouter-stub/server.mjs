@@ -245,6 +245,17 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     if (resultado.startsWith('Descuentos vigentes')) {
       return responder(res, 200, completion(body.model, { content: `Estos son los descuentos que tenemos:\n${lineas.join('\n')}` }));
     }
+    // consultar_envio: repite la primera modalidad tal cual (con sus montos) o pregunta lo que falta.
+    if (resultado.startsWith('Envío a ')) {
+      const linea = resultado.split('\n').find((l) => l.startsWith('- '))?.slice(2) ?? '';
+      return responder(res, 200, completion(body.model, { content: `Te cuento: ${linea}` }));
+    }
+    if (resultado.startsWith('Para saber el costo del envío falta')) {
+      return responder(res, 200, completion(body.model, { content: '¿A qué localidad te lo mandamos?' }));
+    }
+    if (resultado.startsWith('No hay una regla de envío cargada')) {
+      return responder(res, 200, completion(body.model, { content: 'No tengo una tarifa cargada para ese lugar: te lo confirmamos por acá.' }));
+    }
     if (resultado.startsWith('No hay descuentos vigentes')) {
       return responder(res, 200, completion(body.model, { content: 'Ahora no tenemos descuentos. ¿Buscás algo puntual?' }));
     }
@@ -268,6 +279,13 @@ function conversarVentas(body, res, { mensajes, sistema, indiceUsuario, ultimoUs
     return responder(res, 200, respuestaDelLocal(body, sistema, textoDe(mensajes[indiceUsuario])));
   }
   if (!esCompra && (ultimoUsuario.includes('envio') || ultimoUsuario.includes('envian'))) {
+    // Con el módulo de envíos (LAU-102) consulta las tarifas: el CP si lo dijo, si no lo que sigue a "a".
+    if ((body.tools ?? []).some((tool) => tool.function?.name === 'consultar_envio')) {
+      const original = textoDe(mensajes[indiceUsuario]);
+      const cp = original.match(/\b([A-Za-z]?\d{4}(?:[A-Za-z]{3})?)\b/)?.[1];
+      const lugar = original.match(/\ba ([^?¿!.,]+)/i)?.[1]?.trim();
+      return responder(res, 200, llamadaATool(body.model, 'consultar_envio', cp ? { codigoPostal: cp } : { localidad: lugar ?? original }));
+    }
     return responder(res, 200, llamadaATool(body.model, 'derivar_consulta', { resumen: textoDe(mensajes[indiceUsuario]) }));
   }
   const delDueno = (body.tools ?? []).some((tool) => tool.function?.name === 'resumen_ventas');

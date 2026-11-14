@@ -150,6 +150,7 @@ Dónde se escribe:
 | `pidio` | `catalogo.node.ts`: `crear_pedido` (por producto) |
 | `pagado` | `VentasService.marcarPagada` (webhook, conciliación y cobro manual) |
 | Derivado | `derivar_consulta` en el nodo |
+| Consulta de envío | `consultar_envio` en el nodo (`consultoEnvioAt`, la primera vez) |
 
 La retención desliga la conversación a los 12 meses (`RetentionService.desligarPerformance`).
 
@@ -231,6 +232,13 @@ Ajuste a la definición: la "etapa" de una pregunta es **la etapa en la que qued
 La pantalla muestra todo eso en la sección "Qué preguntan".
 
 El stub de E2E reconoce el pedido por `MARCA_CLASIFICACION` y contesta un JSON fijo.
+
+**Consultas de envío (hecho).**
+
+Sólo para cuentas que hacen envíos (`Agent.haceEnvios`):
+- **Qué se registra:** `EtapaChat.consultoEnvioAt`, la primera vez que el asistente le cotiza el envío al cliente con `consultar_envio` (migración `20261113120000_performance_consulta_envio`). Es un hecho, no una inferencia: no se parsea texto. Una pregunta de envío que el asistente contesta sin la herramienta (módulo de envíos apagado) no se registra; para eso está el tema "envío" de las preguntas.
+- **Qué devuelve `GET /performance`:** `envio`, `null` si la cuenta no hace envíos. Si no, trae `moduloActivo`, cuántos chats nuevos del período consultaron, cuántos están **cotizando ahora** (consultaron, siguen activos y todavía no hicieron un pedido), cuántos pidieron y pagaron, y las tasas consulta → pedido y consulta → pago. Cada etapa suma `consultaronEnvio`.
+- **Pantalla:** la sección "Consultas de envío", debajo de "Dónde están los chats", y el desglose de cada etapa dice cuántos consultaron el envío. Con el módulo apagado avisa que no se registran consultas nuevas y enlaza a Envíos.
 
 **Pendiente:**
 - tips.

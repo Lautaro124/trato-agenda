@@ -31,7 +31,6 @@ import pino from 'pino';
 import { Observable, ReplaySubject, map } from 'rxjs';
 import { Limitador } from '../auth/limitador.js';
 import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
-import { tipoAsistenteDe } from '../agents/agent-catalog.js';
 import { referenciaDeAnuncio, type ReferenciaAnuncio } from '../comercio/anuncios.rules.js';
 import { AnunciosService } from '../comercio/anuncios.service.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
@@ -42,6 +41,7 @@ import { ConversationService } from '../conversation/conversation.service.js';
 import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
 import { avisoWhatsappCaido, avisoWhatsappParaVolverAVincular, type Aviso } from '../notificaciones/avisos.js';
+import { tipoAsistenteDe } from '../agents/agent-catalog.js';
 import { resumenDeError } from '../agents/openrouter.client.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { avisarASentry } from '../observabilidad/aviso-a-sentry.js';
@@ -924,6 +924,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Una cuenta recién vinculada que no terminó de configurarse no mira ni
+    // contesta nada: ni lee el mensaje, ni lo guarda, ni transcribe un audio.
+    if (!(await this.asistenteListo(userId))) {
+      this.logger.debug(`Mensaje ignorado: ${userId} no terminó de configurar su asistente.`);
+      return;
+    }
+
     if (!(await this.subscriptionService.asistenteActivo(userId))) {
       this.logger.debug(`Mensaje ignorado: la suscripción de ${userId} está vencida.`);
       return;
@@ -982,6 +989,18 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       enviadoEn: timestampEnMs(mensaje.messageTimestamp),
       recibidoEn: Date.now(),
     });
+  }
+
+  /**
+   * Si el asistente ya puede atender a clientes: terminó el onboarding (tiene
+   * agente) y, siendo de ventas, cargó al menos un producto activo. Hasta
+   * entonces no atiende nada, aunque el WhatsApp ya esté vinculado.
+   */
+  private async asistenteListo(userId: string): Promise<boolean> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+    if (!agent) return false;
+    if (tipoAsistenteDe(agent) !== 'ventas') return true;
+    return (await this.prisma.producto.count({ where: { userId, activo: true }, take: 1 })) > 0;
   }
 
   /**
@@ -1063,6 +1082,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async contestarPendientes(userId: string, remoteJid: string, texto: string): Promise<boolean> {
     const sock = this.sockets.get(userId);
     if (!sock || !estaVinculado(sock.authState.creds)) return false;
+    if (!(await this.asistenteListo(userId))) return false;
     if (!(await this.subscriptionService.asistenteActivo(userId))) return false;
     this.rafagas.agregar(`${userId}\n${remoteJid}`, {
       userId,
@@ -1124,6 +1144,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       );
       // Mientras esperaba la ráfaga, el chat pasó a una persona: no se contesta nada.
       if (respuesta.enAtencionHumana) return;
+      if (respuesta.sinAgente) {
+        this.logger.warn(`Mensaje sin contestar: ${userId} no tiene agente configurado.`);
+        return;
+      }
       const finModelo = Date.now();
       // Sólo avisa si se llegó al 80 %/100 % del tope de chats; nunca frena ni demora la respuesta.
       void this.subscriptionService.avisarSiLlegaAlTope(userId).catch((error: unknown) =>

@@ -100,7 +100,16 @@ export type Rango = { primerDia: string; ultimoDia: string };
 type Conteo<K extends string> = Record<K, number>;
 type Tasas<K extends string> = Record<K, Tasa>;
 
-export type EtapaPerformance = Conteo<"total" | "activos" | "estancados" | "abandonados" | "derivados"> & { etapa: Etapa };
+export type EtapaPerformance = Conteo<"total" | "activos" | "estancados" | "abandonados" | "derivados" | "consultaronEnvio"> & {
+  etapa: Etapa;
+};
+
+/**
+ * Los chats nuevos del período a los que el asistente les cotizó el envío.
+ * `cotizando`: siguen activos y todavía no hicieron un pedido.
+ */
+export type EnvioPerformance = Conteo<"consultaron" | "cotizando" | "conPedido" | "conPago"> &
+  Tasas<"consultaAPedido" | "consultaAPago"> & { moduloActivo: boolean };
 
 export type ProductoPerformance = Conteo<"vieron" | "pidieron" | "pagaron" | "unidades" | "cobradoCentavos"> &
   Tasas<"vioAPidio" | "pidioAPago"> & {
@@ -130,6 +139,7 @@ export type Performance = {
     sinDatos: string;
     preguntas: string;
     zona: string;
+    envio: string;
     cobrado: string;
     porDia: string;
     comparacion: string;
@@ -148,6 +158,8 @@ export type Performance = {
   productos: ProductoPerformance[];
   zonas: ZonaPerformance[];
   preguntas: PreguntasPerformance;
+  /** Null si la cuenta no hace envíos. */
+  envio: EnvioPerformance | null;
 };
 
 export type FiltrosPerformance = { desde: string; hasta: string; moneda: Moneda; zona: FiltroZona | "" };

@@ -49,6 +49,8 @@ export type DepsGrafoVentas = {
   decisiones?: DepsContextoVentas['decisiones'];
   /** Módulo de performance (LAU-30). Sin él (evals, tests), no se registra nada. */
   registro?: NonNullable<DepsCatalogo['registro']> & NonNullable<DepsContextoVentas['registro']>;
+  /** Módulo de envíos (LAU-102). Sin él (evals), consultar_envio contesta que no está disponible. */
+  envios?: DepsCatalogo['envios'];
 };
 
 /**

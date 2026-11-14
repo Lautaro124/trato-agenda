@@ -69,6 +69,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
       }),
       upsert: vi.fn().mockResolvedValue({}),
     },
+    producto: { count: vi.fn().mockResolvedValue(1) },
     whatsappClave: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     agent: { findUnique: vi.fn().mockResolvedValue({ tipoAsistente: 'ventas' }) },
     conversation: { findUnique: vi.fn().mockResolvedValue(null), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -607,6 +608,19 @@ describe('WhatsappService — mensajes de clientes', () => {
       expect(sock.sendMessage).not.toHaveBeenCalled();
     });
 
+    it('con el onboarding sin terminar ni lo descarga ni lo transcribe ni avisa', async () => {
+      const { service, prisma, transcripcion } = crearServicio();
+      vi.mocked(prisma.agent.findUnique).mockResolvedValue(null);
+      const sock = socketDeChat();
+
+      await recibirAudio(service, sock);
+      await vi.runAllTimersAsync();
+
+      expect(downloadMediaMessage).not.toHaveBeenCalled();
+      expect(transcripcion.transcribir).not.toHaveBeenCalled();
+      expect(sock.sendMessage).not.toHaveBeenCalled();
+    });
+
     it('lo que el cliente escribe después del audio llega a la ráfaga detrás de él', async () => {
       const { service, conversationService, transcripcion } = crearServicio();
       vi.mocked(conversationService.responder).mockResolvedValue({ texto: 'ok', imagenes: [] });
@@ -740,6 +754,35 @@ describe('WhatsappService — mensajes de clientes', () => {
       data: { conversationId: 'conv-1', role: 'user', content: { content: 'hola', enAtencionHumana: true } },
     });
     expect(conversationService.responder).not.toHaveBeenCalled();
+  });
+
+  it('sin onboarding terminado, o con ventas sin productos, no contesta ni lee el mensaje', async () => {
+    const { service, prisma, conversationService } = crearServicio();
+    const sock = socketDeChat();
+
+    vi.mocked(prisma.agent.findUnique).mockResolvedValue(null);
+    await recibirMensaje(service, sock, 'hola', 'm-1');
+    await vi.runAllTimersAsync();
+
+    vi.mocked(prisma.agent.findUnique).mockResolvedValue({ tipoAsistente: 'ventas' } as never);
+    vi.mocked(prisma.producto.count).mockResolvedValue(0);
+    await recibirMensaje(service, sock, 'hola', 'm-2');
+    await vi.runAllTimersAsync();
+
+    expect(conversationService.responder).not.toHaveBeenCalled();
+    expect(sock.readMessages).not.toHaveBeenCalled();
+    expect(sock.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('ventas con al menos un producto activo atiende', async () => {
+    const { service, prisma, conversationService } = crearServicio();
+    vi.mocked(prisma.agent.findUnique).mockResolvedValue({ tipoAsistente: 'ventas' } as never);
+
+    await recibirMensaje(service, socketDeChat(), 'hola', 'm-1');
+    await vi.runAllTimersAsync();
+
+    expect(prisma.producto.count).toHaveBeenCalledWith({ where: { userId: 'user-1', activo: true }, take: 1 });
+    expect(conversationService.responder).toHaveBeenCalled();
   });
 
   it('espera a que el cliente termine de escribir y contesta la ráfaga entera de una vez', async () => {
