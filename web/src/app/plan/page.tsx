@@ -3,7 +3,6 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
@@ -144,7 +143,7 @@ function PlanContenido() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="plan" user={user} />
 
-      <main className="grid flex-1 place-items-center bg-page p-5 pb-24 md:pb-5">
+      <main className="grid flex-1 place-items-center bg-page p-5 md:pb-5">
         {vista === "listo" ? (
           <Exito suscripcion={suscripcion} onVolver={() => router.push("/inicio")} />
         ) : vista === "confirmando" ? (
@@ -167,7 +166,6 @@ function PlanContenido() {
         {error && <p className="mt-4 text-[12.5px] text-danger-text">{error}</p>}
       </main>
 
-      <MobileTabBar active="plan" />
     </div>
   );
 }

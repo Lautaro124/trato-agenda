@@ -3,7 +3,6 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import { DetalleVenta } from "@/components/ventas/DetalleVenta";
 import { FiltrosVentas, type Periodos } from "@/components/ventas/FiltrosVentas";
@@ -73,7 +72,6 @@ function VentasContenido() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="ventas" user={user} />
       <Historico />
-      <MobileTabBar active="ventas" />
     </div>
   );
 }
@@ -254,7 +252,7 @@ function Historico() {
   const totalPaginas = datos ? Math.max(1, Math.ceil(datos.total / datos.porPagina)) : 1;
 
   return (
-    <main className="flex-1 bg-page p-5 pb-24 md:pb-8">
+    <main className="flex-1 bg-page p-5 md:pb-8">
       <div className="mx-auto flex max-w-[960px] flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { AgregarEvento, ListaEventos, PrecioParaTodos } from "@/components/onboarding/controles";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
@@ -75,7 +74,6 @@ export default function ReunionesPage() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="reuniones" user={user} />
       <Editor agent={agent} onGuardado={setAgent} />
-      <MobileTabBar active="reuniones" />
     </div>
   );
 }
@@ -118,7 +116,7 @@ function Editor({
   };
 
   return (
-    <main className="flex-1 bg-page p-5 pb-24 md:pb-8">
+    <main className="flex-1 bg-page p-5 md:pb-8">
       <div className="mx-auto flex max-w-[720px] flex-col gap-4">
         <div>
           <h1 className="mb-1 font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">

@@ -9,7 +9,6 @@ import { SeccionFormasDePago } from "@/components/cuenta/SeccionFormasDePago";
 import { SeccionHorarioAtencion } from "@/components/cuenta/SeccionHorarioAtencion";
 import { SeccionLocal } from "@/components/cuenta/SeccionLocal";
 import { AVISOS_MP, SeccionMercadoPago } from "@/components/cuenta/SeccionMercadoPago";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import { API_URL, apiFetch } from "@/lib/api";
 import { EMAIL_SOPORTE } from "@/lib/contacto";
@@ -101,7 +100,7 @@ function CuentaContenido() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="cuenta" user={user} />
 
-      <main className="flex-1 bg-page p-5 pb-24 md:pb-8">
+      <main className="flex-1 bg-page p-5 md:pb-8">
         <div className="mx-auto flex w-full max-w-[620px] flex-col gap-5">
           <div>
             <h1 className="mb-1 font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">
@@ -256,7 +255,6 @@ function CuentaContenido() {
         </div>
       </main>
 
-      <MobileTabBar active="cuenta" />
     </div>
   );
 }

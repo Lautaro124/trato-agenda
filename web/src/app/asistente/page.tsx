@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { EditorMensaje } from "@/components/asistente/EditorMensaje";
 import { ListaMensajes } from "@/components/asistente/ListaMensajes";
 import { VistaPreviaMensaje } from "@/components/asistente/VistaPreviaMensaje";
@@ -71,7 +70,6 @@ export default function AsistentePage() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="asistente" user={user} />
       <Mensajes agent={agent} onGuardado={setAgent} />
-      <MobileTabBar active="asistente" />
     </div>
   );
 }
@@ -200,7 +198,7 @@ function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (ag
   );
 
   return (
-    <main className="flex-1 bg-page px-5 pt-6 pb-36 md:pb-10">
+    <main className="flex-1 bg-page px-5 pt-6 pb-28 md:pb-10">
       <div className="mx-auto flex max-w-[1240px] flex-col gap-6">
         <div className={cn("flex-wrap items-end justify-between gap-4", abiertoEnMovil ? "hidden md:flex" : "flex")}>
           <div className="max-w-[640px]">
@@ -281,10 +279,10 @@ function Mensajes({ agent, onGuardado }: { agent: AgentGuardado; onGuardado: (ag
         </div>
       </div>
 
-      {/* En el celular el guardado queda fijo abajo, sobre la barra de pestañas. */}
+      {/* En el celular el guardado queda fijo abajo. */}
       <div
         className={cn(
-          "fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-10 flex-col gap-2 border-t border-line bg-card px-4 py-3 md:hidden",
+          "fixed inset-x-0 bottom-0 z-10 flex-col gap-2 border-t border-line bg-card px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] md:hidden",
           abiertoEnMovil || hayCambios ? "flex" : "hidden",
         )}
       >

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { FilaProducto } from "@/components/productos/FilaProducto";
 import { ImportarProductos } from "@/components/productos/ImportarProductos";
 import { ProbarBusqueda } from "@/components/productos/ProbarBusqueda";
@@ -44,7 +43,6 @@ export default function ProductosPage() {
       <Suspense>
         <Catalogo />
       </Suspense>
-      <MobileTabBar active="productos" />
     </div>
   );
 }
@@ -124,7 +122,7 @@ function Catalogo() {
   const catalogoVacio = listado !== null && listado.total === 0 && !consultaAplicada && !categoria;
 
   return (
-    <main className="flex-1 bg-page p-5 pb-24 md:pb-8">
+    <main className="flex-1 bg-page p-5 md:pb-8">
       <div className="mx-auto flex max-w-[1440px] flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

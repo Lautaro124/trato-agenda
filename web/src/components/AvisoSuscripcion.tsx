@@ -72,8 +72,8 @@ export function AvisoSuscripcion() {
         </Button>
       </div>
 
-      {/* Móvil: hoja inferior, por encima de la barra de pestañas. */}
-      <div className="fixed inset-x-0 bottom-0 z-20 rounded-t-[24px] border-t border-line bg-card px-5 pt-5 pb-24 shadow-lg md:hidden">
+      {/* Móvil: hoja inferior. */}
+      <div className="fixed inset-x-0 bottom-0 z-20 rounded-t-[24px] border-t border-line bg-card px-5 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] shadow-lg md:hidden">
         <div className="mx-auto mb-4 h-1 w-[38px] rounded-full bg-line-strong" />
         <h2 className="mb-2 font-display text-[21px] leading-[1.2] font-bold tracking-[-0.02em] text-ink">
           Terminó tu mes de prueba

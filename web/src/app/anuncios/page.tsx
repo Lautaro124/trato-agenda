@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import {
@@ -52,7 +51,6 @@ export default function AnunciosPage() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="anuncios" user={user} />
       <Anuncios />
-      <MobileTabBar active="anuncios" />
     </div>
   );
 }
@@ -88,7 +86,7 @@ function Anuncios() {
   const quitar = (id: string) => setAnuncios((lista) => lista?.filter((anuncio) => anuncio.id !== id) ?? null);
 
   return (
-    <main className="flex-1 bg-page p-5 pb-24 md:pb-8">
+    <main className="flex-1 bg-page p-5 md:pb-8">
       <div className="mx-auto flex max-w-[960px] flex-col gap-5">
         <header>
           <h1 className="mb-1 font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">

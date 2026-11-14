@@ -6,7 +6,6 @@ import { AvisoSuscripcion } from "@/components/AvisoSuscripcion";
 import { Conversacion } from "@/components/chats/Conversacion";
 import { DevolverDialog } from "@/components/chats/DevolverDialog";
 import { ListaChats, type Filtro } from "@/components/chats/ListaChats";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import { useAvisos } from "@/components/ui/Avisos";
 import { sseUrl } from "@/lib/api";
@@ -202,7 +201,7 @@ export default function ChatsPage() {
       <main
         className={cn(
           "mx-auto flex min-h-0 w-full max-w-[1360px] flex-1 flex-col gap-4 bg-page p-4 md:gap-5 md:p-6",
-          seleccionado ? "pb-4" : "pb-24 md:pb-6",
+          seleccionado ? "pb-4" : "md:pb-6",
         )}
       >
         <div className={cn("flex flex-wrap items-end justify-between gap-3", seleccionado && "max-md:hidden")}>
@@ -267,9 +266,6 @@ export default function ChatsPage() {
         />
       )}
 
-      <div className={cn(seleccionado && "max-md:hidden")}>
-        <MobileTabBar active="chats" />
-      </div>
     </div>
   );
 }

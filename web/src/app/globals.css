@@ -183,6 +183,17 @@
   }
 }
 
+/* Desde md la barra lateral de AppHeader es fija: las pantallas se corren a su derecha (w-62 / w-18). */
+@media (min-width: 48rem) {
+  html[data-navegacion="desplegada"] body {
+    padding-left: calc(var(--spacing) * 62);
+  }
+
+  html[data-navegacion="contraida"] body {
+    padding-left: calc(var(--spacing) * 18);
+  }
+}
+
 /* Spinner del estado "Conectando…" (1g del canvas) */
 @keyframes trato-spin {
   to {

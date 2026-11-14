@@ -7,8 +7,8 @@ import { useRequireSession } from "@/lib/session";
 
 /**
  * Lo común de las pantallas de producto (/productos/nuevo…, /productos/[id]):
- * sesión, sólo cuentas de ventas y el encabezado. Sin la barra de abajo del
- * celular: ahí va el pie con Guardar.
+ * sesión, sólo cuentas de ventas y el encabezado; en el celular, abajo va el
+ * pie con Guardar.
  */
 export function MarcoDeProducto({ children }: Readonly<{ children: ReactNode }>) {
   const { user, status } = useRequireSession();

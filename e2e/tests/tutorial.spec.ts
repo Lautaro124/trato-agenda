@@ -54,7 +54,7 @@ test.describe('recorrido guiado', () => {
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect.poll(() => tutorialesVistos(page)).toEqual(['calendario']);
 
-    await page.locator('header button[aria-haspopup="menu"]').click();
+    await page.getByRole('button', { name: /Cuenta y vinculación/ }).click();
     await page.getByRole('menuitem', { name: 'Ver tutorial' }).click();
     const dialogo = page.getByRole('dialog', { name: 'Tu agenda' });
     await expect(dialogo).toBeVisible();
@@ -66,7 +66,7 @@ test.describe('recorrido guiado', () => {
     await expect(page.getByRole('dialog', { name: 'Lo que ofrece tu asistente' })).toBeVisible();
   });
 
-  test('en el celular resalta la barra de abajo @movil', async ({ page }) => {
+  test('en el celular resalta el botón del menú @movil', async ({ page }) => {
     await page.goto('/inicio');
     const dialogo = page.getByRole('dialog', { name: 'Te damos la bienvenida a Trato' });
     await expect(dialogo).toBeVisible();
