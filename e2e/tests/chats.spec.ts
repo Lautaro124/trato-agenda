@@ -110,7 +110,8 @@ test.describe('chats en el celular', () => {
     await sembrarChat(context.request, 'Martina López', [{ de: 'cliente', texto: '¿Tenés lugar el jueves?' }]);
 
     await page.goto('/inicio');
-    await page.getByRole('navigation').getByRole('link', { name: 'Chats' }).click();
+    await page.getByRole('button', { name: 'Abrir menú' }).click();
+    await page.getByRole('dialog', { name: 'Menú' }).getByRole('link', { name: 'Chats' }).click();
     await esperarRuta(page, '/chats');
     const lista = page.getByRole('region', { name: 'Lista de chats' });
     await expect(lista).toBeVisible();

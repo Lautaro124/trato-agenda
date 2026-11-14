@@ -19,6 +19,8 @@ export type ContextoVentas = {
   mpConectado: boolean;
   /** Cuotas y descuento en efectivo del comercio (LAU-34): lo que puede ofrecer y cotizar. */
   condicionesPago: CondicionesPago;
+  /** Módulo de envíos activo y el comercio hace envíos (LAU-102): se ofrece consultar_envio. */
+  enviosActivo: boolean;
 };
 
 export const EstadoVentas = new StateSchema({

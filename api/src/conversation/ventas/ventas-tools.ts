@@ -226,6 +226,46 @@ export const ESQUEMAS_PROPIETARIO_VENTAS: Record<string, EsquemaHerramienta> = {
   },
 };
 
+/**
+ * Módulo de envíos (LAU-102): no es una acción del catálogo del agente sino
+ * del comercio. La ve el modelo sólo si el módulo está activo y el comercio
+ * hace envíos (ContextoVentas.enviosActivo), así que apagado todo sigue igual.
+ */
+export const HERRAMIENTA_ENVIO = 'consultar_envio';
+
+const LARGO_MAX_UBICACION = 80;
+
+export const esquemaConsultarEnvio = z.object({
+  provincia: z
+    .string()
+    .max(LARGO_MAX_UBICACION)
+    .optional()
+    .describe('La provincia que dijo el cliente, tal cual ("Córdoba", "Bs As"). Sólo si la dijo.'),
+  localidad: z
+    .string()
+    .max(LARGO_MAX_UBICACION)
+    .optional()
+    .describe('La localidad o ciudad que dijo el cliente, tal cual ("Villa María", "Córdoba capital"). Sólo si la dijo.'),
+  codigoPostal: z
+    .string()
+    .max(20)
+    .optional()
+    .describe('El código postal que dio el cliente, tal cual ("5000", "X5000ABC"). Sólo si lo dio.'),
+  items: esquemaCrearPedido.shape.items
+    .optional()
+    .describe('Opcional: lo que el cliente eligió en esta charla, para saber si llega al envío gratis.'),
+});
+
+export const ESQUEMA_ENVIO: EsquemaHerramienta = {
+  name: HERRAMIENTA_ENVIO,
+  description:
+    'Devuelve si hacemos envíos a un destino, cuánto cuesta y cuánto demora, con las reglas que cargó el negocio. ' +
+    'Usala SIEMPRE que el cliente pregunte por envíos, costos o plazos de entrega, con lo que te dijo de la ' +
+    'ubicación (provincia, localidad y/o código postal: no hace falta la dirección). Si dice que falta un dato, ' +
+    'preguntáselo y volvé a llamarla. Nunca calcules ni recuerdes un costo de envío vos.',
+  schema: esquemaConsultarEnvio,
+};
+
 /** Acciones que llegaron después de los primeros asistentes y vienen con `buscar_productos`. */
 const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = [
   'ver_catalogo',
@@ -249,10 +289,20 @@ export function accionesDeVentas(allowedActions: string[]): AccionVentasId[] {
   return acciones;
 }
 
-/** Herramientas visibles para un agente de ventas: las habilitadas + las del dueño si corresponde. */
-export function herramientasDeVentas(allowedActions: string[], esPropietario: boolean): EsquemaHerramienta[] {
+/**
+ * Herramientas visibles para un agente de ventas: las habilitadas, la de
+ * envíos si el módulo está activo, y las del dueño si corresponde.
+ */
+export function herramientasDeVentas(
+  allowedActions: string[],
+  esPropietario: boolean,
+  contexto?: object,
+): EsquemaHerramienta[] {
+  // El contexto llega tipado como el común de los grafos; el de ventas trae `enviosActivo`.
+  const enviosActivo = (contexto as { enviosActivo?: unknown } | undefined)?.enviosActivo === true;
   return [
     ...accionesDeVentas(allowedActions).map((id) => ESQUEMAS_VENTAS[id]),
+    ...(enviosActivo ? [ESQUEMA_ENVIO] : []),
     ...(esPropietario ? Object.values(ESQUEMAS_PROPIETARIO_VENTAS) : []),
   ];
 }

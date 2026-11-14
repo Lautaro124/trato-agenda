@@ -3,9 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { chip } from "@/components/onboarding/controles";
 import { Conversion } from "@/components/rendimiento/Conversion";
+import { Envio } from "@/components/rendimiento/Envio";
 import { Etapas } from "@/components/rendimiento/Etapas";
 import { ErrorDeCarga } from "@/components/rendimiento/ErrorDeCarga";
 import { Preguntas } from "@/components/rendimiento/Preguntas";
@@ -65,7 +65,6 @@ export default function RendimientoPage() {
     <div className="flex min-h-dvh flex-col">
       <AppHeader active="rendimiento" user={user} />
       <Rendimiento />
-      <MobileTabBar active="rendimiento" />
     </div>
   );
 }
@@ -167,7 +166,7 @@ function Rendimiento() {
     !problemaDeRango && respuesta !== null && respuesta.clave !== clave;
 
   return (
-    <main className="flex-1 bg-page p-5 pb-24 md:pb-8">
+    <main className="flex-1 bg-page p-5 md:pb-8">
       <div className="mx-auto flex max-w-[960px] flex-col gap-5">
         <div>
           <h1 className="mb-1 font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">
@@ -333,6 +332,7 @@ function Rendimiento() {
             )}
             <Conversion performance={datos} />
             <Etapas performance={datos} />
+            {datos.envio && <Envio envio={datos.envio} definicion={datos.definiciones.envio} />}
             <TablaProductos performance={datos} />
             <Preguntas performance={datos} />
             <Zonas performance={datos} onElegir={setZona} />

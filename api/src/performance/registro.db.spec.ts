@@ -104,6 +104,13 @@ describe.skipIf(!hayBaseDePrueba)('registro de performance (Postgres)', () => {
     expect(await etapa()).toMatchObject({ derivado: true, etapa: 'consulta' });
   });
 
+  it('marca la primera consulta de envío y no la mueve al repetirla', async () => {
+    const primera = new Date('2026-10-10T10:00:00Z');
+    await registro.marcarConsultaEnvio(dueno.id, chat.id, primera);
+    await registro.marcarConsultaEnvio(dueno.id, chat.id, new Date('2026-10-11T10:00:00Z'));
+    expect(await etapa()).toMatchObject({ consultoEnvioAt: primera });
+  });
+
   it('no registra la conversación de otra cuenta ni el banco de pruebas', async () => {
     const deOtro = await conversacion(otro.id);
     const deBanco = await conversacion(dueno.id, `web-test:${dueno.id}`);
@@ -112,6 +119,8 @@ describe.skipIf(!hayBaseDePrueba)('registro de performance (Postgres)', () => {
     await registro.registrarInteres(dueno.id, deOtro.id, [mate.id], 'vio');
     await registro.tocarChat(dueno.id, deBanco.id);
     await registro.registrarInteres(dueno.id, deBanco.id, [mate.id], 'vio');
+    await registro.marcarConsultaEnvio(dueno.id, deOtro.id);
+    await registro.marcarConsultaEnvio(dueno.id, deBanco.id);
 
     const ids = [deOtro.id, deBanco.id];
     expect(await prisma.etapaChat.count({ where: { conversationId: { in: ids } } })).toBe(0);

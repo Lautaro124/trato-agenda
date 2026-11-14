@@ -39,6 +39,13 @@ export const DIAS_RETENCION_AVISOS_LEIDOS = 90;
 export const DIAS_RETENCION_SUGERENCIAS = 90;
 
 /**
+ * Consultas de envío que el asistente no pudo responder (LAU-102): sólo la
+ * ubicación normalizada y el motivo, para que el dueño vea qué le falta
+ * configurar. El panel muestra los últimos 30 días.
+ */
+export const DIAS_RETENCION_CONSULTAS_ENVIO = 90;
+
+/**
  * Ids de WhatsApp de los mensajes ya atendidos (`MensajeRecibido`): sólo
  * sirven para no contestar dos veces una reentrega, que llega en horas, no en
  * semanas. No tienen teléfono ni contenido.

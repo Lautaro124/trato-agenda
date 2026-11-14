@@ -73,6 +73,8 @@ export type EtapaPublica = {
   abandonados: number;
   /** Pasaron a una persona. */
   derivados: number;
+  /** Les cotizaron el envío. */
+  consultaronEnvio: number;
 };
 
 export type ProductoPerformance = {
@@ -113,6 +115,19 @@ export type PreguntasPerformance = {
   dondeSeQuedan: Array<{ etapa: Etapa; tema: Tema; total: number }>;
 };
 
+/** Los chats nuevos del período a los que el asistente les cotizó el envío. */
+export type EnvioPerformance = {
+  /** El módulo de envíos está prendido: sin él, el asistente no cotiza y no se registra nada. */
+  moduloActivo: boolean;
+  consultaron: number;
+  /** De esos, los que siguen activos sin pedido: están cotizando ahora. */
+  cotizando: number;
+  conPedido: number;
+  conPago: number;
+  consultaAPedido: Tasa;
+  consultaAPago: Tasa;
+};
+
 export type PerformancePublica = {
   moneda: Moneda;
   /** La zona por la que se filtró, o null si son todas. */
@@ -133,4 +148,6 @@ export type PerformancePublica = {
   zonas: ZonaPerformance[];
   /** Las preguntas de los clientes, clasificadas por el modelo (inferencia). */
   preguntas: PreguntasPerformance;
+  /** Null si la cuenta no hace envíos. */
+  envio: EnvioPerformance | null;
 };

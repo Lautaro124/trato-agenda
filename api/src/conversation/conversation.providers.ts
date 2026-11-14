@@ -7,6 +7,7 @@ import { BusquedaService } from '../comercio/busqueda.service.js';
 import { DecisionesClient } from '../comercio/decisiones.client.js';
 import type { Env } from '../config/env.js';
 import { HistoricoVentasService } from '../comercio/historico.service.js';
+import { EnviosService } from '../envios/envios.service.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
 import { SugerenciasService } from '../comercio/sugerencias.service.js';
 import { VentasService } from '../comercio/ventas.service.js';
@@ -62,6 +63,7 @@ export const grafoVentasProvider = {
     ConfigService,
     DecisionesClient,
     RegistroPerformanceService,
+    EnviosService,
   ],
   useFactory: (
     prisma: PrismaService,
@@ -77,6 +79,7 @@ export const grafoVentasProvider = {
     config: ConfigService<Env, true>,
     decisiones: DecisionesClient,
     registro: RegistroPerformanceService,
+    envios: EnviosService,
   ): GrafoVentas =>
     construirGrafoVentas({
       prisma,
@@ -92,5 +95,6 @@ export const grafoVentasProvider = {
       ventanaHistorialMs: config.get('HISTORIAL_IA_VENTANA_MS', { infer: true }),
       decisiones,
       registro,
+      envios,
     }),
 };

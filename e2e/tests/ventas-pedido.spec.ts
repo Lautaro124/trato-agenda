@@ -22,6 +22,33 @@ test.describe('alta de productos', () => {
     await expect(page.getByRole('form', { name: 'Editar producto' })).toBeVisible();
   });
 
+  test('precio y stock se ven con punto de miles mientras se escriben y se guardan bien', async ({ page, context, usuarioDev }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+
+    await page.goto('/productos');
+    const formulario = await nuevoProducto(page);
+    await formulario.getByLabel('Código', { exact: true }).fill('SILLON-E2E');
+    await formulario.getByLabel('Nombre', { exact: true }).fill('Sillón de pana');
+    const precio = formulario.getByLabel(/^Precio/).first();
+    await precio.pressSequentially('1250000,5');
+    await expect(precio).toHaveValue('1.250.000,5');
+    const stock = formulario.getByLabel('Stock (unidades)');
+    await stock.pressSequentially('12000');
+    await expect(stock).toHaveValue('12.000');
+    // Borrar justo después de un punto borra el dígito de al lado, no el punto.
+    await stock.press('End');
+    for (let i = 0; i < 3; i++) await stock.press('ArrowLeft');
+    await stock.press('Backspace');
+    await expect(stock).toHaveValue('1.000');
+    await formulario.getByRole('button', { name: 'Guardar producto' }).click();
+    await expect(page).toHaveURL(/\/productos$/);
+
+    const tarjeta = page.getByRole('form', { name: 'Precio y stock de Sillón de pana' });
+    await expect(tarjeta.getByLabel('Precio de Sillón de pana')).toHaveValue('1.250.000,50');
+    await expect(tarjeta.getByLabel('Stock de Sillón de pana')).toHaveValue('1.000');
+  });
+
   test('un producto a demanda pide el tiempo de entrega en vez del stock', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request);

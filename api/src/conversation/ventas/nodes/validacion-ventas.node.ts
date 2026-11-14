@@ -16,7 +16,13 @@ import { llamadasDe, type OperacionPendiente } from '../../graph/state.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
 import { MAX_BUSQUEDAS_POR_MENSAJE, productosMostrados } from '../reglas-ventas.js';
 import { claveDeFoto, fotosMandadas, HERRAMIENTA_IMAGEN, imagenesDeLaVuelta } from '../imagenes-de-la-vuelta.js';
-import { accionesDeVentas, ESQUEMAS_PROPIETARIO_VENTAS, ESQUEMAS_VENTAS } from '../ventas-tools.js';
+import {
+  accionesDeVentas,
+  ESQUEMA_ENVIO,
+  ESQUEMAS_PROPIETARIO_VENTAS,
+  ESQUEMAS_VENTAS,
+  HERRAMIENTA_ENVIO,
+} from '../ventas-tools.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 /** Largo máximo de una consulta al catálogo: lo que pase de eso no es una búsqueda. */
@@ -100,6 +106,7 @@ function esquemaPara(state: EstadoVentasValue, nombre: string): EsquemaHerramien
   if (esAccionDeVentas(nombre) && accionesDeVentas(agent.allowedActions).includes(nombre)) {
     return ESQUEMAS_VENTAS[nombre];
   }
+  if (nombre === HERRAMIENTA_ENVIO) return state.contexto.enviosActivo ? ESQUEMA_ENVIO : undefined;
   if (state.esPropietario) return ESQUEMAS_PROPIETARIO_VENTAS[nombre];
   return undefined;
 }
@@ -157,6 +164,25 @@ export function validarLlamadaVentas(
     const problema = problemaDeForma(items) ?? productosNoVistos(items, historial);
     if (problema) return { ok: false, motivo: problema };
     return { ok: true, operacion: { ...llamada, args: { items: agruparItems(items) } } };
+  }
+
+  if (llamada.nombre === HERRAMIENTA_ENVIO) {
+    const ubicacion: Record<string, string> = {};
+    for (const campo of ['provincia', 'localidad', 'codigoPostal'] as const) {
+      const valor = typeof args[campo] === 'string' ? args[campo].trim() : '';
+      if (valor) ubicacion[campo] = valor;
+    }
+    if (Object.keys(ubicacion).length === 0) {
+      return {
+        ok: false,
+        motivo: 'Falta la ubicación: preguntale al cliente la localidad (o el código postal) y después llamá consultar_envio.',
+      };
+    }
+    if (args.items === undefined) return { ok: true, operacion: { ...llamada, args: ubicacion } };
+    const items = args.items as ItemPedido[];
+    const problema = problemaDeForma(items) ?? productosNoVistos(items, historial);
+    if (problema) return { ok: false, motivo: problema };
+    return { ok: true, operacion: { ...llamada, args: { ...ubicacion, items: agruparItems(items) } } };
   }
 
   if (llamada.nombre === 'listar_ventas' || llamada.nombre === 'resumen_ventas') {

@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { AvisoSuscripcion } from "@/components/AvisoSuscripcion";
 import { ColumnaVentas } from "@/components/inicio/ColumnaVentas";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { TestChat } from "@/components/TestChat";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
@@ -85,7 +84,7 @@ export default function InicioPage() {
       <AppHeader active="inicio" user={user} />
       <AvisoSuscripcion />
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 pb-24 md:pb-5 lg:grid-cols-[1fr_420px]">
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 md:pb-5 lg:grid-cols-[1fr_420px]">
         {/* Columna de agenda */}
         <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
           <div>
@@ -156,7 +155,6 @@ export default function InicioPage() {
         </div>
       </main>
 
-      <MobileTabBar active="inicio" />
     </div>
   );
 }

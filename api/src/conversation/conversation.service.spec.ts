@@ -47,7 +47,7 @@ describe('ConversationService.handleIncoming', () => {
     const grafo = crearGrafo('irrelevante');
     const service = new ConversationService(prisma, grafo, crearGrafo('no es de ventas') as never, CONFIG);
 
-    const respuesta = await service.handleIncoming('user-1', '54911@s.whatsapp.net', 'hola');
+    const respuesta = await service.handleIncoming('user-1', jidDePrueba('user-1'), 'hola');
 
     expect(respuesta).toContain('no está configurado');
     expect(grafo.invoke).not.toHaveBeenCalled();
@@ -158,6 +158,13 @@ describe('ConversationService.handleIncoming', () => {
     expect(respuesta).toBe('soy el de ventas');
     expect(agenda.invoke).not.toHaveBeenCalled();
     expect(ventas.getState).toHaveBeenCalled();
+  });
+
+  it('sin agente, un cliente no recibe el aviso para el dueño; el banco de pruebas sí', async () => {
+    const service = new ConversationService(crearPrisma(null), crearGrafo('agenda'), crearGrafo('ventas') as never, CONFIG);
+
+    expect(await service.responder('user-1', '54911@s.whatsapp.net', 'hola')).toEqual({ texto: '', imagenes: [], sinAgente: true });
+    expect((await service.responder('user-1', jidDePrueba('user-1'), 'hola')).texto).toMatch(/todavía no está configurado/);
   });
 
   it('con el chat en atención humana el asistente no corre: guarda el mensaje y no contesta (LAU-81)', async () => {

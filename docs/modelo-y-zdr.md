@@ -1,8 +1,74 @@
-# Decisión pendiente: qué modelo usar con Zero Data Retention
+# Qué modelo usar con Zero Data Retention
 
-**Estado: sin decidir (sólo para conversación).** El código está deployable
-como está; este documento junta los datos para elegir si se cambia
-`OPENROUTER_MODEL`, y a cuál.
+**Estado: decidido el 9/11/2026.** `OPENROUTER_MODEL=deepseek/deepseek-v4-flash`
+en el servicio `api` de Railway, en develop y en production. El default del
+código (`api/src/config/env.ts`) sigue siendo `google/gemma-4-31b-it`: rige sólo
+donde la variable no está definida.
+
+## Corrida del 9/11/2026 (la vigente)
+
+**Por qué hubo que cambiar:** `inception/mercury-2.5`, el modelo que estaba en
+producción, dejó de existir en OpenRouter (`404 … no provider serves this model
+anymore`). Toda conversación terminaba en la disculpa genérica. `qwen/qwen3.8-flash`,
+el recomendado en la corrida de septiembre, ya no tiene endpoints ZDR: tampoco sirve.
+
+**Cómo se eligieron los candidatos**, del listado público de OpenRouter
+(`/api/v1/models` y `/api/v1/endpoints/zdr`): `tools`, `reasoning` y
+`structured_outputs` en `supported_parameters`, al menos un endpoint ZDR y
+salida ≤ USD 0,60 por millón de tokens, el perfil de mercury.
+
+**Qué se corrió:** `conversacion.eval.ts` (6 casos de agenda) y `ventas.eval.ts`
+(13 casos contra una base Postgres con migraciones), una pasada por caso, con
+`POLITICA_DE_PROVEEDOR` activa.
+
+| Modelo | Precio entrada / salida | Ventas (casos · checks) | Ventas p50 / p90 | Conversación | Conv. p50 / p90 |
+| --- | --- | --- | --- | --- | --- |
+| **`deepseek/deepseek-v4-flash`** (elegido) | 0,09 / 0,18 | 10/13 · 95% | 6,0s / 9,8s | 6/6 · 100% | 5,7s / 19,1s |
+| `nvidia/nemotron-3.5-lightning` | 0,07 / 0,20 | 11/13 · 97% | 3,2s / 7,8s | 6/6 · 100% | 4,7s / 11,3s |
+| `google/gemini-3.1-flash-lite` | 0,25 / 1,50 | 11/13 · 97% | 4,8s / 6,6s | 6/6 · 100% | 3,2s / 6,3s |
+| `inclusionai/ling-3.1-flash` | 0,045 / 0,135 | 12/13 · 98% | 8,9s / 21,0s | 6/6 · 100% | 18,3s / **69,8s** |
+| `openai/gpt-oss-20b` | 0,03 / 0,13 | 8/13 · 85% | 3,1s / 7,3s | 5/6 · 93% | 1,2s / 7,6s |
+| `google/gemma-4-26b-a4b-it` | 0,08 / 0,10 | 8/13 · 83% | 4,1s / 13,5s | 6/6 · 100% | 8,9s / 26,8s |
+| `google/gemma-4-31b-it` (default del código) | 0,09 / 0,34 | 8/13 · 85% | 14,2s / 36,6s | 6/6 · 100% | 25,0s / 38,8s |
+
+Precios en USD por millón de tokens, del listado de OpenRouter del 9/11. El
+eval no midió costo: los dos caminos pasan por LangChain y reportan
+`costoUsd: 0`.
+
+**Fallos por modelo en ventas:**
+
+- `sin-productos-propio` (`usaElTextoDelDueno`) lo fallan **los 7**: es casi
+  seguro un check del arnés demasiado estricto, no del modelo. Revisarlo antes
+  de la próxima corrida.
+- `deepseek-v4-flash`: además, `con-errores-de-tipeo` (no encuentra el producto
+  mal escrito) y `no-inventa-producto` (le pone precio a un producto que no
+  está en el catálogo).
+- `nemotron-3.5-lightning` y `gemini-3.1-flash-lite`: además,
+  `cierra-con-algo-mas` (`soloMontosConocidos`, un monto sin respaldo).
+- `gpt-oss-20b`, `gemma-4-31b-it` y `gemma-4-26b-a4b-it`: no completan la
+  compra (`compra-completa`: sin pedido, ni productos, total ni nombre correctos)
+  y no avisan que un producto no tiene stock. `gpt-oss-20b` además contesta un
+  tema fuera de alcance y en conversación falla `mover-una-hora`.
+
+**Por qué deepseek:** buena calidad en ventas sin la cola de latencia de
+septiembre (p90 de 9,8s en ventas; el caso de 56s no se repitió), muchos
+proveedores ZDR y precio parecido al de mercury.
+`ling-3.1-flash` saca el mejor puntaje de ventas, pero su p90 de 70s en
+conversación pasa el timeout de 40s del runtime.
+
+**Pendiente:** `nemotron-3.5-lightning` salió apenas mejor que deepseek en las
+dos suites, con menos latencia. Con una pasada por caso, un caso de diferencia
+no alcanza para decidir: repetir `EVAL_MODELOS=deepseek/deepseek-v4-flash,nvidia/nemotron-3.5-lightning`
+antes de cambiar otra vez. La lista por defecto de `api/evals/modelos.ts` todavía
+incluye `inception/mercury-2.5` y `qwen/qwen3.8-flash`, que ya no rutean: pasar
+`EVAL_MODELOS` explícito hasta actualizarla.
+
+---
+
+## Registro histórico: corrida del 12/09/2026
+
+Lo que sigue es la decisión de septiembre, con datos de entonces. Quedó
+superada por la corrida de arriba.
 
 **Nota (post cambio a plantilla determinista):** la generación de agentes en
 `/contanos` ya no llama a ningún modelo — usa una plantilla determinista
@@ -215,6 +281,8 @@ Inception.
 
 ## Cómo aplicar la decisión
 
+0. Verificar que el modelo exista y tenga endpoint ZDR (el listado de OpenRouter
+   cambia: mercury desapareció y qwen perdió ZDR entre septiembre y noviembre).
 1. `api/.env` en local: `OPENROUTER_MODEL=...` (y `OPENROUTER_MODEL_AGENTES=...`
    si se separan).
 2. Railway, servicio `api`: las mismas variables. Reiniciar alcanza, no hace

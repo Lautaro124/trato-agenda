@@ -77,10 +77,27 @@ test.describe('onboarding de un comercio', () => {
     // La navegación de una cuenta de ventas: catálogo y ventas, sin calendario.
     await page.goto('/inicio');
     await expect(page.getByRole('region', { name: 'Tu tienda' })).toBeVisible();
-    const nav = page.getByRole('navigation').first();
-    await expect(nav.getByRole('link', { name: 'Productos' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Ventas' })).toBeVisible();
+    const nav = page.getByRole('navigation', { name: 'Navegación principal' });
+    await expect(nav.getByRole('button', { name: 'Productos' })).toHaveAttribute('aria-expanded', 'true');
+    await expect(nav.getByRole('link', { name: 'Catálogo' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Envíos' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Pedidos' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Rendimiento' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Calendario' })).toHaveCount(0);
+
+    // Un grupo se cierra y la preferencia sobrevive a la navegación.
+    await nav.getByRole('button', { name: 'Productos' }).click();
+    await expect(nav.getByRole('link', { name: 'Catálogo' })).toHaveCount(0);
+    await nav.getByRole('link', { name: 'Pedidos' }).click();
+    await esperarRuta(page, '/ventas');
+    await expect(nav.getByRole('button', { name: 'Productos' })).toHaveAttribute('aria-expanded', 'false');
+
+    // Contraída queda sólo con íconos; tocar un grupo la vuelve a desplegar con él abierto.
+    await page.getByRole('button', { name: 'Contraer menú' }).click();
+    await expect(nav.getByRole('link', { name: 'Pedidos' })).toHaveCount(0);
+    await nav.getByRole('button', { name: 'Productos' }).click();
+    await expect(page.getByRole('button', { name: 'Contraer menú' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Catálogo' })).toBeVisible();
 
     // Lo propio de la agenda no aplica: /reuniones manda al catálogo.
     await page.goto('/reuniones');
@@ -143,9 +160,16 @@ test.describe('onboarding de un comercio', () => {
     await armarAsistenteDeVentas(page);
 
     await page.goto('/inicio');
-    const barra = page.getByRole('navigation').last();
-    await expect(barra.getByRole('link', { name: 'Productos' })).toBeVisible();
-    await expect(barra.getByRole('link', { name: 'Ventas' })).toBeVisible();
-    await expect(barra.getByRole('link', { name: 'Calendario' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Abrir menú' }).click();
+    const menu = page.getByRole('dialog', { name: 'Menú' });
+    await expect(menu.getByRole('link', { name: 'Catálogo' })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'Pedidos' })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'Probar asistente' })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'Calendario' })).toHaveCount(0);
+
+    // Elegir una pantalla cierra el menú.
+    await menu.getByRole('link', { name: 'Envíos' }).click();
+    await esperarRuta(page, '/envios');
+    await expect(page.getByRole('dialog', { name: 'Menú' })).toBeHidden();
   });
 });

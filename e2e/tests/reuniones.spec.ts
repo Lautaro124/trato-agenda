@@ -212,11 +212,12 @@ test.describe('editar reuniones después del onboarding', () => {
 });
 
 test.describe('editar reuniones en el celular @movil', () => {
-  test('se llega desde la barra inferior', async ({ page, context, usuarioDev }) => {
+  test('se llega desde el menú lateral', async ({ page, context, usuarioDev }) => {
     await crearAgentePorApi(context.request);
 
     await page.goto('/inicio');
-    await page.getByRole('link', { name: 'Reuniones' }).click();
+    await page.getByRole('button', { name: 'Abrir menú' }).click();
+    await page.getByRole('dialog', { name: 'Menú' }).getByRole('link', { name: 'Reuniones' }).click();
 
     await expect(page.getByRole('heading', { name: 'Tus reuniones' })).toBeVisible();
   });

@@ -9,7 +9,6 @@ import { EventDetailModal } from "@/components/calendar/EventDetailModal";
 import { MonthGrid } from "@/components/calendar/MonthGrid";
 import { type EventoSemana, WeekGrid } from "@/components/calendar/WeekGrid";
 import { WeekStrip } from "@/components/calendar/WeekStrip";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { Button } from "@/components/ui/Button";
 import {
   addDays,
@@ -97,7 +96,7 @@ export default function CalendarioPage() {
       <AppHeader active="calendario" user={user} />
       <AvisoSuscripcion />
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 pb-24 md:pb-5 lg:grid-cols-[1fr_320px]">
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 md:pb-5 lg:grid-cols-[1fr_320px]">
         <div className="flex min-h-0 flex-col gap-4">
           <div className="flex items-center gap-4">
             <div>
@@ -206,7 +205,6 @@ export default function CalendarioPage() {
         </div>
       </main>
 
-      <MobileTabBar active="calendario" />
 
       {eventoSeleccionado && (
         <EventDetailModal

@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { CalendarModule } from './calendar/calendar.module.js';
 import { ChatsModule } from './chats/chats.module.js';
 import { ComercioModule } from './comercio/comercio.module.js';
+import { EnviosModule } from './envios/envios.module.js';
 import { HorarioAtencionModule } from './horario-atencion/horario-atencion.module.js';
 import { ImportacionModule } from './importacion/importacion.module.js';
 import { validateEnv } from './config/env.js';
@@ -30,6 +31,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module.js';
     AgentsModule,
     CalendarModule,
     ComercioModule,
+    EnviosModule,
     ImportacionModule,
     ConversationModule,
     NotificacionesModule,

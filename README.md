@@ -115,10 +115,11 @@ no guardan los prompts ni entrenan con ellos, es lo que la app declara en
 `/privacidad` y es un requisito de Limited Use de Google — no sacarlo. Como
 también restringe el conjunto de proveedores elegibles, un modelo sin endpoint
 ZDR deja de estar disponible: correr `npm run eval` antes de cambiar
-`OPENROUTER_MODEL`. La corrida del 12/09/2026 confirmó que ningún modelo de la
-lista perdió el ruteo, pero que `google/gemma-4-31b-it` quedó el doble de lento
-bajo ZDR (p50 de 5.9s a 12.1s, con casos que pasan el timeout de 40s del
-runtime). Los números y las alternativas están en
+`OPENROUTER_MODEL`. Producción usa `deepseek/deepseek-v4-flash` desde el
+9/11/2026, cuando `inception/mercury-2.5` desapareció de OpenRouter; el default
+del código sigue siendo `google/gemma-4-31b-it`, que bajo ZDR es lento (p50 de
+14s en ventas, con casos cerca del timeout de 40s del runtime). Los números y
+las alternativas están en
 [`docs/modelo-y-zdr.md`](docs/modelo-y-zdr.md); la decisión de qué modelo usar
 está pendiente.
 | `DEV_LOGIN_PASSWORD` | Opcional, **sólo desarrollo**. Prende el login con contraseña y el calendario falso (ver arriba). Si está definida con `NODE_ENV=production`, la API no arranca, salvo en Railway develop. |
@@ -246,7 +247,28 @@ tokens, costo) y deja el detalle en `api/evals/resultados/`. Criterio sugerido: 
 más barato con ≥ 95% de checks y p90 por mensaje < 8s. Cambiar de modelo en
 producción es sólo tocar `OPENROUTER_MODEL` en Railway.
 
-#### Corrida del 2026-09-11 (7 modelos, una pasada)
+#### Corrida del 2026-11-09 (7 modelos, una pasada, la vigente)
+
+Candidatos: los que hoy tienen `tools`, `reasoning`, `structured_outputs` y
+endpoint ZDR en OpenRouter, con salida ≤ USD 0,60/M. Detalle de fallos y
+criterio en [docs/modelo-y-zdr.md](docs/modelo-y-zdr.md).
+
+| Modelo | Ventas (casos · checks) | Ventas p50/p90 | Conversación p50/p90 · checks |
+| ------ | ----------------------- | -------------- | ----------------------------- |
+| `deepseek/deepseek-v4-flash` (**en producción**) | 10/13 · 95% | 6,0s / 9,8s | 5,7s / 19,1s · 100% |
+| `nvidia/nemotron-3.5-lightning` | 11/13 · 97% | 3,2s / 7,8s | 4,7s / 11,3s · 100% |
+| `google/gemini-3.1-flash-lite` | 11/13 · 97% | 4,8s / 6,6s | 3,2s / 6,3s · 100% |
+| `inclusionai/ling-3.1-flash` | 12/13 · 98% | 8,9s / 21,0s | 18,3s / **69,8s** · 100% |
+| `openai/gpt-oss-20b` | 8/13 · 85% | 3,1s / 7,3s | 1,2s / 7,6s · 93% |
+| `google/gemma-4-26b-a4b-it` | 8/13 · 83% | 4,1s / 13,5s | 8,9s / 26,8s · 100% |
+| `google/gemma-4-31b-it` (default del código) | 8/13 · 85% | 14,2s / 36,6s | 25,0s / 38,8s · 100% |
+
+`inception/mercury-2.5` ya no existe en OpenRouter y `qwen/qwen3.8-flash` perdió
+sus endpoints ZDR: las recomendaciones de la corrida de septiembre (abajo) ya no
+aplican. El caso `sin-productos-propio` lo fallan los 7 modelos, así que
+probablemente sea el check del arnés.
+
+#### Corrida del 2026-09-11 (7 modelos, una pasada, histórica)
 
 | Modelo | Generación p50/p90 | Conversación p50/p90 | Checks gen. / conv. |
 | ------ | ------------------ | -------------------- | ------------------- |
@@ -273,11 +295,8 @@ Lo que se aprendió:
   reprogramar ("mejor movelo una hora más tarde"): contestaron que no había turno
   agendado en vez de usar `reprogramar_turno`.
 
-Recomendación a partir de estos números para el modelo conversacional:
-`OPENROUTER_MODEL=qwen/qwen3.8-flash` (100% de checks con el p90 por mensaje
-más bajo de los que aciertan todo). Es una sola pasada por caso: repetila antes
-de decidir, y si cambiás de modelo, agregá `:nitro` para que OpenRouter elija
-el proveedor más rápido.
+La recomendación de entonces (`qwen/qwen3.8-flash`) quedó sin efecto: ese
+modelo ya no tiene endpoints ZDR.
 
 (La mitad de esta corrida que comparaba modelos **de generación** —
 `OPENROUTER_MODEL_AGENTES`, `inception/mercury-2.5` como candidato, etc. — ya

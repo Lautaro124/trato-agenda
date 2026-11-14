@@ -11,6 +11,7 @@ import {
   type ProductoEnRevision,
 } from "@/lib/importacion";
 import { MONEDAS, NOMBRE_MONEDA } from "@/lib/productos";
+import { CampoNumero } from "@/components/ui/CampoNumero";
 
 /**
  * El radio de un segmento: invisible pero cubriendo todo su label, así el clic
@@ -185,21 +186,20 @@ export function TarjetaBorrador({
             <div className="grid grid-cols-2 gap-2 rounded-md bg-sunken p-2.5 sm:grid-cols-[140px_140px]">
               <label className="flex items-center gap-1.5">
                 <span className="text-[13px] text-muted">{simbolo}</span>
-                <input
-                  inputMode="decimal"
+                <CampoNumero
+                  decimales
                   value={producto.precio}
                   placeholder="Precio"
                   aria-label={`Precio de ${producto.nombre || "este producto"}`}
-                  onChange={(e) => onCambio({ precio: e.target.value })}
+                  onValueChange={(precio) => onCambio({ precio })}
                   className={cn(INPUT, !producto.precio.trim() && "border-warning")}
                 />
               </label>
-              <input
-                inputMode="numeric"
+              <CampoNumero
                 value={producto.stock}
                 placeholder="Stock"
                 aria-label={`Stock de ${producto.nombre || "este producto"}`}
-                onChange={(e) => onCambio({ stock: e.target.value })}
+                onValueChange={(stock) => onCambio({ stock })}
                 className={INPUT}
               />
             </div>

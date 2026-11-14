@@ -18,6 +18,7 @@ import {
   type TipoDescuento,
 } from "@/lib/descuentos";
 import { centavosParaInput, ErrorDeApi, type Categoria } from "@/lib/productos";
+import { CampoNumero } from "@/components/ui/CampoNumero";
 
 const INPUT =
   "w-full rounded-md border border-line bg-card px-3 py-2 text-[14px] text-ink outline-none focus:border-[var(--color-semantic-border-focus)]";
@@ -291,12 +292,12 @@ function FormularioPromocion({
           <label htmlFor={`${id}-valor`} className={LABEL}>
             {borrador.tipo === "porcentaje" ? "%" : "$"}
           </label>
-          <input
+          <CampoNumero
             id={`${id}-valor`}
-            inputMode={borrador.tipo === "porcentaje" ? "numeric" : "decimal"}
+            decimales={borrador.tipo === "monto"}
             value={borrador.valor}
             placeholder={borrador.tipo === "porcentaje" ? "10" : "500"}
-            onChange={(e) => cambiar({ valor: e.target.value })}
+            onValueChange={(valor) => cambiar({ valor })}
             className={INPUT}
           />
         </div>

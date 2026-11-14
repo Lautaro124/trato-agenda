@@ -26,6 +26,8 @@ import {
   type Producto,
   type ProductoAGuardar,
 } from "@/lib/productos";
+import { CampoNumero } from "@/components/ui/CampoNumero";
+import { leerEntero } from "@/lib/numeros";
 
 /** Con stock se cuentan unidades; a demanda se prepara al pedirlo y se informa el plazo de entrega. */
 type ModoStock = "stock" | "demanda";
@@ -88,11 +90,6 @@ function textoDeNumero(valor: number | null | undefined): string {
   return valor == null ? "" : String(valor);
 }
 
-function entero(texto: string): number | null | "invalido" {
-  const limpio = texto.trim();
-  if (limpio === "") return null;
-  return /^\d+$/.test(limpio) ? Number(limpio) : "invalido";
-}
 
 /**
  * Con stock: unidades obligatorias y mínimo opcional. A demanda: sólo el plazo
@@ -105,14 +102,14 @@ function armarDisponibilidad(
   plazoEntrega: string,
 ): Pick<ProductoAGuardar, "stock" | "stockMinimo" | "plazoEntregaDias"> | string {
   if (modo === "demanda") {
-    const plazo = entero(plazoEntrega);
+    const plazo = leerEntero(plazoEntrega);
     if (typeof plazo !== "number" || plazo < 1 || plazo > PLAZO_ENTREGA_MAX_DIAS) {
       return `Poné en cuántos días lo entregás (de 1 a ${PLAZO_ENTREGA_MAX_DIAS}).`;
     }
     return { stock: null, stockMinimo: null, plazoEntregaDias: plazo };
   }
-  const unidades = entero(stock);
-  const minimo = entero(stockMinimo);
+  const unidades = leerEntero(stock);
+  const minimo = leerEntero(stockMinimo);
   if (unidades === "invalido" || minimo === "invalido") return "El stock tiene que ser un número entero.";
   if (unidades === null) return "Poné cuántas unidades tenés en stock.";
   return { stock: unidades, stockMinimo: minimo, plazoEntregaDias: null };
@@ -398,12 +395,12 @@ export function EditorProducto({
                 </label>
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>
-                  <input
+                  <CampoNumero
                     id={`${idCampos}-precio`}
-                    inputMode="decimal"
+                    decimales
                     value={precio}
                     placeholder="0"
-                    onChange={(e) => setPrecio(e.target.value)}
+                    onValueChange={setPrecio}
                     className={INPUT}
                   />
                 </div>
@@ -428,12 +425,11 @@ export function EditorProducto({
                   <label htmlFor={`${idCampos}-stock`} className={LABEL}>
                     Stock (unidades)
                   </label>
-                  <input
+                  <CampoNumero
                     id={`${idCampos}-stock`}
-                    inputMode="numeric"
                     value={stock}
                     placeholder="0"
-                    onChange={(e) => setStock(e.target.value)}
+                    onValueChange={setStock}
                     className={INPUT}
                   />
                 </div>
@@ -447,12 +443,11 @@ export function EditorProducto({
                   <label htmlFor={`${idCampos}-minimo`} className={LABEL}>
                     Avisarme cuando queden menos de <span className="font-normal text-muted">(unidades)</span>
                   </label>
-                  <input
+                  <CampoNumero
                     id={`${idCampos}-minimo`}
-                    inputMode="numeric"
                     value={stockMinimo}
                     placeholder="Opcional"
-                    onChange={(e) => setStockMinimo(e.target.value)}
+                    onValueChange={setStockMinimo}
                     className={INPUT}
                   />
                 </div>
@@ -557,12 +552,12 @@ function SeccionDescuento({
               </label>
               <div className="flex items-center gap-1.5">
                 {descuento.tipo === "monto" && <span className="text-[13px] text-muted">{moneda === "USD" ? "US$" : "$"}</span>}
-                <input
+                <CampoNumero
                   id="descuento-valor"
-                  inputMode={descuento.tipo === "porcentaje" ? "numeric" : "decimal"}
+                  decimales={descuento.tipo === "monto"}
                   value={descuento.valor}
                   placeholder={descuento.tipo === "porcentaje" ? "20" : "500"}
-                  onChange={(e) => onCambio({ valor: e.target.value })}
+                  onValueChange={(valor) => onCambio({ valor })}
                   className={INPUT}
                 />
                 {descuento.tipo === "porcentaje" && <span className="text-[13px] text-muted">%</span>}

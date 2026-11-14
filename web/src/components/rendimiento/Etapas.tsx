@@ -9,6 +9,8 @@ function desglose(etapa: Performance["etapas"][number]): string {
     etapa.estancados > 0 && `${etapa.estancados} ${etapa.estancados === 1 ? "estancado" : "estancados"}`,
     etapa.abandonados > 0 && `${etapa.abandonados} ${etapa.abandonados === 1 ? "abandonado" : "abandonados"}`,
     etapa.derivados > 0 && `${etapa.derivados} ${etapa.derivados === 1 ? "pasó" : "pasaron"} a una persona`,
+    etapa.consultaronEnvio > 0 &&
+      `${etapa.consultaronEnvio} ${etapa.consultaronEnvio === 1 ? "consultó" : "consultaron"} el envío`,
   ].filter(Boolean);
   return partes.join(" · ");
 }

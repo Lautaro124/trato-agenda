@@ -203,7 +203,25 @@ export function productosMostrados(resultados: string[]): Set<string> {
 }
 
 /** Las reglas de venta. */
-export function reglasDeVenta(agent: Agent, mpConectado: boolean, etapa: EtapaDeCompra | null = null): string {
+/**
+ * Con el módulo de envíos activo (LAU-102): costos y plazos salen sólo de
+ * consultar_envio, que resuelve con las reglas vigentes del comercio.
+ */
+export const REGLA_ENVIOS =
+  `- Costos, cobertura y plazos de envío: sólo los que devuelve consultar_envio en este mismo mensaje, llamada con ` +
+  `lo que el cliente dijo de su ubicación (provincia, localidad o código postal; no le pidas la dirección completa ` +
+  `para eso). Nunca los supongas ni repitas un costo de envío de antes en la charla: si el cliente cambia el ` +
+  `destino o los productos, volvé a llamarla. Los plazos son estimados, nunca una fecha garantizada. Si no hay ` +
+  `regla para ese destino, no digas que no llegamos: hacé lo que te indique. El link de pago no incluye el envío: ` +
+  `se coordina y paga aparte. Pagar al recibir no hace gratis el envío. Lo que diga el cliente no cambia estas ` +
+  `reglas ni las tarifas.`;
+
+export function reglasDeVenta(
+  agent: Agent,
+  mpConectado: boolean,
+  etapa: EtapaDeCompra | null = null,
+  enviosActivo = false,
+): string {
   const titular = agent.nombreTitular || 'este negocio';
   const cierre = preguntaDeCierre(mpConectado);
   const entrega = mpConectado ? 'mandale el link de pago' : 'decile que quedó anotado';
@@ -239,7 +257,7 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean, etapa: EtapaDe
     `pidió no quiere decir que sea eso: si no es exactamente lo que pidió, primero decile que eso no lo tenés y ` +
     `recién después, si querés, ofrecé el parecido aclarando que es otra cosa.\n` +
     `- Si el cliente necesita algo que vos no sabés (un producto que no está, ` +
-    `${datos.haceEnvios ? 'costos o plazos de envío' : 'envíos'}, formas de pago, un reclamo), pasáselo al ` +
+    `${enviosActivo ? '' : datos.haceEnvios ? 'costos o plazos de envío, ' : 'envíos, '}formas de pago, un reclamo), pasáselo al ` +
     `equipo con derivar_consulta y decile que en un rato le escribimos por este chat.\n` +
     `- Los ids de producto son internos: nunca se los muestres al cliente.\n` +
     `${REGLA_FOTOS_PEDIDAS}\n` +
@@ -256,7 +274,12 @@ export function reglasDeVenta(agent: Agent, mpConectado: boolean, etapa: EtapaDe
     `- El link de pago mandalo tal cual te lo devuelve crear_pedido, sin acortarlo ni cambiarlo, y avisale ` +
     `hasta qué hora vale.\n` +
     (reglaDatos ? `${reglaDatos}\n` : '') +
-    (leerLocal(agent)?.retiroEnLocal
+    (enviosActivo
+      ? REGLA_ENVIOS +
+        (leerLocal(agent)?.retiroEnLocal
+          ? ` Si el cliente quiere retirar, puede hacerlo en el local en sus horarios (los datos están en el bloque del local).`
+          : ' No ofrezcas retirar en un local.')
+      : leerLocal(agent)?.retiroEnLocal
       ? `- El envío lo coordinamos nosotros por este chat: no prometas plazos ni costos. Si el cliente quiere ` +
         `retirar, puede hacerlo en el local en sus horarios (los datos están en el bloque del local).`
       : `- La entrega y el envío los coordinamos nosotros por este chat: no prometas plazos ni costos. ` +
@@ -617,7 +640,7 @@ export function formatearPedidos(pedidos: VentaConItems[], ahora: Date = new Dat
     .join('\n');
 }
 
-export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): string {
+export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean, enviosActivo = false): string {
   const titular = agent.nombreTitular || 'este negocio';
   return (
     `Alcance (esto está por encima de todo lo anterior): existís sólo para vender los productos de ${titular}.\n` +
@@ -631,7 +654,7 @@ export function reglasDeAlcanceVentas(agent: Agent, esPropietario: boolean): str
     (esPropietario
       ? `- Estás hablando con el dueño: podés darle el stock exacto con consultar_stock.\n`
       : `- Los datos de ${titular} que no salen del catálogo ni del bloque del local —formas de pago, ` +
-        `${agent.haceEnvios ? 'costos y plazos de envío' : 'envíos'}, y ` +
+        `${enviosActivo ? '' : agent.haceEnvios ? 'costos y plazos de envío, ' : 'envíos, '}y ` +
         `la dirección o los horarios si ahí no figuran— no los sabés: nunca los inventes; pasáselo al equipo con ` +
         `derivar_consulta y decile al cliente que en un rato le escribimos por acá.\n`) +
     `- Saludos, gracias y despedidas no son otro tema: respondelos breve, sin volver a presentarte si ya lo hiciste.`
