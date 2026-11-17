@@ -137,6 +137,8 @@ está pendiente.
 | `LINEAR_API_URL` | Opcional. Endpoint GraphQL de Linear. Por defecto `https://api.linear.app/graphql`. |
 | `MERCADOLIBRE_CLIENT_ID` / `MERCADOLIBRE_CLIENT_SECRET` | Opcionales, van juntas. Una app de [developers.mercadolibre.com.ar](https://developers.mercadolibre.com.ar): con ellas la importación rápida (plan único) pide un token de aplicación y lee las publicaciones por la API oficial, con variantes (cada una se importa como un producto) y SKU. Si la búsqueda de la API no responde, una tienda (`/tienda/…`) se lee sacando los ids de publicación de su página. Sin ellas Mercado Libre rechaza la API y muestra una verificación de cuenta en lugar de la página: no se importa nada de Mercado Libre (el log dice `mercadolibre_no_disponible/sin_credenciales`). En la práctica Mercado Libre restringe también la búsqueda y las publicaciones de otros vendedores, y responde 403 a sus páginas desde un servidor (`…+pagina_denegada`): la web avisa que esos productos se cargan a mano. |
 | `MERCADOLIBRE_API_URL` | Opcional. Por defecto `https://api.mercadolibre.com`; en producción tiene que ser https. Sólo la cambia el stub de los e2e. |
+| `META_APP_ID` / `META_APP_SECRET` / `META_ES_CONFIG_ID` / `META_WEBHOOK_VERIFY_TOKEN` | Opcionales, van las cuatro juntas. App de Meta para conectar **WhatsApp Business por la Cloud API oficial** con Embedded Signup (ver "Cosas que hay que hacer a mano"). `META_ES_CONFIG_ID` es el id de la configuración de Embedded Signup (Facebook Login for Business); `META_WEBHOOK_VERIFY_TOKEN` (24+ caracteres, `openssl rand -hex 24`) es el que se carga al dar de alta el webhook. Sin ellas no aparece la opción oficial y sólo queda la vinculación por QR o código (Baileys, no oficial, con aviso de riesgo de bloqueo). La web pide los ids públicos a `GET /auth/whatsapp/meta/config`: no hacen falta variables `NEXT_PUBLIC_*`. |
+| `META_GRAPH_URL` | Opcional. Por defecto `https://graph.facebook.com`; en producción no se puede cambiar. Sólo la cambia el stub de los e2e. |
 | `IMPORTACION_HOSTS_DE_PRUEBA` | **Sólo e2e.** Hosts a los que la importación rápida puede pedir aunque sean http o de la red interna (el stub de la tienda). La API no arranca con esto en producción. |
 | `SENTRY_DSN` | Opcional. DSN del proyecto de Sentry de la API. Vacía = sin Sentry (lo normal en local). La lee `src/instrument.ts`, que corre con `node --import` antes que la app, así que no pasa por `validateEnv`. |
 | `SENTRY_ENVIRONMENT` | Opcional. Environment de los eventos. Por defecto, el nombre del entorno de Railway (`RAILWAY_ENVIRONMENT_NAME`: `develop` o `production`, que corren los dos con `NODE_ENV=production`) y, fuera de Railway, `local`. La web usa `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, luego Railway y finalmente `local`, resuelto en el build. Docker Compose fija ambos servicios como `local`. |
@@ -392,7 +394,7 @@ de la raíz para Compose, o en `web/.env.local` si Next se ejecuta directamente.
 Sin DSN el servicio no envía eventos. No guardar credenciales reales en
 `.env.example`.
 
-### Cinco cosas que hay que hacer a mano
+### Seis cosas que hay que hacer a mano
 
 1. **Consola de Google**: autorizar
    `https://api.tratoagenda.com/auth/google/callback` como *redirect URI* y
@@ -415,6 +417,20 @@ Sin DSN el servicio no envía eventos. No guardar credenciales reales en
    (un *Organization Token* de `https://inka-cf.sentry.io/settings/auth-tokens/`),
    y conviene prender *Data Scrubbing* del lado del servidor en los dos
    proyectos, como tercera barrera.
+6. **Meta, WhatsApp Business (Cloud API)**: en la app de Meta (tipo Business)
+   sumar los productos *WhatsApp* y *Facebook Login for Business*; crear una
+   configuración de *Embedded Signup* v4 (su id es `META_ES_CONFIG_ID`) con
+   los permisos `whatsapp_business_management` y
+   `whatsapp_business_messaging`; agregar `https://tratoagenda.com` a los
+   dominios permitidos del SDK de JavaScript; dar de alta el webhook
+   `https://api.tratoagenda.com/whatsapp/meta/webhook` con
+   `META_WEBHOOK_VERIFY_TOKEN` y suscribir los campos `messages`,
+   `smb_message_echoes`, `account_update`, `history` y `smb_app_state_sync`.
+   Para salir del modo desarrollo hacen falta la verificación del negocio, el
+   registro como **Tech Provider** y el App Review de esos dos permisos. La
+   coexistencia con la app WhatsApp Business (que el dueño siga usando la app
+   en el celular) sólo funciona siendo Tech Provider; Meta además limita las
+   altas nuevas por semana hasta verificar el negocio.
 
 ### Dos límites que conviene tener presentes
 

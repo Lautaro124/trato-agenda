@@ -394,6 +394,56 @@ teléfono" (`requestPairingCode` de Baileys). Superficie nueva:
   anuncio y llega al modelo como dato. `DELETE /anuncios/:id` sólo borra
   anuncios propios sin consultas, para no dejar conversaciones sin su anuncio.
 
+## WhatsApp Business por la Cloud API de Meta (2026-11-17)
+
+Una segunda forma de conectar WhatsApp, la oficial, con Embedded Signup.
+Superficie nueva:
+
+- **Alta e ingreso** (`POST /auth/whatsapp/meta`, público, limitado por IP en
+  producción): lo que vuelve del popup (`code`, `waba_id`,
+  `phone_number_id`) llega desde el navegador y no se cree. La API canjea el
+  `code` con el secreto de la app (en el body, no en la URL) y confirma con
+  ese token que el número es de esa WABA (`GET /{waba}/phone_numbers`). Recién
+  ahí, y sólo si Meta lo da por verificado (`code_verification_status:
+  VERIFIED`; sumar un número ajeno sin verificar a la propia WABA no
+  alcanza), se considera probado que se administra esa WABA. Eso no es lo
+  mismo que tener el teléfono (un empleado o una agencia con acceso a la WABA
+  también pasa), así que: un número sin cuenta crea una; con cuenta, sólo se
+  entra si esa cuenta ya estaba conectada a la **misma WABA** (volver a
+  entrar o recuperar el acceso de una cuenta creada con WhatsApp Business).
+  Una cuenta de Google, de QR o de otra WABA da 409 `cuenta_existente`: se
+  entra con lo de siempre y se conecta desde Vinculación. Límite por IP (en
+  producción) y por número. Conectar desde la cuenta (`/whatsapp/meta/
+  conectar`) da 409 si el número es de otra cuenta, antes de cualquier efecto
+  en Meta; activa Meta primero y recién después cierra Baileys, así un fallo
+  no deja la cuenta sin canal.
+- **Token del negocio**: cifrado con AES-256-GCM (`TOKEN_ENCRYPTION_KEY`) en
+  `WhatsappMeta.accessToken`, nunca expuesto. El cliente de Graph
+  (`meta-graph.client.ts`) no sigue redirecciones (el token va en el header),
+  sólo descarga media de hosts de Meta o del origen de `META_GRAPH_URL` (fijo
+  en producción), con tope de bytes y de tiempo, y sus errores llevan la
+  operación y el status, nunca el cuerpo.
+- **Webhook** (`/whatsapp/meta/webhook`, público): `X-Hub-Signature-256`
+  verificada con HMAC-SHA256 del cuerpo crudo y `timingSafeEqual` (parser
+  `raw` sólo en esa ruta, en `main.ts`). Firma inválida → 200
+  `{recibido:false}` sin procesar. El alta (`GET`) compara
+  `hub.verify_token` en tiempo constante. El payload se valida campo por
+  campo (`meta-webhook.ts`) y las reentregas las frena `MensajeRecibido`.
+  Los logs llevan tipo de evento e ids, nunca teléfonos ni textos.
+- **Web**: el SDK de Facebook se carga sólo en `/entrar` y `/vincular`, y el
+  `postMessage` de Embedded Signup sólo se acepta desde
+  `https://www.facebook.com` / `https://web.facebook.com`.
+- **Un canal por cuenta**: conectar Meta cierra la sesión de Baileys y, con
+  Meta conectado, `startLink`/`pedirCodigo` dan 409; si no, el mismo número
+  contestaría dos veces.
+- **Ventana de 24 h**: por la Cloud API sólo se escribe texto libre hasta 24 h
+  después del último mensaje guardado del cliente; fuera de eso el panel y
+  los avisos de pago no mandan nada (no hay plantillas). Los avisos al dueño
+  quedan sólo en la campanita: el número no puede escribirse a sí mismo.
+- **Historial de la coexistencia**: Meta exige pedir la sincronización
+  (`smb_app_data`) al conectar, pero lo que llega por `history` y
+  `smb_app_state_sync` se descarta, como `syncFullHistory: false` en Baileys.
+
 ## Code scanning (2026-09-29)
 
 Las alertas abiertas en *Security → Code scanning* se reprodujeron corriendo
