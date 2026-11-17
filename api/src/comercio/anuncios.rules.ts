@@ -88,6 +88,24 @@ export function referenciaDeAnuncio(mensaje: proto.IMessage | null | undefined):
   return null;
 }
 
+/**
+ * El `referral` de un mensaje de la Cloud API de Meta (Click-to-WhatsApp):
+ * los mismos datos que `externalAdReply`, con otros nombres. La miniatura
+ * llega como URL y no se descarga, igual que `sourceUrl`.
+ */
+export function referenciaDeReferral(referral: unknown): ReferenciaAnuncio | null {
+  if (!referral || typeof referral !== 'object') return null;
+  const r = referral as Record<string, unknown>;
+  const texto = (clave: string) => (typeof r[clave] === 'string' ? (r[clave] as string) : null);
+  return deAnuncio({
+    sourceId: texto('source_id'),
+    sourceType: texto('source_type'),
+    sourceUrl: texto('source_url'),
+    title: texto('headline'),
+    body: texto('body'),
+  });
+}
+
 function deAnuncio(anuncio: proto.ContextInfo.IExternalAdReplyInfo): ReferenciaAnuncio | null {
   const sourceId = limpiar(anuncio.sourceId, 128);
   // El prefijo es de los estados: un anuncio que lo trae es inventado.

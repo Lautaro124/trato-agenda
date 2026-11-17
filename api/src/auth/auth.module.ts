@@ -9,6 +9,7 @@ import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { WhatsappModule } from '../whatsapp/whatsapp.module.js';
 import { CuentaService } from './cuenta.service.js';
 import type { Env } from '../config/env.js';
+import { AltaMetaService } from './alta-meta.service.js';
 import { AltaWhatsappService } from './alta-whatsapp.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
@@ -53,6 +54,7 @@ import { loginDevPermitido } from './usuario-dev.js';
     AuthService,
     CuentaService,
     AltaWhatsappService,
+    AltaMetaService,
     CodigoAccesoService,
     LoginWhatsappService,
     AltaGuard,

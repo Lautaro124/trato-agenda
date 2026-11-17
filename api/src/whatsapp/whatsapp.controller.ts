@@ -4,13 +4,18 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { SolicitarCodigoDto } from '../auth/whatsapp-auth.controller.js';
 import type { User } from '../generated/prisma/client.js';
+import { MetaWhatsappService } from './meta/meta-whatsapp.service.js';
+import { SignupMetaDto } from './meta/signup-meta.dto.js';
 import { WhatsappService } from './whatsapp.service.js';
 import type { WhatsappStatus } from './whatsapp.types.js';
 
 @Controller('whatsapp')
 @UseGuards(JwtAuthGuard)
 export class WhatsappController {
-  constructor(private readonly whatsappService: WhatsappService) {}
+  constructor(
+    private readonly whatsappService: WhatsappService,
+    private readonly meta: MetaWhatsappService,
+  ) {}
 
   @Get('status')
   status(@CurrentUser() user: User): Promise<WhatsappStatus> {
@@ -39,5 +44,19 @@ export class WhatsappController {
   @HttpCode(HttpStatus.NO_CONTENT)
   unlink(@CurrentUser() user: User): Promise<void> {
     return this.whatsappService.unlink(user.id);
+  }
+
+  /** Conecta WhatsApp Business por la API oficial con lo que volvió de Embedded Signup. */
+  @Post('meta/conectar')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async conectarMeta(@CurrentUser() user: User, @Body() dto: SignupMetaDto): Promise<void> {
+    const numero = await this.meta.verificar(dto);
+    await this.whatsappService.conectarMeta(user.id, numero);
+  }
+
+  @Post('meta/desconectar')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  desconectarMeta(@CurrentUser() user: User): Promise<void> {
+    return this.meta.desconectar(user.id);
   }
 }

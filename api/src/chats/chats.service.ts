@@ -15,6 +15,7 @@ import { telefonoDeJid } from '../comercio/ventas.rules.js';
 import { esConversacionDePrueba, PREFIJO_JID_DE_PRUEBA } from '../conversation/conversation.service.js';
 import { Prisma, type Conversation, type Message } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { FueraDeVentanaError } from '../whatsapp/salida.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { devolverChat, limpiarNota, tomarChat, type AtencionChat } from './atencion.js';
 import type {
@@ -145,10 +146,12 @@ export class ChatsService {
     }
 
     let salio = false;
+    let fueraDeVentana = false;
     try {
       salio = await this.whatsapp.enviarDesdePanel(userId, fila.remoteJid, texto);
     } catch (error) {
-      this.logger.error(`No se pudo mandar un mensaje del panel de ${userId}: ${(error as Error).message}`);
+      fueraDeVentana = error instanceof FueraDeVentanaError;
+      if (!fueraDeVentana) this.logger.error(`No se pudo mandar un mensaje del panel de ${userId}: ${(error as Error).message}`);
     }
     if (!salio) {
       await this.prisma.message.delete({ where: { id: guardado.id } }).catch(() => undefined);
@@ -157,7 +160,11 @@ export class ChatsService {
         .update({ where: { id: conversationId }, data: { updatedAt: new Date() } })
         .catch(() => undefined);
       // 409 y no 5xx: es el estado de la cuenta (WhatsApp sin vincular) y la web muestra el motivo.
-      throw new ConflictException('No se pudo mandar: revisá que tu WhatsApp siga vinculado y probá de nuevo.');
+      throw new ConflictException(
+        fueraDeVentana
+          ? 'Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp no deja escribirle desde acá. Contestale desde la app WhatsApp Business.'
+          : 'No se pudo mandar: revisá que tu WhatsApp siga vinculado y probá de nuevo.',
+      );
     }
     return { id: guardado.id, ...aMensajesPublicos([guardado])[0]! };
   }

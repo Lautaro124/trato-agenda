@@ -57,6 +57,7 @@ model User {
   tutorialesVistos String[] @default([])
 
   whatsappSession   WhatsappSession?
+  whatsappMeta      WhatsappMeta?
   agent             Agent?
   conversaciones    Conversation[]
   suscripcion       Subscription?
@@ -109,6 +110,32 @@ model WhatsappSession {
   linkedAt  DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+}
+
+/// Número de WhatsApp Business conectado por la Cloud API oficial de Meta
+/// (Embedded Signup). Excluye a la sesión de Baileys: una cuenta atiende por
+/// un solo canal, si no el mismo número contestaría dos veces.
+model WhatsappMeta {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// WhatsApp Business Account del negocio, compartida con la app de Trato.
+  wabaId        String
+  /// Id del número en la Cloud API: con él llegan los webhooks y se manda.
+  phoneNumberId String @unique
+  /// El número (sin '+'), el mismo que User.phoneNumber.
+  phoneNumber   String
+
+  /// Token de integración del negocio, cifrado con AES-256-GCM (token-crypto.ts).
+  /// Nunca se expone por la API.
+  accessToken String
+
+  /// Sigue usando la app WhatsApp Business en el celular (coexistencia).
+  coexistencia Boolean @default(false)
+
+  conectadoAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 /// Una clave de Signal de una sesión de WhatsApp (pre-keys, sesiones con cada

@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
-import { json } from 'express';
+import { json, raw } from 'express';
 import { AppModule } from './app.module.js';
 import { chequeoDeOrigen } from './auth/csrf-origin.js';
 import { LoggerConSentry } from './observabilidad/logger-con-sentry.js';
@@ -45,6 +45,9 @@ async function bootstrap() {
   // antes que el parser global, que ve el body ya leído y no lo toca.
   app.use('/productos/importar', json({ limit: LIMITE_IMPORTACION }));
   app.use('/importacion/confirmar', json({ limit: LIMITE_CONFIRMAR_IMPORTACION }));
+  // El webhook de Meta se firma sobre el cuerpo byte a byte: llega como Buffer
+  // y el controlador lo verifica antes de parsearlo (meta-webhook.controller.ts).
+  app.use('/whatsapp/meta/webhook', raw({ type: () => true, limit: '1mb' }));
   app.useBodyParser('json');
   app.useBodyParser('urlencoded', { extended: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

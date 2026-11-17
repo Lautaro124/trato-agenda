@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Ip,
@@ -19,7 +20,10 @@ import type { Observable } from 'rxjs';
 import { AgentsService } from '../agents/agents.service.js';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
+import { MetaWhatsappService } from '../whatsapp/meta/meta-whatsapp.service.js';
+import { SignupMetaDto } from '../whatsapp/meta/signup-meta.dto.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
+import { AltaMetaService } from './alta-meta.service.js';
 import { AltaWhatsappService } from './alta-whatsapp.service.js';
 import { AuthService } from './auth.service.js';
 import type { DestinoTrasLogin } from './auth.types.js';
@@ -75,7 +79,37 @@ export class WhatsappAuthController {
     private readonly whatsappService: WhatsappService,
     private readonly agentsService: AgentsService,
     private readonly config: ConfigService<Env, true>,
+    private readonly altasMeta: AltaMetaService,
+    private readonly meta: MetaWhatsappService,
   ) {}
+
+  /**
+   * Lo que la web necesita para abrir Embedded Signup (ids públicos de la app
+   * de Meta). En null si la API no tiene Meta configurado: la opción no se muestra.
+   */
+  @Get('meta/config')
+  configMeta(): { appId: string | null; configId: string | null } {
+    if (!this.meta.configurado) return { appId: null, configId: null };
+    return {
+      appId: this.config.get('META_APP_ID', { infer: true }),
+      configId: this.config.get('META_ES_CONFIG_ID', { infer: true }),
+    };
+  }
+
+  /**
+   * Crear la cuenta o entrar con WhatsApp Business (API oficial): lo que
+   * volvió de Embedded Signup se verifica contra Meta y deja la sesión puesta.
+   */
+  @Post('meta')
+  @HttpCode(HttpStatus.OK)
+  async entrarConMeta(
+    @Body() dto: SignupMetaDto,
+    @Ip() ip: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ destino: DestinoTrasLogin }> {
+    const user = await this.altasMeta.entrar(ip, dto);
+    return this.entrar(user, res);
+  }
 
   /** Crea el usuario pendiente, deja la cookie del alta y arranca el QR. */
   @Post('alta')

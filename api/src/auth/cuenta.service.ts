@@ -120,8 +120,8 @@ export class CuentaService {
 
   private async desvincularWhatsapp(userId: string): Promise<void> {
     try {
-      // Cierra el socket de Baileys; la fila se va igual por cascade.
-      await this.whatsapp.unlink(userId);
+      // Cierra el socket de Baileys y saca la app de la WABA de Meta; las filas se van igual por cascade.
+      await this.whatsapp.desconectarTodo(userId);
     } catch (error) {
       this.logger.warn(`No se pudo cerrar la sesión de WhatsApp de ${userId}: ${(error as Error).message}`);
     }

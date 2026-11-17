@@ -116,7 +116,7 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
     const cuentas = new CuentaService(
       prisma,
       { get: () => 'x'.repeat(64) } as unknown as ConfigService<Env, true>,
-      { unlink: vi.fn().mockResolvedValue(undefined) } as unknown as WhatsappService,
+      { desconectarTodo: vi.fn().mockResolvedValue(undefined) } as unknown as WhatsappService,
       { cancelar: vi.fn() } as unknown as SubscriptionService,
       { saver: { deleteThread } } as unknown as CheckpointerService,
     );
@@ -153,7 +153,7 @@ describe.skipIf(!hayBaseDePrueba)('baja de una cuenta de ventas (Postgres)', () 
     const cuentas = new CuentaService(
       prisma,
       config,
-      { unlink: vi.fn().mockResolvedValue(undefined) } as unknown as WhatsappService,
+      { desconectarTodo: vi.fn().mockResolvedValue(undefined) } as unknown as WhatsappService,
       { cancelar: vi.fn() } as unknown as SubscriptionService,
       { saver: { deleteThread: vi.fn() } } as unknown as CheckpointerService,
     );

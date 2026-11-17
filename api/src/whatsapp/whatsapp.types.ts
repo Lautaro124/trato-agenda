@@ -18,4 +18,8 @@ export type MotivoError = 'numero_en_uso';
 export type WhatsappStatus = {
   linked: boolean;
   phoneNumber: string | null;
+  /** Por dónde atiende: la API oficial de Meta o la vinculación por QR o código (Baileys, no oficial). */
+  canal: 'meta' | 'baileys' | null;
+  /** Si la API tiene la app de Meta configurada: sin ella no se ofrece la conexión oficial. */
+  metaDisponible: boolean;
 };

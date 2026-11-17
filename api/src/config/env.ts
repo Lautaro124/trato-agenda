@@ -95,6 +95,19 @@ export type Env = {
    * paró, antes de contestarle igual (ver AgrupadorDeRafagas).
    */
   WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: number;
+  /**
+   * App de Meta para conectar WhatsApp Business por la Cloud API (Embedded
+   * Signup). Van todas juntas: vacías = la opción oficial no aparece y sólo
+   * queda la vinculación por QR o código (Baileys).
+   */
+  META_APP_ID: string;
+  META_APP_SECRET: string;
+  /** Id de la configuración de Embedded Signup (Facebook Login for Business). */
+  META_ES_CONFIG_ID: string;
+  /** Lo que Meta manda en `hub.verify_token` al dar de alta el webhook. */
+  META_WEBHOOK_VERIFY_TOKEN: string;
+  /** Base de la Graph API. Los E2E la apuntan a un Meta falso. */
+  META_GRAPH_URL: string;
 };
 
 const REQUIRED = [
@@ -118,6 +131,7 @@ export const OPENROUTER_DECISIONS_URL_POR_DEFECTO = 'https://openrouter.ai/api/a
 export const MERCADOPAGO_BASE_URL_POR_DEFECTO = 'https://api.mercadopago.com';
 export const LINEAR_API_URL_POR_DEFECTO = 'https://api.linear.app/graphql';
 export const MERCADOLIBRE_API_URL_POR_DEFECTO = 'https://api.mercadolibre.com';
+export const META_GRAPH_URL_POR_DEFECTO = 'https://graph.facebook.com';
 
 export const HISTORIAL_IA_VENTANA_POR_DEFECTO = '14d';
 
@@ -222,6 +236,28 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     );
   }
 
+  const meta = {
+    META_APP_ID: String(raw.META_APP_ID ?? '').trim(),
+    META_APP_SECRET: String(raw.META_APP_SECRET ?? '').trim(),
+    META_ES_CONFIG_ID: String(raw.META_ES_CONFIG_ID ?? '').trim(),
+    META_WEBHOOK_VERIFY_TOKEN: String(raw.META_WEBHOOK_VERIFY_TOKEN ?? '').trim(),
+  };
+  const metaDefinidas = Object.values(meta).filter(Boolean).length;
+  if (metaDefinidas !== 0 && metaDefinidas !== Object.keys(meta).length) {
+    throw new Error(
+      'META_APP_ID, META_APP_SECRET, META_ES_CONFIG_ID y META_WEBHOOK_VERIFY_TOKEN van juntas: definí las cuatro o ninguna.',
+    );
+  }
+  // El webhook se verifica con este token: uno corto se adivina.
+  if (meta.META_WEBHOOK_VERIFY_TOKEN && meta.META_WEBHOOK_VERIFY_TOKEN.length < 24) {
+    throw new Error('META_WEBHOOK_VERIFY_TOKEN tiene que tener al menos 24 caracteres. Generalo con: openssl rand -hex 24');
+  }
+  const metaGraphUrl = sinBarrasFinales(String(raw.META_GRAPH_URL || META_GRAPH_URL_POR_DEFECTO));
+  // Por ahí viajan el secreto de la app y los tokens de cada negocio: en producción, sólo a Meta.
+  if (nodeEnv === 'production' && metaGraphUrl !== META_GRAPH_URL_POR_DEFECTO) {
+    throw new Error(`META_GRAPH_URL no se puede cambiar en producción: tiene que ser ${META_GRAPH_URL_POR_DEFECTO}.`);
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: Number(raw.PORT ?? 4000),
@@ -261,5 +297,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     MERCADOLIBRE_CLIENT_SECRET: mercadoLibreClientSecret,
     IMPORTACION_HOSTS_DE_PRUEBA: hostsDePrueba,
     WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: escribiendoVenceSegundos,
+    ...meta,
+    META_GRAPH_URL: metaGraphUrl,
   };
 }

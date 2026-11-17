@@ -32,6 +32,8 @@ import {
 } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
 import type { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
+import type { MetaWhatsappService } from './meta/meta-whatsapp.service.js';
+import { FueraDeVentanaError } from './salida.js';
 
 vi.mock('@whiskeysockets/baileys', async (original) => ({
   ...(await original<typeof import('@whiskeysockets/baileys')>()),
@@ -73,7 +75,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     whatsappClave: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     agent: { findUnique: vi.fn().mockResolvedValue({ tipoAsistente: 'ventas' }) },
     conversation: { findUnique: vi.fn().mockResolvedValue(null), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    message: { create: vi.fn().mockResolvedValue({}) },
+    message: { create: vi.fn().mockResolvedValue({}), findFirst: vi.fn().mockResolvedValue(null) },
     mensajeRecibido: {
       createMany: vi.fn().mockImplementation(({ data }: { data: { userId: string; waId: string }[] }) => {
         let count = 0;
@@ -105,6 +107,15 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
   const horarioAtencion = { atencion: vi.fn().mockResolvedValue('atender') };
   const transcripcion = { transcribir: vi.fn().mockResolvedValue('quiero un turno') };
   const anuncios = { registrar: vi.fn().mockResolvedValue('anuncio-1') };
+  // Sin WhatsApp Business conectado: todo sale por Baileys.
+  const meta = {
+    configurado: false,
+    conexionDe: vi.fn().mockResolvedValue(null),
+    activar: vi.fn().mockResolvedValue(undefined),
+    salida: vi.fn(),
+    marcarLeido: vi.fn().mockResolvedValue(undefined),
+    descargarMedia: vi.fn(),
+  };
   const vision = { configurado: true, describir: vi.fn().mockResolvedValue('Un sillón gris con el texto "Rinconero brick 3c"') };
   const service = new WhatsappService(
     prisma,
@@ -117,6 +128,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     transcripcion as unknown as TranscripcionClient,
     anuncios as unknown as AnunciosService,
     vision as unknown as VisionClient,
+    meta as unknown as MetaWhatsappService,
   );
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
@@ -134,6 +146,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     imagenes,
     notificaciones,
     horarioAtencion,
+    meta,
     transcripcion,
     anuncios,
     vision,
@@ -1490,5 +1503,133 @@ describe('WhatsappService — anuncios e imágenes de clientes (LAU-103)', () =>
 
     expect(downloadMediaMessage).not.toHaveBeenCalled();
     expect(vision.describir).not.toHaveBeenCalled();
+  });
+});
+
+describe('WhatsappService — WhatsApp Business por la Cloud API', () => {
+  const JID = '5491122334455@s.whatsapp.net';
+  const CONEXION = { userId: 'user-1', wabaId: 'w-1', phoneNumberId: 'p-1', telefono: '5491100000000', token: 't' };
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  function salidaMeta(vigente = true) {
+    return {
+      canal: 'meta' as const,
+      ventana24h: true,
+      enviarTexto: vi.fn().mockResolvedValue(undefined),
+      enviarImagen: vi.fn().mockResolvedValue(undefined),
+      escribiendo: vi.fn().mockReturnValue({ renovar: vi.fn(), parar: vi.fn() }),
+      vigente: () => vigente,
+    };
+  }
+
+  const mensaje = (texto: string, waId = 'wamid.1') => ({
+    tipo: 'mensaje' as const,
+    phoneNumberId: 'p-1',
+    waId,
+    remoteJid: JID,
+    enviadoEn: null,
+    contenido: { texto },
+    anuncio: null,
+  });
+
+  it('un mensaje de la Cloud API pasa por la misma ráfaga y sale por Meta', async () => {
+    const { service, conversationService, meta, prisma } = crearServicio();
+    const salida = salidaMeta();
+    meta.salida.mockReturnValue(salida);
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: '¡Hola! ¿En qué te ayudo?', imagenes: [] });
+
+    await service.recibirDeMeta(CONEXION, mensaje('hola'));
+    await vi.runAllTimersAsync();
+
+    expect(meta.salida).toHaveBeenCalledWith(CONEXION, 'wamid.1');
+    expect(meta.marcarLeido).toHaveBeenCalledWith(CONEXION, 'wamid.1');
+    expect(conversationService.responder).toHaveBeenCalledWith('user-1', JID, 'hola', expect.anything());
+    expect(salida.enviarTexto).toHaveBeenCalledWith(JID, '¡Hola! ¿En qué te ayudo?');
+    expect(prisma.mensajeRecibido.createMany).toHaveBeenCalledWith({ data: [{ userId: 'user-1', waId: 'wamid.1' }], skipDuplicates: true });
+  });
+
+  it('un webhook reentregado no se contesta dos veces', async () => {
+    const { service, conversationService, meta } = crearServicio();
+    meta.salida.mockReturnValue(salidaMeta());
+    vi.mocked(conversationService.responder).mockResolvedValue({ texto: 'Listo', imagenes: [] });
+
+    await service.recibirDeMeta(CONEXION, mensaje('hola'));
+    await vi.runAllTimersAsync();
+    await service.recibirDeMeta(CONEXION, mensaje('hola'));
+    await vi.runAllTimersAsync();
+
+    expect(conversationService.responder).toHaveBeenCalledOnce();
+  });
+
+  it('el eco de la app en un chat que atiende el asistente lo pasa al dueño', async () => {
+    const { service, prisma } = crearServicio();
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({ id: 'conv-1' } as never);
+
+    await service.recibirDeMeta(CONEXION, { tipo: 'eco', phoneNumberId: 'p-1', waId: 'wamid.e', remoteJid: JID, texto: 'Te atiendo yo' });
+
+    expect(prisma.message.create).toHaveBeenCalledWith({
+      data: { conversationId: 'conv-1', role: 'assistant', content: { content: 'Te atiendo yo', humano: true } },
+    });
+  });
+
+  it('con Meta conectado no se abre una sesión de Baileys', async () => {
+    const { service, meta, connectSpy } = crearServicio();
+    meta.conexionDe.mockResolvedValue(CONEXION);
+    await expect(service.startLink('user-1')).rejects.toThrow(/API oficial/);
+    await expect(service.pedirCodigo('user-1', '5491122334455')).rejects.toThrow(/API oficial/);
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it('el estado dice por qué canal atiende', async () => {
+    const { service, meta } = crearServicio();
+    meta.conexionDe.mockResolvedValue(CONEXION);
+    await expect(service.status('user-1')).resolves.toEqual({
+      linked: true,
+      phoneNumber: '5491100000000',
+      canal: 'meta',
+      metaDisponible: false,
+    });
+  });
+
+  it('conectar Meta cierra después la sesión de Baileys', async () => {
+    const { service, meta, prisma } = crearServicio();
+    const numero = { token: 't', wabaId: 'w-1', phoneNumberId: 'p-1', telefono: '5491100000000', coexistencia: true };
+    await service.conectarMeta('user-1', numero);
+    expect(prisma.whatsappSession.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+    expect(meta.activar).toHaveBeenCalledWith('user-1', numero);
+  });
+
+  it('si Meta no deja conectar (número ajeno, Meta caído) no se pierde la sesión de Baileys', async () => {
+    const { service, meta, prisma } = crearServicio();
+    meta.activar.mockRejectedValue(new Error('numero_en_uso'));
+    const numero = { token: 't', wabaId: 'w-1', phoneNumberId: 'p-1', telefono: '5491100000000', coexistencia: false };
+    await expect(service.conectarMeta('user-1', numero)).rejects.toThrow('numero_en_uso');
+    expect(prisma.whatsappSession.deleteMany).not.toHaveBeenCalled();
+  });
+
+  describe('ventana de 24 h', () => {
+    it('el panel no le escribe a un cliente que no escribió en las últimas 24 h', async () => {
+      const { service, meta, prisma } = crearServicio();
+      const salida = salidaMeta();
+      meta.conexionDe.mockResolvedValue(CONEXION);
+      meta.salida.mockReturnValue(salida);
+      vi.mocked(prisma.message.findFirst).mockResolvedValue({ createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) } as never);
+
+      await expect(service.enviarDesdePanel('user-1', JID, 'Hola')).rejects.toBeInstanceOf(FueraDeVentanaError);
+      await expect(service.enviarAlCliente('user-1', JID, 'Tu pago se acreditó')).resolves.toBe(false);
+      expect(salida.enviarTexto).not.toHaveBeenCalled();
+    });
+
+    it('dentro de la ventana sale por Meta', async () => {
+      const { service, meta, prisma } = crearServicio();
+      const salida = salidaMeta();
+      meta.conexionDe.mockResolvedValue(CONEXION);
+      meta.salida.mockReturnValue(salida);
+      vi.mocked(prisma.message.findFirst).mockResolvedValue({ createdAt: new Date(Date.now() - 60 * 60 * 1000) } as never);
+
+      await expect(service.enviarDesdePanel('user-1', JID, 'Hola')).resolves.toBe(true);
+      expect(salida.enviarTexto).toHaveBeenCalledWith(JID, 'Hola');
+    });
   });
 });

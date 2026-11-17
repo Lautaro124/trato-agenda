@@ -10,6 +10,9 @@ import { AvisosPorWhatsapp } from './avisos-por-whatsapp.js';
 import { WhatsappController } from './whatsapp.controller.js';
 import { TranscripcionClient } from './transcripcion.client.js';
 import { WhatsappService } from './whatsapp.service.js';
+import { MetaGraphClient } from './meta/meta-graph.client.js';
+import { MetaWebhookController } from './meta/meta-webhook.controller.js';
+import { MetaWhatsappService } from './meta/meta-whatsapp.service.js';
 
 @Module({
   // JwtAuthGuard (AuthGuard('jwt')) necesita AuthModuleOptions de PassportModule
@@ -23,9 +26,10 @@ import { WhatsappService } from './whatsapp.service.js';
     // Las fotos de productos que manda el asistente de ventas.
     ComercioModule,
   ],
-  // Exportado para la baja de cuenta, que necesita cerrar el socket de Baileys.
-  exports: [WhatsappService],
-  controllers: [WhatsappController, AsistenteController],
-  providers: [WhatsappService, AvisosPorWhatsapp, TranscripcionClient],
+  // Exportados para la baja de cuenta (cerrar el socket de Baileys y sacar la
+  // app de la WABA) y para el alta con WhatsApp Business.
+  exports: [WhatsappService, MetaWhatsappService],
+  controllers: [WhatsappController, AsistenteController, MetaWebhookController],
+  providers: [WhatsappService, AvisosPorWhatsapp, TranscripcionClient, MetaGraphClient, MetaWhatsappService],
 })
 export class WhatsappModule {}

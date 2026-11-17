@@ -165,13 +165,30 @@ export function avisoWhatsappCaido(minutos: number): Aviso {
 }
 
 /** WhatsApp rechazó la sesión y reintentar no la arregla: hay que volver a vincular. */
-export function avisoWhatsappParaVolverAVincular(): Aviso {
+export function avisoWhatsappParaVolverAVincular(ofrecerApiOficial = false): Aviso {
   return {
     tipo: 'whatsapp_desconectado',
     titulo: 'Volvé a vincular tu WhatsApp',
     cuerpo:
       'WhatsApp dejó de aceptar la sesión del asistente y no va a contestar hasta que lo vuelvas a ' +
-      'vincular escaneando el QR.',
+      'vincular escaneando el QR.' +
+      (ofrecerApiOficial
+        ? ' La vinculación por QR no es oficial y WhatsApp puede bloquear el número: para evitarlo, ' +
+          'conectá tu WhatsApp Business con la API oficial desde Vinculación.'
+        : ''),
+    enlace: '/vincular',
+    clave: 'whatsapp-vincular',
+  };
+}
+
+/** El negocio sacó a Trato de su cuenta de WhatsApp Business desde Meta. */
+export function avisoWhatsappMetaDesconectado(): Aviso {
+  return {
+    tipo: 'whatsapp_desconectado',
+    titulo: 'Tu WhatsApp Business se desconectó',
+    cuerpo:
+      'Meta nos avisó que se quitó el acceso de Trato a tu cuenta de WhatsApp Business. El asistente no ' +
+      'va a contestar hasta que lo vuelvas a conectar.',
     enlace: '/vincular',
     clave: 'whatsapp-vincular',
   };
