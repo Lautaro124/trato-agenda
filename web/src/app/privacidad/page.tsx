@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 9 de noviembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 17 de noviembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -90,6 +90,15 @@ export default function PrivacidadPage() {
             turnos y los horarios que bloqueás— queda guardada en nuestra base: título, inicio y fin
             de cada evento. Si más adelante querés pagar la suscripción, te pedimos un email para
             Mercado Pago.
+          </p>
+          <p>
+            <Fuerte>Si conectás WhatsApp Business con la API oficial de Meta.</Fuerte> Al terminar la
+            conexión en la ventana de Meta, guardamos el identificador de tu cuenta de WhatsApp
+            Business y de tu número, el número en sí y el token de acceso que Meta le da a Trato (cifrado,
+            ver más abajo). Si seguís usando la app WhatsApp Business en tu celular, Meta nos pide
+            sincronizar tus contactos y chats anteriores: <Fuerte>no los guardamos</Fuerte>, los
+            descartamos al recibirlos. Lo que escribís desde la app en un chat que atiende el asistente
+            se guarda en esa conversación, igual que si lo contestaras desde tu teléfono vinculado.
           </p>
           <p>
             <Fuerte>De tu cuenta de Google, si la conectás.</Fuerte> Google es opcional. Al entrar con
@@ -287,8 +296,9 @@ export default function PrivacidadPage() {
               conversaciones.
             </Punto>
             <Punto>
-              Las credenciales de tu sesión de WhatsApp y los tokens de tu cuenta de Mercado Pago se
-              guardan con el mismo cifrado AES-256-GCM, y tampoco salen de nuestro backend.
+              Las credenciales de tu sesión de WhatsApp, el token de WhatsApp Business que nos da Meta
+              y los tokens de tu cuenta de Mercado Pago se guardan con el mismo cifrado AES-256-GCM, y
+              tampoco salen de nuestro backend.
             </Punto>
             <Punto>
               Todo el tráfico va cifrado en tránsito con HTTPS/TLS, tanto entre tu navegador y
@@ -339,7 +349,9 @@ export default function PrivacidadPage() {
             </Punto>
             <Punto>
               <Fuerte>WhatsApp (Meta)</Fuerte>: es la red por la que viajan los mensajes entre tus
-              clientes y tu asistente.
+              clientes y tu asistente. Si conectás WhatsApp Business con la API oficial, los mensajes
+              pasan por la plataforma de Meta (Cloud API), que los trata según sus propios términos de
+              WhatsApp Business.
             </Punto>
             <Punto>
               <Fuerte>Mercado Pago</Fuerte>: el cobro de la suscripción y, si lo conectás, el de tus
@@ -443,7 +455,8 @@ export default function PrivacidadPage() {
               dado, así que dejamos de poder ver o tocar tu calendario.
             </Punto>
             <Punto>
-              Cerramos tu sesión de WhatsApp y borramos sus credenciales.
+              Cerramos tu sesión de WhatsApp y borramos sus credenciales. Si conectaste WhatsApp
+              Business, sacamos a Trato de tu cuenta en Meta y borramos el token.
             </Punto>
             <Punto>
               Borramos tu usuario, tu asistente, tus conversaciones, los mensajes, los turnos, tu

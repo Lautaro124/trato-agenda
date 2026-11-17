@@ -14,8 +14,8 @@ import { cn } from "@/lib/cn";
 import { usePreferenciasNavegacion } from "@/lib/navegacion";
 import { identificador, iniciales, useSession, type Usuario } from "@/lib/session";
 import { useAbrirTutorial } from "@/lib/tutorial";
+import type { WhatsappStatus } from "@/lib/vinculacion";
 
-type WhatsappStatus = { linked: boolean; phoneNumber: string | null };
 
 const FOCUSABLES = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -354,9 +354,16 @@ export function AppHeader({ active, user }: Readonly<{ active: Pantalla; user: U
           )}
           {whatsapp && (
             <span className={cn("whitespace-nowrap", conEstado && whatsapp.linked && "hidden md:inline")}>
-              <Badge tone={whatsapp.linked ? "success" : "warning"}>
-                {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
-              </Badge>
+              {/* Por QR (no oficial) con la opción oficial disponible: el riesgo de bloqueo queda a la vista. */}
+              {whatsapp.canal === "baileys" && whatsapp.metaDisponible ? (
+                <Link href="/vincular" title="WhatsApp puede bloquear el número: pasate a la API oficial">
+                  <Badge tone="warning">WhatsApp por QR · riesgo de bloqueo</Badge>
+                </Link>
+              ) : (
+                <Badge tone={whatsapp.linked ? "success" : "warning"}>
+                  {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
+                </Badge>
+              )}
             </span>
           )}
         </div>

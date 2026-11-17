@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type KeyboardEvent } from "react";
+import { BotonWhatsappBusiness } from "@/components/BotonWhatsappBusiness";
 import { FooterLegal } from "@/components/FooterLegal";
 import { GoogleMark } from "@/components/GoogleMark";
 import { LoginDev } from "@/components/LoginDev";
@@ -11,6 +12,7 @@ import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { useMetaSignup } from "@/lib/metaSignup";
 import { useSession } from "@/lib/session";
 
 const PITCH = [
@@ -52,6 +54,14 @@ export default function EntrarPage() {
   const { user, status, signIn } = useSession();
   const [pending, setPending] = useState(false);
   const [pestana, setPestana] = useState<Pestana>("entrar");
+  const signup = useMetaSignup();
+
+  /** Crear la cuenta o entrar con WhatsApp Business: la API deja la sesión y dice adónde ir. */
+  async function entrarConMeta(res: Response) {
+    const { destino } = (await res.json()) as { destino: string };
+    // Recarga entera, como el alta por QR: la sesión nueva se lee desde cero.
+    window.location.href = destino;
+  }
 
   /** Flechas entre pestañas, como pide el patrón de tabs de ARIA. */
   function moverPestana(e: KeyboardEvent<HTMLButtonElement>) {
@@ -152,6 +162,17 @@ export default function EntrarPage() {
 
               <Separador>o entrá con</Separador>
 
+              {signup.disponible && (
+                <div className="mb-3">
+                  <BotonWhatsappBusiness
+                    signup={signup}
+                    endpoint="/auth/whatsapp/meta"
+                    texto="Entrar con WhatsApp Business"
+                    onListo={entrarConMeta}
+                  />
+                </div>
+              )}
+
               <Button
                 variant="secondary"
                 size="lg"
@@ -173,13 +194,30 @@ export default function EntrarPage() {
               <h2 className="mb-1.5 font-display text-2xl font-bold tracking-[-0.02em] text-ink">Creá tu cuenta gratis</h2>
               <p className="mb-5 text-sm leading-[1.6] text-ink-secondary">Elegí con qué la creás. Tarda un minuto.</p>
 
-              <Link href="/entrar/whatsapp" className={BOTON_WHATSAPP}>
-                {ICONO_WHATSAPP}
-                Crear cuenta con WhatsApp
-              </Link>
-              <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
-                Vinculás tu WhatsApp con un código y listo. Tus turnos quedan en la agenda de Trato.
-              </p>
+              {signup.disponible ? (
+                <>
+                  <BotonWhatsappBusiness
+                    signup={signup}
+                    endpoint="/auth/whatsapp/meta"
+                    texto="Crear cuenta con WhatsApp Business"
+                    onListo={entrarConMeta}
+                  />
+                  <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
+                    Conectás tu número con la API oficial de Meta y seguís usando la app WhatsApp Business. Tus
+                    turnos quedan en la agenda de Trato.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Link href="/entrar/whatsapp" className={BOTON_WHATSAPP}>
+                    {ICONO_WHATSAPP}
+                    Crear cuenta con WhatsApp
+                  </Link>
+                  <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
+                    Vinculás tu WhatsApp con un código y listo. Tus turnos quedan en la agenda de Trato.
+                  </p>
+                </>
+              )}
 
               <Separador>o</Separador>
 
@@ -196,6 +234,16 @@ export default function EntrarPage() {
               <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
                 Tus turnos van a tu Google Calendar. Después vinculás WhatsApp.
               </p>
+
+              {signup.disponible && (
+                <p className="mt-5 text-[13px] leading-[1.55] text-ink-secondary">
+                  ¿No tenés WhatsApp Business?{" "}
+                  <Link href="/entrar/whatsapp" className="font-semibold text-primary underline-offset-2 hover:underline">
+                    Creá la cuenta con un QR
+                  </Link>{" "}
+                  (no oficial: WhatsApp puede bloquear el número).
+                </p>
+              )}
             </div>
           )}
 

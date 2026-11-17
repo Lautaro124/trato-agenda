@@ -132,3 +132,12 @@ export function textoDeError(motivo: MotivoError | null): string {
   if (motivo === "sin_api") return "No pudimos conectar con Trato";
   return "No pudimos vincular tu WhatsApp";
 }
+
+/** `GET /whatsapp/status`: si atiende y por dónde (la API oficial de Meta o el QR, no oficial). */
+export type WhatsappStatus = {
+  linked: boolean;
+  phoneNumber: string | null;
+  canal: "meta" | "baileys" | null;
+  /** Si la API ofrece conectar WhatsApp Business por la API oficial. */
+  metaDisponible: boolean;
+};

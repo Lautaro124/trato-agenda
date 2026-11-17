@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { obtenerCondicionesPago, type CondicionesPago } from "@/lib/condiciones-pago";
 import { listarProductos } from "@/lib/productos";
+import type { WhatsappStatus } from "@/lib/vinculacion";
 
-type WhatsappStatus = { linked: boolean };
 
 type Paso = { hecho: boolean; titulo: string; detalle: string; href: string; accion: string };
 

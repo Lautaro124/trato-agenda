@@ -28,7 +28,7 @@ export default function TerminosPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Términos de servicio
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 26 de septiembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 17 de noviembre de 2026</p>
 
         <Seccion titulo="El servicio">
           <p>
@@ -101,7 +101,17 @@ export default function TerminosPage() {
           <p>
             Si creás la cuenta con WhatsApp, el número que vinculás es tu cuenta: quien tenga ese
             WhatsApp puede entrar a tu panel, con el QR o con el código que mandamos a su propio chat.
-            Cuidá el acceso a tu teléfono como cuidás el de tu WhatsApp.
+            Cuidá el acceso a tu teléfono como cuidás el de tu WhatsApp. Si la creás con WhatsApp
+            Business, entra a tu panel quien pueda conectar ese número desde Meta.
+          </p>
+          <p>
+            Hay dos formas de conectar el número. <strong className="font-semibold text-ink">Con la API oficial de Meta</strong>, que es la
+            que recomendamos: por esa vía WhatsApp sólo deja escribirle a un cliente hasta 24 horas
+            después de su último mensaje, y además aplican los términos de WhatsApp Business de Meta.{" "}
+            <strong className="font-semibold text-ink">Con QR o código</strong> (como un dispositivo vinculado): no es una vía oficial y
+            WhatsApp puede bloquear el número de forma temporal o definitiva por usarlo con un asistente
+            automático. Si elegís esa vía, aceptás ese riesgo: no somos responsables por bloqueos del
+            número.
           </p>
         </Seccion>
 

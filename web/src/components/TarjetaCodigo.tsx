@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { AvisoNumeroPersonal } from "@/components/AvisoNumeroPersonal";
+import { AvisoRiesgoBloqueo } from "@/components/AvisoRiesgoBloqueo";
 import { Button } from "@/components/ui/Button";
 import { CampoTelefono } from "@/components/ui/CampoTelefono";
 import { PAIS_POR_DEFECTO, telefonoCompleto, type Pais } from "@/lib/telefono";
@@ -84,6 +85,7 @@ export function TarjetaCodigo({
         <p className="text-sm leading-[1.6] text-ink-secondary">{bajada}</p>
       </div>
 
+      <AvisoRiesgoBloqueo />
       <AvisoNumeroPersonal />
 
       {codigo && !vencido ? (

@@ -1,4 +1,5 @@
 import { AvisoNumeroPersonal } from "@/components/AvisoNumeroPersonal";
+import { AvisoRiesgoBloqueo } from "@/components/AvisoRiesgoBloqueo";
 import { QrCode } from "@/components/QrCode";
 
 const PASOS = [
@@ -55,6 +56,7 @@ export function TarjetaQr({
           {titulo}
         </h1>
         <p className="mb-4 text-sm leading-[1.6] text-ink-secondary">{bajada}</p>
+        <AvisoRiesgoBloqueo className="mb-3" />
         <AvisoNumeroPersonal className="mb-6" />
 
         <ol className="flex flex-col gap-4">
