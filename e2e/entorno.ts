@@ -15,6 +15,11 @@ export const MP_STUB_URL = process.env.E2E_MP_STUB_URL ?? 'http://localhost:4020
  */
 export const TIENDA_URL = process.env.E2E_TIENDA_URL ?? 'http://importacion-stub:4030'; // NOSONAR: stub de la red interna de compose
 
+/** La Graph API de Meta falsa (e2e/meta-stub). */
+export const META_STUB_URL = process.env.E2E_META_STUB_URL ?? 'http://localhost:4040';
+/** El META_APP_SECRET de docker-compose.e2e.yml: firma los webhooks de Meta de los specs. */
+export const META_APP_SECRET = process.env.E2E_META_APP_SECRET ?? 'e2e-meta-secret';
+
 /** La de docker-compose.e2e.yml. Para `e2e:real`, la que tenga api/.env. */
 export const DEV_PASSWORD = process.env.E2E_DEV_PASSWORD ?? 'e2e-password';
 

@@ -13,7 +13,7 @@ import {
 import { completarWizard, perfilProduccion } from './onboarding';
 
 test.describe('después de generar: /listo y /vincular', () => {
-  test('/listo anuncia la prueba y lleva a la pantalla del QR', async ({ page, context, usuarioDev }) => {
+  test('/listo anuncia la prueba y lleva a conectar WhatsApp Business', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgentePorApi(context.request);
 
@@ -22,13 +22,10 @@ test.describe('después de generar: /listo y /vincular', () => {
     await page.getByRole('button', { name: 'Vincular WhatsApp y empezar' }).click();
     await esperarRuta(page, '/vincular');
 
-    // Sin escanear: el QR depende de los servidores de WhatsApp, así que alcanza
-    // con que la pantalla llegue a un estado conocido (código o error con reintento).
-    await expect(
-      page
-        .getByRole('heading', { name: 'Vinculá tu WhatsApp' })
-        .or(page.getByText('No pudimos vincular tu WhatsApp')),
-    ).toBeVisible({ timeout: 30_000 });
+    // La API oficial primero; el QR (no oficial) queda como alternativa, sin arrancar todavía.
+    await expect(page.getByRole('heading', { name: 'Conectá tu WhatsApp Business' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Conectar WhatsApp Business' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Vinculá tu WhatsApp' })).toHaveCount(0);
   });
 
   test('una cuenta que ya escaneó el QR no vuelve a vincular: va a la agenda o a los planes', async ({ page, context }) => {
@@ -51,8 +48,10 @@ test.describe('después de generar: /listo y /vincular', () => {
 });
 
 const AVISO_NUMERO_PERSONAL = 'No te recomendamos usar tu celular personal.';
+const AVISO_BLOQUEO = 'Esta vinculación no es oficial.';
+const ABRIR_NO_OFICIAL = 'Vincular por QR o código (no oficial)';
 
-test.describe('/vincular: QR en la computadora, código en el celular', () => {
+test.describe('/vincular: QR (no oficial) en la computadora, código en el celular', () => {
   test('en la computadora arranca con el QR, avisa del número personal y deja pasar al código', async ({
     page,
     context,
@@ -62,8 +61,10 @@ test.describe('/vincular: QR en la computadora, código en el celular', () => {
     await crearAgentePorApi(context.request);
 
     await page.goto('/vincular');
+    await page.getByRole('button', { name: ABRIR_NO_OFICIAL }).click();
     await expect(page.getByRole('heading', { name: 'Vinculá tu WhatsApp' })).toBeVisible();
     await expect(page.getByText('Dispositivos vinculados')).toBeVisible();
+    await expect(page.getByText(AVISO_BLOQUEO)).toBeVisible();
     await expect(page.getByText(AVISO_NUMERO_PERSONAL)).toBeVisible();
 
     await page.getByRole('button', { name: /Vinculá con un código/ }).click();
@@ -88,8 +89,10 @@ test.describe('/vincular en el celular', { tag: '@movil' }, () => {
     await crearAgentePorApi(context.request);
 
     await page.goto('/vincular');
+    await page.getByRole('button', { name: ABRIR_NO_OFICIAL }).click();
     // El código no depende de los servidores de WhatsApp hasta que se pide.
     await expect(page.getByRole('form', { name: 'Vincular con código' })).toBeVisible();
+    await expect(page.getByText(AVISO_BLOQUEO)).toBeVisible();
     await expect(page.getByText(AVISO_NUMERO_PERSONAL)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Pedir código' })).toBeDisabled();
 

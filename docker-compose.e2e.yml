@@ -1,7 +1,8 @@
 # Override para los E2E de Playwright (paquete e2e/). Suma un OpenRouter falso
 # y determinista, un Mercado Pago falso (OAuth, links de pago, suscripciones y
 # webhooks firmados), una tienda y un Mercado Libre falsos para la importación
-# rápida, y le prende a la API el login de desarrollo:
+# rápida, una Graph API de Meta falsa (WhatsApp Business por la Cloud API), y
+# le prende a la API el login de desarrollo:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
 #   cd e2e && npm run e2e
@@ -60,6 +61,24 @@ services:
       timeout: 3s
       retries: 10
 
+  meta-stub:
+    image: node:26.12.1-alpine
+    working_dir: /stub
+    command: ["node", "server.mjs"]
+    environment:
+      PORT: "4040"
+      # Las URLs de descarga de media tienen que ser del mismo origen que META_GRAPH_URL.
+      URL_INTERNA: http://meta-stub:4040
+    volumes:
+      - ./e2e/meta-stub:/stub:ro
+    ports:
+      - "4040:4040"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4040/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
   api:
     # El stack de e2e corre con su propio nombre de proyecto (ver e2e/package.json),
     # así que arranca con una base vacía: las migraciones van antes de levantar.
@@ -90,6 +109,13 @@ services:
       MERCADOLIBRE_CLIENT_ID: e2e-ml-app
       MERCADOLIBRE_CLIENT_SECRET: e2e-ml-secret
       IMPORTACION_HOSTS_DE_PRUEBA: importacion-stub
+      # WhatsApp Business por la Cloud API contra la Graph API falsa: los specs
+      # arman el code de Embedded Signup y firman webhooks con este secreto.
+      META_APP_ID: e2e-meta-app
+      META_APP_SECRET: e2e-meta-secret
+      META_ES_CONFIG_ID: e2e-meta-config
+      META_WEBHOOK_VERIFY_TOKEN: e2e-meta-verify-token-0123456789
+      META_GRAPH_URL: http://meta-stub:4040
       # Sin Linear: api/.env puede traer la API key real, y los specs de
       # sugerencias crearían issues de verdad en cada corrida. Vacías, las
       # sugerencias se guardan en la base del stack y quedan pendientes.
@@ -102,4 +128,6 @@ services:
       mercadopago-stub:
         condition: service_healthy
       importacion-stub:
+        condition: service_healthy
+      meta-stub:
         condition: service_healthy

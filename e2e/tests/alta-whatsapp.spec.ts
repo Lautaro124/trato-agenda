@@ -2,11 +2,12 @@ import { API_URL } from '../entorno';
 import { esperarRuta, expect, test } from './fixtures';
 
 test.describe('alta sólo con WhatsApp', () => {
-  test('/entrar ofrece crear la cuenta con WhatsApp y lleva a la pantalla del QR de alta', async ({ page }) => {
+  test('/entrar ofrece WhatsApp Business y, como alternativa, el QR de alta', async ({ page }) => {
     await page.goto('/entrar');
 
     await page.getByRole('tab', { name: 'Soy nuevo' }).click();
-    await page.getByRole('link', { name: 'Crear cuenta con WhatsApp' }).click();
+    await expect(page.getByRole('button', { name: 'Crear cuenta con WhatsApp Business' })).toBeVisible();
+    await page.getByRole('link', { name: 'Creá la cuenta con un QR' }).click();
     await esperarRuta(page, '/entrar/whatsapp');
 
     // Sin escanear: el QR depende de los servidores de WhatsApp, así que alcanza
