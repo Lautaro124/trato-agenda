@@ -321,7 +321,7 @@ export function BandejaChats({
             <aside
               aria-label="Datos de la venta"
               data-tutorial="estado-trato"
-              className="hidden min-h-0 w-[320px] flex-none overflow-y-auto rounded-lg border border-line bg-card p-4 xl:block"
+              className="hidden min-h-0 w-[320px] flex-none overflow-hidden rounded-lg border border-line bg-card p-4 xl:block"
             >
               {panel}
             </aside>

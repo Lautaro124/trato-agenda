@@ -13,8 +13,7 @@ import { useTutorial } from "@/lib/tutorial";
 
 /**
  * Inicio: los chats de WhatsApp que atiende el asistente, con indicadores
- * rápidos y, en ventas, el estado del trato de cada uno. El chat de prueba
- * vive en /chat ("Probar asistente").
+ * rápidos y, en ventas, el estado del trato de cada uno.
  */
 export default function InicioPage() {
   const router = useRouter();

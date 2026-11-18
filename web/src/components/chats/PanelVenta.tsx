@@ -7,11 +7,9 @@ import { cn } from "@/lib/cn";
 import { formatearMonto, listarProductos, type Producto } from "@/lib/productos";
 import { ETIQUETA_ESTADO, type EstadoVenta } from "@/lib/ventas";
 
-const OPCIONES_TRATO: Array<{ id: EstadoTrato; label: string; activo: string }> = [
-  { id: "hecho", label: "Trato hecho", activo: "border-primary bg-primary-subtle text-primary-active" },
-  { id: "pagado", label: "Pagado", activo: "border-success-text bg-success-subtle text-success-text" },
-  { id: "cancelado", label: "Cancelado", activo: "border-danger-text bg-danger-subtle text-danger-text" },
-];
+const OPCION_HECHO = { id: "hecho" as EstadoTrato, label: "Trato hecho", activo: "border-primary bg-primary-subtle text-primary-active" };
+const OPCION_PAGADO = { id: "pagado" as EstadoTrato, label: "Pagado", activo: "border-success-text bg-success-subtle text-success-text" };
+const OPCION_CANCELADO = { id: "cancelado" as EstadoTrato, label: "Cancelado", activo: "border-danger-text bg-danger-subtle text-danger-text" };
 
 const AYUDA: Record<EstadoTrato | "ninguno", string> = {
   ninguno: "Marcalo vos cuando cierres el trato por fuera del bot.",
@@ -41,11 +39,18 @@ export function PanelVenta({
   // Sin pedido abierto, "Trato hecho" y "Pagado" piden armarlo; con uno, sólo cambian su estado.
   const pedidoAbierto = ficha.pedido && (ficha.pedido.estado === "pendiente_pago" || ficha.pedido.estado === "vencida");
   const pedidoPagado = ficha.pedido?.estado === "pagada";
+  // Con el trato hecho (o pagado) sólo queda el cobro; antes, "Trato hecho" o "Cancelado".
+  const enCierre = ficha.trato === "hecho" || ficha.trato === "pagado";
+  const opciones = enCierre
+    ? [{ ...OPCION_PAGADO, label: ficha.trato === "pagado" ? "Pagado" : "Marcar como pagado" }]
+    : [OPCION_HECHO, OPCION_CANCELADO];
   const elegir = (estado: EstadoTrato) => {
     if (estado === ficha.trato) return;
     if (estado !== "cancelado" && !pedidoAbierto && !pedidoPagado) setArmando(estado);
     else void onTrato({ estado });
   };
+
+  const pedidos = ficha.productos.filter((producto) => producto.tipo === "pidio");
 
   if (armando) {
     return (
@@ -62,8 +67,8 @@ export function PanelVenta({
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <section aria-labelledby="titulo-resumen" className="flex flex-col gap-1.5">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <section aria-labelledby="titulo-resumen" className="flex flex-none flex-col gap-1.5">
         <h3 id="titulo-resumen" className="text-xs font-bold text-ink-secondary">
           Resumen del chat
         </h3>
@@ -72,27 +77,27 @@ export function PanelVenta({
         </p>
       </section>
 
-      <section aria-labelledby="titulo-interes" className="flex flex-col gap-2">
+      <section aria-labelledby="titulo-interes" className="flex min-h-0 flex-1 flex-col gap-2">
         <h3 id="titulo-interes" className="text-xs font-bold text-ink-secondary">
           Le interesa
         </h3>
-        {ficha.productos.length === 0 ? (
-          <p className="text-sm text-ink-secondary">Todavía no vio productos.</p>
+        {pedidos.length === 0 ? (
+          <p className="text-sm text-ink-secondary">Todavía no pidió productos.</p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {ficha.productos.map((producto) => (
+          <ul className="flex min-h-0 flex-col gap-1 overflow-y-auto">
+            {pedidos.map((producto) => (
               <ProductoInteres key={producto.id} producto={producto} />
             ))}
           </ul>
         )}
       </section>
 
-      <section aria-labelledby="titulo-trato" className="flex flex-col gap-2.5 border-t border-line pt-4">
+      <section aria-labelledby="titulo-trato" className="flex flex-none flex-col gap-2.5 border-t border-line pt-4">
         <h3 id="titulo-trato" className="text-xs font-bold text-ink-secondary">
           Estado del trato
         </h3>
-        <div role="group" aria-labelledby="titulo-trato" className="grid grid-cols-3 gap-1.5">
-          {OPCIONES_TRATO.map((opcion) => {
+        <div role="group" aria-labelledby="titulo-trato" className={cn("grid gap-1.5", enCierre ? "grid-cols-1" : "grid-cols-2")}>
+          {opciones.map((opcion) => {
             const activo = ficha.trato === opcion.id;
             return (
               <button
@@ -128,29 +133,7 @@ export function PanelVenta({
 }
 
 function ProductoInteres({ producto }: Readonly<{ producto: ProductoDeInteres }>) {
-  const conPromo = producto.contadoCentavos < producto.precioListaCentavos;
-  const planes = producto.planes
-    .map((plan) => `${plan.cuotas} de ${formatearMonto(plan.cuotaCentavos, producto.moneda)}`)
-    .join(" · ");
-  return (
-    <li className="flex flex-col gap-1 rounded-md bg-sunken px-3 py-2.5">
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-semibold text-ink">{producto.nombre}</span>
-        <span className="flex-none text-sm font-bold text-ink">
-          {conPromo && (
-            <s className="mr-1.5 font-normal text-ink-secondary">{formatearMonto(producto.precioListaCentavos, producto.moneda)}</s>
-          )}
-          {formatearMonto(producto.contadoCentavos, producto.moneda)}
-        </span>
-      </span>
-      <span className="text-xs text-ink-secondary">{producto.tipo === "pidio" ? "Lo pidió" : "Lo vio"}</span>
-      {conPromo && <span className="text-xs font-semibold text-success-text">Tiene una promo vigente</span>}
-      {producto.efectivoCentavos !== null && producto.efectivoCentavos < producto.contadoCentavos && (
-        <span className="text-xs text-ink">En efectivo: {formatearMonto(producto.efectivoCentavos, producto.moneda)}</span>
-      )}
-      <span className="text-xs text-ink">{planes ? `Cuotas: ${planes}` : "En un pago"}</span>
-    </li>
-  );
+  return <li className="truncate rounded-md bg-sunken px-2.5 py-1.5 text-[13px] font-semibold text-ink">{producto.nombre}</li>;
 }
 
 type Renglon = { id: string; nombre: string; cantidad: number };

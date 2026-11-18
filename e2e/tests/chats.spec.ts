@@ -143,7 +143,7 @@ test.describe('estado del trato (ventas)', () => {
     await page.goto('/inicio');
     await abrirChat(page, 'Tomás Acosta');
     const panel = page.getByRole('complementary', { name: 'Datos de la venta' });
-    await expect(panel.getByText('Todavía no vio productos.')).toBeVisible();
+    await expect(panel.getByText('Todavía no pidió productos.')).toBeVisible();
 
     await panel.getByRole('button', { name: 'Trato hecho' }).click();
     const ticket = panel.getByRole('form', { name: 'Registrar trato hecho' });
@@ -154,20 +154,21 @@ test.describe('estado del trato (ventas)', () => {
     await ticket.getByRole('button', { name: 'Guardar trato hecho' }).click();
 
     await expect(page.getByText('Listo: el trato quedó hecho y el pedido, pendiente de pago.')).toBeVisible();
-    await expect(panel.getByRole('button', { name: 'Trato hecho' })).toHaveAttribute('aria-pressed', 'true');
+    // Con el trato hecho sólo queda el cobro: desaparece Cancelado.
+    await expect(panel.getByRole('button', { name: 'Marcar como pagado' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Cancelado' })).toHaveCount(0);
     // El total lo pone la API: 2 × $ 12.800.
     await expect(panel.getByText('$ 25.600')).toBeVisible();
     const lista = page.getByRole('region', { name: 'Lista de chats' });
     await expect(lista.getByRole('button', { name: /Tomás Acosta/ })).toContainText('Trato hecho');
 
-    await panel.getByRole('button', { name: 'Pagado' }).click();
+    await panel.getByRole('button', { name: 'Marcar como pagado' }).click();
     await expect(panel.getByRole('button', { name: 'Pagado' })).toHaveAttribute('aria-pressed', 'true');
     await expect(lista.getByRole('button', { name: /Tomás Acosta/ })).toContainText('Pagado');
     await expect(page.getByRole('region', { name: 'Indicadores rápidos' }).getByRole('button', { name: /^100 % chat a venta/ })).toBeVisible();
 
-    // Un trato pagado no se cancela desde acá.
-    await panel.getByRole('button', { name: 'Cancelado' }).click();
-    await expect(page.getByText(/ya tiene el pedido pagado/)).toBeVisible();
+    // Un trato pagado no se cancela desde acá: el botón ya no está.
+    await expect(panel.getByRole('button', { name: 'Cancelado' })).toHaveCount(0);
   });
 
   test('cancelado sin pedido deja la marca y la API no deja tocar el trato de otra cuenta', async ({ page, context, usuarioDev, browser }) => {
