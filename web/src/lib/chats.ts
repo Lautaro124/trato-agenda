@@ -51,11 +51,8 @@ export type ProductoDeInteres = {
   id: string;
   nombre: string;
   tipo: "vio" | "pidio";
-  moneda: string;
-  precioListaCentavos: number;
-  contadoCentavos: number;
   efectivoCentavos: number | null;
-  planes: Array<{ cuotas: number; totalCentavos: number; cuotaCentavos: number; recargoCentavos: number }>;
+  planes: Array<{ cuotas: number }>;
 };
 
 export type FichaChat = {
