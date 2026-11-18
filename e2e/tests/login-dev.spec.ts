@@ -54,7 +54,7 @@ test.describe('login con contraseña (sólo dev)', () => {
     await page.getByRole('button', { name: 'Entrar sin Google' }).click();
 
     await esperarRuta(page, '/inicio');
-    await expect(page.getByPlaceholder('Escribile al agente…')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Indicadores rápidos' })).toBeVisible();
   });
 
   test('con sesión viva /entrar redirige solo', async ({ page, usuarioDev }) => {

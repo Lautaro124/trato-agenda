@@ -1,7 +1,7 @@
 import type { APIRequestContext } from '@playwright/test';
 import { API_URL } from '../entorno';
-import { expect, test } from './fixtures';
-import { crearAgenteVentasPorApi, crearProductoPorApi, escribirEnChat, productoPorApi } from './ventas';
+import { expect, hablarConAgente, test } from './fixtures';
+import { crearAgenteVentasPorApi, crearProductoPorApi, productoPorApi } from './ventas';
 
 /** El chat de prueba por API, para los tests que no prueban la pantalla del chat. */
 async function decirle(request: APIRequestContext, message: string): Promise<string> {
@@ -21,15 +21,13 @@ test.describe('pedido sin Mercado Pago (cobro a coordinar)', () => {
       stock: 2,
     });
 
-    await page.goto('/inicio');
-    await escribirEnChat(page, '¿tenés remera de algodón?');
-    await expect(page.getByText('Tengo Remera de algodón a $ 15.000.')).toBeVisible();
-    await escribirEnChat(page, 'quiero 1, soy Beto');
-    await expect(page.getByText(/^Listo: Pedido creado para "Beto": 1 × Remera de algodón/)).toBeVisible();
-    await expect(page.getByText(/Queda reservado hasta el .* para coordinar el pago/)).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿tenés remera de algodón?')).reply).toContain('Tengo Remera de algodón a $ 15.000.');
+    const pedido = (await hablarConAgente(context.request, 'quiero 1, soy Beto')).reply;
+    expect(pedido).toMatch(/^Listo: Pedido creado para "Beto": 1 × Remera de algodón/m);
+    expect(pedido).toMatch(/Queda reservado hasta el .* para coordinar el pago/);
 
-    // El aviso de "pedido para cobrar" llega a la campanita (se recarga para no esperar el polling).
-    await page.reload();
+    // El aviso de "pedido para cobrar" llega a la campanita.
+    await page.goto('/inicio');
     await page.getByRole('button', { name: /^Notificaciones \(1 sin leer\)$/ }).click();
     await page.getByRole('button', { name: /\[Prueba\] Pedido para cobrar: \$ 15\.000/ }).click();
 

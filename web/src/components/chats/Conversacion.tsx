@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { EtiquetaVenta } from "@/components/chats/EtiquetaVenta";
 import { Button } from "@/components/ui/Button";
 import {
   contextoDe,
+  etiquetaDeVenta,
   horaDeMensaje,
   inicialDe,
   LARGO_MAX_MENSAJE,
@@ -35,6 +37,7 @@ export function Conversacion({
   onTomar,
   onDevolver,
   onEnviar,
+  panel,
 }: Readonly<{
   detalle: DetalleChat;
   trabajando: boolean;
@@ -45,10 +48,13 @@ export function Conversacion({
   onDevolver: () => void;
   /** Devuelve true si salió, para limpiar lo escrito. */
   onEnviar: (texto: string) => Promise<boolean>;
+  /** Los datos de la venta: en pantallas angostas se pliegan arriba de los mensajes. */
+  panel?: ReactNode;
 }>) {
   const { chat, mensajes } = detalle;
   const nombre = nombreDe(chat);
   const contexto = contextoDe(chat);
+  const etiqueta = etiquetaDeVenta(chat);
   const esVos = chat.atencion === "humana";
   const [borrador, setBorrador] = useState("");
   const historial = useRef<HTMLDivElement>(null);
@@ -85,7 +91,8 @@ export function Conversacion({
           </span>
           <div className="flex min-w-0 flex-col">
             <h2 className="truncate font-display text-[18px] font-bold">{nombre}</h2>
-            <p className="truncate text-[13px] text-ink-secondary">
+            <p className="flex min-w-0 items-center gap-2 truncate text-[13px] text-ink-secondary">
+              {etiqueta && <EtiquetaVenta etiqueta={etiqueta} />}
               {[chat.nombre && chat.telefono ? `+${chat.telefono}` : null, contexto].filter(Boolean).join(" · ") ||
                 "Sin turno ni pedido abierto"}
             </p>
@@ -115,6 +122,18 @@ export function Conversacion({
         <p className="bg-primary-subtle px-4 py-2.5 text-sm font-semibold text-primary-active md:px-5">
           El bot está en pausa en este chat hasta que lo devuelvas.
         </p>
+      )}
+
+      {panel && (
+        <details className="group border-b border-line xl:hidden">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 px-4 text-sm font-bold text-ink md:px-5">
+            Datos de la venta
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="text-ink-secondary transition-transform group-open:rotate-180">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div className="max-h-[55dvh] overflow-y-auto px-4 pb-4 md:px-5">{panel}</div>
+        </details>
       )}
 
       <div ref={historial} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-page p-4 md:p-5">

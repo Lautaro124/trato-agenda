@@ -1,6 +1,6 @@
 import { API_URL } from '../entorno';
-import { expect, test } from './fixtures';
-import { crearAgenteVentasPorApi, crearProductoPorApi, escribirEnChat } from './ventas';
+import { expect, hablarConAgente, test } from './fixtures';
+import { crearAgenteVentasPorApi, crearProductoPorApi } from './ventas';
 
 /** PNG de 1 × 1: la API lo valida por contenido y lo guarda recomprimido como JPEG. */
 const PNG = Buffer.from(
@@ -47,12 +47,10 @@ test.describe('fotos de productos', () => {
     await editor.getByRole('button', { name: 'Cancelar' }).click();
 
     // En el banco de pruebas: primero busca, después manda la foto con el nombre al pie.
-    await page.goto('/inicio');
-    await escribirEnChat(page, '¿Tenés mate de calabaza?');
-    await expect(page.getByText('Tengo Mate de calabaza a $ 8.000.')).toBeVisible();
-    await escribirEnChat(page, 'Mandame una foto');
-    await expect(page.getByRole('img', { name: 'Foto de Mate de calabaza' })).toBeVisible();
-    await expect(page.getByText('Ahí te mandé la foto. ¿Es lo que buscabas?')).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿Tenés mate de calabaza?')).reply).toContain('Tengo Mate de calabaza a $ 8.000.');
+    const conFoto = await hablarConAgente(context.request, 'Mandame una foto');
+    expect(conFoto.imagenes?.map((imagen) => imagen.nombre)).toEqual(['Mate de calabaza']);
+    expect(conFoto.reply).toContain('Ahí te mandé la foto. ¿Es lo que buscabas?');
 
     // Quitarla libera el lugar; el asistente ya no tiene qué mandar.
     const quitar = await context.request.delete(`${API_URL}/productos/${mate.id}/imagen`);

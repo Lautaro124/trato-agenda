@@ -1,6 +1,7 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { API_URL } from '../entorno';
 import { crearAgentePorApi, emailUnico, esperarRuta, expect, loginDev, telefonoUnico, test } from './fixtures';
+import { crearAgenteVentasPorApi, crearProductoPorApi } from './ventas';
 
 type Mensaje = { de: 'cliente' | 'asistente'; texto: string };
 
@@ -17,7 +18,7 @@ async function abrirChat(page: Page, nombre: string): Promise<void> {
   await expect(page.getByRole('heading', { name: nombre })).toBeVisible();
 }
 
-test.describe('chats (LAU-81)', () => {
+test.describe('chats en Inicio (LAU-81)', () => {
   test('ver un chat, tomar el control, filtrar y devolverlo al bot', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgentePorApi(context.request);
@@ -31,9 +32,9 @@ test.describe('chats (LAU-81)', () => {
       { de: 'cliente', texto: '¿Tenés lugar el jueves a la tarde?' },
     ]);
 
-    await page.goto('/inicio');
-    await page.getByRole('link', { name: 'Chats' }).click();
-    await esperarRuta(page, '/chats');
+    // Los enlaces viejos a /chats llevan a Inicio, donde ahora están los chats.
+    await page.goto('/chats');
+    await esperarRuta(page, '/inicio');
 
     await abrirChat(page, 'Martina López');
     const chat = page.getByRole('region', { name: 'Chat con Martina López' });
@@ -75,7 +76,7 @@ test.describe('chats (LAU-81)', () => {
     const res = await context.request.post(`${API_URL}/chats/${id}/atencion`, { data: { humana: true } });
     expect(res.status(), await res.text()).toBe(200);
 
-    await page.goto('/chats');
+    await page.goto('/inicio');
     const lista = page.getByRole('region', { name: 'Lista de chats' });
     await expect(lista.getByRole('button', { name: 'Vos · 1' })).toBeVisible();
     await lista.getByRole('button', { name: 'Vos · 1' }).click();
@@ -85,6 +86,12 @@ test.describe('chats (LAU-81)', () => {
     await lista.getByRole('button', { name: 'Bot · 1' }).click();
     await expect(lista.getByRole('button', { name: /Carlos Díaz/ })).toBeVisible();
     await expect(lista.getByRole('button', { name: /Sofía Ramírez/ })).toBeHidden();
+
+    // El indicador de intervenciones es un atajo al mismo filtro.
+    const indicadores = page.getByRole('region', { name: 'Indicadores rápidos' });
+    await expect(indicadores.getByRole('button', { name: /^2 chats nuevos/ })).toBeVisible();
+    await indicadores.getByRole('button', { name: /^1 intervenciones/ }).click();
+    await expect(lista.getByRole('button', { name: 'Vos · 1' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('la API no deja ver ni tocar el chat de otra cuenta', async ({ context, usuarioDev, browser }) => {
@@ -110,9 +117,6 @@ test.describe('chats en el celular', () => {
     await sembrarChat(context.request, 'Martina López', [{ de: 'cliente', texto: '¿Tenés lugar el jueves?' }]);
 
     await page.goto('/inicio');
-    await page.getByRole('button', { name: 'Abrir menú' }).click();
-    await page.getByRole('dialog', { name: 'Menú' }).getByRole('link', { name: 'Chats' }).click();
-    await esperarRuta(page, '/chats');
     const lista = page.getByRole('region', { name: 'Lista de chats' });
     await expect(lista).toBeVisible();
 
@@ -128,25 +132,61 @@ test.describe('chats en el celular', () => {
   });
 });
 
-test.describe('tutorial de chats', () => {
-  test('la primera vez explica la lista, Bot o Vos, el botón y el teléfono', async ({ page, context }, info) => {
-    test.skip(info.project.name !== 'escritorio', 'En el celular el chat abierto tapa la lista: el recorrido salta pasos.');
-    await loginDev(context.request, emailUnico('tutorial-chats'), undefined, { conTutoriales: true });
-    await crearAgentePorApi(context.request);
-    // Inicio tiene su propio recorrido: se marca visto para entrar directo a Chats.
-    await context.request.post(`${API_URL}/auth/tutoriales`, { data: { claves: ['inicio'] } });
-    await sembrarChat(context.request, 'Martina López', [{ de: 'cliente', texto: 'Hola!' }]);
+test.describe('estado del trato (ventas)', () => {
+  test('trato hecho arma el pedido con precios de la base, después pagado y la etiqueta lo sigue', async ({ page, context, usuarioDev }, info) => {
+    test.skip(info.project.name !== 'escritorio', 'El panel de venta de escritorio; en el celular es el mismo, plegado.');
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    await crearProductoPorApi(context.request, { codigo: 'MATE-TRATO', nombre: 'Mate imperial', precioCentavos: 1_280_000, stock: 3 });
+    await sembrarChat(context.request, 'Tomás Acosta', [{ de: 'cliente', texto: 'Te lo pago el viernes, ¿me lo guardás?' }]);
 
-    await page.goto('/chats');
-    const titulos = ['Tus chats de WhatsApp', 'Bot o Vos', 'Un botón decide quién contesta', 'Contestá desde acá o desde tu teléfono'];
-    for (const [i, titulo] of titulos.entries()) {
-      const paso = page.getByRole('dialog', { name: titulo });
-      await expect(paso).toBeVisible();
-      await paso.getByRole('button', { name: i === titulos.length - 1 ? 'Listo' : 'Siguiente' }).click();
-    }
-    await expect(page.getByRole('dialog')).toBeHidden();
+    await page.goto('/inicio');
+    await abrirChat(page, 'Tomás Acosta');
+    const panel = page.getByRole('complementary', { name: 'Datos de la venta' });
+    await expect(panel.getByText('Todavía no pidió productos.')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Cómo funciona' }).click();
-    await expect(page.getByRole('dialog', { name: 'Tus chats de WhatsApp' })).toBeVisible();
+    await panel.getByRole('button', { name: 'Trato hecho' }).click();
+    const ticket = panel.getByRole('form', { name: 'Registrar trato hecho' });
+    await ticket.getByPlaceholder('Agregar otro producto').fill('Mate imperial');
+    await ticket.getByRole('button', { name: 'Buscar' }).click();
+    await ticket.getByRole('button', { name: /Mate imperial/ }).click();
+    await ticket.getByLabel('Cantidad de Mate imperial').fill('2');
+    await ticket.getByRole('button', { name: 'Guardar trato hecho' }).click();
+
+    await expect(page.getByText('Listo: el trato quedó hecho y el pedido, pendiente de pago.')).toBeVisible();
+    // Con el trato hecho sólo queda el cobro: desaparece Cancelado.
+    await expect(panel.getByRole('button', { name: 'Marcar como pagado' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Cancelado' })).toHaveCount(0);
+    // El total lo pone la API: 2 × $ 12.800.
+    await expect(panel.getByText('$ 25.600')).toBeVisible();
+    const lista = page.getByRole('region', { name: 'Lista de chats' });
+    await expect(lista.getByRole('button', { name: /Tomás Acosta/ })).toContainText('Trato hecho');
+
+    await panel.getByRole('button', { name: 'Marcar como pagado' }).click();
+    await expect(panel.getByRole('button', { name: 'Pagado' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(lista.getByRole('button', { name: /Tomás Acosta/ })).toContainText('Pagado');
+    await expect(page.getByRole('region', { name: 'Indicadores rápidos' }).getByRole('button', { name: /^100 % chat a venta/ })).toBeVisible();
+
+    // Un trato pagado no se cancela desde acá: el botón ya no está.
+    await expect(panel.getByRole('button', { name: 'Cancelado' })).toHaveCount(0);
+  });
+
+  test('cancelado sin pedido deja la marca y la API no deja tocar el trato de otra cuenta', async ({ page, context, usuarioDev, browser }) => {
+    expect(usuarioDev.email).toBeTruthy();
+    await crearAgenteVentasPorApi(context.request);
+    const id = await sembrarChat(context.request, 'Carla Méndez', [{ de: 'cliente', texto: '¿Cuánto sale el envío a Rosario?' }]);
+
+    const res = await context.request.post(`${API_URL}/chats/${id}/trato`, { data: { estado: 'cancelado' } });
+    expect(res.status(), await res.text()).toBe(200);
+    await page.goto('/inicio');
+    const lista = page.getByRole('region', { name: 'Lista de chats' });
+    await lista.getByRole('button', { name: 'Cancelado · 1' }).click();
+    await expect(lista.getByRole('button', { name: /Carla Méndez/ })).toContainText('Cancelado');
+
+    const otro = await browser.newContext();
+    await loginDev(otro.request, emailUnico('otro-trato'));
+    expect((await otro.request.post(`${API_URL}/chats/${id}/trato`, { data: { estado: 'pagado' } })).status()).toBe(404);
+    expect((await otro.request.get(`${API_URL}/chats/${id}/ficha`)).status()).toBe(404);
+    await otro.close();
   });
 });

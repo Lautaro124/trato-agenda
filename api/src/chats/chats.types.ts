@@ -1,7 +1,26 @@
-import { IsBoolean, IsOptional, IsString, IsUUID, Length, MaxLength } from 'class-validator';
-import { LARGO_MAX_NOTA } from '../comercio/ventas.rules.js';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { FORMAS_DE_PAGO, type FormaDePago } from '../comercio/condiciones-pago.rules.js';
+import { LARGO_MAX_NOTA, MAX_CANTIDAD_POR_ITEM, MAX_ITEMS_POR_PEDIDO } from '../comercio/ventas.rules.js';
 import type { MensajePublico } from '../comercio/ventas.types.js';
+import type { EstadoChat } from '../performance/lectura.rules.js';
+import type { Etapa } from '../performance/etapas.rules.js';
 import type { AtencionChat } from './atencion.js';
+import { ESTADOS_TRATO, type EstadoTrato } from './trato.rules.js';
 
 /** Tope de un mensaje que el dueño manda desde el panel (sincronizado con web/src/lib/chats.ts). */
 export const LARGO_MAX_MENSAJE_PANEL = 1000;
@@ -20,6 +39,10 @@ export type ChatResumen = {
   /** Contexto del negocio: el próximo turno (agenda) o el pedido abierto (ventas). */
   turno: { inicio: Date } | null;
   pedido: { estado: string } | null;
+  /** Sólo en cuentas de ventas: la etapa más avanzada del chat y si está activo, estancado o abandonado. */
+  venta: { etapa: Etapa; estado: EstadoChat; derivado: boolean } | null;
+  /** Sólo en cuentas de ventas: lo que marcó el dueño o salió del último pedido. */
+  trato: EstadoTrato | null;
 };
 
 export type ListaChats = {
@@ -59,4 +82,75 @@ export class EnviarMensajeDto {
   /** Llave de idempotencia que genera la web: reintentar con la misma no manda el mensaje dos veces. */
   @IsUUID()
   clave!: string;
+}
+
+/** Los indicadores rápidos de Inicio, de los últimos `dias` días. */
+export type IndicadoresChats = {
+  dias: number;
+  /** Chats que escribieron por primera vez en el período. */
+  nuevos: number;
+  /** Chats en los que el dueño tomó el control en el período. */
+  intervenciones: number;
+  /** De los nuevos, los que llegaron a una venta pagada (ventas) o a un turno (agenda). */
+  convertidos: number;
+  /** "venta" o "turno", según el tipo de asistente. */
+  conversionA: 'venta' | 'turno';
+};
+
+/** Un producto que el cliente vio o pidió, con lo que sale hoy (precios de la base, nunca del modelo). */
+export type ProductoDeInteres = {
+  id: string;
+  nombre: string;
+  /** "pidio" si llegó a pedirlo; si no, "vio". */
+  tipo: 'vio' | 'pidio';
+  moneda: string;
+  precioListaCentavos: number;
+  /** Con la mejor promo vigente; igual al de lista si no hay. */
+  contadoCentavos: number;
+  /** Con el descuento por pagar en efectivo; null si el comercio no lo ofrece. */
+  efectivoCentavos: number | null;
+  planes: Array<{ cuotas: number; totalCentavos: number; cuotaCentavos: number; recargoCentavos: number }>;
+};
+
+/** Lo que el dueño necesita para cerrar la venta: resumen, interés y el pedido actual. */
+export type FichaChat = {
+  /** El resumen que guarda el asistente del cliente. */
+  resumen: string | null;
+  productos: ProductoDeInteres[];
+  pedido: { id: string; estado: string; totalCentavos: number | null; moneda: string } | null;
+  trato: EstadoTrato | null;
+};
+
+export class ItemTratoDto {
+  @IsString()
+  @Length(1, 64)
+  productoId!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(MAX_CANTIDAD_POR_ITEM)
+  cantidad!: number;
+}
+
+/** El dueño marca el trato del chat. Para crear el pedido hacen falta los productos. */
+export class CambiarTratoDto {
+  @IsIn(ESTADOS_TRATO)
+  estado!: EstadoTrato;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_ITEMS_POR_PEDIDO)
+  @ValidateNested({ each: true })
+  @Type(() => ItemTratoDto)
+  items?: ItemTratoDto[];
+
+  @IsOptional()
+  @IsIn(FORMAS_DE_PAGO)
+  formaPago?: FormaDePago;
+
+  @IsOptional()
+  @IsInt()
+  @Min(2)
+  @Max(48)
+  cuotas?: number;
 }

@@ -360,8 +360,9 @@ falte.
 1. Revocar el acceso de Trato en
    `https://myaccount.google.com/permissions`.
 2. Entrar de nuevo (el consentimiento tiene que mostrar los scopes nuevos).
-3. Ejercitar las cinco llamadas: pedir disponibilidad desde el chat de prueba
-   (`events.list` con `fields` acotado), agendar (`events.insert`), reprogramar (`events.patch`),
+3. Ejercitar las cinco llamadas: pedir disponibilidad escribiéndole al
+   asistente desde un WhatsApp vinculado, o con `POST /conversation/test` (la
+   web ya no tiene pantalla de chat de prueba) (`events.list` con `fields` acotado), agendar (`events.insert`), reprogramar (`events.patch`),
    cancelar (`events.delete`) y abrir `/calendario` (`events.list`).
 4. Cualquier `403` con `insufficient permissions` identifica el scope que falta.
    El código ya lo distingue: se traduce a `GoogleReconsentimientoError`

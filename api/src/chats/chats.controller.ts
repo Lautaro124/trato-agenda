@@ -6,9 +6,13 @@ import type { User } from '../generated/prisma/client.js';
 import { ChatsService } from './chats.service.js';
 import {
   CambiarAtencionDto,
+  CambiarTratoDto,
   EnviarMensajeDto,
   type CambioDeAtencion,
+  type ChatResumen,
   type DetalleChat,
+  type FichaChat,
+  type IndicadoresChats,
   type ListaChats,
   type MensajeChat,
 } from './chats.types.js';
@@ -30,6 +34,12 @@ export class ChatsController {
     return this.chats.eventos$(user.id);
   }
 
+  /** Los indicadores rápidos de Inicio (antes que `:id`, para que no lo tome como un id). */
+  @Get('indicadores')
+  indicadores(@CurrentUser() user: User): Promise<IndicadoresChats> {
+    return this.chats.indicadores(user.id);
+  }
+
   @Get(':id')
   detalle(@CurrentUser() user: User, @Param('id') id: string): Promise<DetalleChat> {
     return this.chats.detalle(user.id, id);
@@ -40,6 +50,19 @@ export class ChatsController {
   @HttpCode(HttpStatus.OK)
   atencion(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: CambiarAtencionDto): Promise<CambioDeAtencion> {
     return this.chats.cambiarAtencion(user.id, id, dto);
+  }
+
+  /** Resumen, productos de interés con sus precios y el último pedido del chat. */
+  @Get(':id/ficha')
+  ficha(@CurrentUser() user: User, @Param('id') id: string): Promise<FichaChat> {
+    return this.chats.ficha(user.id, id);
+  }
+
+  /** "Trato hecho", "Pagado" o "Cancelado", marcado por el dueño. */
+  @Post(':id/trato')
+  @HttpCode(HttpStatus.OK)
+  trato(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: CambiarTratoDto): Promise<ChatResumen> {
+    return this.chats.cambiarTrato(user.id, id, dto);
   }
 
   /** Un mensaje del dueño al cliente, por su WhatsApp. */

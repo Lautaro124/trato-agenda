@@ -1,0 +1,42 @@
+# Puertos propios para el stack de los E2E, así corre al lado del compose de
+# desarrollo (db :5432, api :4000, web :3000) sin bajarlo. Se suma después de
+# docker-compose.e2e.yml:
+#
+#   docker compose -p trato-e2e -f docker-compose.yml -f docker-compose.e2e.yml -f docker-compose.e2e-puertos.yml up --build -d
+#
+# Los puertos dentro de la red de compose no cambian; sólo los que se publican
+# en el host. `!override` reemplaza la lista de puertos en vez de sumarla.
+# (El stack del ZAP en security.yml no usa este archivo: escanea :3000/:4000.)
+services:
+  db:
+    ports: !override
+      - "5433:5432"
+
+  openrouter-stub:
+    ports: !override
+      - "4110:4010"
+
+  mercadopago-stub:
+    environment:
+      URL_PUBLICA: http://localhost:4120
+    ports: !override
+      - "4120:4020"
+
+  api:
+    ports: !override
+      - "4100:4000"
+    environment:
+      # El chequeo de origen y las redirecciones de la API usan el front del e2e.
+      FRONTEND_URL: http://localhost:3100
+      GOOGLE_CALLBACK_URL: http://localhost:4100/auth/google/callback
+      # El navegador llega a la pantalla de autorización por el puerto publicado.
+      MERCADOPAGO_AUTH_URL: http://localhost:4120
+
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:4100
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4100
+    ports: !override
+      - "3100:3000"

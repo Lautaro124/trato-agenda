@@ -1,5 +1,5 @@
-import { expect, test } from './fixtures';
-import { crearAgenteVentasPorApi, escribirEnChat } from './ventas';
+import { expect, hablarConAgente, test } from './fixtures';
+import { crearAgenteVentasPorApi } from './ventas';
 
 test.describe('local a la calle de un comercio', () => {
   test('lo carga en /cuenta y el asistente contesta dónde queda y si se retira', async ({ page, context, usuarioDev }) => {
@@ -27,17 +27,17 @@ test.describe('local a la calle de un comercio', () => {
     await page.reload();
     await expect(page.getByRole('region', { name: 'Tu local' }).getByLabel('Dirección')).toHaveValue('Belgrano 100, Rosario');
 
-    await page.goto('/inicio');
-    await escribirEnChat(page, '¿Dónde queda el local? ¿Puedo retirar ahí?');
-    await expect(page.getByText('Estamos en Belgrano 100, Rosario. Podés retirar tu compra ahí.')).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿Dónde queda el local? ¿Puedo retirar ahí?')).reply).toContain(
+      'Estamos en Belgrano 100, Rosario. Podés retirar tu compra ahí.',
+    );
   });
 
-  test('sin local, el asistente lo dice claro', async ({ page, context, usuarioDev }) => {
+  test('sin local, el asistente lo dice claro', async ({ context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request, { local: { tieneLocal: false } });
 
-    await page.goto('/inicio');
-    await escribirEnChat(page, '¿cuál es la dirección del local?');
-    await expect(page.getByText('No tenemos local a la calle: vendemos sólo por acá.')).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿cuál es la dirección del local?')).reply).toContain(
+      'No tenemos local a la calle: vendemos sólo por acá.',
+    );
   });
 });

@@ -2,10 +2,13 @@
  * Chats contra Postgres real (LAU-81): el trigger que mantiene
  * `ultimoMensajeAt`, las consultas crudas de la lista, el aislamiento por
  * dueño, la devolución que arrastra los pedidos derivados y la idempotencia
- * de los mensajes del panel.
+ * de los mensajes del panel; los indicadores de Inicio y el estado del trato
+ * que marca el dueño (con Ventas simulado: sus reglas tienen su propio spec).
  */
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { VentasService } from '../comercio/ventas.service.js';
+import type { RegistroPerformanceService } from '../performance/registro.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { crearPrismaDePrueba, crearUsuarioDePrueba, hayBaseDePrueba } from '../../test/base-de-prueba.js';
@@ -19,8 +22,50 @@ function crearWhatsapp() {
   };
 }
 
+const registro = { avanzarPorVenta: vi.fn().mockResolvedValue(undefined) } as unknown as RegistroPerformanceService;
+
 describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
   let prisma: PrismaService;
+
+  /** Ventas simulado: crea y paga pedidos de verdad en la base, sin Mercado Pago ni WhatsApp. */
+  function crearVentas() {
+    return {
+      crearPedido: vi.fn(async (input: { userId: string; conversationId: string }) =>
+        prisma.venta.create({ data: { userId: input.userId, conversationId: input.conversationId, medioPago: 'manual' } }),
+      ),
+      marcarPagadaPorElDueno: vi.fn(async (_userId: string, ventaId: string) =>
+        prisma.venta.update({ where: { id: ventaId }, data: { estado: 'pagada', pagadaAt: new Date() } }),
+      ),
+      cancelar: vi.fn(async (_userId: string, ventaId: string) =>
+        prisma.venta.update({ where: { id: ventaId }, data: { estado: 'cancelada', canceladaAt: new Date() } }),
+      ),
+      cotizarFormasDePago: vi.fn(),
+    };
+  }
+
+  function servicio(whatsapp = crearWhatsapp(), ventas = crearVentas()) {
+    return new ChatsService(
+      prisma,
+      whatsapp as unknown as WhatsappService,
+      ventas as unknown as VentasService,
+      registro,
+    );
+  }
+
+  const cuentaDeVentas = (userId: string) =>
+    prisma.agent.create({
+      data: {
+        userId,
+        tipoAsistente: 'ventas',
+        nombreBot: 'Sol',
+        descripcion: 'Mates',
+        tipoUso: 'otro',
+        systemPrompt: 'Vendé mates.',
+        allowedActions: ['buscar_productos'],
+        horaDesde: '00:00',
+        horaHasta: '23:59',
+      },
+    });
 
   beforeAll(async () => {
     prisma = crearPrismaDePrueba();
@@ -51,7 +96,7 @@ describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
     await chatCon(dueno.id, `web-test:${dueno.id}`, [{ role: 'user', content: { content: 'prueba' }, createdAt: new Date() }]);
     await chatCon(otro.id, '5491100000003@s.whatsapp.net', [{ role: 'user', content: { content: 'ajeno' }, createdAt: new Date() }]);
 
-    const service = new ChatsService(prisma, crearWhatsapp() as unknown as WhatsappService);
+    const service = servicio();
     const { chats, cuenta } = await service.listar(dueno.id);
 
     expect(chats.map((chat) => chat.id)).toEqual([nuevo.id, viejo.id]);
@@ -71,7 +116,7 @@ describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
       data: { userId: dueno.id, conversationId: chat.id, estado: 'pendiente_pago', atencion: 'humana' },
     });
     const whatsapp = crearWhatsapp();
-    const service = new ChatsService(prisma, whatsapp as unknown as WhatsappService);
+    const service = servicio(whatsapp);
 
     const tomado = await service.cambiarAtencion(dueno.id, chat.id, { humana: true });
     expect(tomado.chat).toMatchObject({ atencion: 'humana', teEspera: true });
@@ -95,7 +140,7 @@ describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
     ]);
     await prisma.conversation.update({ where: { id: chat.id }, data: { atencion: 'humana', tomadaAt: new Date() } });
     const whatsapp = crearWhatsapp();
-    const service = new ChatsService(prisma, whatsapp as unknown as WhatsappService);
+    const service = servicio(whatsapp);
 
     const devuelto = await service.cambiarAtencion(dueno.id, chat.id, { humana: false, nota: 'no debería quedar' });
 
@@ -109,7 +154,7 @@ describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
     const jid = '5491100000006@s.whatsapp.net';
     const chat = await chatCon(dueno.id, jid, [{ role: 'user', content: { content: 'hola' }, createdAt: new Date() }]);
     const whatsapp = crearWhatsapp();
-    const service = new ChatsService(prisma, whatsapp as unknown as WhatsappService);
+    const service = servicio(whatsapp);
     const clave = randomUUID();
 
     const primero = await service.enviar(dueno.id, chat.id, { texto: ' Hola, soy Caro ', clave });
@@ -124,5 +169,68 @@ describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
     const otra = randomUUID();
     await expect(service.enviar(dueno.id, chat.id, { texto: 'no sale', clave: otra })).rejects.toThrow('No se pudo mandar');
     expect(await prisma.message.count({ where: { conversationId: chat.id, clave: otra } })).toBe(0);
+  });
+
+  it('indicadores: chats nuevos, intervenciones y conversión a venta de los últimos 7 días', async () => {
+    const dueno = await crearUsuarioDePrueba(prisma);
+    await cuentaDeVentas(dueno.id);
+    const ahora = new Date();
+    const hace = (dias: number) => new Date(ahora.getTime() - dias * 24 * 60 * 60_000);
+    const pagado = await chatCon(dueno.id, '5491100000011@s.whatsapp.net', [{ role: 'user', content: { content: 'a' }, createdAt: hace(1) }]);
+    await prisma.venta.create({ data: { userId: dueno.id, conversationId: pagado.id, estado: 'pagada' } });
+    const tomado = await chatCon(dueno.id, '5491100000012@s.whatsapp.net', [{ role: 'user', content: { content: 'b' }, createdAt: hace(1) }]);
+    await prisma.conversation.update({ where: { id: tomado.id }, data: { atencion: 'humana', tomadaAt: hace(1) } });
+    // Una venta del banco de pruebas no convierte, y un chat viejo no es nuevo.
+    const prueba = await chatCon(dueno.id, '5491100000013@s.whatsapp.net', [{ role: 'user', content: { content: 'c' }, createdAt: hace(1) }]);
+    await prisma.venta.create({ data: { userId: dueno.id, conversationId: prueba.id, estado: 'pagada', dePrueba: true } });
+    const viejo = await chatCon(dueno.id, '5491100000014@s.whatsapp.net', [{ role: 'user', content: { content: 'd' }, createdAt: hace(1) }]);
+    await prisma.conversation.update({ where: { id: viejo.id }, data: { createdAt: hace(20) } });
+
+    expect(await servicio().indicadores(dueno.id, ahora)).toEqual({
+      dias: 7,
+      nuevos: 3,
+      intervenciones: 1,
+      convertidos: 1,
+      conversionA: 'venta',
+    });
+  });
+
+  it('trato: hecho arma el pedido del dueño, pagado lo cobra y cancelado lo cancela', async () => {
+    const dueno = await crearUsuarioDePrueba(prisma);
+    await cuentaDeVentas(dueno.id);
+    const chat = await chatCon(dueno.id, '5491100000015@s.whatsapp.net', [{ role: 'user', content: { content: 'quiero un mate' }, createdAt: new Date() }]);
+    const ventas = crearVentas();
+    const service = servicio(crearWhatsapp(), ventas);
+
+    await expect(service.cambiarTrato(dueno.id, chat.id, { estado: 'hecho' })).rejects.toThrow('Elegí al menos un producto.');
+    const hecho = await service.cambiarTrato(dueno.id, chat.id, { estado: 'hecho', items: [{ productoId: 'p1', cantidad: 2 }] });
+    expect(hecho.trato).toBe('hecho');
+    expect(ventas.crearPedido).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: chat.id, medioPago: 'manual', delDueno: true, items: [{ productoId: 'p1', cantidad: 2 }] }),
+    );
+    // Con el pedido abierto, "hecho" otra vez no arma otro.
+    await service.cambiarTrato(dueno.id, chat.id, { estado: 'hecho', items: [{ productoId: 'p1', cantidad: 1 }] });
+    expect(ventas.crearPedido).toHaveBeenCalledOnce();
+
+    const cancelado = await service.cambiarTrato(dueno.id, chat.id, { estado: 'cancelado' });
+    expect(cancelado.trato).toBe('cancelado');
+    expect(ventas.cancelar).toHaveBeenCalledOnce();
+
+    // Cancelado sin pedido abierto: "pagado" crea uno nuevo y lo cobra.
+    const pagado = await service.cambiarTrato(dueno.id, chat.id, { estado: 'pagado', items: [{ productoId: 'p1', cantidad: 1 }] });
+    expect(pagado.trato).toBe('pagado');
+    expect(ventas.marcarPagadaPorElDueno).toHaveBeenCalledOnce();
+    await expect(service.cambiarTrato(dueno.id, chat.id, { estado: 'cancelado' })).rejects.toThrow('ya tiene el pedido pagado');
+  });
+
+  it('trato: sólo cuentas de ventas y sólo chats propios', async () => {
+    const dueno = await crearUsuarioDePrueba(prisma);
+    const otro = await crearUsuarioDePrueba(prisma);
+    await cuentaDeVentas(otro.id);
+    const chat = await chatCon(dueno.id, '5491100000016@s.whatsapp.net', [{ role: 'user', content: { content: 'hola' }, createdAt: new Date() }]);
+
+    await expect(servicio().cambiarTrato(dueno.id, chat.id, { estado: 'cancelado' })).rejects.toThrow('cuentas que venden');
+    await expect(servicio().cambiarTrato(otro.id, chat.id, { estado: 'cancelado' })).rejects.toThrow('No existe ese chat.');
+    await expect(servicio().ficha(otro.id, chat.id)).rejects.toThrow('No existe ese chat.');
   });
 });

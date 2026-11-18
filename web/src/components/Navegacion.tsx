@@ -13,8 +13,6 @@ export type Pantalla =
   | "productos"
   | "ventas"
   | "envios"
-  | "chat"
-  | "chats"
   | "plan"
   | "cuenta"
   | "asistente"
@@ -51,17 +49,6 @@ const ICONOS = {
       <path d="M9 22V12h6v10" />
     </Icono>
   ),
-  chats: (
-    <Icono>
-      <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z" />
-      <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" />
-    </Icono>
-  ),
-  probar: (
-    <Icono>
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </Icono>
-  ),
   calendario: (
     <Icono>
       <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -90,6 +77,12 @@ const ICONOS = {
       <path d="M16 10a4 4 0 0 1-8 0" />
     </Icono>
   ),
+  rendimiento: (
+    <Icono>
+      <path d="M3 3v18h18" />
+      <path d="m7 15 4-4 3 3 5-6" />
+    </Icono>
+  ),
   asistente: (
     <Icono>
       <path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />
@@ -116,24 +109,25 @@ const destino = (pantalla: Pantalla, href: string, label: string, icono?: ReactN
 
 /**
  * Las pantallas dependen de qué hace el asistente: una cuenta de ventas no
- * tiene calendario ni reuniones, tiene catálogo. Las de ventas se agrupan en
- * Productos y Ventas para que la barra no se llene.
+ * tiene calendario ni reuniones, tiene catálogo. En ventas, arriba van
+ * Inicio, Tratos y Rendimiento; lo del catálogo se agrupa en Productos.
  */
 export function seccionesDe(user: Usuario): Seccion[] {
-  const principales: Seccion = [
-    destino("inicio", "/inicio", "Inicio", ICONOS.inicio),
-    // Las conversaciones de WhatsApp y el control bot/humano (LAU-81).
-    destino("chats", "/chats", "Chats", ICONOS.chats),
-    // El banco de pruebas: en pantallas anchas ya está en Inicio.
-    destino("chat", "/chat", "Probar asistente", ICONOS.probar, "lg:hidden"),
-  ];
+  // Las conversaciones de WhatsApp, el control bot/humano (LAU-81) y el estado del trato.
+  const inicio = destino("inicio", "/inicio", "Inicio", ICONOS.inicio);
   const configuracion: Seccion = [
     destino("asistente", "/asistente", "Asistente", ICONOS.asistente),
     destino("plan", "/plan", "Plan", ICONOS.plan),
   ];
   if (user.tipoAsistente === "ventas") {
     return [
-      principales,
+      [
+        inicio,
+        // Los pedidos: los que arma el asistente y los tratos que cerrás vos.
+        destino("ventas", "/ventas", "Tratos", ICONOS.ventas),
+        // Cómo les va a los productos en los chats: conversión, etapas y abandono (LAU-30).
+        destino("rendimiento", "/rendimiento", "Rendimiento", ICONOS.rendimiento),
+      ],
       [
         {
           tipo: "grupo",
@@ -148,23 +142,12 @@ export function seccionesDe(user: Usuario): Seccion[] {
             destino("anuncios", "/anuncios", "Anuncios"),
           ],
         },
-        {
-          tipo: "grupo",
-          id: "ventas",
-          label: "Ventas",
-          icono: ICONOS.ventas,
-          destinos: [
-            destino("ventas", "/ventas", "Pedidos"),
-            // Cómo les va a los productos en los chats: conversión, etapas y abandono (LAU-30).
-            destino("rendimiento", "/rendimiento", "Rendimiento"),
-          ],
-        },
       ],
       configuracion,
     ];
   }
   return [
-    principales,
+    [inicio],
     [
       destino("calendario", "/calendario", "Calendario", ICONOS.calendario),
       destino("reuniones", "/reuniones", "Reuniones", ICONOS.reuniones),

@@ -1,13 +1,13 @@
 /**
  * Dónde vive cada pieza del stack. Los defaults son los puertos de
- * docker-compose.yml + docker-compose.e2e.yml; se pisan por variable de
+ * docker-compose.e2e.yml + docker-compose.e2e-puertos.yml; se pisan por variable de
  * entorno para correr contra otro lado.
  */
-export const WEB_URL = process.env.E2E_WEB_URL ?? 'http://localhost:3000';
-export const API_URL = process.env.E2E_API_URL ?? 'http://localhost:4000';
-export const STUB_URL = process.env.E2E_STUB_URL ?? 'http://localhost:4010';
+export const WEB_URL = process.env.E2E_WEB_URL ?? 'http://localhost:3100';
+export const API_URL = process.env.E2E_API_URL ?? 'http://localhost:4100';
+export const STUB_URL = process.env.E2E_STUB_URL ?? 'http://localhost:4110';
 /** El Mercado Pago falso (e2e/mercadopago-stub). */
-export const MP_STUB_URL = process.env.E2E_MP_STUB_URL ?? 'http://localhost:4020';
+export const MP_STUB_URL = process.env.E2E_MP_STUB_URL ?? 'http://localhost:4120';
 
 /**
  * La tienda falsa de la importación rápida (e2e/importacion-stub) tal como la
