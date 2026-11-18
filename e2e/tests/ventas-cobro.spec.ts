@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { API_URL } from '../entorno';
-import { expect, test } from './fixtures';
-import { conectarMercadoPago, crearAgenteVentasPorApi, crearProductoPorApi, escribirEnChat, productoPorApi } from './ventas';
+import { expect, hablarConAgente, test } from './fixtures';
+import { conectarMercadoPago, crearAgenteVentasPorApi, crearProductoPorApi, productoPorApi } from './ventas';
 
 test.describe('venta con link de Mercado Pago', () => {
   test('el cliente paga el link: la venta queda pagada, avisa y aparece en el histórico', async ({ page, context, usuarioDev }) => {
@@ -17,14 +17,11 @@ test.describe('venta con link de Mercado Pago', () => {
     await conectarMercadoPago(page);
 
     // 1. Desde el chat de prueba: busca, arma el pedido y manda el link.
-    await page.goto('/chat');
-    await escribirEnChat(page, '¿tenés mate de calabaza?');
-    await expect(page.getByText('Tengo Mate de calabaza a $ 8.000.')).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿tenés mate de calabaza?')).reply).toContain('Tengo Mate de calabaza a $ 8.000.');
 
-    await escribirEnChat(page, 'quiero 2, soy Ana');
-    const respuesta = page.getByText(/^Listo: Pedido creado para "Ana": 2 × Mate de calabaza/);
-    await expect(respuesta).toBeVisible();
-    const link = (await respuesta.textContent())?.match(/https?:\/\/\S+/)?.[0];
+    const respuesta = (await hablarConAgente(context.request, 'quiero 2, soy Ana')).reply;
+    expect(respuesta).toMatch(/^Listo: Pedido creado para "Ana": 2 × Mate de calabaza/m);
+    const link = respuesta.match(/https?:\/\/\S+/)?.[0];
     expect(link, 'la respuesta trae el link de pago').toBeTruthy();
 
     // Reservado, no descontado: el stock baja recién cuando se paga.

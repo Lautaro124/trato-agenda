@@ -1,6 +1,6 @@
 import { API_URL } from '../entorno';
-import { expect, test } from './fixtures';
-import { crearAgenteVentasPorApi, crearProductoPorApi, escribirEnChat } from './ventas';
+import { expect, hablarConAgente, test } from './fixtures';
+import { crearAgenteVentasPorApi, crearProductoPorApi } from './ventas';
 
 test.describe('descuentos del asistente de ventas', () => {
   test('el bot informa el precio con descuento y el pedido se cobra con él', async ({ page, context, usuarioDev }) => {
@@ -17,12 +17,10 @@ test.describe('descuentos del asistente de ventas', () => {
     });
     expect(res.status(), await res.text()).toBe(201);
 
-    await page.goto('/chat');
-    await escribirEnChat(page, '¿tenés mate de calabaza?');
-    await expect(page.getByText('Tengo Mate de calabaza a $ 8.000.')).toBeVisible();
-    await escribirEnChat(page, 'quiero 2, soy Ana');
-    await expect(page.getByText(/Pedido creado para "Ana": 2 × Mate de calabaza \(\$ 16\.000\)/)).toBeVisible();
-    await expect(page.getByText(/Total \$ 16\.000 \(ya con los descuentos: ahorra \$ 4\.000\)/)).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿tenés mate de calabaza?')).reply).toContain('Tengo Mate de calabaza a $ 8.000.');
+    const pedido = (await hablarConAgente(context.request, 'quiero 2, soy Ana')).reply;
+    expect(pedido).toMatch(/Pedido creado para "Ana": 2 × Mate de calabaza \(\$ 16\.000\)/);
+    expect(pedido).toMatch(/Total \$ 16\.000 \(ya con los descuentos: ahorra \$ 4\.000\)/);
   });
 
   test('ofrece los descuentos una vez al mostrar productos y los pasa todos cuando se los piden', async ({ page, context, usuarioDev }) => {
@@ -44,21 +42,20 @@ test.describe('descuentos del asistente de ventas', () => {
     });
     expect(promo.status(), await promo.text()).toBe(201);
 
-    const oferta = page.getByText('Además tenemos algunos descuentos, si querés te los paso.');
-    await page.goto('/chat');
-    await escribirEnChat(page, '¿qué tenés?');
-    await expect(page.getByText('Esto es lo que tengo:')).toBeVisible();
-    await expect(oferta).toHaveCount(1);
+    const oferta = 'Además tenemos algunos descuentos, si querés te los paso.';
+    const primera = (await hablarConAgente(context.request, '¿qué tenés?')).reply;
+    expect(primera).toContain('Esto es lo que tengo:');
+    expect(primera).toContain(oferta);
 
     // Una sola vez por charla: la segunda vez que muestra productos ya no insiste.
-    await escribirEnChat(page, '¿qué productos tenés?');
-    await expect(page.getByText('Esto es lo que tengo:')).toHaveCount(2);
-    await expect(oferta).toHaveCount(1);
+    const segunda = (await hablarConAgente(context.request, '¿qué productos tenés?')).reply;
+    expect(segunda).toContain('Esto es lo que tengo:');
+    expect(segunda).not.toContain(oferta);
 
-    await escribirEnChat(page, '¿qué descuentos tienen?');
-    await expect(page.getByText('Estos son los descuentos que tenemos:')).toBeVisible();
-    await expect(page.getByText('- Promo Semana del termo: 10% off en la categoría Termos')).toBeVisible();
-    await expect(page.getByText('- Mate de calabaza: $ 8.000, antes $ 10.000 (20% off; ahorra $ 2.000)')).toBeVisible();
+    const descuentos = (await hablarConAgente(context.request, '¿qué descuentos tienen?')).reply;
+    expect(descuentos).toContain('Estos son los descuentos que tenemos:');
+    expect(descuentos).toContain('- Promo Semana del termo: 10% off en la categoría Termos');
+    expect(descuentos).toContain('- Mate de calabaza: $ 8.000, antes $ 10.000 (20% off; ahorra $ 2.000)');
   });
 
   test('carga el descuento desde el formulario y la tarjeta muestra el precio final', async ({ page, context, usuarioDev }) => {

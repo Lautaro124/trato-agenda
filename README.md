@@ -24,7 +24,8 @@ Monorepo:
 | `web/` | Frontend Next.js 16 (App Router) + React 19 + Tailwind v4. Onboarding: alta con WhatsApp o con Google, y vinculación de WhatsApp por QR. |
 | `e2e/` | Tests end to end con Playwright contra el stack de docker compose, con un OpenRouter y un Mercado Pago falsos. Ver [Tests E2E](#tests-e2e-playwright). |
 | `docker-compose.yml` | Levanta `db` (:5432), `api` (:4000) y `web` (:3000). |
-| `docker-compose.e2e.yml` | Override para los E2E: suma el OpenRouter falso (:4010) y el Mercado Pago falso (:4020), y prende el login de desarrollo. |
+| `docker-compose.e2e.yml` | Override para los E2E: suma el OpenRouter falso y el Mercado Pago falso, y prende el login de desarrollo. |
+| `docker-compose.e2e-puertos.yml` | Puertos propios del stack E2E (db :5433, api :4100, web :3100, OpenRouter falso :4110, Mercado Pago falso :4120) para correrlo sin bajar el compose de desarrollo. |
 
 ## Arrancar
 

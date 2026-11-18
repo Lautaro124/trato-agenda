@@ -1,6 +1,6 @@
 import { API_URL } from '../entorno';
-import { expect, test } from './fixtures';
-import { conectarMercadoPago, crearAgenteVentasPorApi, crearProductoPorApi, escribirEnChat } from './ventas';
+import { expect, hablarConAgente, test } from './fixtures';
+import { conectarMercadoPago, crearAgenteVentasPorApi, crearProductoPorApi } from './ventas';
 
 test.describe('mensajes personalizados del asistente', () => {
   test('el dueño escribe su link de pago con los botones de datos y el bot lo usa', async ({ page, context, usuarioDev }) => {
@@ -47,11 +47,10 @@ test.describe('mensajes personalizados del asistente', () => {
     await expect(lista.getByRole('button', { name: /Link de pago/ })).toContainText('Tu texto');
 
     // El pedido del chat de prueba trae el texto del dueño, con el nombre y el link reales.
-    await page.goto('/chat');
-    await escribirEnChat(page, '¿tenés mate de calabaza?');
-    await expect(page.getByText('Tengo Mate de calabaza a $ 8.000.')).toBeVisible();
-    await escribirEnChat(page, 'quiero 2, soy Ana');
-    await expect(page.getByText(/exactamente este mensaje.*"Gracias Ana\. Pagalo acá: https?:\/\/\S+"/)).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿tenés mate de calabaza?')).reply).toContain('Tengo Mate de calabaza a $ 8.000.');
+    expect((await hablarConAgente(context.request, 'quiero 2, soy Ana')).reply).toMatch(
+      /exactamente este mensaje.*"Gracias Ana\. Pagalo acá: https?:\/\/\S+"/,
+    );
   });
 
   test('el dueño elige cómo se ve cada producto en la lista y el catálogo sale con ese formato', async ({
@@ -95,9 +94,7 @@ test.describe('mensajes personalizados del asistente', () => {
     await expect(page.getByRole('switch', { name: 'Mandar la foto de cada producto' })).not.toBeChecked();
 
     // El listado del chat de prueba llega con las líneas que armó el código con el formato del dueño.
-    await page.goto('/chat');
-    await escribirEnChat(page, 'qué tenés');
-    await expect(page.getByText('• Mate de calabaza → $ 8.000')).toBeVisible();
+    expect((await hablarConAgente(context.request, 'qué tenés')).reply).toContain('• Mate de calabaza → $ 8.000');
   });
 
   test('en el celular se elige un mensaje, se edita y se guarda desde abajo @movil', async ({ page, context, usuarioDev }) => {

@@ -1,11 +1,5 @@
-import type { Page } from '@playwright/test';
-import { agenteActual, crearAgentePorApi, esperarRuta, expect, sufijo, test } from './fixtures';
+import { agenteActual, crearAgentePorApi, esperarRuta, expect, hablarConAgente, sufijo, test } from './fixtures';
 import { completarWizard, localEsperado, perfilProduccion, preguntaInicial, type LugarWizard } from './onboarding';
-
-async function escribir(page: Page, texto: string): Promise<void> {
-  await page.getByPlaceholder('Escribile al agente…').fill(texto);
-  await page.getByRole('button', { name: 'Enviar' }).click();
-}
 
 test.describe('lugar de atención del asistente de turnos (LAU-17)', () => {
   test('el wizard pide dónde atiende y lo guarda: en su casa, con dirección y mapa', async ({ page, context, usuarioDev }) => {
@@ -43,13 +37,12 @@ test.describe('lugar de atención del asistente de turnos (LAU-17)', () => {
       page.getByRole('region', { name: 'Dónde atendés' }).getByLabel('Dirección', { exact: true }),
     ).toHaveValue('Av. Santa Fe 1234, piso 2');
 
-    await page.goto('/chat');
-    await escribir(page, '¿Dónde queda el consultorio?');
-    await expect(page.getByText('Es en Av. Santa Fe 1234, piso 2.')).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿Dónde queda el consultorio?')).reply).toContain('Es en Av. Santa Fe 1234, piso 2.');
 
     // Al agendar, la respuesta de crear_turno trae el lugar para decírselo al cliente.
-    await escribir(page, 'Quiero un turno, soy Caro');
-    await expect(page.getByText(/^Listo: Turno agendado para Caro.*Lugar: en el local, "Av\. Santa Fe 1234, piso 2"/)).toBeVisible();
+    expect((await hablarConAgente(context.request, 'Quiero un turno, soy Caro')).reply).toMatch(
+      /^Listo: Turno agendado para Caro.*Lugar: en el local, "Av\. Santa Fe 1234, piso 2"/m,
+    );
   });
 
   test('sin lugar fijo, el asistente no da ninguna dirección', async ({ page, context, usuarioDev }) => {
@@ -61,8 +54,8 @@ test.describe('lugar de atención del asistente de turnos (LAU-17)', () => {
       page.getByRole('region', { name: 'Dónde atendés' }).getByRole('radio', { name: /^No tengo un lugar fijo/ }),
     ).toHaveAttribute('aria-checked', 'true');
 
-    await page.goto('/chat');
-    await escribir(page, '¿cuál es la dirección?');
-    await expect(page.getByText('No tenemos un lugar fijo: lo coordinamos por acá.')).toBeVisible();
+    expect((await hablarConAgente(context.request, '¿cuál es la dirección?')).reply).toContain(
+      'No tenemos un lugar fijo: lo coordinamos por acá.',
+    );
   });
 });
