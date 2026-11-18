@@ -12,7 +12,7 @@ test.describe('conversación contra OpenRouter real', { tag: '@real' }, () => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgentePorApi(context.request);
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await page.getByPlaceholder('Escribile al agente…').fill('Hola! ¿Qué tipos de turno tomás?');
     const charla = page.waitForResponse('**/conversation/test', { timeout: 120_000 });
     await page.getByRole('button', { name: 'Enviar' }).click();

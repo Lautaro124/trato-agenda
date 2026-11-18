@@ -47,7 +47,7 @@ test.describe('fotos de productos', () => {
     await editor.getByRole('button', { name: 'Cancelar' }).click();
 
     // En el banco de pruebas: primero busca, después manda la foto con el nombre al pie.
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, '¿Tenés mate de calabaza?');
     await expect(page.getByText('Tengo Mate de calabaza a $ 8.000.')).toBeVisible();
     await escribirEnChat(page, 'Mandame una foto');

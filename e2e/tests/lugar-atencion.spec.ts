@@ -43,7 +43,7 @@ test.describe('lugar de atención del asistente de turnos (LAU-17)', () => {
       page.getByRole('region', { name: 'Dónde atendés' }).getByLabel('Dirección', { exact: true }),
     ).toHaveValue('Av. Santa Fe 1234, piso 2');
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribir(page, '¿Dónde queda el consultorio?');
     await expect(page.getByText('Es en Av. Santa Fe 1234, piso 2.')).toBeVisible();
 
@@ -61,7 +61,7 @@ test.describe('lugar de atención del asistente de turnos (LAU-17)', () => {
       page.getByRole('region', { name: 'Dónde atendés' }).getByRole('radio', { name: /^No tengo un lugar fijo/ }),
     ).toHaveAttribute('aria-checked', 'true');
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribir(page, '¿cuál es la dirección?');
     await expect(page.getByText('No tenemos un lugar fijo: lo coordinamos por acá.')).toBeVisible();
   });

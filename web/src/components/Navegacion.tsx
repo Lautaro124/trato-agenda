@@ -51,12 +51,6 @@ const ICONOS = {
       <path d="M9 22V12h6v10" />
     </Icono>
   ),
-  chats: (
-    <Icono>
-      <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z" />
-      <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" />
-    </Icono>
-  ),
   probar: (
     <Icono>
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -121,11 +115,10 @@ const destino = (pantalla: Pantalla, href: string, label: string, icono?: ReactN
  */
 export function seccionesDe(user: Usuario): Seccion[] {
   const principales: Seccion = [
+    // Las conversaciones de WhatsApp, el control bot/humano (LAU-81) y el estado del trato.
     destino("inicio", "/inicio", "Inicio", ICONOS.inicio),
-    // Las conversaciones de WhatsApp y el control bot/humano (LAU-81).
-    destino("chats", "/chats", "Chats", ICONOS.chats),
-    // El banco de pruebas: en pantallas anchas ya está en Inicio.
-    destino("chat", "/chat", "Probar asistente", ICONOS.probar, "lg:hidden"),
+    // El banco de pruebas del asistente.
+    destino("chat", "/chat", "Probar asistente", ICONOS.probar),
   ];
   const configuracion: Seccion = [
     destino("asistente", "/asistente", "Asistente", ICONOS.asistente),

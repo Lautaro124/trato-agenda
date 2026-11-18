@@ -24,7 +24,7 @@ test.describe('el agente generado funcionando (calendario falso)', () => {
       horaHasta: '18:00',
     });
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await expect(page.getByPlaceholder('Escribile al agente…')).toBeVisible();
 
     // 1. Agenda: el stub pide crear_turno y la API lo escribe en el calendario falso.
@@ -45,7 +45,7 @@ test.describe('el agente generado funcionando (calendario falso)', () => {
     await expect(visible(page.getByText('Control - Caro'))).toBeVisible();
 
     // 2. Reprograma una hora más tarde.
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribir(page, 'mejor movelo una hora más tarde');
     await expect(page.getByText(/^Listo: Turno reprogramado/)).toBeVisible();
 
@@ -67,7 +67,7 @@ test.describe('el agente generado funcionando (calendario falso)', () => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgentePorApi(context.request);
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribir(page, 'quiero un turno para mañana');
 
     await expect(page.getByText('¿A nombre de quién agendo el turno?')).toBeVisible();

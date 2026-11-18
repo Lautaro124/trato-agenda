@@ -27,7 +27,7 @@ test.describe('local a la calle de un comercio', () => {
     await page.reload();
     await expect(page.getByRole('region', { name: 'Tu local' }).getByLabel('Dirección')).toHaveValue('Belgrano 100, Rosario');
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, '¿Dónde queda el local? ¿Puedo retirar ahí?');
     await expect(page.getByText('Estamos en Belgrano 100, Rosario. Podés retirar tu compra ahí.')).toBeVisible();
   });
@@ -36,7 +36,7 @@ test.describe('local a la calle de un comercio', () => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgenteVentasPorApi(context.request, { local: { tieneLocal: false } });
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, '¿cuál es la dirección del local?');
     await expect(page.getByText('No tenemos local a la calle: vendemos sólo por acá.')).toBeVisible();
   });

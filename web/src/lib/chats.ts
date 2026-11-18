@@ -27,6 +27,50 @@ export type ChatResumen = {
   teEspera: boolean;
   turno: { inicio: string } | null;
   pedido: { estado: string } | null;
+  /** Sólo en cuentas de ventas: la etapa más avanzada y si está activo, estancado o abandonado. */
+  venta: { etapa: EtapaVenta; estado: EstadoChat; derivado: boolean } | null;
+  /** Sólo en cuentas de ventas: lo que marcó el dueño o salió del último pedido. */
+  trato: EstadoTrato | null;
+};
+
+/** Copia de ETAPAS en api/src/performance/etapas.rules.ts. */
+export type EtapaVenta = "consulta" | "vio_productos" | "eligiendo" | "lista" | "pedido" | "pagado";
+export type EstadoChat = "activo" | "estancado" | "abandonado" | "cerrado";
+/** Copia de ESTADOS_TRATO en api/src/chats/trato.rules.ts. */
+export type EstadoTrato = "hecho" | "pagado" | "cancelado";
+
+export type IndicadoresChats = {
+  dias: number;
+  nuevos: number;
+  intervenciones: number;
+  convertidos: number;
+  conversionA: "venta" | "turno";
+};
+
+export type ProductoDeInteres = {
+  id: string;
+  nombre: string;
+  tipo: "vio" | "pidio";
+  moneda: string;
+  precioListaCentavos: number;
+  contadoCentavos: number;
+  efectivoCentavos: number | null;
+  planes: Array<{ cuotas: number; totalCentavos: number; cuotaCentavos: number; recargoCentavos: number }>;
+};
+
+export type FichaChat = {
+  resumen: string | null;
+  productos: ProductoDeInteres[];
+  pedido: { id: string; estado: string; totalCentavos: number | null; moneda: string } | null;
+  trato: EstadoTrato | null;
+};
+
+/** Lo que manda el panel al marcar el trato. Los precios los pone la API. */
+export type CambioDeTrato = {
+  estado: EstadoTrato;
+  items?: Array<{ productoId: string; cantidad: number }>;
+  formaPago?: "efectivo" | "cuotas";
+  cuotas?: number;
 };
 
 export type ListaChats = {
@@ -82,6 +126,18 @@ export function devolverAlBot(
   });
 }
 
+export function obtenerIndicadores(): Promise<IndicadoresChats> {
+  return apiFetch("/chats/indicadores").then((res) => json<IndicadoresChats>(res));
+}
+
+export function obtenerFicha(id: string): Promise<FichaChat> {
+  return apiFetch(`/chats/${encodeURIComponent(id)}/ficha`).then((res) => json<FichaChat>(res));
+}
+
+export function cambiarTrato(id: string, cambio: CambioDeTrato): Promise<ChatResumen> {
+  return postar(`/chats/${encodeURIComponent(id)}/trato`, cambio);
+}
+
 /** `clave` evita mandarlo dos veces si se reintenta: la misma clave para el mismo mensaje. */
 export function enviarMensaje(id: string, texto: string, clave: string): Promise<MensajeChat> {
   return postar(`/chats/${encodeURIComponent(id)}/mensajes`, { texto, clave });
@@ -131,5 +187,44 @@ export function contextoDe(chat: Pick<ChatResumen, "turno" | "pedido">): string 
     const estado = ETIQUETA_ESTADO[chat.pedido.estado as EstadoVenta] ?? chat.pedido.estado;
     return `Pedido · ${estado.toLowerCase()}`;
   }
+  return null;
+}
+
+// --- Etapa de la venta ----------------------------------------------------------------
+
+export type Tono = "neutral" | "info" | "warning" | "primary" | "success" | "danger";
+
+/** Las etapas en orden, para la etiqueta de cada chat y los filtros. */
+export const ETAPAS_VISIBLES = [
+  { id: "consulta", label: "Consulta", tono: "neutral" },
+  { id: "vio_productos", label: "Vio productos", tono: "info" },
+  { id: "eligiendo", label: "Eligiendo", tono: "warning" },
+  { id: "lista", label: "Decidido", tono: "warning" },
+  { id: "pedido", label: "Trato hecho", tono: "primary" },
+  { id: "pagado", label: "Pagado", tono: "success" },
+] as const satisfies ReadonlyArray<{ id: EtapaVenta; label: string; tono: Tono }>;
+
+export type EtiquetaVenta = { id: EtapaVenta | "cancelado"; label: string; tono: Tono; paso: number | null };
+
+/**
+ * La etiqueta del chat: lo que marcó el dueño (o el último pedido) manda
+ * sobre la etapa que registró el asistente. null en cuentas de agenda o en
+ * chats todavía sin registrar.
+ */
+export function etiquetaDeVenta(chat: Pick<ChatResumen, "venta" | "trato">): EtiquetaVenta | null {
+  if (chat.trato === "cancelado") return { id: "cancelado", label: "Cancelado", tono: "danger", paso: null };
+  const etapa: EtapaVenta | null =
+    chat.trato === "pagado" ? "pagado" : chat.trato === "hecho" ? "pedido" : (chat.venta?.etapa ?? null);
+  if (!etapa) return null;
+  const indice = ETAPAS_VISIBLES.findIndex((visible) => visible.id === etapa);
+  const visible = ETAPAS_VISIBLES[indice];
+  return visible ? { id: visible.id, label: visible.label, tono: visible.tono, paso: indice + 1 } : null;
+}
+
+/** "Estancado" o "Abandonado" cuando corresponde; nada si está activo o cerrado. */
+export function demoraDe(chat: Pick<ChatResumen, "venta" | "trato">): string | null {
+  if (!chat.venta || chat.trato) return null;
+  if (chat.venta.estado === "estancado") return "Estancado";
+  if (chat.venta.estado === "abandonado") return "Abandonado";
   return null;
 }

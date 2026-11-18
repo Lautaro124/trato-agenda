@@ -47,7 +47,7 @@ test.describe('mensajes personalizados del asistente', () => {
     await expect(lista.getByRole('button', { name: /Link de pago/ })).toContainText('Tu texto');
 
     // El pedido del chat de prueba trae el texto del dueño, con el nombre y el link reales.
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, '¿tenés mate de calabaza?');
     await expect(page.getByText('Tengo Mate de calabaza a $ 8.000.')).toBeVisible();
     await escribirEnChat(page, 'quiero 2, soy Ana');
@@ -95,7 +95,7 @@ test.describe('mensajes personalizados del asistente', () => {
     await expect(page.getByRole('switch', { name: 'Mandar la foto de cada producto' })).not.toBeChecked();
 
     // El listado del chat de prueba llega con las líneas que armó el código con el formato del dueño.
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, 'qué tenés');
     await expect(page.getByText('• Mate de calabaza → $ 8.000')).toBeVisible();
   });

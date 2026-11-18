@@ -47,7 +47,7 @@ test.describe('editar reuniones después del onboarding', () => {
     await expect(page.getByLabel('Precio de Control', { exact: true })).toHaveValue('15.000');
 
     // El asistente agenda con la duración nueva.
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await page.getByPlaceholder('Escribile al agente…').fill('Hola, quiero un turno, soy Caro');
     await page.getByRole('button', { name: 'Enviar' }).click();
     await expect(page.getByText(/^Listo: Turno agendado para Caro/)).toBeVisible();

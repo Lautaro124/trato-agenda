@@ -5,35 +5,21 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { AvisoSuscripcion } from "@/components/AvisoSuscripcion";
+import { BandejaChats } from "@/components/chats/BandejaChats";
 import { ColumnaVentas } from "@/components/inicio/ColumnaVentas";
-import { TestChat } from "@/components/TestChat";
 import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
 import { useTutorial } from "@/lib/tutorial";
 
-type EventoListado = { id: string; resumen: string; inicio: string | null; fin: string | null };
-type ResumenAgenda = { hoy: EventoListado[]; semanaCount: number };
-
-const TIMEZONE = "America/Argentina/Buenos_Aires";
-
-function formatearHora(iso: string | null): string {
-  if (!iso) return "--:--";
-  return new Intl.DateTimeFormat("es-AR", { timeZone: TIMEZONE, hour: "2-digit", minute: "2-digit" }).format(
-    new Date(iso),
-  );
-}
-
-function formatearFecha(): string {
-  const texto = new Intl.DateTimeFormat("es-AR", { timeZone: TIMEZONE, dateStyle: "full" }).format(new Date());
-  return texto.charAt(0).toUpperCase() + texto.slice(1);
-}
-
+/**
+ * Inicio: los chats de WhatsApp que atiende el asistente, con indicadores
+ * rápidos y, en ventas, el estado del trato de cada uno. El chat de prueba
+ * vive en /chat ("Probar asistente").
+ */
 export default function InicioPage() {
   const router = useRouter();
   const { user, status } = useRequireSession();
   const [tieneAgente, setTieneAgente] = useState<boolean | null>(null);
-  const [resumen, setResumen] = useState<ResumenAgenda | null>(null);
-  const [errorAgenda, setErrorAgenda] = useState(false);
 
   // Si todavía no generó un agente (llegó acá a mano), lo mandamos a completar el onboarding.
   useEffect(() => {
@@ -56,25 +42,12 @@ export default function InicioPage() {
       .catch(() => setTieneAgente(true));
   }, [status, router]);
 
-  const esVentas = user?.tipoAsistente === "ventas";
   useTutorial("inicio", tieneAgente === true);
-
-  useEffect(() => {
-    // Una cuenta de ventas no tiene agenda que resumir.
-    if (!tieneAgente || esVentas) return;
-    apiFetch("/calendar/resumen")
-      .then((res) => {
-        if (!res.ok) throw new Error("resumen no disponible");
-        return res.json() as Promise<ResumenAgenda>;
-      })
-      .then(setResumen)
-      .catch(() => setErrorAgenda(true));
-  }, [tieneAgente, esVentas]);
 
   if (status !== "authenticated" || !user || !tieneAgente) {
     return (
       <main className="grid min-h-dvh place-items-center bg-page p-6">
-        <p className="text-sm text-muted">Cargando tu agenda…</p>
+        <p className="text-sm text-muted">Cargando tus chats…</p>
       </main>
     );
   }
@@ -84,77 +57,22 @@ export default function InicioPage() {
       <AppHeader active="inicio" user={user} />
       <AvisoSuscripcion />
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-5 bg-page p-5 md:pb-5 lg:grid-cols-[1fr_420px]">
-        {/* Columna de agenda */}
-        <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
-          <div>
-            <h1 className="mb-1 font-display text-[27px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">
-              Hola, {user.name?.split(" ")[0] ?? "de nuevo"}
-            </h1>
-            <p className="text-sm leading-[1.6] text-ink-secondary">{formatearFecha()}</p>
+      <main className="flex min-h-0 w-full flex-1 flex-col gap-4 bg-page p-4 md:p-5">
+        {user.debePonerPassword && (
+          <div role="status" className="rounded-md border border-line bg-card p-4 text-[13.5px] text-ink">
+            Todavía no elegiste una contraseña: sin ella no vas a poder volver a entrar con tu número.{" "}
+            <Link href="/contrasena" className="font-semibold text-link">
+              Elegir contraseña
+            </Link>
           </div>
-
-          {user.debePonerPassword && (
-            <div role="status" className="rounded-md border border-line bg-card p-4 text-[13.5px] text-ink">
-              Todavía no elegiste una contraseña: sin ella no vas a poder volver a entrar con tu número.{" "}
-              <Link href="/contrasena" className="font-semibold text-link">
-                Elegir contraseña
-              </Link>
-            </div>
-          )}
-
-          {esVentas ? (
-            <ColumnaVentas />
-          ) : (
-            <>
-              <div data-tutorial="resumen" className="flex gap-3">
-                <div className="flex-1 rounded-lg border border-line bg-card p-4">
-                  <div className="font-display text-2xl font-bold text-ink">{resumen?.hoy.length ?? "–"}</div>
-                  <div className="text-[12.5px] text-ink-secondary">Hoy</div>
-                </div>
-                <div className="flex-1 rounded-lg border border-line bg-card p-4">
-                  <div className="font-display text-2xl font-bold text-ink">{resumen?.semanaCount ?? "–"}</div>
-                  <div className="text-[12.5px] text-ink-secondary">Esta semana</div>
-                </div>
-              </div>
-
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-card">
-                <div className="flex items-center justify-between border-b border-line px-5 py-4">
-                  <h2 className="font-display text-[15px] font-bold text-ink">Tu día</h2>
-                </div>
-                <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-5 py-4">
-                  {errorAgenda && (
-                    <p className="text-sm text-danger-text">
-                      {user.calendario === "google"
-                        ? "No pudimos cargar tu agenda de Google Calendar ahora mismo."
-                        : "No pudimos cargar tu agenda ahora mismo."}
-                    </p>
-                  )}
-                  {!errorAgenda && resumen && resumen.hoy.length === 0 && (
-                    <p className="text-sm text-muted">No tenés reuniones hoy.</p>
-                  )}
-                  {resumen?.hoy.map((evento) => (
-                    <div key={evento.id} className="flex items-start gap-4">
-                      <span className="w-[52px] flex-none pt-[3px] font-mono text-[12.5px] text-muted">
-                        {formatearHora(evento.inicio)}
-                      </span>
-                      <div className="flex-1 rounded-md bg-sunken px-4 py-3">
-                        <div className="text-sm font-semibold text-ink">{evento.resumen || "(Sin título)"}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Banco de pruebas del agente: en móvil vive en /chat */}
-        <div className="hidden min-h-0 lg:flex lg:flex-col">
-          <TestChat />
-        </div>
+        )}
+        <BandejaChats
+          ventas={user.tipoAsistente === "ventas"}
+          saludo={`Hola, ${user.name?.split(" ")[0] ?? "de nuevo"}`}
+          // Una tienda sin chats todavía: lo que le falta para que el asistente venda.
+          sinChats={user.tipoAsistente === "ventas" ? <ColumnaVentas /> : undefined}
+        />
       </main>
-
     </div>
   );
 }

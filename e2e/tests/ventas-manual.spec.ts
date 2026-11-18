@@ -21,7 +21,7 @@ test.describe('pedido sin Mercado Pago (cobro a coordinar)', () => {
       stock: 2,
     });
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, '¿tenés remera de algodón?');
     await expect(page.getByText('Tengo Remera de algodón a $ 15.000.')).toBeVisible();
     await escribirEnChat(page, 'quiero 1, soy Beto');

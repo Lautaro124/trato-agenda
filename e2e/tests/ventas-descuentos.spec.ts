@@ -17,7 +17,7 @@ test.describe('descuentos del asistente de ventas', () => {
     });
     expect(res.status(), await res.text()).toBe(201);
 
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, '¿tenés mate de calabaza?');
     await expect(page.getByText('Tengo Mate de calabaza a $ 8.000.')).toBeVisible();
     await escribirEnChat(page, 'quiero 2, soy Ana');
@@ -45,7 +45,7 @@ test.describe('descuentos del asistente de ventas', () => {
     expect(promo.status(), await promo.text()).toBe(201);
 
     const oferta = page.getByText('Además tenemos algunos descuentos, si querés te los paso.');
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, '¿qué tenés?');
     await expect(page.getByText('Esto es lo que tengo:')).toBeVisible();
     await expect(oferta).toHaveCount(1);

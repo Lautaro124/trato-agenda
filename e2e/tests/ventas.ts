@@ -71,7 +71,7 @@ export async function productoPorApi(request: APIRequestContext, id: string): Pr
   return res.json() as Promise<ProductoE2E>;
 }
 
-/** Manda un mensaje desde el chat de prueba de /inicio. */
+/** Manda un mensaje desde el chat de prueba (/chat, "Probar asistente"). */
 export async function escribirEnChat(page: Page, texto: string): Promise<void> {
   await page.getByPlaceholder('Escribile al agente…').fill(texto);
   await page.getByRole('button', { name: 'Enviar' }).click();

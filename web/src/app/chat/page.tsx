@@ -9,7 +9,7 @@ import { apiFetch } from "@/lib/api";
 import { useRequireSession } from "@/lib/session";
 import { useTutorial } from "@/lib/tutorial";
 
-/** Chat de prueba a pantalla completa (variante 5b del canvas): destino móvil, TestChat vive también inline en /inicio en escritorio. */
+/** Chat de prueba a pantalla completa: "Probar asistente" en la navegación. */
 export default function ChatPage() {
   const router = useRouter();
   const { user, status } = useRequireSession();

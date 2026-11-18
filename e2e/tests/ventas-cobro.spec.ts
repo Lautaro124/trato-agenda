@@ -17,7 +17,7 @@ test.describe('venta con link de Mercado Pago', () => {
     await conectarMercadoPago(page);
 
     // 1. Desde el chat de prueba: busca, arma el pedido y manda el link.
-    await page.goto('/inicio');
+    await page.goto('/chat');
     await escribirEnChat(page, '¿tenés mate de calabaza?');
     await expect(page.getByText('Tengo Mate de calabaza a $ 8.000.')).toBeVisible();
 
