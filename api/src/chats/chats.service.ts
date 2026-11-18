@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   HttpStatus,
@@ -12,6 +13,11 @@ import { Limitador } from '../auth/limitador.js';
 import { ESTADOS_ABIERTOS } from '../comercio/ventas.rules.js';
 import { aMensajesPublicos } from '../comercio/ventas.types.js';
 import { telefonoDeJid } from '../comercio/ventas.rules.js';
+import { PedidoRechazadoError, VentasService } from '../comercio/ventas.service.js';
+import { tipoAsistenteDe } from '../agents/agent-catalog.js';
+import { estadoDeChat } from '../performance/lectura.rules.js';
+import type { Etapa } from '../performance/etapas.rules.js';
+import { RegistroPerformanceService } from '../performance/registro.service.js';
 import { esConversacionDePrueba, PREFIJO_JID_DE_PRUEBA } from '../conversation/conversation.service.js';
 import { Prisma, type Conversation, type Message } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -19,13 +25,18 @@ import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { devolverChat, limpiarNota, tomarChat, type AtencionChat } from './atencion.js';
 import type {
   CambiarAtencionDto,
+  CambiarTratoDto,
   CambioDeAtencion,
   ChatResumen,
   DetalleChat,
   EnviarMensajeDto,
+  FichaChat,
+  IndicadoresChats,
   ListaChats,
   MensajeChat,
+  ProductoDeInteres,
 } from './chats.types.js';
+import { estadoDelTrato, pasoParaTrato, type UltimoPedido } from './trato.rules.js';
 
 /** Chats que muestra la lista: los de actividad más reciente. */
 const MAX_CHATS = 100;
@@ -35,8 +46,13 @@ const MAX_MENSAJES = 200;
 const MAX_ENVIOS_POR_MINUTO = 20;
 /** Cada cuánto el stream mira si cambió algo de los chats de la cuenta. */
 const INTERVALO_EVENTOS_MS = 2000;
+/** Período de los indicadores rápidos de Inicio. */
+const DIAS_INDICADORES = 7;
+/** Productos de interés que muestra la ficha: los más recientes. */
+const MAX_PRODUCTOS_FICHA = 6;
 
-type FilaChat = Pick<Conversation, 'id' | 'remoteJid' | 'nombreCliente' | 'atencion'>;
+type FilaChat = Pick<Conversation, 'id' | 'remoteJid' | 'nombreCliente' | 'atencion' | 'tratoCanceladoAt'>;
+const SELECT_FILA = { id: true, remoteJid: true, nombreCliente: true, atencion: true, tratoCanceladoAt: true } as const;
 type UltimoMensaje = Pick<Message, 'conversationId' | 'role' | 'content' | 'createdAt'>;
 
 /**
@@ -48,10 +64,14 @@ type UltimoMensaje = Pick<Message, 'conversationId' | 'role' | 'content' | 'crea
 export class ChatsService {
   private readonly logger = new Logger(ChatsService.name);
   private readonly envios = new Limitador(MAX_ENVIOS_POR_MINUTO, 60_000);
+  /** Chats con un cambio de trato en curso: un doble clic no arma dos pedidos (la API corre en una sola réplica). */
+  private readonly tratosEnCurso = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsappService,
+    private readonly ventas: VentasService,
+    private readonly registro: RegistroPerformanceService,
   ) {}
 
   async listar(userId: string, ahora: Date = new Date()): Promise<ListaChats> {
@@ -61,13 +81,13 @@ export class ChatsService {
         where: donde,
         orderBy: { ultimoMensajeAt: 'desc' },
         take: MAX_CHATS,
-        select: { id: true, remoteJid: true, nombreCliente: true, atencion: true },
+        select: SELECT_FILA,
       }),
       this.prisma.conversation.groupBy({ by: ['atencion'], where: donde, _count: { _all: true } }),
     ]);
     const humana = porAtencion.find((grupo) => grupo.atencion === 'humana')?._count._all ?? 0;
     const todos = porAtencion.reduce((suma, grupo) => suma + grupo._count._all, 0);
-    return { chats: await this.resumir(filas, ahora), cuenta: { todos, humana, asistente: todos - humana } };
+    return { chats: await this.resumir(userId, filas, ahora), cuenta: { todos, humana, asistente: todos - humana } };
   }
 
   async detalle(userId: string, conversationId: string, ahora: Date = new Date()): Promise<DetalleChat> {
@@ -81,7 +101,7 @@ export class ChatsService {
     const mensajes = filas
       .reverse()
       .flatMap((mensaje): MensajeChat[] => aMensajesPublicos([mensaje]).map((publico) => ({ id: mensaje.id, ...publico })));
-    const [chat] = await this.resumir([fila], ahora);
+    const [chat] = await this.resumir(userId, [fila], ahora);
     return { chat: chat!, mensajes };
   }
 
@@ -108,7 +128,7 @@ export class ChatsService {
         });
       }
     }
-    const [chat] = await this.resumir([{ ...fila, atencion: dto.humana ? 'humana' : 'asistente' }], ahora);
+    const [chat] = await this.resumir(userId, [{ ...fila, atencion: dto.humana ? 'humana' : 'asistente' }], ahora);
     return { chat: chat!, contesta };
   }
 
@@ -163,6 +183,166 @@ export class ChatsService {
   }
 
   /**
+   * Los indicadores rápidos de Inicio, de los últimos días: chats nuevos,
+   * chats donde el dueño tomó el control y cuántos de los nuevos terminaron
+   * en una venta pagada (ventas) o en un turno (agenda).
+   */
+  async indicadores(userId: string, ahora: Date = new Date()): Promise<IndicadoresChats> {
+    const desde = new Date(ahora.getTime() - DIAS_INDICADORES * 24 * 60 * 60_000);
+    const donde = this.dondeDelDueno(userId);
+    const nuevosDonde: Prisma.ConversationWhereInput = { ...donde, createdAt: { gte: desde } };
+    const ventas = await this.esVentas(userId);
+    const [nuevos, intervenciones, convertidos] = await Promise.all([
+      this.prisma.conversation.count({ where: nuevosDonde }),
+      this.prisma.conversation.count({ where: { ...donde, tomadaAt: { gte: desde } } }),
+      this.prisma.conversation.count({
+        where: {
+          ...nuevosDonde,
+          ...(ventas ? { ventas: { some: { estado: 'pagada', dePrueba: false } } } : { turnos: { some: {} } }),
+        },
+      }),
+    ]);
+    return { dias: DIAS_INDICADORES, nuevos, intervenciones, convertidos, conversionA: ventas ? 'venta' : 'turno' };
+  }
+
+  /**
+   * Lo que el dueño necesita para cerrar la venta de un chat: el resumen que
+   * guarda el asistente, los productos que el cliente vio o pidió con lo que
+   * salen hoy (promos, efectivo y cuotas, calculados igual que al vender) y el
+   * último pedido.
+   */
+  async ficha(userId: string, conversationId: string, ahora: Date = new Date()): Promise<FichaChat> {
+    const fila = await this.delDueno(userId, conversationId);
+    const [conversacion, intereses, pedido] = await Promise.all([
+      this.prisma.conversation.findFirst({ where: { id: conversationId, userId }, select: { resumen: true } }),
+      this.prisma.interesProducto.findMany({
+        where: { conversationId, userId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: { productoId: true, tipo: true },
+      }),
+      this.ultimoPedido(conversationId),
+    ]);
+
+    // Un producto pedido también se vio: se muestra una vez, como pedido.
+    const tipoDe = new Map<string, 'vio' | 'pidio'>();
+    for (const interes of intereses) {
+      if (interes.tipo === 'pidio' || !tipoDe.has(interes.productoId)) tipoDe.set(interes.productoId, interes.tipo === 'pidio' ? 'pidio' : 'vio');
+    }
+    const ids = [...tipoDe.keys()].slice(0, MAX_PRODUCTOS_FICHA);
+    const productos = await this.prisma.producto.findMany({
+      where: { id: { in: ids }, userId, activo: true },
+      select: { id: true, nombre: true, precioCentavos: true, moneda: true },
+    });
+    const porId = new Map(productos.map((producto) => [producto.id, producto]));
+    const detalle: ProductoDeInteres[] = [];
+    for (const id of ids) {
+      const producto = porId.get(id);
+      if (!producto) continue;
+      const cotizacion = await this.ventas.cotizarFormasDePago(userId, [{ productoId: id, cantidad: 1 }], ahora).catch(() => null);
+      if (!cotizacion) continue;
+      detalle.push({
+        id,
+        nombre: producto.nombre,
+        tipo: tipoDe.get(id) ?? 'vio',
+        moneda: cotizacion.moneda,
+        precioListaCentavos: producto.precioCentavos,
+        contadoCentavos: cotizacion.contadoCentavos,
+        efectivoCentavos: cotizacion.efectivoCentavos,
+        planes: cotizacion.planes,
+      });
+    }
+
+    return {
+      resumen: conversacion?.resumen ?? null,
+      productos: detalle,
+      pedido: pedido && { id: pedido.id, estado: pedido.estado, totalCentavos: pedido.totalCentavos, moneda: pedido.moneda },
+      trato: estadoDelTrato(pedido, fila.tratoCanceladoAt),
+    };
+  }
+
+  /**
+   * El dueño marca el trato del chat: "hecho" crea el pedido a cobrar a mano
+   * (si no hay uno abierto), "pagado" lo cobra (o lo crea ya pagado) y
+   * "cancelado" cancela el pedido abierto y deja la marca. Los precios salen
+   * de la base, como cuando vende el asistente.
+   */
+  async cambiarTrato(userId: string, conversationId: string, dto: CambiarTratoDto): Promise<ChatResumen> {
+    const fila = await this.delDueno(userId, conversationId);
+    if (!(await this.esVentas(userId))) throw new ConflictException('El estado del trato es para cuentas que venden.');
+    if (this.tratosEnCurso.has(conversationId)) {
+      throw new ConflictException('Ya estamos guardando un cambio en este chat. Esperá un momento.');
+    }
+    this.tratosEnCurso.add(conversationId);
+    try {
+      const ahora = new Date();
+      const pedido = await this.ultimoPedido(conversationId);
+      const paso = pasoParaTrato(dto.estado, pedido);
+      switch (paso.tipo) {
+        case 'rechazar':
+          throw new ConflictException(paso.motivo);
+        case 'pagar':
+          if (!(await this.ventas.marcarPagadaPorElDueno(userId, pedido!.id))) {
+            throw new ConflictException('No se pudo marcar como pagado. Recargá y probá de nuevo.');
+          }
+          break;
+        case 'cancelar_pedido':
+          await this.ventas.cancelar(userId, pedido!.id, ahora);
+          break;
+        case 'crear':
+          await this.crearPedidoDelDueno(userId, fila, dto, paso.pagado, ahora);
+          break;
+        case 'nada':
+        case 'marcar_cancelado':
+          break;
+      }
+      // La marca sólo vale para "cancelado"; los otros estados la levantan.
+      await this.prisma.conversation.updateMany({
+        where: { id: conversationId, userId },
+        data: { tratoCanceladoAt: dto.estado === 'cancelado' ? ahora : null },
+      });
+      const actualizada = await this.delDueno(userId, conversationId);
+      const [chat] = await this.resumir(userId, [actualizada], ahora);
+      return chat!;
+    } finally {
+      this.tratosEnCurso.delete(conversationId);
+    }
+  }
+
+  private async crearPedidoDelDueno(
+    userId: string,
+    fila: FilaChat,
+    dto: CambiarTratoDto,
+    pagado: boolean,
+    ahora: Date,
+  ): Promise<void> {
+    if (!dto.items || dto.items.length === 0) throw new BadRequestException('Elegí al menos un producto.');
+    const telefono = telefonoDeJid(fila.remoteJid);
+    let venta;
+    try {
+      venta = await this.ventas.crearPedido({
+        userId,
+        conversationId: fila.id,
+        remoteJid: fila.remoteJid,
+        nombreCliente: fila.nombreCliente ?? (telefono ? `+${telefono}` : 'Cliente de WhatsApp'),
+        items: dto.items.map((item) => ({ productoId: item.productoId, cantidad: item.cantidad })),
+        medioPago: 'manual',
+        formaPago: dto.formaPago ?? null,
+        cuotas: dto.formaPago === 'cuotas' ? (dto.cuotas ?? null) : null,
+        delDueno: true,
+        ahora,
+      });
+    } catch (error) {
+      if (error instanceof PedidoRechazadoError) throw new ConflictException(error.message);
+      throw error;
+    }
+    await this.registro.avanzarPorVenta(venta, 'pedido');
+    if (pagado && !(await this.ventas.marcarPagadaPorElDueno(userId, venta.id))) {
+      throw new ConflictException('El pedido quedó creado pero no se pudo marcar como pagado. Probá de nuevo.');
+    }
+  }
+
+  /**
    * Avisa cuando cambia algo de los chats de la cuenta (un mensaje nuevo o
    * quién contesta): la web vuelve a pedir lo que muestra. Mira una firma
    * barata (los últimos cambios) en vez de engancharse a cada lugar que
@@ -188,10 +368,26 @@ export class ChatsService {
   private async delDueno(userId: string, conversationId: string): Promise<FilaChat> {
     const fila = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId },
-      select: { id: true, remoteJid: true, nombreCliente: true, atencion: true },
+      select: SELECT_FILA,
     });
     if (!fila || esConversacionDePrueba(fila.remoteJid)) throw new NotFoundException('No existe ese chat.');
     return fila;
+  }
+
+  private async esVentas(userId: string): Promise<boolean> {
+    const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
+    return agent !== null && tipoAsistenteDe(agent) === 'ventas';
+  }
+
+  /** El último pedido real del chat (los del banco de pruebas no cuentan). */
+  private ultimoPedido(
+    conversationId: string,
+  ): Promise<(NonNullable<UltimoPedido> & { id: string; totalCentavos: number | null; moneda: string }) | null> {
+    return this.prisma.venta.findFirst({
+      where: { conversationId, dePrueba: false },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, estado: true, createdAt: true, totalCentavos: true, moneda: true },
+    });
   }
 
   private async porClave(conversationId: string, clave: string): Promise<MensajeChat | null> {
@@ -228,11 +424,15 @@ export class ChatsService {
     return fila?.firma?.toISOString() ?? '';
   }
 
-  /** Arma los resúmenes con tres lecturas en lote: último mensaje, próximo turno y pedido abierto. */
-  private async resumir(filas: FilaChat[], ahora: Date): Promise<ChatResumen[]> {
+  /**
+   * Arma los resúmenes con lecturas en lote: último mensaje, próximo turno y
+   * pedido abierto; en una cuenta de ventas, además la etapa y el último pedido.
+   */
+  private async resumir(userId: string, filas: FilaChat[], ahora: Date): Promise<ChatResumen[]> {
     if (filas.length === 0) return [];
     const ids = filas.map((fila) => fila.id);
-    const [ultimos, turnos, ventas] = await Promise.all([
+    const esVentas = await this.esVentas(userId);
+    const [ultimos, turnos, ventas, etapas, ultimosPedidos] = await Promise.all([
       this.prisma.$queryRaw<UltimoMensaje[]>`
         SELECT c."id" AS "conversationId", m."role", m."content", m."createdAt"
         FROM "Conversation" c
@@ -253,7 +453,23 @@ export class ChatsService {
         orderBy: { createdAt: 'desc' },
         select: { conversationId: true, estado: true },
       }),
+      esVentas
+        ? this.prisma.etapaChat.findMany({
+            where: { conversationId: { in: ids }, userId },
+            select: { conversationId: true, etapa: true, derivado: true, ultimaActividadAt: true },
+          })
+        : Promise.resolve([]),
+      esVentas
+        ? this.prisma.venta.findMany({
+            where: { conversationId: { in: ids }, dePrueba: false },
+            orderBy: { createdAt: 'desc' },
+            distinct: ['conversationId'],
+            select: { conversationId: true, estado: true, createdAt: true },
+          })
+        : Promise.resolve([]),
     ]);
+    const etapaDe = new Map(etapas.map((fila) => [fila.conversationId, fila]));
+    const pedidoFinalDe = new Map(ultimosPedidos.map((fila) => [fila.conversationId, fila]));
     const ultimoDe = new Map(ultimos.map((fila) => [fila.conversationId, aMensajesPublicos([fila])[0] ?? null]));
     const turnoDe = new Map<string, { inicio: Date }>();
     for (const turno of turnos) if (!turnoDe.has(turno.conversationId)) turnoDe.set(turno.conversationId, { inicio: turno.inicio });
@@ -276,7 +492,18 @@ export class ChatsService {
         teEspera: atencion === 'humana' && ultimo?.de === 'cliente',
         turno: turnoDe.get(fila.id) ?? null,
         pedido: pedidoDe.get(fila.id) ?? null,
+        venta: ventaDe(etapaDe.get(fila.id), ahora),
+        trato: esVentas ? estadoDelTrato(pedidoFinalDe.get(fila.id) ?? null, fila.tratoCanceladoAt) : null,
       };
     });
   }
+}
+
+function ventaDe(
+  fila: { etapa: string; derivado: boolean; ultimaActividadAt: Date } | undefined,
+  ahora: Date,
+): ChatResumen['venta'] {
+  if (!fila) return null;
+  const etapa = fila.etapa as Etapa;
+  return { etapa, estado: estadoDeChat(etapa, fila.ultimaActividadAt, ahora), derivado: fila.derivado };
 }

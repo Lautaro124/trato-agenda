@@ -379,6 +379,19 @@ describe.skipIf(!hayBaseDePrueba)('pedidos y ventas (Postgres real)', () => {
       const conLink = await pedido([{ productoId: sinControl, cantidad: 1 }], { conversationId, medioPago: 'mercadopago' });
       expect(conLink.atencion).toBe('asistente');
     });
+
+    it('el pedido que carga el dueño (trato hecho) no pausa, no avisa ni pisa el nombre del chat', async () => {
+      await configurar('transferencia');
+      await prisma.conversation.update({ where: { id: conversationId }, data: { nombreCliente: 'Lupe' } });
+      const venta = await pedido([{ productoId: sinControl, cantidad: 1 }], {
+        conversationId,
+        nombreCliente: 'Cliente de WhatsApp',
+        delDueno: true,
+      });
+      expect(venta).toMatchObject({ atencion: 'asistente', medioPago: 'manual', estado: 'pendiente_pago' });
+      expect(avisosDeTipo('pedido_manual')).toHaveLength(0);
+      expect((await prisma.conversation.findUniqueOrThrow({ where: { id: conversationId } })).nombreCliente).toBe('Lupe');
+    });
   });
 
   it('la conciliación encuentra el pago aunque el webhook no haya llegado', async () => {

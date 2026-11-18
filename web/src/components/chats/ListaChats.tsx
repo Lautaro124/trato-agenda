@@ -1,15 +1,34 @@
 "use client";
 
+import { EtiquetaVenta } from "@/components/chats/EtiquetaVenta";
 import { Badge } from "@/components/ui/Badge";
-import { contextoDe, horaCorta, inicialDe, nombreDe, type AtencionChat, type ChatResumen, type ListaChats as Lista } from "@/lib/chats";
+import {
+  contextoDe,
+  demoraDe,
+  ETAPAS_VISIBLES,
+  etiquetaDeVenta,
+  horaCorta,
+  inicialDe,
+  nombreDe,
+  type AtencionChat,
+  type ChatResumen,
+  type EtapaVenta,
+  type ListaChats as Lista,
+} from "@/lib/chats";
 import { cn } from "@/lib/cn";
 
-export type Filtro = "todos" | AtencionChat;
+/** Quién contesta, la etapa de la venta (cuentas de ventas) o con turno (agenda). */
+export type Filtro = "todos" | AtencionChat | EtapaVenta | "cancelado" | "con_turno";
 
 const FILTROS: Array<{ id: Filtro; label: string }> = [
   { id: "todos", label: "Todos" },
   { id: "asistente", label: "Bot" },
   { id: "humana", label: "Vos" },
+];
+
+const FILTROS_VENTA: Array<{ id: Filtro; label: string }> = [
+  ...ETAPAS_VISIBLES.map((etapa) => ({ id: etapa.id, label: etapa.label })),
+  { id: "cancelado", label: "Cancelado" },
 ];
 
 /** Bot o Vos: quién contesta este chat. */
@@ -28,15 +47,22 @@ function plano(texto: string): string {
   return texto.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
 
+function pasaFiltro(chat: ChatResumen, filtro: Filtro): boolean {
+  if (filtro === "todos") return true;
+  if (filtro === "asistente" || filtro === "humana") return chat.atencion === filtro;
+  if (filtro === "con_turno") return chat.turno !== null;
+  return etiquetaDeVenta(chat)?.id === filtro;
+}
+
 export function coincide(chat: ChatResumen, filtro: Filtro, busqueda: string): boolean {
-  if (filtro !== "todos" && chat.atencion !== filtro) return false;
+  if (!pasaFiltro(chat, filtro)) return false;
   const q = plano(busqueda.trim());
   if (!q) return true;
   const digitos = q.replace(/\D/g, "");
   return plano(chat.nombre ?? "").includes(q) || (digitos !== "" && (chat.telefono ?? "").includes(digitos));
 }
 
-/** La lista de chats con buscador y filtro Bot/Vos. */
+/** La lista de chats con buscador, filtro Bot/Vos y, en ventas, filtro por etapa. */
 export function ListaChats({
   lista,
   filtro,
@@ -54,11 +80,14 @@ export function ListaChats({
   onBusqueda: (texto: string) => void;
   onElegir: (id: string) => void;
 }>) {
-  const cuenta: Record<Filtro, number> = {
-    todos: lista.cuenta.todos,
-    asistente: lista.cuenta.asistente,
-    humana: lista.cuenta.humana,
-  };
+  const cuenta = (id: Filtro): number =>
+    id === "todos"
+      ? lista.cuenta.todos
+      : id === "asistente" || id === "humana"
+        ? lista.cuenta[id]
+        : lista.chats.filter((chat) => pasaFiltro(chat, id)).length;
+  // Las etapas se muestran sólo en una cuenta de ventas (los chats traen su etapa o su trato).
+  const ventas = lista.chats.some((chat) => chat.venta !== null || chat.trato !== null);
   const visibles = lista.chats.filter((chat) => coincide(chat, filtro, busqueda));
 
   return (
@@ -82,19 +111,24 @@ export function ListaChats({
             className="min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none"
           />
         </label>
-        <div role="group" aria-label="Filtrar por quién contesta" data-tutorial="filtro-chats" className="flex flex-wrap gap-2">
-          {FILTROS.map(({ id, label }) => (
+        <div
+          role="group"
+          aria-label={ventas ? "Filtrar por quién contesta o por etapa de la venta" : "Filtrar por quién contesta"}
+          data-tutorial="filtro-chats"
+          className="flex gap-2 overflow-x-auto pb-0.5"
+        >
+          {[...FILTROS, ...(ventas ? FILTROS_VENTA : [])].map(({ id, label }) => (
             <button
               key={id}
               type="button"
               aria-pressed={filtro === id}
               onClick={() => onFiltro(id)}
               className={cn(
-                "h-9 rounded-full border px-3.5 text-sm font-semibold",
+                "h-9 flex-none rounded-full border px-3.5 text-sm font-semibold whitespace-nowrap",
                 filtro === id ? "border-ink bg-ink text-white" : "border-line bg-card text-ink-secondary hover:bg-sunken",
               )}
             >
-              {label} · {cuenta[id]}
+              {label} · {cuenta(id)}
             </button>
           ))}
         </div>
@@ -104,6 +138,8 @@ export function ListaChats({
         {visibles.map((chat) => {
           const activo = chat.id === seleccionado;
           const contexto = contextoDe(chat);
+          const etiqueta = etiquetaDeVenta(chat);
+          const demora = demoraDe(chat);
           return (
             <li key={chat.id} className="border-b border-sunken last:border-b-0">
               <button
@@ -124,6 +160,7 @@ export function ListaChats({
                   </span>
                   <span className="truncate text-sm text-ink-secondary">{vistaPrevia(chat)}</span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-2">
+                    {etiqueta && <EtiquetaVenta etiqueta={etiqueta} />}
                     <InsigniaAtencion atencion={chat.atencion} />
                     {chat.teEspera && (
                       <span className="inline-flex items-center gap-1.5 text-xs font-bold text-danger-text">
@@ -131,7 +168,8 @@ export function ListaChats({
                         Te espera
                       </span>
                     )}
-                    {contexto && <span className="text-xs text-ink-secondary">{contexto}</span>}
+                    {demora && <span className="text-xs font-semibold text-ink-secondary">{demora}</span>}
+                    {!etiqueta && contexto && <span className="text-xs text-ink-secondary">{contexto}</span>}
                   </span>
                 </span>
               </button>
@@ -143,7 +181,7 @@ export function ListaChats({
         <p className="px-4 py-8 text-center text-sm text-ink-secondary">
           {lista.chats.length === 0
             ? "Todavía no hay chats. Cuando un cliente le escriba a tu WhatsApp, lo vas a ver acá."
-            : "No hay chats que coincidan."}
+            : "No hay chats en este filtro."}
         </p>
       )}
     </section>

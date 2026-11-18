@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { agenteActual, crearAgentePorApi, eventosProximos, expect, horaBA, test, visible } from './fixtures';
+import { agenteActual, crearAgentePorApi, eventosProximos, expect, hablarConAgente, horaBA, test, visible } from './fixtures';
 import { elegirDuracion, selectorDuracion, tarjetaEvento } from './onboarding';
 
 /** La fila de un horario grupal ("Horario 1 de Taller: Lun 18:00"). */
@@ -47,10 +47,7 @@ test.describe('editar reuniones después del onboarding', () => {
     await expect(page.getByLabel('Precio de Control', { exact: true })).toHaveValue('15.000');
 
     // El asistente agenda con la duración nueva.
-    await page.goto('/inicio');
-    await page.getByPlaceholder('Escribile al agente…').fill('Hola, quiero un turno, soy Caro');
-    await page.getByRole('button', { name: 'Enviar' }).click();
-    await expect(page.getByText(/^Listo: Turno agendado para Caro/)).toBeVisible();
+    expect((await hablarConAgente(context.request, 'Hola, quiero un turno, soy Caro')).reply).toMatch(/^Listo: Turno agendado para Caro/m);
 
     const [evento] = await eventosProximos(context.request);
     expect(horaBA(evento.fin)).toBe('10:45');

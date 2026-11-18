@@ -253,6 +253,11 @@ model Conversation {
   devueltaAt     DateTime?
   notaDevolucion String?
 
+  /// Cuándo el dueño marcó el trato de este chat como cancelado desde el
+  /// panel. Vale mientras no haya un pedido más nuevo; reglas en
+  /// src/chats/trato.rules.ts.
+  tratoCanceladoAt DateTime?
+
   /// Cuándo se guardó el último mensaje del chat: ordena la lista de Chats.
   /// Lo mantiene un trigger de la base sobre "Message" (migración
   /// 20261103120000_atencion_por_conversacion), así no depende de quién escriba.

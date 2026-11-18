@@ -46,13 +46,34 @@ function pasosInicio(user: Usuario): Paso[] {
     },
     NAVEGACION,
     {
-      objetivo: "resumen",
-      titulo: ventas ? "Tu tienda" : "Tu día",
+      objetivo: "indicadores",
+      titulo: "Cómo vienen tus chats",
       texto: ventas
-        ? "Los pasos que faltan para que tu asistente quede listo para vender."
-        : "Los turnos de hoy y cuántos tenés en la semana, con los que agenda tu asistente incluidos.",
+        ? "Chats nuevos, en cuántos intervenís vos y cuántos terminan en una venta, de la última semana. Tocá uno para filtrar la lista."
+        : "Chats nuevos, en cuántos intervenís vos y cuántos sacan un turno, de la última semana. Tocá uno para filtrar la lista.",
     },
-    CHAT_DE_PRUEBA,
+    {
+      objetivo: "lista-chats",
+      titulo: "Tus chats de WhatsApp",
+      texto: ventas
+        ? "Las conversaciones que atiende tu asistente, con la etapa de cada venta. Tocá una para leerla o contestar vos."
+        : "Las conversaciones que atiende tu asistente, la más reciente arriba. Tocá una para leerla o contestar vos.",
+    },
+    ...(ventas
+      ? [
+          {
+            objetivo: "resumen",
+            titulo: "Tu tienda",
+            texto: "Mientras no tengas chats, acá ves los pasos que faltan para que tu asistente quede listo para vender.",
+          },
+          {
+            objetivo: "estado-trato",
+            titulo: "Cerrá el trato",
+            texto:
+              "Lo que le interesa al cliente, sus precios, promos y cuotas. Marcá el trato como hecho, pagado o cancelado cuando lo cierres vos.",
+          },
+        ]
+      : []),
     {
       objetivo: "estado-asistente",
       titulo: "Si está atendiendo",

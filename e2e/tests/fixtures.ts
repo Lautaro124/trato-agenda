@@ -214,3 +214,12 @@ export const test = base.extend<Fixtures>({
 export async function esperarRuta(page: Page, ruta: string): Promise<void> {
   await page.waitForURL((url) => url.pathname === ruta, { timeout: 90_000 });
 }
+
+export type RespuestaAgente = { reply: string; imagenes?: Array<{ nombre: string; leyenda?: string | null }> };
+
+/** Le escribe al asistente como un cliente, por el banco de pruebas de la API (la charla sigue entre llamadas). */
+export async function hablarConAgente(request: APIRequestContext, mensaje: string): Promise<RespuestaAgente> {
+  const res = await request.post(`${API_URL}/conversation/test`, { data: { message: mensaje } });
+  expect(res.ok(), await res.text()).toBe(true);
+  return res.json() as Promise<RespuestaAgente>;
+}

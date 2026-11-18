@@ -11,9 +11,8 @@ type WhatsappStatus = { linked: boolean };
 type Paso = { hecho: boolean; titulo: string; detalle: string; href: string; accion: string };
 
 /**
- * La columna izquierda del Home de una cuenta de ventas: lo que falta para que
- * el asistente venda de verdad. Reemplaza a "Tu día" (la agenda), que en una
- * cuenta de ventas no existe.
+ * Lo que falta para que el asistente de una cuenta de ventas venda de verdad.
+ * Inicio lo muestra mientras la cuenta todavía no tiene chats.
  */
 export function ColumnaVentas() {
   const [productos, setProductos] = useState<number | null>(null);

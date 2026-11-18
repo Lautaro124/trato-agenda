@@ -96,6 +96,12 @@ export type CrearPedidoInput = {
   datosCliente?: DatoCliente[];
   /** Pedido del banco de pruebas del Home: real, pero fuera del histórico. */
   dePrueba?: boolean;
+  /**
+   * Lo arma el dueño desde el panel (trato hecho): no pide las respuestas a
+   * las preguntas del producto, no pausa al asistente ni le avisa al dueño
+   * del pedido que acaba de cargar él.
+   */
+  delDueno?: boolean;
   ahora?: Date;
 };
 
@@ -310,8 +316,8 @@ export class VentasService {
         );
       }
     }
-    // Un pedido a cobrar a mano no avanza solo: el dueño tiene que enterarse.
-    await this.avisar(input.userId, avisoPedidoManual(venta));
+    // Un pedido a cobrar a mano no avanza solo: el dueño tiene que enterarse (salvo que lo cargó él).
+    if (!input.delDueno) await this.avisar(input.userId, avisoPedidoManual(venta));
     return venta;
   }
 
@@ -456,10 +462,13 @@ export class VentasService {
     // Las cuotas salen de la misma lectura que los precios, no de la cotización.
     const cuotasDe = cuotasPorProducto(productos);
     // Las preguntas también salen de la lectura bloqueada: se responden las que el dueño tiene hoy.
-    const respondidas = validarRespuestas(
-      productos.map((producto) => ({ id: producto.id, nombre: producto.nombre, preguntas: leerPreguntas(producto.preguntasPedido) })),
-      input.respuestas ?? [],
-    );
+    // El dueño que carga el trato a mano ya habló con el cliente: no se le exigen las respuestas.
+    const respondidas = input.delDueno
+      ? { porProducto: new Map<string, never[]>() }
+      : validarRespuestas(
+          productos.map((producto) => ({ id: producto.id, nombre: producto.nombre, preguntas: leerPreguntas(producto.preguntasPedido) })),
+          input.respuestas ?? [],
+        );
     if ('error' in respondidas) throw new PedidoRechazadoError(respondidas.error);
     const problemaDePago = problemaDeFormaDePago(condiciones, formaPago, cuotas, moneda, [...cuotasDe.values()]);
     if (problemaDePago) throw new PedidoRechazadoError(problemaDePago);
@@ -504,7 +513,8 @@ export class VentasService {
     const subtotal = sumaDe(renglones);
     const recargo = cuotas !== null ? recargoDelPedido(renglones, cuotasDe, cuotas) : 0;
 
-    const pausa = input.medioPago === 'manual' && condiciones.cobroManual !== null && input.conversationId !== null;
+    const pausa =
+      !input.delDueno && input.medioPago === 'manual' && condiciones.cobroManual !== null && input.conversationId !== null;
     const venta = await tx.venta.create({
       data: {
         userId: input.userId,
@@ -538,7 +548,8 @@ export class VentasService {
     });
     if (input.conversationId) {
       // Igual que con los turnos: el nombre se pregunta una vez por conversación.
-      await tx.conversation.update({ where: { id: input.conversationId }, data: { nombreCliente } });
+      // El del dueño puede ser un genérico ("Cliente de WhatsApp"): no pisa el del chat.
+      if (!input.delDueno) await tx.conversation.update({ where: { id: input.conversationId }, data: { nombreCliente } });
       // Cobro manual: el chat queda en manos del negocio (LAU-81).
       if (pausa) await tomarChat(tx, input.userId, input.conversationId, ahora);
     }
