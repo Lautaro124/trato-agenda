@@ -143,8 +143,9 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
   /**
    * Las ventas quedan mientras exista la cuenta (montos, productos y fechas son
    * el histórico del comercio), pero pasado `DIAS_RETENCION_DATOS_CLIENTE`
-   * desde el pedido pierden el nombre, el teléfono y los datos (dirección,
-   * DNI, email…) de quien compró.
+   * desde el pedido pierden el nombre, el teléfono, los datos (dirección,
+   * DNI, email…) y las notas (lo que escribió en las preguntas, LAU-100) de
+   * quien compró.
    */
   private async anonimizarVentas(ahora: Date = new Date()): Promise<number> {
     const limite = fechaLimite(DIAS_RETENCION_DATOS_CLIENTE, ahora);
@@ -155,6 +156,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
           { nombreCliente: { not: null } },
           { telefonoCliente: { not: null } },
           { datosCliente: { not: Prisma.DbNull } },
+          { notas: { not: Prisma.DbNull } },
           { detalleDerivacion: { not: null } },
           { notaDevolucion: { not: null } },
         ],
@@ -163,6 +165,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
         nombreCliente: null,
         telefonoCliente: null,
         datosCliente: Prisma.DbNull,
+        notas: Prisma.DbNull,
         detalleDerivacion: null,
         notaDevolucion: null,
       },

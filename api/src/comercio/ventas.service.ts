@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { mensajePropio } from '../agents/mensajes.rules.js';
 import type { Env } from '../config/env.js';
 import type { ItemVenta, Prisma, Venta } from '../generated/prisma/client.js';
-import { leerPreguntas, validarRespuestas, type RespuestaDelModelo } from './preguntas-producto.rules.js';
+import { evaluarRespuestas, leerPreguntas, type RespuestaDelModelo, type RespuestasEvaluadas } from './preguntas-pedido.rules.js';
 import { avisoMercadoPagoDesconectado, avisoPedidoManual, avisoStock, avisoVentaPagada } from '../notificaciones/avisos.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
 import { RegistroPerformanceService } from '../performance/registro.service.js';
@@ -83,7 +83,7 @@ export type CrearPedidoInput = {
   remoteJid: string | null;
   nombreCliente: string;
   items: ItemPedido[];
-  /** Lo que contestó el cliente a las preguntas de los productos; se valida contra las que tienen hoy. */
+  /** Lo que contestó el cliente a las preguntas del pedido; se valida contra las que tiene hoy la cuenta. */
   respuestas?: RespuestaDelModelo[];
   medioPago: MedioDePago;
   /** Efectivo (con su descuento) o cuotas (con su recargo); sin ella, contado. */
@@ -135,8 +135,6 @@ type ProductoBloqueado = {
   moneda: string;
   /** Las cuotas guardadas, sin validar (leerCuotasProducto). */
   cuotas: unknown;
-  /** Las preguntas guardadas, sin validar (leerPreguntas). */
-  preguntasPedido: unknown;
 };
 
 /** Lo que hace falta de un producto para ponerle precio a un renglón. */
@@ -438,7 +436,7 @@ export class VentasService {
     // Orden fijo de bloqueo (por id): dos pedidos con los mismos productos no se traban entre sí.
     const productos = await tx.$queryRaw<ProductoBloqueado[]>`
       SELECT p."id", p."codigo", p."nombre", p."precioCentavos", p."stock", p."disponible", p."plazoEntregaDias", p."activo",
-             p."categoria", p."moneda", p."cuotas", p."preguntasPedido"
+             p."categoria", p."moneda", p."cuotas"
       FROM "Producto" p
       WHERE p."id" = ANY(${ids}) AND p."userId" = ${input.userId} AND p."activo"
       ORDER BY p."id"
@@ -461,15 +459,23 @@ export class VentasService {
     }
     // Las cuotas salen de la misma lectura que los precios, no de la cotización.
     const cuotasDe = cuotasPorProducto(productos);
-    // Las preguntas también salen de la lectura bloqueada: se responden las que el dueño tiene hoy.
+    // Las preguntas se leen en la misma transacción: se responden las que el dueño tiene hoy.
     // El dueño que carga el trato a mano ya habló con el cliente: no se le exigen las respuestas.
-    const respondidas = input.delDueno
-      ? { porProducto: new Map<string, never[]>() }
-      : validarRespuestas(
-          productos.map((producto) => ({ id: producto.id, nombre: producto.nombre, preguntas: leerPreguntas(producto.preguntasPedido) })),
-          input.respuestas ?? [],
-        );
-    if ('error' in respondidas) throw new PedidoRechazadoError(respondidas.error);
+    let respondidas: RespuestasEvaluadas = { globales: [], porProducto: new Map(), notas: [] };
+    if (!input.delDueno) {
+      const configPreguntas = await tx.configuracionPreguntas.findUnique({
+        where: { userId: input.userId },
+        select: { preguntas: true },
+      });
+      const evaluadas = evaluarRespuestas(
+        leerPreguntas(configPreguntas?.preguntas),
+        // En el orden en que los pidió: es el de las notas.
+        items.map((item) => porId.get(item.productoId) as ProductoBloqueado),
+        input.respuestas ?? [],
+      );
+      if ('error' in evaluadas) throw new PedidoRechazadoError(evaluadas.error);
+      respondidas = evaluadas;
+    }
     const problemaDePago = problemaDeFormaDePago(condiciones, formaPago, cuotas, moneda, [...cuotasDe.values()]);
     if (problemaDePago) throw new PedidoRechazadoError(problemaDePago);
 
@@ -532,6 +538,8 @@ export class VentasService {
         dePrueba: input.dePrueba ?? false,
         entrega: leerEntrega(input.entrega),
         ...datosParaGuardar(input.datosCliente),
+        ...(respondidas.globales.length > 0 && { respuestas: respondidas.globales }),
+        ...(respondidas.notas.length > 0 && { notas: respondidas.notas }),
         items: { create: renglones },
         // Con el cobro manual configurado, el asistente manda los datos de pago y
         // el chat queda para el negocio hasta que el dueño se lo devuelva (LAU-81).
