@@ -11,6 +11,7 @@ export type Pantalla =
   | "calendario"
   | "reuniones"
   | "productos"
+  | "preguntas"
   | "ventas"
   | "envios"
   | "plan"
@@ -136,6 +137,8 @@ export function seccionesDe(user: Usuario): Seccion[] {
           icono: ICONOS.productos,
           destinos: [
             destino("productos", "/productos", "Catálogo"),
+            // Lo que el asistente le pregunta al cliente al armar el pedido (LAU-100).
+            destino("preguntas", "/preguntas", "Preguntas"),
             // Zonas, tarifas y respuestas del asistente sobre envíos (LAU-102).
             destino("envios", "/envios", "Envíos"),
             // Los anuncios de Facebook o Instagram desde los que escriben los clientes (LAU-103).

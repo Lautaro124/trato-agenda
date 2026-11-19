@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import type { ImagenEnviada } from "./imagenes";
 import { ErrorDeApi } from "./productos";
 import { ETIQUETA_ESTADO, type EstadoVenta } from "./ventas";
 
@@ -15,6 +16,8 @@ export type MensajeChat = {
   /** "dueno" es lo que escribiste vos, desde el panel o desde tu teléfono. */
   de: "cliente" | "asistente" | "dueno";
   texto: string;
+  /** Sólo del asistente: las fotos que le llegaron al cliente antes de este texto. */
+  imagenes?: ImagenEnviada[];
   createdAt: string;
 };
 
@@ -218,10 +221,9 @@ export function etiquetaDeVenta(chat: Pick<ChatResumen, "venta" | "trato">): Eti
   return visible ? { id: visible.id, label: visible.label, tono: visible.tono, paso: indice + 1 } : null;
 }
 
-/** "Estancado" o "Abandonado" cuando corresponde; nada si está activo o cerrado. */
+/** "Abandonado" cuando corresponde; nada si está activo, estancado o cerrado (la lista no marca los estancados). */
 export function demoraDe(chat: Pick<ChatResumen, "venta" | "trato">): string | null {
   if (!chat.venta || chat.trato) return null;
-  if (chat.venta.estado === "estancado") return "Estancado";
   if (chat.venta.estado === "abandonado") return "Abandonado";
   return null;
 }

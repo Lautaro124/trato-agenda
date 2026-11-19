@@ -8,7 +8,7 @@ import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { esAccionDeVentas } from '../../../agents/agent-catalog.js';
 import { leerConfigDatosCliente, validarDatosPedido } from '../../../comercio/datos-cliente.rules.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
-import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
+import { describirPregunta, preguntasSinHacer, type RespuestaDelModelo } from '../../../comercio/preguntas-pedido.rules.js';
 import { agruparItems, problemaDeForma, type ItemPedido } from '../../../comercio/ventas.rules.js';
 import { LARGO_MAX_CONSULTA } from '../../../notificaciones/avisos.js';
 import type { EsquemaHerramienta } from '../../conversation-tools.js';
@@ -19,9 +19,11 @@ import { claveDeFoto, fotosMandadas, HERRAMIENTA_IMAGEN, imagenesDeLaVuelta } fr
 import {
   accionesDeVentas,
   ESQUEMA_ENVIO,
+  ESQUEMA_IMAGENES_PREGUNTA,
   ESQUEMAS_PROPIETARIO_VENTAS,
   ESQUEMAS_VENTAS,
   HERRAMIENTA_ENVIO,
+  HERRAMIENTA_IMAGENES_PREGUNTA,
 } from '../ventas-tools.js';
 import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
@@ -53,7 +55,36 @@ export type HistorialValidacion = {
   fotosPedidas: number;
   /** Fotos (claveDeFoto) que ya le llegaron al cliente en la parte de la charla que ve el modelo. */
   fotosYaMandadas: Set<string>;
+  /** Lo que dijo el asistente en la parte de la charla que ve el modelo: para saber si ya hizo las preguntas del pedido. */
+  mensajesDelAsistente?: string[];
 };
+
+/**
+ * Las preguntas del pedido (LAU-100) que el asistente todavía no le hizo al
+ * cliente con estos productos. Mientras falten, no se avanza con el pedido: es
+ * lo que hace que las pregunte apenas elige el producto y no recién al cerrar.
+ */
+function bloqueoPorPreguntas(
+  state: EstadoVentasValue,
+  items: ItemPedido[],
+  historial: HistorialValidacion,
+  respuestas: RespuestaDelModelo[] = [],
+): string | null {
+  const todas = state.contexto.preguntas ?? [];
+  if (todas.length === 0 || items.length === 0) return null;
+  const sinHacer = preguntasSinHacer(
+    todas,
+    items.map((item) => item.productoId),
+    historial.mensajesDelAsistente ?? [],
+    new Set(respuestas.map((respuesta) => respuesta.preguntaId)),
+  );
+  if (sinHacer.length === 0) return null;
+  return (
+    'Antes de seguir con el pedido todavía no le hiciste estas preguntas al cliente. Preguntáselas ahora (con las ' +
+    'palabras de la pregunta, una respuesta por vez si son varias) y esperá lo que conteste; no sigas con envío, ' +
+    `formas de pago ni creación del pedido hasta entonces:\n${sinHacer.map((pregunta) => `- ${describirPregunta(pregunta, todas)}`).join('\n')}`
+  );
+}
 
 /**
  * El id tiene que haber salido de una búsqueda de esta charla: uno recordado
@@ -63,10 +94,15 @@ export type HistorialValidacion = {
 function respuestasDe(crudas: unknown): RespuestaDelModelo[] {
   if (!Array.isArray(crudas)) return [];
   return crudas.flatMap((cruda: unknown) => {
-    const { productoId, pregunta, respuesta } = (cruda ?? {}) as Record<string, unknown>;
-    return typeof productoId === 'string' && Number.isInteger(pregunta) && typeof respuesta === 'string'
-      ? [{ productoId, pregunta: pregunta as number, respuesta }]
-      : [];
+    const { preguntaId, productoId, respuesta } = (cruda ?? {}) as Record<string, unknown>;
+    if (typeof preguntaId !== 'string' || preguntaId.length > MAX_LARGO_ID || typeof respuesta !== 'string') return [];
+    return [
+      {
+        preguntaId,
+        ...(typeof productoId === 'string' && productoId.trim() ? { productoId: productoId.trim() } : {}),
+        respuesta,
+      },
+    ];
   });
 }
 
@@ -94,10 +130,20 @@ export function historialValidacion(state: EstadoVentasValue): HistorialValidaci
     fotosPedidas: fotosMandadas(
       state.messages
         .slice(state.indiceDesde ?? 0)
-        .filter((mensaje) => mensaje.getType() === 'tool' && (mensaje as ToolMessage).name === HERRAMIENTA_IMAGEN),
+        .filter(
+          (mensaje) =>
+            mensaje.getType() === 'tool' &&
+            [HERRAMIENTA_IMAGEN, HERRAMIENTA_IMAGENES_PREGUNTA].includes((mensaje as ToolMessage).name ?? ''),
+        ),
     ).size,
     // El asistente las manda solo cuando muestra productos: se corta repetir una.
     fotosYaMandadas: fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0)),
+    // Sin `mensajesVisibles`: descarta el mensaje con las llamadas pendientes, que puede traer la pregunta.
+    mensajesDelAsistente: state.messages
+      .slice(state.inicioVisible ?? 0)
+      .filter((mensaje) => mensaje.getType() === 'ai')
+      .map(textoDe)
+      .filter((texto) => texto.trim() !== ''),
   };
 }
 
@@ -107,6 +153,10 @@ function esquemaPara(state: EstadoVentasValue, nombre: string): EsquemaHerramien
     return ESQUEMAS_VENTAS[nombre];
   }
   if (nombre === HERRAMIENTA_ENVIO) return state.contexto.enviosActivo ? ESQUEMA_ENVIO : undefined;
+  if (nombre === HERRAMIENTA_IMAGENES_PREGUNTA) {
+    const vende = accionesDeVentas(agent.allowedActions).includes('crear_pedido');
+    return state.contexto.preguntasConImagenes && vende ? ESQUEMA_IMAGENES_PREGUNTA : undefined;
+  }
   if (state.esPropietario) return ESQUEMAS_PROPIETARIO_VENTAS[nombre];
   return undefined;
 }
@@ -161,7 +211,7 @@ export function validarLlamadaVentas(
   if (llamada.nombre === 'ver_formas_de_pago') {
     if (args.items === undefined) return { ok: true, operacion: { ...llamada, args: {} } };
     const items = args.items as ItemPedido[];
-    const problema = problemaDeForma(items) ?? productosNoVistos(items, historial);
+    const problema = problemaDeForma(items) ?? productosNoVistos(items, historial) ?? bloqueoPorPreguntas(state, items, historial);
     if (problema) return { ok: false, motivo: problema };
     return { ok: true, operacion: { ...llamada, args: { items: agruparItems(items) } } };
   }
@@ -180,7 +230,7 @@ export function validarLlamadaVentas(
     }
     if (args.items === undefined) return { ok: true, operacion: { ...llamada, args: ubicacion } };
     const items = args.items as ItemPedido[];
-    const problema = problemaDeForma(items) ?? productosNoVistos(items, historial);
+    const problema = problemaDeForma(items) ?? productosNoVistos(items, historial) ?? bloqueoPorPreguntas(state, items, historial);
     if (problema) return { ok: false, motivo: problema };
     return { ok: true, operacion: { ...llamada, args: { ...ubicacion, items: agruparItems(items) } } };
   }
@@ -244,6 +294,23 @@ export function validarLlamadaVentas(
     return { ok: true, operacion: { ...llamada, args: { productoId } } };
   }
 
+  if (llamada.nombre === HERRAMIENTA_IMAGENES_PREGUNTA) {
+    const preguntaId = String(args.preguntaId ?? '').trim();
+    if (!preguntaId || preguntaId.length > MAX_LARGO_ID) {
+      return { ok: false, motivo: 'Falta el id de la pregunta: usá el que figura entre corchetes, [pregunta …].' };
+    }
+    // Como las fotos de detalle: van solas en la respuesta, una pregunta por vez.
+    if (historial.fotosPedidas > 0) {
+      return {
+        ok: false,
+        motivo: 'Las imágenes de una pregunta van solas: mandá esta respuesta y hacé la pregunta en el próximo mensaje.',
+      };
+    }
+    historial.fotosPedidas = MAX_IMAGENES_POR_MENSAJE;
+    const segun = typeof args.segun === 'string' ? args.segun.trim().slice(0, MAX_LARGO_CONSULTA) : '';
+    return { ok: true, operacion: { ...llamada, args: { preguntaId, ...(segun ? { segun } : {}) } } };
+  }
+
   if (llamada.nombre === 'crear_pedido') {
     const nombreCliente = String(args.nombreCliente ?? '').trim();
     if (!nombreCliente) {
@@ -254,6 +321,8 @@ export function validarLlamadaVentas(
     if (problema) return { ok: false, motivo: problema };
     const noVistas = productosNoVistos(items, historial);
     if (noVistas) return { ok: false, motivo: noVistas };
+    const sinPreguntar = bloqueoPorPreguntas(state, items, historial, respuestasDe(args.respuestas));
+    if (sinPreguntar) return { ok: false, motivo: sinPreguntar };
     if (args.formaPago === 'cuotas' && args.cuotas === undefined) {
       return { ok: false, motivo: 'Con formaPago "cuotas" mandá también `cuotas`: un plan de ver_formas_de_pago.' };
     }

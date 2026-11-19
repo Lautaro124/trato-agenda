@@ -3,6 +3,7 @@ import { DisconnectReason, downloadMediaMessage } from '@whiskeysockets/baileys'
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnunciosService } from '../comercio/anuncios.service.js';
+import type { PreguntasService } from '../comercio/preguntas.service.js';
 import type { ImagenesService } from '../comercio/imagenes.service.js';
 import type { VisionClient } from '../comercio/vision.client.js';
 import type { Env } from '../config/env.js';
@@ -117,6 +118,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     transcripcion as unknown as TranscripcionClient,
     anuncios as unknown as AnunciosService,
     vision as unknown as VisionClient,
+    { paraEnviar: vi.fn() } as unknown as PreguntasService,
   );
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(service as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);

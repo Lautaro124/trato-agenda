@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { CampanaNotificaciones } from "@/components/CampanaNotificaciones";
 import { BadgeEstadoAsistente, useEstadoAsistente } from "@/components/EstadoAsistente";
+import { IndicadorPrueba, PastillaPrueba } from "@/components/IndicadorPrueba";
 import { Navegacion, seccionesDe, ubicacionDe, type Pantalla } from "@/components/Navegacion";
 import { BotonSugerirMejora, Lamparita, PanelSugerencia } from "@/components/SugerirMejora";
 import { Badge } from "@/components/ui/Badge";
@@ -304,6 +305,7 @@ export function AppHeader({ active, user }: Readonly<{ active: Pantalla; user: U
           </button>
         </div>
         <Navegacion id={idNav} contraida={contraida} tutorial="navegacion" {...propsNavegacion} />
+        <IndicadorPrueba contraida={contraida} />
         <MenuCuenta user={user} active={active} contraida={contraida} onSugerir={abrirSugerencia} abrirTutorial={abrirTutorial} />
       </aside>
 
@@ -327,6 +329,7 @@ export function AppHeader({ active, user }: Readonly<{ active: Pantalla; user: U
         <Link href="/inicio" className="md:hidden">
           <Wordmark size={21} />
         </Link>
+        <PastillaPrueba />
 
         {ubicacion && (
           <p className="hidden min-w-0 items-center gap-2 text-[13.5px] md:flex">
@@ -355,7 +358,15 @@ export function AppHeader({ active, user }: Readonly<{ active: Pantalla; user: U
           {whatsapp && (
             <span className={cn("whitespace-nowrap", conEstado && whatsapp.linked && "hidden md:inline")}>
               <Badge tone={whatsapp.linked ? "success" : "warning"}>
-                {whatsapp.linked ? "WhatsApp conectado" : "WhatsApp sin vincular"}
+                {whatsapp.linked ? (
+                  "WhatsApp conectado"
+                ) : (
+                  // En el celular la versión larga empujaba el header más allá de la pantalla.
+                  <>
+                    <span className="sm:hidden">Sin WhatsApp</span>
+                    <span className="max-sm:hidden">WhatsApp sin vincular</span>
+                  </>
+                )}
               </Badge>
             </span>
           )}
@@ -395,6 +406,7 @@ export function AppHeader({ active, user }: Readonly<{ active: Pantalla; user: U
               </button>
             </div>
             <Navegacion id={`${idNav}-cajon`} contraida={false} onNavegar={() => setCajonAbierto(false)} {...propsNavegacion} />
+            <IndicadorPrueba contraida={false} onNavegar={() => setCajonAbierto(false)} />
             <MenuCuenta
               user={user}
               active={active}

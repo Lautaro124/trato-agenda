@@ -14,17 +14,23 @@ export const HERRAMIENTA_IMAGEN = 'enviar_imagen_producto';
  * `leyenda` es el pie de foto cuando no alcanza con el nombre: las del
  * listado de ver_catalogo van con nombre y precio.
  */
-export type ImagenAEnviar = { productoId: string; imagenId?: string; nombre: string; leyenda?: string };
+export type FotoDeProducto = { productoId: string; imagenId?: string; nombre: string; leyenda?: string };
+
+/** La imagen de una pregunta del pedido o de una de sus opciones (LAU-100), con su texto al pie. */
+export type FotoDePregunta = { imagenPreguntaId: string; nombre: string; leyenda?: string };
+
+export type ImagenAEnviar = FotoDeProducto | FotoDePregunta;
+
+export function esFotoDePregunta(foto: ImagenAEnviar): foto is FotoDePregunta {
+  return 'imagenPreguntaId' in foto;
+}
 
 function esImagenAEnviar(valor: unknown): valor is ImagenAEnviar {
   if (typeof valor !== 'object' || valor === null) return false;
-  const { productoId, imagenId, nombre, leyenda } = valor as Record<string, unknown>;
-  return (
-    typeof productoId === 'string' &&
-    typeof nombre === 'string' &&
-    (imagenId === undefined || typeof imagenId === 'string') &&
-    (leyenda === undefined || typeof leyenda === 'string')
-  );
+  const { productoId, imagenId, imagenPreguntaId, nombre, leyenda } = valor as Record<string, unknown>;
+  if (typeof nombre !== 'string' || (leyenda !== undefined && typeof leyenda !== 'string')) return false;
+  if (typeof imagenPreguntaId === 'string') return productoId === undefined;
+  return typeof productoId === 'string' && (imagenId === undefined || typeof imagenId === 'string');
 }
 
 /** El `artifact` de un ToolMessage: una foto (enviar_imagen_producto) o varias (el listado de ver_catalogo). */
@@ -33,8 +39,11 @@ function imagenesDelArtifact(artifact: unknown): ImagenAEnviar[] {
   return esImagenAEnviar(artifact) ? [artifact] : [];
 }
 
-/** Qué foto es: la principal del producto o una de sus fotos de detalle. */
-export function claveDeFoto(foto: { productoId: string; imagenId?: string }): string {
+/** Qué foto es: la principal del producto, una de sus fotos de detalle o la de una pregunta. */
+export function claveDeFoto(
+  foto: { productoId: string; imagenId?: string } | { imagenPreguntaId: string },
+): string {
+  if ('imagenPreguntaId' in foto) return `pregunta#${foto.imagenPreguntaId}`;
   return foto.imagenId ? `${foto.productoId}#${foto.imagenId}` : foto.productoId;
 }
 

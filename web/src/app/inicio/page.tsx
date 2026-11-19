@@ -56,7 +56,7 @@ export default function InicioPage() {
       <AppHeader active="inicio" user={user} />
       <AvisoSuscripcion />
 
-      <main className="flex min-h-0 w-full flex-1 flex-col gap-4 bg-page p-4 md:p-5">
+      <main className="flex min-h-0 w-full flex-1 flex-col gap-3 bg-page p-3 md:p-4">
         {user.debePonerPassword && (
           <div role="status" className="rounded-md border border-line bg-card p-4 text-[13.5px] text-ink">
             Todavía no elegiste una contraseña: sin ella no vas a poder volver a entrar con tu número.{" "}

@@ -260,7 +260,7 @@ describe('ConversationService.responder', () => {
 
   it('la agenda y los errores contestan sólo texto', async () => {
     const service = new ConversationService(crearPrisma(), crearGrafo('Hola.'), crearGrafo('ventas') as never, CONFIG);
-    expect(await service.responder('user-1', '54911@s.whatsapp.net', 'hola')).toEqual({ texto: 'Hola.', imagenes: [] });
+    expect(await service.responder('user-1', '54911@s.whatsapp.net', 'hola')).toEqual({ texto: 'Hola.', imagenes: [], primeraRespuesta: true });
 
     const caido = new ConversationService(
       crearPrisma({ id: 'agent-1', tipoAsistente: 'ventas' }),

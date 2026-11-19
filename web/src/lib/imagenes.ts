@@ -38,12 +38,26 @@ export function urlImagenProducto(productoId: string, version: string): string {
   return `${API_URL}${rutaImagen(productoId)}?${new URLSearchParams({ v: version })}`;
 }
 
+/**
+ * Una foto que el asistente le mandó a un cliente, como la guarda el chat.
+ * Copia de ImagenEnviada en api/src/comercio/ventas.types.ts.
+ */
+export type ImagenEnviada =
+  | { productoId: string; imagenId?: string; leyenda: string }
+  | { imagenPreguntaId: string; leyenda: string };
+
+/** URL de una foto enviada en un chat: la del producto (principal o de detalle) o la de una pregunta. */
+export function urlImagenEnviada(imagen: ImagenEnviada): string {
+  if ("imagenPreguntaId" in imagen) return `${API_URL}/preguntas/imagenes/${encodeURIComponent(imagen.imagenPreguntaId)}`;
+  return `${API_URL}${imagen.imagenId ? rutaFotos(imagen.productoId, imagen.imagenId) : rutaImagen(imagen.productoId)}`;
+}
+
 /** URL de una foto puntual; `version` (su `actualizada`) evita mostrar una cacheada vieja. */
 export function urlFotoProducto(productoId: string, imagenId: string, version: string): string {
   return `${API_URL}${rutaFotos(productoId, imagenId)}?${new URLSearchParams({ v: version })}`;
 }
 
-async function mensajeDeError(res: Response): Promise<string> {
+export async function mensajeDeError(res: Response): Promise<string> {
   const cuerpo = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
   const mensaje = Array.isArray(cuerpo?.message) ? cuerpo.message[0] : cuerpo?.message;
   if (res.status === 413) return "La foto pesa demasiado: probá con otra.";
@@ -76,7 +90,7 @@ export async function achicarParaSubir(archivo: File): Promise<Blob> {
 }
 
 /** Valida y achica la foto antes de mandarla: el cuerpo multipart que espera la API. */
-async function cuerpoDeFoto(archivo: File): Promise<FormData> {
+export async function cuerpoDeFoto(archivo: File): Promise<FormData> {
   if (!FORMATOS_FOTO.split(",").includes(archivo.type)) {
     throw new ErrorDeApi("La foto tiene que ser JPG, PNG o WebP.");
   }

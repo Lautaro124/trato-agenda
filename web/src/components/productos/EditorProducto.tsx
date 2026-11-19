@@ -14,7 +14,7 @@ import {
   type TipoDescuento,
 } from "@/lib/descuentos";
 import { armarCuotas, cuotasDesdeProducto, SeccionCuotas, type CuotasEnEdicion } from "@/components/productos/SeccionCuotas";
-import { armarPreguntas, preguntasDesdeProducto, SeccionPreguntas, type PreguntaEnEdicion } from "@/components/productos/SeccionPreguntas";
+import { PreguntasDelProducto } from "@/components/productos/PreguntasDelProducto";
 import {
   centavosParaInput,
   ErrorDeApi,
@@ -143,7 +143,6 @@ export function EditorProducto({
   const [descripcion, setDescripcion] = useState(productoInicial?.descripcion ?? "");
   const [moneda, setMoneda] = useState<Moneda>(productoInicial?.moneda ?? "ARS");
   const [cuotas, setCuotas] = useState<CuotasEnEdicion>(() => cuotasDesdeProducto(productoInicial?.cuotas));
-  const [preguntas, setPreguntas] = useState<PreguntaEnEdicion[]>(() => preguntasDesdeProducto(productoInicial?.preguntas));
   const [precio, setPrecio] = useState(productoInicial ? centavosParaInput(productoInicial.precioCentavos) : "");
   // Un producto existente sin cantidad es a demanda; uno nuevo arranca con stock.
   const [modoStock, setModoStock] = useState<ModoStock>(
@@ -171,7 +170,6 @@ export function EditorProducto({
       descripcion,
       moneda,
       cuotas,
-      preguntas,
       precio,
       modoStock,
       stock,
@@ -200,8 +198,6 @@ export function EditorProducto({
     if (typeof descuentoArmado === "string") return descuentoArmado;
     const cuotasArmadas = armarCuotas(cuotas, precioCentavos, moneda);
     if (typeof cuotasArmadas === "string") return cuotasArmadas;
-    const preguntasArmadas = armarPreguntas(preguntas);
-    if (typeof preguntasArmadas === "string") return preguntasArmadas;
     return {
       codigo: codigo.trim(),
       nombre: nombre.trim(),
@@ -209,7 +205,6 @@ export function EditorProducto({
       descripcion: descripcion.trim(),
       moneda,
       cuotas: cuotasArmadas,
-      preguntas: preguntasArmadas,
       precioCentavos,
       ...disponibilidad,
       disponible,
@@ -472,7 +467,7 @@ export function EditorProducto({
         />
       )}
 
-      <SeccionPreguntas preguntas={preguntas} onCambio={setPreguntas} />
+      <PreguntasDelProducto productoId={productoInicial?.id ?? null} />
     </PantallaProducto>
   );
 }

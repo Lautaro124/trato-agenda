@@ -193,7 +193,7 @@ test.describe('horario de atención del asistente (LAU-29)', () => {
     expect(await res.json()).toMatchObject({ prendido: false, motivo: 'sin_whatsapp' });
 
     await page.goto('/cuenta');
-    await expect(visible(page.getByText('WhatsApp sin vincular'))).toBeVisible();
+    await expect(visible(page.getByText(/WhatsApp sin vincular|Sin WhatsApp/))).toBeVisible();
     await expect(page.getByRole('status', { name: /^Asistente|^Fuera de horario/ })).toHaveCount(0);
   });
 

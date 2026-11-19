@@ -1,7 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import type { EventoVenta, ItemVenta, Message, Venta } from '../generated/prisma/client.js';
-import { leerRespuestas, type RespuestaGuardada } from './preguntas-producto.rules.js';
+import { leerNotas, leerRespuestas, type NotaPedido, type RespuestaGuardada } from './preguntas-pedido.rules.js';
 import { MONEDAS, type Moneda } from './catalogo.rules.js';
 import { leerDatosDeVenta, leerEntrega, type DatoCliente, type Entrega } from './datos-cliente.rules.js';
 import {
@@ -46,6 +46,10 @@ export type VentaPublica = Pick<
   entrega: Entrega | null;
   /** Lo que el cliente contestó (envío, DNI, campos propios). Vacío si no se pidió nada. */
   datosCliente: DatoCliente[];
+  /** Las respuestas a las preguntas globales de opciones (LAU-100); vacío si no hubo. */
+  respuestas: RespuestaGuardada[];
+  /** Lo que el cliente contestó con sus palabras y los pedidos especiales, con su contexto. */
+  notas: NotaPedido[];
   items: Array<
     Pick<
       ItemVenta,
@@ -58,7 +62,7 @@ export type VentaPublica = Pick<
       | 'descuentoCentavos'
       | 'descuentoEtiqueta'
     > & {
-      /** Lo que contestó el cliente a las preguntas del producto; vacío si no tenía. */
+      /** Lo que contestó el cliente a las preguntas de opciones del producto; vacío si no tenía. */
       respuestas: RespuestaGuardada[];
     }
   >;
@@ -91,6 +95,8 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
     mpPaymentId: venta.mpPaymentId,
     entrega: leerEntrega(venta.entrega),
     datosCliente: leerDatosDeVenta(venta.datosCliente),
+    respuestas: leerRespuestas(venta.respuestas),
+    notas: leerNotas(venta.notas),
     items: venta.items.map((item) => ({
       codigo: item.codigo,
       nombreProducto: item.nombreProducto,
@@ -105,21 +111,51 @@ export function aVentaPublica(venta: Venta & { items: ItemVenta[] }, ahora: Date
   };
 }
 
+/**
+ * Una foto que el asistente le mandó al cliente: de un producto (la principal
+ * o, con `imagenId`, una de detalle) o de una pregunta del pedido. La web arma
+ * la URL; los endpoints de imágenes ya filtran por dueño.
+ */
+export type ImagenEnviada =
+  | { productoId: string; imagenId?: string; leyenda: string }
+  | { imagenPreguntaId: string; leyenda: string };
+
 export type MensajePublico = {
   /** "cliente" | "asistente" | "dueno" (lo que contestó el dueño desde su teléfono). */
   de: 'cliente' | 'asistente' | 'dueno';
   texto: string;
+  /** Sólo del asistente: las fotos que salieron antes de este texto. */
+  imagenes?: ImagenEnviada[];
   createdAt: Date;
 };
 
-/** Los mensajes de texto de la conversación, sin herramientas ni contenido que no sea texto. */
+/** Las fotos guardadas con un mensaje del asistente (persistir.node.ts), sin confiar en su forma. */
+const MAX_IMAGENES_POR_MENSAJE_PUBLICO = 10;
+const ID_IMAGEN = /^[A-Za-z0-9_-]{1,64}$/;
+
+function leerImagenesEnviadas(guardado: unknown): ImagenEnviada[] {
+  if (!Array.isArray(guardado)) return [];
+  return guardado.slice(0, MAX_IMAGENES_POR_MENSAJE_PUBLICO).flatMap((dato): ImagenEnviada[] => {
+    if (typeof dato !== 'object' || dato === null) return [];
+    const { productoId, imagenId, imagenPreguntaId, leyenda } = dato as Record<string, unknown>;
+    const pie = typeof leyenda === 'string' ? leyenda.slice(0, 300) : '';
+    if (typeof imagenPreguntaId === 'string' && ID_IMAGEN.test(imagenPreguntaId)) return [{ imagenPreguntaId, leyenda: pie }];
+    if (typeof productoId !== 'string' || !ID_IMAGEN.test(productoId)) return [];
+    if (typeof imagenId === 'string' && ID_IMAGEN.test(imagenId)) return [{ productoId, imagenId, leyenda: pie }];
+    return [{ productoId, leyenda: pie }];
+  });
+}
+
+/** Los mensajes de texto de la conversación (con las fotos del asistente), sin herramientas. */
 export function aMensajesPublicos(mensajes: Array<Pick<Message, 'role' | 'content' | 'createdAt'>>): MensajePublico[] {
   return mensajes.flatMap((mensaje): MensajePublico[] => {
-    const contenido = mensaje.content as { content?: unknown; humano?: unknown } | null;
+    if (mensaje.role !== 'user' && mensaje.role !== 'assistant') return [];
+    const contenido = mensaje.content as { content?: unknown; humano?: unknown; imagenes?: unknown } | null;
     const texto = typeof contenido?.content === 'string' ? contenido.content.trim() : '';
-    if (!texto) return [];
+    const imagenes = mensaje.role === 'assistant' ? leerImagenesEnviadas(contenido?.imagenes) : [];
+    if (!texto && imagenes.length === 0) return [];
     const de = mensaje.role === 'user' ? 'cliente' : contenido?.humano === true ? 'dueno' : 'asistente';
-    return [{ de, texto: texto.slice(0, 2000), createdAt: mensaje.createdAt }];
+    return [{ de, texto: texto.slice(0, 2000), ...(imagenes.length > 0 ? { imagenes } : {}), createdAt: mensaje.createdAt }];
   });
 }
 

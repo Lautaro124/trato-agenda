@@ -51,6 +51,8 @@ export type DepsGrafoVentas = {
   registro?: NonNullable<DepsCatalogo['registro']> & NonNullable<DepsContextoVentas['registro']>;
   /** Módulo de envíos (LAU-102). Sin él (evals), consultar_envio contesta que no está disponible. */
   envios?: DepsCatalogo['envios'];
+  /** Preguntas del pedido (LAU-100): sus imágenes. Sin él (evals), no se mandan. */
+  preguntas?: DepsCatalogo['preguntas'];
 };
 
 /**

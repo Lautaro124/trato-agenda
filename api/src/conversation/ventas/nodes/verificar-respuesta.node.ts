@@ -14,15 +14,20 @@
  * en foto con el nombre y el precio al pie (el listado de ver_catalogo): se le
  * pide que corrija y, si insiste, se quitan esas líneas.
  */
-import { AIMessage, RemoveMessage, type BaseMessage } from '@langchain/core/messages';
+import { AIMessage, RemoveMessage, type BaseMessage, type ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
 import { avisarASentry } from '../../../observabilidad/aviso-a-sentry.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
 import { MENSAJE_CUAL_TE_INTERESA, MENSAJE_PRECIO_SIN_VERIFICAR } from '../../mensajes.js';
 import { imagenesDeLaVuelta } from '../imagenes-de-la-vuelta.js';
+import { preguntasSinHacer } from '../../../comercio/preguntas-pedido.rules.js';
 import {
+  correccionDeListaConFotos,
   correccionDeListaRepetida,
+  correccionDePreguntasPendientes,
+  lineasDeListado,
   correccionDePrecios,
+  ofreceCerrar,
   lineasQueRepitenFotos,
   preciosSinRespaldo,
   sinLineasRepetidas,
@@ -32,6 +37,17 @@ import type { EstadoVentasUpdate, EstadoVentasValue } from '../state.js';
 
 function textoDe(mensaje: BaseMessage): string {
   return typeof mensaje.content === 'string' ? mensaje.content : JSON.stringify(mensaje.content);
+}
+
+/** Si en esta vuelta (desde el último mensaje del cliente) una búsqueda mandó fotos de productos. */
+function busquedaConFotosEnLaVuelta(messages: BaseMessage[]): boolean {
+  let desde = messages.length;
+  while (desde > 0 && messages[desde - 1].getType() !== 'human') desde--;
+  return messages.slice(desde).some((mensaje) => {
+    if (mensaje.getType() !== 'tool' || (mensaje as ToolMessage).name !== 'buscar_productos') return false;
+    const artifact = (mensaje as ToolMessage).artifact as unknown;
+    return Array.isArray(artifact) && artifact.length > 0;
+  });
 }
 
 /**
@@ -59,13 +75,20 @@ export function crearNodoVerificarRespuesta() {
     const fotos: FotoConLeyenda[] = imagenesDeLaVuelta(state.messages).flatMap(({ nombre, leyenda }) =>
       leyenda ? [{ nombre, leyenda }] : [],
     );
-    const repetidas = lineasQueRepitenFotos(texto, fotos);
+    // Si la búsqueda mandó las fotos, ellas son la lista: ningún renglón con precio, de esos productos o de otros.
+    const conFotosDeBusqueda = busquedaConFotosEnLaVuelta(state.messages);
+    const repetidas = [
+      ...new Set([...lineasQueRepitenFotos(texto, fotos), ...(conFotosDeBusqueda ? lineasDeListado(texto) : [])]),
+    ];
     if (repetidas.length === 0) return {};
 
     const { conversation } = state.contexto;
     if (!state.correccion) {
       logger.warn(`Lista repetida de productos en foto en la conversación ${conversation.id}: se le pide al modelo que corrija.`);
-      return { messages: [new RemoveMessage({ id })], correccion: correccionDeListaRepetida() };
+      return {
+        messages: [new RemoveMessage({ id })],
+        correccion: conFotosDeBusqueda ? correccionDeListaConFotos() : correccionDeListaRepetida(),
+      };
     }
 
     logger.warn(`Lista repetida de productos en foto otra vez en la conversación ${conversation.id}: se quitan esas líneas.`);
@@ -75,13 +98,36 @@ export function crearNodoVerificarRespuesta() {
     };
   }
 
+  /**
+   * Las preguntas del pedido (LAU-100) van antes de "¿algo más o te lo
+   * anoto?": si ofrece cerrar con preguntas globales sin hacer, se le pide que
+   * las haga primero. Una sola vez: si insiste, sale igual y el bloqueo de
+   * `crear_pedido` las exige antes de anotar.
+   */
+  function verificarPreguntasAntesDelCierre(state: EstadoVentasValue, id: string, texto: string): EstadoVentasUpdate {
+    const preguntas = state.contexto.preguntas ?? [];
+    if (state.correccion || preguntas.length === 0 || !ofreceCerrar(texto)) return {};
+    const anteriores = state.messages
+      .slice(state.inicioVisible ?? 0, -1)
+      .filter((mensaje) => mensaje.getType() === 'ai')
+      .map(textoDe);
+    const faltan = preguntasSinHacer(preguntas, [], anteriores);
+    if (faltan.length === 0) return {};
+    logger.warn(`Cierre antes de las preguntas del pedido en la conversación ${state.contexto.conversation.id}: se le pide que pregunte.`);
+    return { messages: [new RemoveMessage({ id })], correccion: correccionDePreguntasPendientes(faltan, preguntas) };
+  }
+
   return (state: EstadoVentasValue): EstadoVentasUpdate => {
     const ultimo = state.messages.at(-1);
     if (!ultimo || ultimo.getType() !== 'ai' || !ultimo.id) return {};
 
     const { fuentes, delCliente } = fuentesDeMontos(state);
     const sinRespaldo = preciosSinRespaldo(textoDe(ultimo), fuentes, delCliente);
-    if (sinRespaldo.length === 0) return verificarFotosRepetidas(state, ultimo.id, textoDe(ultimo));
+    if (sinRespaldo.length === 0) {
+      const fotos = verificarFotosRepetidas(state, ultimo.id, textoDe(ultimo));
+      if (Object.keys(fotos).length > 0) return fotos;
+      return verificarPreguntasAntesDelCierre(state, ultimo.id, textoDe(ultimo));
+    }
 
     const { conversation, agent } = state.contexto;
     if (!state.correccion) {

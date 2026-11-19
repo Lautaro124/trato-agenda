@@ -47,10 +47,13 @@ export function BotonSugerirMejora({ abierto, onAbrir }: Readonly<{ abierto: boo
       onClick={onAbrir}
       aria-haspopup="dialog"
       aria-expanded={abierto}
-      className="hidden h-9 cursor-pointer items-center gap-2 rounded-full border border-[var(--color-primitive-coral-200)] bg-primary-subtle px-3.5 text-[13.5px] font-semibold text-primary-active hover:bg-[var(--color-primitive-coral-100)] md:flex"
+      aria-label="Sugerir mejora"
+      title="Sugerir mejora"
+      className="hidden h-9 cursor-pointer items-center gap-2 rounded-full border border-[var(--color-primitive-coral-200)] bg-primary-subtle px-2.5 text-[13.5px] font-semibold text-primary-active hover:bg-[var(--color-primitive-coral-100)] md:flex min-[1440px]:px-3.5"
     >
       <Lamparita size={16} />
-      Sugerir mejora
+      {/* Con poco ancho queda sólo la lamparita: el texto sigue en el nombre accesible. */}
+      <span className="hidden min-[1440px]:inline">Sugerir mejora</span>
     </button>
   );
 }
