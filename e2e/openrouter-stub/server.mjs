@@ -178,6 +178,8 @@ function respuestaDeBusqueda(mensaje) {
   // "Ningún producto se llama como …": sólo hubo parecidos por significado; el stub ofrece el primero igual.
   const primero = resultado.match(/1\. "(.+?)" (?:\[producto [^\]]+\] )?\(código/)?.[1];
   const precio = resultado.match(/- precio: ((?:US)?\$ [\d.,]+), /)?.[1];
+  // La foto le llega sola con el nombre y el precio al pie: no se repiten, como pide el resultado.
+  if (/^1\. .*ya le llega en foto/m.test(resultado)) return `Te mandé la foto de ${primero}. ¿Es lo que buscabas?`;
   return `Tengo ${primero} a ${precio}.`;
 }
 
