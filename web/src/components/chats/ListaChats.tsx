@@ -39,7 +39,8 @@ export function InsigniaAtencion({ atencion }: Readonly<{ atencion: AtencionChat
 function vistaPrevia(chat: ChatResumen): string {
   if (!chat.ultimo) return "";
   const quien = chat.ultimo.de === "asistente" ? "Bot: " : chat.ultimo.de === "dueno" ? "Vos: " : "";
-  return quien + chat.ultimo.texto;
+  // Un mensaje del bot que fue sólo fotos no tiene texto que mostrar.
+  return quien + (chat.ultimo.texto || (chat.ultimo.imagenes?.length ? "📷 Fotos" : ""));
 }
 
 /** Normaliza para buscar: sin mayúsculas ni tildes. */
@@ -96,8 +97,8 @@ export function ListaChats({
       data-tutorial="lista-chats"
       className="flex min-h-0 flex-col rounded-lg border border-line bg-card"
     >
-      <div className="flex flex-col gap-3 border-b border-line p-4">
-        <label className="flex h-11 items-center gap-2 rounded-md border border-line bg-page px-3">
+      <div className="flex flex-col gap-2.5 border-b border-line p-3">
+        <label className="flex h-10 items-center gap-2 rounded-md border border-line bg-page px-3">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="text-ink-secondary">
             <circle cx="11" cy="11" r="7" />
             <path d="m20 20-3.5-3.5" />
@@ -124,7 +125,7 @@ export function ListaChats({
               aria-pressed={filtro === id}
               onClick={() => onFiltro(id)}
               className={cn(
-                "h-9 flex-none rounded-full border px-3.5 text-sm font-semibold whitespace-nowrap",
+                "h-8 flex-none rounded-full border px-3 text-[13px] font-semibold whitespace-nowrap",
                 filtro === id ? "border-ink bg-ink text-white" : "border-line bg-card text-ink-secondary hover:bg-sunken",
               )}
             >
@@ -146,20 +147,20 @@ export function ListaChats({
                 type="button"
                 aria-current={activo ? "true" : undefined}
                 onClick={() => onElegir(chat.id)}
-                className={cn("flex w-full gap-3 px-4 py-3.5 text-left", activo ? "bg-primary-subtle" : "hover:bg-page")}
+                className={cn("flex w-full gap-2.5 px-3 py-2.5 text-left", activo ? "bg-primary-subtle" : "hover:bg-page")}
               >
-                <span aria-hidden className="grid size-11 flex-none place-items-center rounded-full bg-sunken font-bold text-ink-secondary">
+                <span aria-hidden className="grid size-9 flex-none place-items-center rounded-full bg-sunken text-sm font-bold text-ink-secondary">
                   {inicialDe(chat)}
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-[15px] font-bold text-ink">{nombreDe(chat)}</span>
+                    <span className="truncate text-[14px] font-bold text-ink">{nombreDe(chat)}</span>
                     {chat.ultimo && (
                       <span className="flex-none text-xs text-ink-secondary">{horaCorta(chat.ultimo.createdAt)}</span>
                     )}
                   </span>
-                  <span className="truncate text-sm text-ink-secondary">{vistaPrevia(chat)}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <span className="truncate text-[13px] text-ink-secondary">{vistaPrevia(chat)}</span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
                     {etiqueta && <EtiquetaVenta etiqueta={etiqueta} />}
                     <InsigniaAtencion atencion={chat.atencion} />
                     {chat.teEspera && (

@@ -3,14 +3,18 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * Preferencias de la barra lateral de este navegador: si está contraída y qué
- * grupos cerró la persona. Es comodidad por dispositivo, no un dato de la
+ * Preferencias de la barra lateral de este navegador: si está contraída, qué
+ * grupos cerró la persona y si contrajo el panel de venta de Inicio. Es comodidad por dispositivo, no un dato de la
  * cuenta: si el almacenamiento falla, vive en memoria hasta recargar.
  */
-export type PreferenciasNavegacion = { contraida: boolean; gruposCerrados: readonly string[] };
+export type PreferenciasNavegacion = {
+  contraida: boolean;
+  gruposCerrados: readonly string[];
+  panelVentaContraido: boolean;
+};
 
 const CLAVE = "trato:navegacion";
-const POR_DEFECTO: PreferenciasNavegacion = { contraida: false, gruposCerrados: [] };
+const POR_DEFECTO: PreferenciasNavegacion = { contraida: false, gruposCerrados: [], panelVentaContraido: false };
 
 let actual: PreferenciasNavegacion | null = null;
 const oyentes = new Set<() => void>();
@@ -20,12 +24,13 @@ function interpretar(raw: string | null): PreferenciasNavegacion {
   try {
     const valor: unknown = JSON.parse(raw);
     if (typeof valor !== "object" || valor === null) return POR_DEFECTO;
-    const { contraida, gruposCerrados } = valor as Record<string, unknown>;
+    const { contraida, gruposCerrados, panelVentaContraido } = valor as Record<string, unknown>;
     return {
       contraida: contraida === true,
       gruposCerrados: Array.isArray(gruposCerrados)
         ? gruposCerrados.filter((g): g is string => typeof g === "string").slice(0, 10)
         : [],
+      panelVentaContraido: panelVentaContraido === true,
     };
   } catch {
     return POR_DEFECTO;

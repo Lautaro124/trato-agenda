@@ -1,3 +1,4 @@
+import type { NotaPedido, RespuestaGuardada } from "./preguntas";
 import { apiFetch } from "./api";
 import { ErrorDeApi, type Moneda } from "./productos";
 
@@ -47,9 +48,13 @@ export type Venta = {
     precioListaCentavos: number | null;
     descuentoCentavos: number;
     descuentoEtiqueta: string | null;
-    /** Lo que contestó el cliente a las preguntas del producto. */
-    respuestas: Array<{ pregunta: string; respuesta: string }>;
+    /** Lo que contestó el cliente a las preguntas de opciones del producto. */
+    respuestas: RespuestaGuardada[];
   }>;
+  /** Las respuestas a las preguntas de opciones de todos los pedidos (LAU-100). */
+  respuestas: RespuestaGuardada[];
+  /** Lo que el cliente contestó con sus palabras y los pedidos especiales, con su contexto. */
+  notas: NotaPedido[];
 };
 
 export type EventoPedido = {

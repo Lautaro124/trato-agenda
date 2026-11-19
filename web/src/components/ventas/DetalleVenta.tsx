@@ -1,5 +1,6 @@
 "use client";
 
+import type { NotaPedido, RespuestaGuardada } from "@/lib/preguntas";
 import { Fragment, useEffect, useId, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { useAvisos, type Confirmacion } from "@/components/ui/Avisos";
@@ -129,6 +130,8 @@ export function DetalleVenta({
             </tr>
           </tbody>
         </table>
+
+        <RespuestasYNotas respuestas={venta.respuestas} notas={venta.notas} />
 
         <dl className="mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
           <dt className="text-muted">Cobro</dt>
@@ -265,6 +268,52 @@ export function DetalleVenta({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Lo que contestó el cliente a las preguntas de todos los pedidos y sus
+ * notas (texto libre y pedidos especiales, LAU-100), con lo que había
+ * elegido antes. Un pedido especial no es una opción confirmada.
+ */
+function RespuestasYNotas({ respuestas, notas }: Readonly<{ respuestas: RespuestaGuardada[]; notas: NotaPedido[] }>) {
+  if (respuestas.length === 0 && notas.length === 0) return null;
+  return (
+    <div className="mb-4 flex flex-col gap-3">
+      {respuestas.length > 0 && (
+        <section aria-label="Respuestas del pedido">
+          <h3 className="mb-1 text-[12px] font-bold text-muted">Respuestas del pedido</h3>
+          <ul className="text-[13px] text-ink-secondary">
+            {respuestas.map((r) => (
+              <li key={r.pregunta}>
+                {r.pregunta} <span className="font-semibold text-ink">{r.respuesta}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {notas.length > 0 && (
+        <section aria-label="Notas del pedido">
+          <h3 className="mb-1 text-[12px] font-bold text-muted">Notas del pedido</h3>
+          <ul className="flex flex-col gap-1.5">
+            {notas.map((nota, i) => (
+              <li key={`${nota.pregunta}-${i}`} className="rounded-md bg-sunken px-3 py-2 text-[13px] text-ink">
+                <span className="block text-[12px] font-semibold text-ink-secondary">
+                  {nota.tipo === "otra" ? "Pedido especial (a confirmar)" : "Respuesta del cliente"}
+                  {nota.producto ? ` · ${nota.producto}` : ""}
+                </span>
+                {nota.pregunta} <span className="font-semibold">{nota.respuesta}</span>
+                {nota.contexto.length > 0 && (
+                  <span className="block text-[12px] text-ink-secondary">
+                    {nota.contexto.map((c) => `${c.pregunta} ${c.respuesta}`).join(" · ")}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
