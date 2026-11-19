@@ -70,6 +70,9 @@ services:
       NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
       NEXT_PUBLIC_SENTRY_ENVIRONMENT: local
       NEXT_TELEMETRY_DISABLED: "1"
+      # En Windows el bind mount no propaga eventos de archivos: sin polling,
+      # next dev no regenera el CSS de Tailwind y el layout se rompe.
+      WATCHPACK_POLLING: "true"
     ports:
       - "3000:3000"
     depends_on:
