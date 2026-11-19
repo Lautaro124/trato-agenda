@@ -50,15 +50,23 @@ const datosClienteDelPedido = z
 const respuestasDelPedido = z
   .array(
     z.object({
-      productoId: z.string().describe('El id [producto …] del producto al que responde.'),
-      pregunta: z.number().int().describe('El número de la pregunta en "preguntas al pedirlo" de ese producto (desde 1).'),
-      respuesta: z.string().describe('Lo que contestó el cliente; en las de opciones, una de las opciones tal cual.'),
+      preguntaId: z.string().describe('El id [pregunta …] de la pregunta que contestó.'),
+      productoId: z
+        .string()
+        .optional()
+        .describe('En las "preguntas al pedirlo" de un producto: el id [producto …] al que responde. En las del pedido, no.'),
+      respuesta: z
+        .string()
+        .describe(
+          'Lo que contestó el cliente: en las de opciones, una de las opciones tal cual; en las de respuesta libre ' +
+            'o si pidió otra cosa (cuando la pregunta lo acepta), lo que dijo, sin cambiarlo.',
+        ),
     }),
   )
   .optional()
   .describe(
-    'Sólo si algún producto trae "preguntas al pedirlo": las respuestas del cliente, una por pregunta, una sola ' +
-      'vez por producto aunque pida varias unidades.',
+    'Sólo si hay "preguntas del pedido" o algún producto trae "preguntas al pedirlo": las respuestas del cliente, ' +
+      'una por pregunta (las de un producto, una sola vez por producto aunque pida varias unidades).',
   );
 
 export const esquemaCrearPedido = z.object({
@@ -123,7 +131,8 @@ export const ESQUEMAS_VENTAS: Record<AccionVentasId, EsquemaHerramienta> = {
       'Muestra lo que vende el negocio cuando el cliente pregunta en general qué tenés, qué le ofrecés o pide ' +
       'la lista de productos (sin un producto puntual: para eso está buscar_productos). Con pocos productos ' +
       'devuelve la lista entera con precios; con muchos, las categorías que más le pueden interesar. Cuando el ' +
-      'cliente elige una categoría, llamala de nuevo con esa categoría.',
+      'cliente elige una categoría, llamala de nuevo con esa categoría. No la uses para un saludo solo ("hola", ' +
+      '"buenas"): ahí no hay pedido de catálogo.',
     schema: esquemaVerCatalogo,
   },
   ver_descuentos: {
@@ -266,6 +275,30 @@ export const ESQUEMA_ENVIO: EsquemaHerramienta = {
   schema: esquemaConsultarEnvio,
 };
 
+/**
+ * Preguntas del pedido con imágenes (LAU-100): como la de envíos, no es una
+ * acción del catálogo del agente; la ve el modelo sólo si alguna pregunta de
+ * la cuenta tiene imágenes (ContextoVentas.preguntasConImagenes).
+ */
+export const HERRAMIENTA_IMAGENES_PREGUNTA = 'enviar_imagenes_pregunta';
+
+export const esquemaEnviarImagenesPregunta = z.object({
+  preguntaId: z.string().describe('El id [pregunta …] que vas a hacer, de una que diga "tiene imágenes".'),
+  segun: z
+    .string()
+    .optional()
+    .describe('Si la pregunta depende de otra: la opción que eligió el cliente en esa, tal cual. Si no, no la mandes.'),
+});
+
+export const ESQUEMA_IMAGENES_PREGUNTA: EsquemaHerramienta = {
+  name: HERRAMIENTA_IMAGENES_PREGUNTA,
+  description:
+    'Le manda al cliente, junto con tu respuesta, las imágenes de una pregunta del pedido y de las opciones que ' +
+    'puede elegir (sólo las de lo que eligió antes, si depende de otra). Usala al hacer una pregunta que "tiene ' +
+    'imágenes"; después hacé la pregunta con sus opciones en texto.',
+  schema: esquemaEnviarImagenesPregunta,
+};
+
 /** Acciones que llegaron después de los primeros asistentes y vienen con `buscar_productos`. */
 const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = [
   'ver_catalogo',
@@ -291,7 +324,8 @@ export function accionesDeVentas(allowedActions: string[]): AccionVentasId[] {
 
 /**
  * Herramientas visibles para un agente de ventas: las habilitadas, la de
- * envíos si el módulo está activo, y las del dueño si corresponde.
+ * envíos si el módulo está activo, la de imágenes de preguntas si hay, y las
+ * del dueño si corresponde.
  */
 export function herramientasDeVentas(
   allowedActions: string[],
@@ -300,9 +334,12 @@ export function herramientasDeVentas(
 ): EsquemaHerramienta[] {
   // El contexto llega tipado como el común de los grafos; el de ventas trae `enviosActivo`.
   const enviosActivo = (contexto as { enviosActivo?: unknown } | undefined)?.enviosActivo === true;
+  const conImagenes = (contexto as { preguntasConImagenes?: unknown } | undefined)?.preguntasConImagenes === true;
+  const vende = accionesDeVentas(allowedActions).includes('crear_pedido');
   return [
     ...accionesDeVentas(allowedActions).map((id) => ESQUEMAS_VENTAS[id]),
     ...(enviosActivo ? [ESQUEMA_ENVIO] : []),
+    ...(conImagenes && vende ? [ESQUEMA_IMAGENES_PREGUNTA] : []),
     ...(esPropietario ? Object.values(ESQUEMAS_PROPIETARIO_VENTAS) : []),
   ];
 }

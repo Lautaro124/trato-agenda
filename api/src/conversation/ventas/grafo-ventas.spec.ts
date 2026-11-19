@@ -17,7 +17,7 @@ import { MAX_IMAGENES_POR_MENSAJE } from '../../comercio/imagenes.rules.js';
 import { MAX_PRODUCTOS_LISTADO } from '../../comercio/sugerencias.rules.js';
 import { imagenesDeLaVuelta } from './imagenes-de-la-vuelta.js';
 import { MENSAJE_CATALOGO_CAIDO } from './nodes/catalogo.node.js';
-import { OFERTA_DE_DESCUENTOS, YA_TE_PRESENTASTE } from './reglas-ventas.js';
+import { OFERTA_DE_DESCUENTOS, ofreceCerrar, YA_TE_PRESENTASTE } from './reglas-ventas.js';
 import { PedidoRechazadoError } from '../../comercio/ventas.service.js';
 import { resolverEnvio, type ConsultaEnvio } from '../../envios/envios.rules.js';
 
@@ -60,6 +60,8 @@ function crearPrisma(
     /** La fila de CondicionesPago (LAU-34); sin ella, no hay descuento en efectivo ni cobro manual. */
     condicionesPago?: { descuentoEfectivoPorcentaje: number | null };
     enviosActivo?: boolean;
+    /** ConfiguracionPreguntas.preguntas (LAU-100); sin ella, no hay preguntas del pedido. */
+    preguntas?: unknown[];
   } = {},
 ) {
   return {
@@ -72,6 +74,7 @@ function crearPrisma(
     cuentaMercadoPago: { findUnique: vi.fn().mockResolvedValue(opciones.mpConectado ? { id: 'mp-1' } : null) },
     condicionesPago: { findUnique: vi.fn().mockResolvedValue(opciones.condicionesPago ?? null) },
     configuracionEnvios: { findUnique: vi.fn().mockResolvedValue(opciones.enviosActivo ? { activo: true } : null) },
+    configuracionPreguntas: { findUnique: vi.fn().mockResolvedValue(opciones.preguntas ? { preguntas: opciones.preguntas } : null) },
     venta: {
       findMany: vi.fn().mockResolvedValue(opciones.pedidos ?? []),
       findFirst: vi.fn().mockResolvedValue(null),
@@ -185,6 +188,7 @@ function correr(
     decisiones?: { ordenar: Mock<(pedido: unknown) => Promise<string[]>>; configurado: boolean };
     registro?: ReturnType<typeof crearRegistro>;
     envios?: { resolver: Mock };
+    preguntas?: { imagenesParaEnviar: Mock };
   },
   esPropietario = false,
   mensajes: BaseMessage[] = [new HumanMessage('¿tenés mates?')],
@@ -814,7 +818,7 @@ describe('grafo de ventas', () => {
 
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, sugerencias: { verCatalogo } });
 
-      expect(imagenesDeLaVuelta(resultado.messages).map((foto) => foto.productoId)).toEqual([PRODUCTOS[0].productoId]);
+      expect(imagenesDeLaVuelta(resultado.messages).map((foto) => ('productoId' in foto ? foto.productoId : null))).toEqual([PRODUCTOS[0].productoId]);
       const contenido = String(toolMessages(resultado.messages)[0].content);
       expect(contenido).toContain('ya le llegó en foto');
       expect(contenido).toContain('Decile que tenés más');
@@ -985,8 +989,52 @@ describe('grafo de ventas', () => {
         busqueda: { buscar: vi.fn().mockResolvedValue([MATE_CON_FOTO]) },
       });
       expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain(
-        '"Mate de calabaza" [producto p-1] (código MATE-01, categoría "Mates", tiene foto)',
+        '"Mate de calabaza" [producto p-1] (código MATE-01, categoría "Mates", tiene foto, ya le llega en foto',
       );
+    });
+
+    it('la búsqueda manda sola las fotos de los primeros que coinciden, con nombre y precio al pie', async () => {
+      const otro = { ...MATE_CON_FOTO, productoId: 'p-2', nombre: 'Mate de vidrio' };
+      const parecido = { ...MATE_CON_FOTO, productoId: 'p-3', nombre: 'Bombilla', soloParecido: true };
+      const sinFoto = { ...MATE_CON_FOTO, productoId: 'p-4', nombre: 'Mate de madera', tieneImagen: false };
+      const llm = crearModelo([BUSCAR_MATE, new AIMessage('¿Cuál te gusta?')]);
+      const resultado = await correr({
+        prisma: crearPrisma(),
+        llm,
+        busqueda: { buscar: vi.fn().mockResolvedValue([MATE_CON_FOTO, sinFoto, otro, parecido]) },
+      });
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([
+        { productoId: 'p-1', nombre: 'Mate de calabaza', leyenda: 'Mate de calabaza\n$ 8.000' },
+        { productoId: 'p-2', nombre: 'Mate de vidrio', leyenda: 'Mate de vidrio\n$ 8.000' },
+      ]);
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain('No le escribas ninguna lista de productos');
+    });
+
+    it('con las fotos de la búsqueda no deja listar productos en el texto, y guarda las fotos con la respuesta', async () => {
+      const otro = { ...MATE_CON_FOTO, productoId: 'p-2', nombre: 'Mate de vidrio', precioCentavos: 950_000, precioFinalCentavos: 950_000 };
+      const prisma = crearPrisma();
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        // Repite la lista con otros productos: se le pide que la saque.
+        new AIMessage('Te paso otros:\n* *Mate de madera* · $ 8.000\n¿Cuál te gusta?'),
+        new AIMessage('¿Cuál te gusta?'),
+      ]);
+      const resultado = await correr({ prisma, llm, busqueda: { buscar: vi.fn().mockResolvedValue([MATE_CON_FOTO, otro]) } });
+
+      expect(resultado.messages.at(-1)?.content).toBe('¿Cuál te gusta?');
+      const [tercera] = llm.invoke.mock.calls[2] as unknown as [BaseMessage[]];
+      expect(String(tercera[0].content)).toContain('la búsqueda ya le mandó al cliente las fotos');
+      const guardados = (prisma.message.create as ReturnType<typeof vi.fn>).mock.calls.map(([{ data }]) => data);
+      expect(guardados.at(-1)).toMatchObject({
+        role: 'assistant',
+        content: {
+          content: '¿Cuál te gusta?',
+          imagenes: [
+            { productoId: 'p-1', leyenda: 'Mate de calabaza\n$ 8.000' },
+            { productoId: 'p-2', leyenda: 'Mate de vidrio\n$ 9.500' },
+          ],
+        },
+      });
     });
 
     it('aprueba la foto y la deja como artifact para la fachada, sin bytes', async () => {
@@ -1040,7 +1088,7 @@ describe('grafo de ventas', () => {
       const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), imagenes });
 
       expect(imagenes.estadoDeFoto).toHaveBeenCalledTimes(3);
-      expect(imagenesDeLaVuelta(resultado.messages).map((imagen) => imagen.productoId)).toEqual(['p-1', 'p-2', 'p-3']);
+      expect(imagenesDeLaVuelta(resultado.messages).map((imagen) => ('productoId' in imagen ? imagen.productoId : null))).toEqual(['p-1', 'p-2', 'p-3']);
       const rechazos = toolMessages(resultado.messages).filter((mensaje) => !mensaje.artifact);
       expect(rechazos.map((mensaje) => mensaje.content)).toEqual([
         expect.stringContaining('ya sale con esta respuesta'),
@@ -1055,7 +1103,7 @@ describe('grafo de ventas', () => {
         llm,
         busqueda: { buscar: vi.fn().mockResolvedValue([{ ...MATE_CON_FOTO, fotosDeDetalle: 2 }]) },
       });
-      expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain('tiene foto y 2 fotos de detalle)');
+      expect(resultadoDe(resultado.messages, 'buscar_productos').content).toContain('tiene foto y 2 fotos de detalle,');
     });
 
     it('con detalles manda las fotos de detalle, no la principal, y van solas en la respuesta', async () => {
@@ -1655,6 +1703,146 @@ describe('grafo de ventas', () => {
       await correr({ prisma: crearPrisma(), llm, busqueda: buscaMate(), registro }, true);
 
       for (const metodo of Object.values(registro)) expect(metodo).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('preguntas del pedido (LAU-100)', () => {
+    const PREGUNTAS = [
+      {
+        id: 'aclaracion',
+        texto: '¿Querés agregar algo más?',
+        tipo: 'texto',
+        obligatoria: false,
+        alcance: 'global',
+        imagenId: null,
+      },
+      {
+        id: 'tela',
+        texto: '¿Qué tela querés?',
+        tipo: 'opciones',
+        obligatoria: true,
+        alcance: 'producto',
+        productos: ['p-1'],
+        opciones: [{ id: 'lino', texto: 'Lino', imagenId: 'img-lino' }],
+      },
+    ];
+
+    it('no avanza con el pedido hasta que el asistente hizo las preguntas del producto y las globales', async () => {
+      const ventas = crearVentas();
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('crear_pedido', { nombreCliente: 'Juan', items: [{ productoId: 'p-1', cantidad: 1 }] }),
+        new AIMessage('¿Qué tela querés? ¿Querés agregar algo más?'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma({ preguntas: PREGUNTAS }), llm, busqueda: buscaMate(), ventas });
+
+      const motivo = String(resultadoDe(resultado.messages, 'crear_pedido').content);
+      expect(motivo).toContain('todavía no le hiciste estas preguntas');
+      expect(motivo).toContain('[pregunta tela]');
+      expect(motivo).toContain('[pregunta aclaracion]');
+      expect(ventas.crearPedido).not.toHaveBeenCalled();
+    });
+
+    it('si ofrece cerrar sin haber hecho las preguntas globales, se descarta y pregunta primero', async () => {
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        new AIMessage('Te anoto el mate de calabaza. ¿Querés algo más o te lo anoto así?'),
+        new AIMessage('¿Querés agregar algo más? Contame.'),
+      ]);
+
+      const resultado = await correr({ prisma: crearPrisma({ preguntas: PREGUNTAS }), llm, busqueda: buscaMate() });
+
+      expect(resultado.messages.at(-1)?.content).toBe('¿Querés agregar algo más? Contame.');
+      const [tercera] = llm.invoke.mock.calls[2] as unknown as [BaseMessage[]];
+      expect(String(tercera[0].content)).toContain('Antes de ofrecerle anotar el pedido');
+      expect(String(tercera[0].content)).toContain('[pregunta aclaracion]');
+    });
+
+    it('reconoce cuándo la respuesta ofrece cerrar el pedido', () => {
+      expect(ofreceCerrar('¿Querés algo más o te lo anoto así?')).toBe(true);
+      expect(ofreceCerrar('¿Querés algo más antes de que te pase el link de pago?')).toBe(true);
+      expect(ofreceCerrar('Si te gusta, puedo anotártelo.')).toBe(true);
+      expect(ofreceCerrar('¡Gracias! Anotamos tu pedido.')).toBe(false);
+    });
+
+    it('deja avanzar cuando el asistente ya las hizo, aunque las reformule', async () => {
+      const ventas = crearVentas();
+      ventas.crearPedido.mockResolvedValue(VENTA);
+      const pedido = new AIMessage({
+        content: '¿De qué tela lo querés? ¿Querés agregar algo más al pedido?',
+        tool_calls: [
+          { id: 'call-pedido', name: 'crear_pedido', args: { nombreCliente: 'Juan', items: [{ productoId: 'p-1', cantidad: 1 }] } },
+        ],
+      });
+      const llm = crearModelo([BUSCAR_MATE, pedido, new AIMessage('Listo.')]);
+
+      const resultado = await correr({ prisma: crearPrisma({ preguntas: PREGUNTAS }), llm, busqueda: buscaMate(), ventas });
+
+      expect(resultadoDe(resultado.messages, 'crear_pedido').content).not.toContain('todavía no le hiciste');
+      expect(ventas.crearPedido).toHaveBeenCalledTimes(1);
+    });
+
+    it('las globales van al prompt y la herramienta de imágenes aparece sólo si alguna tiene', async () => {
+      const llm = crearModelo([new AIMessage('Hola')]);
+      await correr({ prisma: crearPrisma({ preguntas: PREGUNTAS }), llm, busqueda: { buscar: vi.fn() } });
+      const sistema = sistemaDe(llm);
+      expect(sistema).toContain('Preguntas del pedido: hacéselas al cliente una sola vez por pedido');
+      expect(sistema).toContain('[pregunta aclaracion] "¿Querés agregar algo más?" (respuesta libre; opcional)');
+      // La de producto no va al prompt: sale con la búsqueda del producto.
+      expect(sistema).not.toContain('¿Qué tela querés?');
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('enviar_imagenes_pregunta');
+
+      const sinImagenes = crearModelo([new AIMessage('Hola')]);
+      await correr({ prisma: crearPrisma({ preguntas: [PREGUNTAS[0]] }), llm: sinImagenes, busqueda: { buscar: vi.fn() } });
+      const [otras] = sinImagenes.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(otras.map((h) => h.name)).not.toContain('enviar_imagenes_pregunta');
+    });
+
+    it('manda las imágenes de la pregunta como fotos de la vuelta, con su texto al pie', async () => {
+      const preguntas = {
+        imagenesParaEnviar: vi.fn().mockResolvedValue({ imagenes: [{ imagenId: 'img-lino', leyenda: 'Lino' }] }),
+      };
+      const llm = crearModelo([llamada('enviar_imagenes_pregunta', { preguntaId: 'tela' }), new AIMessage('¿Qué tela querés?')]);
+      const resultado = await correr({ prisma: crearPrisma({ preguntas: PREGUNTAS }), llm, busqueda: { buscar: vi.fn() }, preguntas });
+      expect(preguntas.imagenesParaEnviar).toHaveBeenCalledWith('user-1', 'tela', undefined);
+      expect(imagenesDeLaVuelta(resultado.messages)).toEqual([{ imagenPreguntaId: 'img-lino', nombre: 'Lino' }]);
+      expect(String(resultadoDe(resultado.messages, 'enviar_imagenes_pregunta').content)).toContain('le llegan la imagen');
+    });
+
+    it('sin imágenes en la cuenta, la herramienta se rechaza como inexistente', async () => {
+      const preguntas = { imagenesParaEnviar: vi.fn() };
+      const llm = crearModelo([llamada('enviar_imagenes_pregunta', { preguntaId: 'tela' }), new AIMessage('Listo')]);
+      const resultado = await correr({ prisma: crearPrisma(), llm, busqueda: { buscar: vi.fn() }, preguntas });
+      expect(preguntas.imagenesParaEnviar).not.toHaveBeenCalled();
+      expect(String(resultadoDe(resultado.messages, 'enviar_imagenes_pregunta').content)).toContain('no existe');
+    });
+
+    it('crear_pedido manda las respuestas por id de pregunta, con el producto si es de producto', async () => {
+      const ventas = crearVentas();
+      ventas.crearPedido.mockResolvedValue(VENTA);
+      const llm = crearModelo([
+        BUSCAR_MATE,
+        llamada('crear_pedido', {
+          nombreCliente: 'Juan',
+          items: [{ productoId: 'p-1', cantidad: 1 }],
+          respuestas: [
+            { preguntaId: 'tela', productoId: 'p-1', respuesta: 'Lino' },
+            { preguntaId: 'aclaracion', respuesta: 'Es para regalo' },
+          ],
+        }),
+        new AIMessage('Listo.'),
+      ]);
+      await correr({ prisma: crearPrisma({ preguntas: PREGUNTAS }), llm, busqueda: buscaMate(), ventas });
+      expect(ventas.crearPedido).toHaveBeenCalledWith(
+        expect.objectContaining({
+          respuestas: [
+            { preguntaId: 'tela', productoId: 'p-1', respuesta: 'Lino' },
+            { preguntaId: 'aclaracion', respuesta: 'Es para regalo' },
+          ],
+        }),
+      );
     });
   });
 });

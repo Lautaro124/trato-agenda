@@ -9,6 +9,7 @@ import { Logger } from '@nestjs/common';
 import { resumenDeError, type OpenRouterClient } from '../../../agents/openrouter.client.js';
 import type { Prisma } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
+import { esFotoDePregunta, imagenesDeLaVuelta, type ImagenAEnviar } from '../../ventas/imagenes-de-la-vuelta.js';
 import type { EstadoComun } from '../state.js';
 
 export type DepsPersistir = {
@@ -72,6 +73,13 @@ function aFila(mensaje: BaseMessage): FilaMensaje | null {
   }
 }
 
+/** Una foto mandada, como se guarda en `Message.content.imagenes`: sólo ids y textos, nunca bytes. */
+function aImagenGuardada(imagen: ImagenAEnviar): Prisma.InputJsonObject {
+  const pie = imagen.leyenda ?? imagen.nombre;
+  if (esFotoDePregunta(imagen)) return { imagenPreguntaId: imagen.imagenPreguntaId, leyenda: pie };
+  return { productoId: imagen.productoId, ...(imagen.imagenId ? { imagenId: imagen.imagenId } : {}), leyenda: pie };
+}
+
 export function crearNodoPersistir(deps: DepsPersistir) {
   const logger = new Logger('PersistirNode');
 
@@ -127,10 +135,17 @@ export function crearNodoPersistir(deps: DepsPersistir) {
     state.cancelacion?.comprometer();
     const { conversation } = state.contexto;
     const nuevos = state.messages.slice(state.indiceDesde);
+    // Las fotos que salieron en esta vuelta (sólo ids, nombre y pie) van con la respuesta final: así el chat de
+    // Trato las muestra como las vio el cliente. Las herramientas no se muestran, la respuesta sí.
+    const imagenes = imagenesDeLaVuelta(nuevos);
+    const final = nuevos.findLast((mensaje) => mensaje.getType() === 'ai');
 
     for (const mensaje of nuevos) {
       const fila = aFila(mensaje);
       if (!fila) continue;
+      if (mensaje === final && imagenes.length > 0) {
+        fila.content = { ...(fila.content as Prisma.InputJsonObject), imagenes: imagenes.map(aImagenGuardada) };
+      }
       await deps.prisma.message.create({ data: { conversationId: conversation.id, ...fila } });
     }
 

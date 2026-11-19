@@ -4,13 +4,14 @@
  */
 import { ToolMessage } from '@langchain/core/messages';
 import { Logger } from '@nestjs/common';
-import type { BusquedaService } from '../../../comercio/busqueda.service.js';
+import type { BusquedaService, ProductoEncontrado } from '../../../comercio/busqueda.service.js';
 import type { HistoricoVentasService } from '../../../comercio/historico.service.js';
 import { MAX_IMAGENES_POR_MENSAJE } from '../../../comercio/imagenes.rules.js';
 import type { EstadoDeFoto, ImagenesService } from '../../../comercio/imagenes.service.js';
 import { RangoInvalidoError } from '../../../comercio/historico.rules.js';
 import { leerDatosDeVenta, leerEntrega } from '../../../comercio/datos-cliente.rules.js';
-import type { RespuestaDelModelo } from '../../../comercio/preguntas-producto.rules.js';
+import type { RespuestaDelModelo } from '../../../comercio/preguntas-pedido.rules.js';
+import type { PreguntasService } from '../../../comercio/preguntas.service.js';
 import type { ItemPedido, MedioDePago } from '../../../comercio/ventas.rules.js';
 import { telefonoDeJid } from '../../../comercio/ventas.rules.js';
 import { PedidoRechazadoError, type VentasService } from '../../../comercio/ventas.service.js';
@@ -21,7 +22,7 @@ import type { RegistroPerformanceService } from '../../../performance/registro.s
 import type { Agent } from '../../../generated/prisma/client.js';
 import { listadoConFotos } from '../../../agents/mensajes.rules.js';
 import type { OperacionPendiente } from '../../graph/state.js';
-import { claveDeFoto, fotosMandadas, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
+import { claveDeFoto, fotosMandadas, type FotoDePregunta, type FotoDeProducto, type ImagenAEnviar } from '../imagenes-de-la-vuelta.js';
 import { mensajesVisibles } from '../../graph/ventana-historial.js';
 import { esFormaDePago } from '../../../comercio/condiciones-pago.rules.js';
 import { hayDescuentosVigentes } from '../../../comercio/descuentos.rules.js';
@@ -38,6 +39,7 @@ import {
   formatearResultados,
   formatearResumenVentas,
   formatearStockDueno,
+  leyendaDeEncontrado,
   leyendaDeProducto,
   yaSeHablaronDescuentos,
 } from '../reglas-ventas.js';
@@ -54,6 +56,8 @@ export type DepsCatalogo = {
   notificaciones: Pick<NotificacionesService, 'avisar' | 'consultaRecienteDe'>;
   historico: Pick<HistoricoVentasService, 'listar' | 'resumen'>;
   imagenes: Pick<ImagenesService, 'estadoDeFoto'>;
+  /** Preguntas del pedido (LAU-100): las imágenes de una pregunta. Sin él (evals), enviar_imagenes_pregunta no hace nada. */
+  preguntas?: Pick<PreguntasService, 'imagenesParaEnviar'>;
   /** Módulo de envíos (LAU-102): el resolvedor de tarifas. Sin él (evals), consultar_envio no se ofrece. */
   envios?: Pick<EnviosService, 'resolver'>;
   /** Módulo de performance (LAU-30): qué productos vio o pidió el chat y si se derivó. Sin él (evals), nada. */
@@ -80,13 +84,33 @@ export function fotosDelListado(
   catalogo: ResultadoCatalogo,
   yaMandadas: ReadonlySet<string>,
   agent?: Pick<Agent, 'mensajes'>,
-): ImagenAEnviar[] {
+): FotoDeProducto[] {
   if (catalogo.tipo !== 'listado') return [];
   if (agent && !listadoConFotos(agent)) return [];
   return catalogo.productos
     .filter((producto) => producto.tieneImagen && !yaMandadas.has(claveDeFoto({ productoId: producto.productoId })))
     .slice(0, MAX_PRODUCTOS_LISTADO)
     .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeProducto(producto, agent) }));
+}
+
+/**
+ * Las fotos que salen solas con una búsqueda: las de los primeros resultados
+ * que coinciden con lo que pidió (no los "parecidos"), hasta
+ * MAX_IMAGENES_POR_MENSAJE, cada una con su nombre y precio al pie. Las que ya
+ * le llegaron en la charla no se repiten, y si el dueño apagó las fotos de la
+ * lista no sale ninguna.
+ */
+export function fotosDeBusqueda(
+  productos: ProductoEncontrado[],
+  yaMandadas: ReadonlySet<string>,
+  agent?: Pick<Agent, 'mensajes'>,
+): FotoDeProducto[] {
+  if (agent && !listadoConFotos(agent)) return [];
+  return productos
+    .filter((producto) => !producto.soloParecido && producto.tieneImagen)
+    .slice(0, MAX_IMAGENES_POR_MENSAJE)
+    .filter((producto) => !yaMandadas.has(claveDeFoto({ productoId: producto.productoId })))
+    .map((producto) => ({ productoId: producto.productoId, nombre: producto.nombre, leyenda: leyendaDeEncontrado(producto, agent) }));
 }
 
 /** Sólo lo que escribió el cliente dentro de la ventana, en texto: es lo único que se le pasa a Jev. */
@@ -297,7 +321,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       return `${nombre} no tiene foto. Decíselo al cliente y contale cómo es con lo que dice el catálogo.`;
     }
     if (args.detalles === true) return enviarDetalles(state, productoId, foto);
-    const imagen: ImagenAEnviar = { productoId, nombre: foto.nombre };
+    const imagen: FotoDeProducto = { productoId, nombre: foto.nombre };
     await registrar.vistos(state, [productoId]);
     return {
       texto:
@@ -314,7 +338,7 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
       return `${nombre} no tiene más fotos que la principal. Contale los detalles con lo que dice el catálogo.`;
     }
     const yaMandadas = fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0));
-    const imagenes: ImagenAEnviar[] = foto.detalles
+    const imagenes: FotoDeProducto[] = foto.detalles
       .map((imagenId) => ({ productoId, imagenId, nombre: foto.nombre }))
       .filter((imagen) => !yaMandadas.has(claveDeFoto(imagen)))
       .slice(0, MAX_IMAGENES_POR_MENSAJE);
@@ -330,6 +354,32 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     };
   }
 
+  /** Las imágenes de una pregunta del pedido en la rama elegida, sin repetir las que ya le llegaron. */
+  async function enviarImagenesPregunta(state: EstadoVentasValue, args: Args): Promise<Resultado> {
+    if (!deps.preguntas) return 'No hay imágenes para esa pregunta: hacela con sus opciones en texto.';
+    const resultado = await deps.preguntas.imagenesParaEnviar(
+      state.ownerUserId,
+      String(args.preguntaId),
+      typeof args.segun === 'string' ? args.segun : undefined,
+    );
+    if ('error' in resultado) return resultado.error;
+    const yaMandadas = fotosMandadas(mensajesVisibles(state.messages, state.inicioVisible ?? 0));
+    const imagenes: FotoDePregunta[] = resultado.imagenes
+      .map(({ imagenId, leyenda }) => ({ imagenPreguntaId: imagenId, nombre: leyenda }))
+      .filter((imagen) => !yaMandadas.has(claveDeFoto(imagen)));
+    if (imagenes.length === 0) {
+      return resultado.imagenes.length === 0
+        ? 'Esa pregunta no tiene imágenes para lo que eligió: hacela con sus opciones en texto.'
+        : 'Esas imágenes ya se las mandaste en esta charla: hacé la pregunta con sus opciones en texto.';
+    }
+    return {
+      texto:
+        `Listo: le llegan ${imagenes.length === 1 ? 'la imagen' : `${imagenes.length} imágenes`} junto con tu respuesta, ` +
+        'cada una con su nombre al pie. No las describas: hacé la pregunta con sus opciones en texto.',
+      imagen: imagenes,
+    };
+  }
+
   async function ejecutar(state: EstadoVentasValue, operacion: OperacionPendiente, ofrecer: Ofrecer): Promise<Resultado> {
     const { args } = operacion;
     switch (operacion.nombre) {
@@ -338,8 +388,16 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
         const productos = await deps.busqueda.buscar(state.ownerUserId, consulta, { categoria });
         await registrar.vistos(state, productos.map((producto) => producto.productoId));
-        const texto = formatearResultados(consulta, productos, state.contexto.agent);
-        return productos.length > 0 ? ofrecer(texto) : texto;
+        // El banco de pruebas del dueño también las recibe: es como las ve el cliente.
+        const fotos = fotosDeBusqueda(
+          productos,
+          fotosMandadas(state.messages.slice(state.inicioVisible ?? 0)),
+          state.contexto.agent,
+        );
+        const texto = formatearResultados(consulta, productos, state.contexto.agent, new Set(fotos.map((foto) => foto.productoId)));
+        if (productos.length === 0) return texto;
+        const conOferta = await ofrecer(texto);
+        return fotos.length > 0 ? { texto: conOferta, imagen: fotos } : conOferta;
       }
       case 'ver_catalogo': {
         const categoria = typeof args.categoria === 'string' ? args.categoria : undefined;
@@ -374,6 +432,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         return historicoDeVentas(state, operacion);
       case 'enviar_imagen_producto':
         return enviarImagen(state, args);
+      case 'enviar_imagenes_pregunta':
+        return enviarImagenesPregunta(state, args);
       case 'consultar_pedido':
         return formatearPedidos(await deps.ventas.pedidosDeConversacion(state.contexto.conversation.id));
       case 'cancelar_pedido': {

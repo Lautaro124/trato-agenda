@@ -108,7 +108,17 @@ export type RespuestaConversacion = {
   sinAgente?: boolean;
   /** Lo que resolvió consultar_envio en esta vuelta (LAU-102): lo muestra el probador del panel. */
   resolucionesEnvio?: ResolucionEnvio[];
+  /** El asistente todavía no le había escrito nada a este cliente: el texto (el saludo) va antes que las fotos. */
+  primeraRespuesta?: boolean;
 };
+
+/** Si antes del último mensaje del cliente el asistente ya le había contestado algo con texto. */
+function yaLeHabiaEscrito(messages: BaseMessage[]): boolean {
+  const ultimoCliente = messages.findLastIndex((mensaje) => mensaje.getType() === 'human');
+  return messages
+    .slice(0, Math.max(ultimoCliente, 0))
+    .some((mensaje) => mensaje.getType() === 'ai' && typeof mensaje.content === 'string' && mensaje.content.trim() !== '');
+}
 
 /**
  * Fachada del runtime conversacional. La lógica vive en los grafos de
@@ -211,6 +221,7 @@ export class ConversationService {
         texto: contenido || MENSAJE_SIN_RESPUESTA,
         imagenes: esVentas ? imagenesDeLaVuelta(resultado.messages) : [],
         ...(resolucionesEnvio.length > 0 ? { resolucionesEnvio } : {}),
+        ...(yaLeHabiaEscrito(resultado.messages) ? {} : { primeraRespuesta: true }),
       };
     } catch (error) {
       if (opciones.cancelacion?.cancelada || error instanceof VueltaCancelada) {

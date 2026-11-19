@@ -6,6 +6,7 @@
 import { MessagesValue, StateSchema, UntrackedValue } from '@langchain/langgraph';
 import { z } from 'zod';
 import type { CondicionesPago } from '../../comercio/condiciones-pago.rules.js';
+import type { PreguntaPedido } from '../../comercio/preguntas-pedido.rules.js';
 import type { Conversation } from '../../generated/prisma/client.js';
 import type { Cancelacion } from '../cancelacion.js';
 import type { AgentConUser, OperacionPendiente } from '../graph/state.js';
@@ -21,6 +22,10 @@ export type ContextoVentas = {
   condicionesPago: CondicionesPago;
   /** Módulo de envíos activo y el comercio hace envíos (LAU-102): se ofrece consultar_envio. */
   enviosActivo: boolean;
+  /** Alguna pregunta del pedido tiene imágenes (LAU-100): se ofrece enviar_imagenes_pregunta. */
+  preguntasConImagenes?: boolean;
+  /** Las preguntas del pedido de la cuenta (LAU-100): la validación exige haberlas hecho antes de avanzar el pedido. */
+  preguntas?: PreguntaPedido[];
 };
 
 export const EstadoVentas = new StateSchema({
