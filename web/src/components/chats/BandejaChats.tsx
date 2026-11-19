@@ -298,12 +298,11 @@ export function BandejaChats({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <div
         className={cn(
-          "flex flex-wrap items-center justify-between gap-3 [@media(max-height:820px)]:justify-end",
+          "flex flex-wrap items-center justify-between gap-3",
           seleccionado && corte.soloUna,
         )}
       >
-        {/* Con poca altura el saludo cede su lugar al chat; queda para el lector de pantalla. */}
-        <h1 className="font-display text-[24px] leading-[1.15] font-bold tracking-[-0.025em] text-ink [@media(max-height:820px)]:sr-only">
+        <h1 className="font-display text-[24px] leading-[1.15] font-bold tracking-[-0.025em] text-ink [@media(max-height:820px)]:text-[20px]">
           {saludo}
         </h1>
         <Indicadores

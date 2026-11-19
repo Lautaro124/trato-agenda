@@ -130,11 +130,13 @@ export function Conversacion({
         </div>
 
         <div data-tutorial="control-chat" className="flex flex-wrap items-center gap-2.5">
-          <EstadoAtencion esVos={esVos} />
-          {esVos && (
+          {/* Con el dueño al mando, "Devolver al bot" ocupa el lugar de la etiqueta "Contesta el bot". */}
+          {esVos ? (
             <Button variant="secondary" size="sm" disabled={trabajando} onClick={onDevolver}>
               Devolver al bot
             </Button>
+          ) : (
+            <EstadoAtencion />
           )}
         </div>
       </header>
@@ -228,28 +230,14 @@ export function Conversacion({
   );
 }
 
-function EstadoAtencion({ esVos }: Readonly<{ esVos: boolean }>) {
+function EstadoAtencion() {
   return (
-    <span
-      className={cn(
-        "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-bold",
-        esVos ? "bg-primary-subtle text-primary-active" : "bg-accent-subtle text-success-text",
-      )}
-    >
+    <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent-subtle px-3 text-[13px] font-bold text-success-text">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        {esVos ? (
-          <>
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 21a8 8 0 0 1 16 0" />
-          </>
-        ) : (
-          <>
-            <rect x="4" y="8" width="16" height="12" rx="3" />
-            <path d="M12 4v4M9 14h.01M15 14h.01" />
-          </>
-        )}
+        <rect x="4" y="8" width="16" height="12" rx="3" />
+        <path d="M12 4v4M9 14h.01M15 14h.01" />
       </svg>
-      {esVos ? "Contestás vos" : "Contesta el bot"}
+      Contesta el bot
     </span>
   );
 }

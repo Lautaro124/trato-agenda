@@ -68,6 +68,8 @@ export function PanelVenta({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
+      {/* Resumen y productos comparten un único scroll; el estado del trato queda fijo abajo. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
       <section aria-labelledby="titulo-resumen" className="flex flex-none flex-col gap-1.5">
         <h3 id="titulo-resumen" className="text-xs font-bold text-ink-secondary">
           Resumen del chat
@@ -77,20 +79,21 @@ export function PanelVenta({
         </p>
       </section>
 
-      <section aria-labelledby="titulo-interes" className="flex min-h-0 flex-1 flex-col gap-2">
+      <section aria-labelledby="titulo-interes" className="flex flex-none flex-col gap-2">
         <h3 id="titulo-interes" className="text-xs font-bold text-ink-secondary">
-          Le interesa
+          Productos seleccionados
         </h3>
         {pedidos.length === 0 ? (
           <p className="text-sm text-ink-secondary">Todavía no pidió productos.</p>
         ) : (
-          <ul className="flex min-h-0 flex-col gap-1 overflow-y-auto">
+          <ul className="flex flex-col gap-1">
             {pedidos.map((producto) => (
               <ProductoInteres key={producto.id} producto={producto} />
             ))}
           </ul>
         )}
       </section>
+      </div>
 
       <section aria-labelledby="titulo-trato" className="flex flex-none flex-col gap-2.5 border-t border-line pt-4">
         <h3 id="titulo-trato" className="text-xs font-bold text-ink-secondary">

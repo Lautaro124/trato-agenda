@@ -42,7 +42,7 @@ test.describe('chats en Inicio (LAU-81)', () => {
     await expect(chat.getByText('Contesta el bot')).toBeVisible();
 
     await chat.getByRole('button', { name: 'Tomar el control y escribir' }).click();
-    await expect(chat.getByText('Contestás vos')).toBeVisible();
+    await expect(chat.getByRole('button', { name: 'Devolver al bot' })).toBeVisible();
     await expect(chat.getByText('El bot está en pausa en este chat hasta que lo devuelvas.')).toBeVisible();
 
     // Sin WhatsApp vinculado el mensaje no sale y lo escrito queda para reintentar.
@@ -124,7 +124,7 @@ test.describe('chats en el celular', () => {
     await expect(lista).toBeHidden();
     const chat = page.getByRole('region', { name: 'Chat con Martina López' });
     await chat.getByRole('button', { name: 'Tomar el control y escribir' }).click();
-    await expect(chat.getByText('Contestás vos')).toBeVisible();
+    await expect(chat.getByRole('button', { name: 'Devolver al bot' })).toBeVisible();
     await expect(chat.getByLabel('Tu mensaje para Martina López')).toBeVisible();
 
     await chat.getByRole('button', { name: 'Volver a los chats' }).click();
