@@ -6,6 +6,7 @@
 import { Logger } from '@nestjs/common';
 import type { BaseMessage } from '@langchain/core/messages';
 import { leerCondiciones } from '../../../comercio/condiciones-pago.rules.js';
+import { leerPreguntas, tieneImagenes } from '../../../comercio/preguntas-pedido.rules.js';
 import type { DecisionesClient } from '../../../comercio/decisiones.client.js';
 import { leerConfigDatosCliente, pideDatos, type EtapaDeCompra } from '../../../comercio/datos-cliente.rules.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
@@ -21,6 +22,7 @@ import {
   bloqueCatalogo,
   bloqueLocal,
   bloquePedidos,
+  bloquePreguntasDelPedido,
   reglasDeAlcanceVentas,
   reglasDeEstiloVentas,
   reglasDeVenta,
@@ -133,7 +135,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
     const conversation = historial.hayHistorialOculto ? { ...guardada, resumen: null } : guardada;
 
     const ventanaMs = deps.ventanaHistorialMs ?? VENTANA_POR_DEFECTO_MS;
-    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones, filaEnvios, anuncio] =
+    const [grupos, totalProductos, cuentaMp, pedidos, etapa, devolucion, filaCondiciones, filaEnvios, anuncio, filaPreguntas] =
       await Promise.all([
       deps.prisma.producto.groupBy({
         by: ['categoria'],
@@ -165,7 +167,11 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
             },
           })
         : null,
+      deps.prisma.configuracionPreguntas.findUnique({ where: { userId: state.ownerUserId }, select: { preguntas: true } }),
     ]);
+    // Las preguntas del pedido (LAU-100): las globales van acá; las de cada producto, con su búsqueda.
+    const preguntas = leerPreguntas(filaPreguntas?.preguntas);
+    const delPedido = bloquePreguntasDelPedido(preguntas);
     // Sin el módulo (o sin envíos) el asistente sigue como siempre: coordina el envío por el chat.
     const enviosActivo = agent.haceEnvios && filaEnvios?.activo === true;
     const delAnuncio = bloqueAnuncio(anuncio);
@@ -182,6 +188,8 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
       mpConectado,
       condicionesPago,
       enviosActivo,
+      preguntasConImagenes: preguntas.some(tieneImagenes),
+      preguntas,
       bloqueSistema:
         `${agent.systemPrompt}\n\n${contextoFijoVentas(agent, conversation, state.esPropietario, {
           mpConectado,
@@ -192,6 +200,7 @@ export function crearNodoCargarContextoVentas(deps: DepsContextoVentas) {
         })}\n\n` +
         `${bloqueCatalogo(categorias, totalProductos)}\n\n` +
         (delAnuncio ? `${delAnuncio}\n\n` : '') +
+        (delPedido ? `${delPedido}\n\n` : '') +
         `${bloqueLocal(agent)}\n\n` +
         `${bloquePedidos(agent, mpConectado, pedidos, new Date(), condicionesPago)}` +
         (atencionHumana ? `\n\n${atencionHumana}` : ''),

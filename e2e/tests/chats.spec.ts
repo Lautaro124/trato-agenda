@@ -41,7 +41,7 @@ test.describe('chats en Inicio (LAU-81)', () => {
     await expect(chat.getByText('¿Tenés lugar el jueves a la tarde?')).toBeVisible();
     await expect(chat.getByText('Contesta el bot')).toBeVisible();
 
-    await chat.getByRole('button', { name: 'Tomar el control', exact: true }).click();
+    await chat.getByRole('button', { name: 'Tomar el control y escribir' }).click();
     await expect(chat.getByText('Contestás vos')).toBeVisible();
     await expect(chat.getByText('El bot está en pausa en este chat hasta que lo devuelvas.')).toBeVisible();
 
@@ -62,7 +62,7 @@ test.describe('chats en Inicio (LAU-81)', () => {
     await dialogo.getByRole('button', { name: 'Devolver al bot' }).click();
     await expect(dialogo).toBeHidden();
     await expect(chat.getByText('Contesta el bot')).toBeVisible();
-    await expect(chat.getByRole('button', { name: 'Tomar el control', exact: true })).toBeVisible();
+    await expect(chat.getByRole('button', { name: 'Tomar el control y escribir' })).toBeVisible();
   });
 
   test('el filtro Bot/Vos y la marca "Te espera"', async ({ page, context, usuarioDev }) => {
@@ -142,7 +142,12 @@ test.describe('estado del trato (ventas)', () => {
 
     await page.goto('/inicio');
     await abrirChat(page, 'Tomás Acosta');
+    // Tres columnas: lista, chat y datos de la venta; los datos se pliegan a un riel y vuelven.
     const panel = page.getByRole('complementary', { name: 'Datos de la venta' });
+    await expect(page.getByRole('region', { name: 'Lista de chats' })).toBeVisible();
+    await panel.getByRole('button', { name: 'Contraer datos de la venta' }).click();
+    await expect(panel).toHaveCount(0);
+    await page.getByRole('button', { name: 'Mostrar datos de la venta' }).click();
     await expect(panel.getByText('Todavía no pidió productos.')).toBeVisible();
 
     await panel.getByRole('button', { name: 'Trato hecho' }).click();
@@ -159,12 +164,13 @@ test.describe('estado del trato (ventas)', () => {
     await expect(panel.getByRole('button', { name: 'Cancelado' })).toHaveCount(0);
     // El total lo pone la API: 2 × $ 12.800.
     await expect(panel.getByText('$ 25.600')).toBeVisible();
-    const lista = page.getByRole('region', { name: 'Lista de chats' });
-    await expect(lista.getByRole('button', { name: /Tomás Acosta/ })).toContainText('Trato hecho');
+    // Con el panel abierto la lista sigue a la vista y la etiqueta también se ve en el encabezado del chat.
+    const chat = page.getByRole('region', { name: 'Chat con Tomás Acosta' });
+    await expect(chat).toContainText('Trato hecho');
 
     await panel.getByRole('button', { name: 'Marcar como pagado' }).click();
     await expect(panel.getByRole('button', { name: 'Pagado' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(lista.getByRole('button', { name: /Tomás Acosta/ })).toContainText('Pagado');
+    await expect(chat).toContainText('Pagado');
     await expect(page.getByRole('region', { name: 'Indicadores rápidos' }).getByRole('button', { name: /^100 % chat a venta/ })).toBeVisible();
 
     // Un trato pagado no se cancela desde acá: el botón ya no está.

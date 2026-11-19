@@ -78,6 +78,8 @@ model User {
   consultasEnvio    ConsultaEnvioSinResolver[]
   anuncios          Anuncio[]
   mensajesRecibidos MensajeRecibido[]
+  configPreguntas   ConfiguracionPreguntas?
+  imagenesPregunta  ImagenPregunta[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -483,10 +485,6 @@ model Producto {
   /// o { modo: "precios", planes: [{ cuotas, totalCentavos }] }; null = en un pago.
   /// Reglas en comercio/condiciones-pago.rules.ts.
   cuotas          Json?
-  /// Lo que el asistente le pregunta al cliente al pedirlo (talle, color…):
-  /// [{ texto, tipo: "opciones" | "texto", opciones, obligatoria }]; null =
-  /// no pregunta nada. Reglas en comercio/preguntas-producto.rules.ts.
-  preguntasPedido Json?
 
   /// Importación rápida (LAU-31): de dónde salió el producto, como clave
   /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
@@ -643,6 +641,14 @@ model Venta {
   /// es un pedido real, pero no cuenta en el histórico ni en los totales.
   dePrueba Boolean @default(false)
 
+  /// Las respuestas a las preguntas globales de opciones (LAU-100), copiadas
+  /// al pedir: [{ pregunta, respuesta }]. Null = no se preguntó nada.
+  respuestas Json?
+  /// Lo que el cliente contestó con sus palabras (preguntas de texto libre y
+  /// pedidos especiales), con su contexto: [{ tipo, pregunta, respuesta,
+  /// producto, contexto }]. Misma retención que el nombre.
+  notas      Json?
+
   items   ItemVenta[]
   eventos EventoVenta[]
 
@@ -698,8 +704,9 @@ model ItemVenta {
   descuentoCentavos      Int     @default(0)
   /// Cómo se llamaba el descuento aplicado ("20% off", "Semana del mate").
   descuentoEtiqueta      String?
-  /// Lo que contestó el cliente a las preguntas del producto, copiado al pedir:
-  /// [{ pregunta, respuesta }]. Null = el producto no preguntaba nada.
+  /// Lo que contestó el cliente a las preguntas de opciones del producto
+  /// (LAU-100), copiado al pedir: [{ pregunta, respuesta }]. Null = no se le
+  /// preguntó nada. El texto libre y los pedidos especiales van a Venta.notas.
   respuestas             Json?
 
   @@index([productoId])
@@ -1047,4 +1054,33 @@ model MensajeRecibido {
 
   @@id([userId, waId])
   @@index([createdAt])
+}
+
+/// Las preguntas del pedido de la cuenta (LAU-100), en orden: globales y por
+/// producto, con opciones condicionales. Forma y reglas en
+/// comercio/preguntas-pedido.rules.ts.
+model ConfiguracionPreguntas {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  preguntas Json @default("[]")
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Imagen de una pregunta o de una opción (LAU-100). Se procesa igual que
+/// las de productos (imagenes.rules.ts): JPEG achicado y sin metadatos.
+model ImagenPregunta {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  datos Bytes
+  bytes Int
+  ancho Int
+  alto  Int
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }

@@ -90,11 +90,12 @@ describe('purga de retención — adversarial (matriz E)', () => {
 
     expect('deleteMany' in prisma.venta).toBe(false);
     const { data } = vi.mocked(prisma.venta.updateMany).mock.calls[0][0]!;
-    // Lo que escribió el dueño sobre un pedido derivado (LAU-27) también se va.
+    // Lo que escribió el dueño sobre un pedido derivado (LAU-27) y las notas del cliente (LAU-100) también se van.
     expect(data).toEqual({
       nombreCliente: null,
       telefonoCliente: null,
       datosCliente: Prisma.DbNull,
+      notas: Prisma.DbNull,
       detalleDerivacion: null,
       notaDevolucion: null,
     });

@@ -81,8 +81,8 @@ export function BadgeEstadoAsistente({ estado }: Readonly<{ estado: EstadoAsiste
             className={`size-1.5 rounded-full ${estado.prendido ? "bg-success" : "bg-current opacity-60"}`}
           />
           {corto}
-          {/* En el celular no entra: el detalle queda para el nombre accesible y el title. */}
-          {detalle && <span className="hidden font-normal lg:inline"> · {detalle}</span>}
+          {/* Con poco ancho no entra: el detalle queda para el nombre accesible y el title. */}
+          {detalle && <span className="hidden font-normal min-[1440px]:inline"> · {detalle}</span>}
         </span>
       </Badge>
     </output>

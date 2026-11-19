@@ -14,6 +14,31 @@ import {
   type MensajeChat,
 } from "@/lib/chats";
 import { cn } from "@/lib/cn";
+import { urlImagenEnviada, type ImagenEnviada } from "@/lib/imagenes";
+
+/** Una foto que el bot le mandó al cliente, con su pie. Si ya no existe (producto borrado), queda sólo el pie. */
+function FotoEnviada({ imagen }: { imagen: ImagenEnviada }) {
+  const [rota, setRota] = useState(false);
+  return (
+    <span className="flex min-w-0 flex-col gap-1">
+      {rota ? (
+        <span className="flex aspect-square items-center justify-center rounded-md bg-sunken text-xs text-ink-secondary">
+          Foto no disponible
+        </span>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element -- viene de la API con la cookie de sesión; el optimizador de Next no la tiene
+        <img
+          src={urlImagenEnviada(imagen)}
+          alt={imagen.leyenda ? `Foto enviada: ${imagen.leyenda}` : "Foto enviada"}
+          loading="lazy"
+          onError={() => setRota(true)}
+          className="aspect-square w-full rounded-md bg-sunken object-cover"
+        />
+      )}
+      {imagen.leyenda && <span className="text-xs break-words whitespace-pre-line text-ink-secondary">{imagen.leyenda}</span>}
+    </span>
+  );
+}
 
 const BURBUJA: Record<MensajeChat["de"], string> = {
   cliente: "self-start rounded-bl-sm border border-line bg-card",
@@ -26,8 +51,9 @@ const AUTOR: Record<Exclude<MensajeChat["de"], "cliente">, { texto: string; colo
 };
 
 /**
- * Un chat: arriba quién contesta y el único botón que lo cambia; abajo, para
- * escribir, sólo cuando contestás vos.
+ * Un chat: arriba quién contesta (y, si sos vos, el botón para devolverlo al
+ * bot); abajo, tomar el control o escribir. El encabezado va en una línea para
+ * dejarle la altura a los mensajes.
  */
 export function Conversacion({
   detalle,
@@ -42,7 +68,7 @@ export function Conversacion({
   detalle: DetalleChat;
   trabajando: boolean;
   enviando: boolean;
-  /** Sólo en el celular: vuelve a la lista. */
+  /** Debajo de 1024px, donde lista y chat se ven de a uno: vuelve a la lista. */
   onVolver: () => void;
   onTomar: () => void;
   onDevolver: () => void;
@@ -74,24 +100,28 @@ export function Conversacion({
 
   return (
     <section aria-label={`Chat con ${nombre}`} className="flex min-h-0 flex-1 flex-col rounded-lg border border-line bg-card">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 md:px-5">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-3 py-2 md:px-4">
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={onVolver}
             aria-label="Volver a los chats"
-            className="grid size-11 flex-none place-items-center rounded-md text-ink hover:bg-sunken md:hidden"
+            className={cn(
+              "grid size-11 flex-none place-items-center rounded-md text-ink hover:bg-sunken",
+              // Mismo corte (`md`) que la grilla de BandejaChats.
+              "md:hidden",
+            )}
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="m15 18-6-6 6-6" />
             </svg>
           </button>
-          <span aria-hidden className="hidden size-11 flex-none place-items-center rounded-full bg-sunken font-bold text-ink-secondary md:grid">
+          <span aria-hidden className={cn("hidden size-9 flex-none place-items-center rounded-full bg-sunken text-sm font-bold text-ink-secondary", "md:grid")}>
             {inicialDe(chat)}
           </span>
           <div className="flex min-w-0 flex-col">
-            <h2 className="truncate font-display text-[18px] font-bold">{nombre}</h2>
-            <p className="flex min-w-0 items-center gap-2 truncate text-[13px] text-ink-secondary">
+            <h2 className="truncate font-display text-[16px] font-bold">{nombre}</h2>
+            <p className="flex min-w-0 items-center gap-2 truncate text-[12.5px] text-ink-secondary">
               {etiqueta && <EtiquetaVenta etiqueta={etiqueta} />}
               {[chat.nombre && chat.telefono ? `+${chat.telefono}` : null, contexto].filter(Boolean).join(" · ") ||
                 "Sin turno ni pedido abierto"}
@@ -99,33 +129,24 @@ export function Conversacion({
           </div>
         </div>
 
-        <div data-tutorial="control-chat" className="flex flex-wrap items-center gap-3">
-          {esVos ? (
-            <>
-              <EstadoAtencion esVos />
-              <Button variant="secondary" disabled={trabajando} onClick={onDevolver}>
-                Devolver al bot
-              </Button>
-            </>
-          ) : (
-            <>
-              <EstadoAtencion esVos={false} />
-              <Button disabled={trabajando} onClick={onTomar}>
-                Tomar el control
-              </Button>
-            </>
+        <div data-tutorial="control-chat" className="flex flex-wrap items-center gap-2.5">
+          <EstadoAtencion esVos={esVos} />
+          {esVos && (
+            <Button variant="secondary" size="sm" disabled={trabajando} onClick={onDevolver}>
+              Devolver al bot
+            </Button>
           )}
         </div>
       </header>
 
       {esVos && (
-        <p className="bg-primary-subtle px-4 py-2.5 text-sm font-semibold text-primary-active md:px-5">
+        <p className="bg-primary-subtle px-3 py-2 text-[13px] font-semibold text-primary-active md:px-4">
           El bot está en pausa en este chat hasta que lo devuelvas.
         </p>
       )}
 
       {panel && (
-        <details className="group border-b border-line xl:hidden">
+        <details className="group border-b border-line md:hidden">
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 px-4 text-sm font-bold text-ink md:px-5">
             Datos de la venta
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="text-ink-secondary transition-transform group-open:rotate-180">
@@ -136,20 +157,27 @@ export function Conversacion({
         </details>
       )}
 
-      <div ref={historial} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-page p-4 md:p-5">
+      <div ref={historial} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-page p-3 md:px-5 md:py-4">
         {mensajes.length === 0 && <p className="m-auto text-sm text-ink-secondary">Todavía no hay mensajes de texto.</p>}
         {mensajes.map((mensaje) => (
           <div key={mensaje.id} className={cn("max-w-[80%] rounded-lg px-3.5 py-2.5 text-[15px] leading-[1.45] md:max-w-[72%]", BURBUJA[mensaje.de])}>
             <span className={cn("block text-xs font-bold", mensaje.de === "cliente" ? "text-ink-secondary" : AUTOR[mensaje.de].color)}>
               {mensaje.de === "cliente" ? nombre : AUTOR[mensaje.de].texto}
             </span>
-            <span className="break-words whitespace-pre-line">{mensaje.texto}</span>
+            {mensaje.imagenes && mensaje.imagenes.length > 0 && (
+              <span className="mt-1 mb-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                {mensaje.imagenes.map((imagen, indice) => (
+                  <FotoEnviada key={indice} imagen={imagen} />
+                ))}
+              </span>
+            )}
+            {mensaje.texto && <span className="break-words whitespace-pre-line">{mensaje.texto}</span>}
             <span className="mt-1 block text-right text-[11px] text-ink-secondary">{horaDeMensaje(mensaje.createdAt)}</span>
           </div>
         ))}
       </div>
 
-      <div className="border-t border-line px-4 py-3 md:px-5">
+      <div className="border-t border-line px-3 py-2.5 md:px-4">
         {esVos ? (
           <form
             className="flex items-end gap-2.5"
@@ -189,8 +217,8 @@ export function Conversacion({
           </form>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-ink-secondary">El bot está contestando este chat. Para escribir vos, tomá el control.</p>
-            <Button variant="secondary" disabled={trabajando} onClick={onTomar}>
+            <p className="text-[13px] text-ink-secondary">El bot está contestando este chat.</p>
+            <Button size="sm" disabled={trabajando} onClick={onTomar}>
               Tomar el control y escribir
             </Button>
           </div>

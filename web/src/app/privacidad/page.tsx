@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 9 de noviembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 18 de noviembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -138,7 +138,10 @@ export default function PrivacidadPage() {
             y, si pagó con Mercado Pago, el número de operación. Si configurás que el asistente pida
             datos para el envío o para el pedido (código postal, dirección, provincia, país, email, DNI
             u otros que definas vos), también guardamos lo que el cliente conteste, sólo los datos que
-            vos elegiste pedir. También el historial de cada pedido, si lo atiende una persona y por
+            vos elegiste pedir. Si configurás preguntas para el pedido, guardamos esas preguntas, sus
+            opciones y las imágenes que les subas (achicadas y sin metadatos, como las fotos), y lo que
+            el cliente conteste: la opción que elige y, si responde con sus palabras o pide algo que no
+            está entre las opciones, ese texto como nota del pedido. También el historial de cada pedido, si lo atiende una persona y por
             qué, y lo que el cliente y vos se escriban mientras el asistente está callado en ese chat.
             Si cargás zonas de envío, guardamos sus tarifas y lugares; cuando el asistente no puede
             responder el costo de un envío, anotamos sólo la provincia, localidad o código postal
@@ -396,7 +399,8 @@ export default function PrivacidadPage() {
             <Punto>
               <Fuerte>Ventas:</Fuerte> se conservan mientras tu cuenta exista, porque son tu histórico.
               A los 12 meses de cada pedido se borran el nombre, el número de WhatsApp y los demás datos
-              que dio el cliente (dirección, email, DNI y los que hayas pedido), el motivo escrito de
+              que dio el cliente (dirección, email, DNI y los que hayas pedido), las notas del pedido
+              con lo que escribió en las preguntas, el motivo escrito de
               la derivación y tus notas. Los productos, los montos y las fechas quedan.
             </Punto>
             <Punto>

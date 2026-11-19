@@ -88,11 +88,11 @@ function Atajo({
       title={titulo}
       onClick={onClick}
       className={cn(
-        "inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border bg-card px-3.5 text-left",
+        "inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border bg-card px-3.5 text-left [@media(max-height:820px)]:min-h-9",
         activo ? "border-2 border-primary px-[13px]" : "border-line hover:bg-sunken",
       )}
     >
-      <span className="font-display text-[18px] font-bold text-ink">{valor}</span>
+      <span className="font-display text-[18px] font-bold text-ink [@media(max-height:820px)]:text-[16px]">{valor}</span>
       <span className="text-[13px] font-semibold text-ink-secondary">{label}</span>
       {extra}
       <span className="sr-only">. {titulo}</span>

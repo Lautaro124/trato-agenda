@@ -10,7 +10,7 @@ import type { ProductoEncontrado } from '../../comercio/busqueda.service.js';
 import type { CategoriaPanorama, ProductoPanorama, ResultadoCatalogo } from '../../comercio/sugerencias.rules.js';
 import type { ListadoVentas, ResumenVentas } from '../../comercio/historico.service.js';
 import type { CotizacionFormasDePago } from '../../comercio/ventas.service.js';
-import { describirAPedido, formatearMonto, monedaDe, type Moneda } from '../../comercio/catalogo.rules.js';
+import { describirAPedido, formatearMonto, monedaDe, normalizarTexto, type Moneda } from '../../comercio/catalogo.rules.js';
 import {
   describirCuotas,
   SIN_CONDICIONES,
@@ -25,7 +25,7 @@ import {
   type ProductoConDescuento,
   type PromocionVigente,
 } from '../../comercio/descuentos.rules.js';
-import { describirPreguntas } from '../../comercio/preguntas-producto.rules.js';
+import { describirPreguntas, preguntasDe, type PreguntaPedido } from '../../comercio/preguntas-pedido.rules.js';
 import {
   detalleDeRenglones,
   estadoVisible,
@@ -72,6 +72,21 @@ export const REGLA_MONEDAS =
 /** La pregunta de cierre: después de que el cliente elige, antes de crear el pedido. */
 export function preguntaDeCierre(mpConectado: boolean): string {
   return mpConectado ? '¿Querés algo más antes de que te pase el link de pago?' : '¿Querés algo más o te lo anoto así?';
+}
+
+/** Si la respuesta ofrece cerrar el pedido ("¿algo más o te lo anoto?", "te lo anoto", "te paso el link"). */
+export function ofreceCerrar(texto: string): boolean {
+  // Sin acentos: "anotártelo" queda "anotartelo".
+  return /\b(te lo anoto|anotartelo|algo mas antes de que te pase el link)\b/.test(normalizarTexto(texto));
+}
+
+/** La nota para que el modelo haga las preguntas del pedido antes de ofrecer cerrar. */
+export function correccionDePreguntasPendientes(faltan: PreguntaPedido[], todas: PreguntaPedido[]): string {
+  return (
+    'Antes de ofrecerle anotar el pedido o preguntarle si quiere algo más, hacele la primera pregunta del pedido ' +
+    'que falta (una por mensaje, con sus opciones). No le ofrezcas cerrar en este mensaje:\n' +
+    faltan.map((pregunta) => `- ${describirPreguntas([pregunta], todas)}`).join('\n')
+  );
 }
 
 /** Un monto escrito en un texto, con su moneda. */
@@ -165,6 +180,22 @@ export function lineasQueRepitenFotos(respuesta: string, fotos: FotoConLeyenda[]
   });
 }
 
+/** Un renglón de lista ("* …", "- …", "1. …") que lleva un precio: un producto listado en el texto. */
+export function lineasDeListado(respuesta: string): string[] {
+  return respuesta
+    .split('\n')
+    .filter((linea) => /^\s*(?:[*•·\-–]|\d{1,2}[.)])\s/.test(linea) && montosEnTexto(linea).length > 0);
+}
+
+/** La nota para cuando, después de que la búsqueda mandó las fotos, el modelo igual escribió una lista. */
+export function correccionDeListaConFotos(): string {
+  return (
+    'Corrección: la búsqueda ya le mandó al cliente las fotos de los productos, cada una con su nombre y precio ' +
+    'al pie. En este mensaje no le escribas ninguna lista de productos ni precios (tampoco de otros resultados): ' +
+    'si corresponde saludalo y preguntale en una frase cuál le interesa o si busca otra cosa. Escribí la respuesta de nuevo.'
+  );
+}
+
 /** La nota que vuelve al modelo cuando repitió en el texto los productos que ya le llegaron en foto. */
 export function correccionDeListaRepetida(): string {
   return (
@@ -240,6 +271,9 @@ export function reglasDeVenta(
     `- Si el cliente pregunta en general qué tenés, qué le ofrecés o te pide la lista de productos, llamá ` +
     `ver_catalogo en vez de preguntarle qué busca. Si te devuelve categorías y el cliente elige una, volvé a ` +
     `llamarla con esa categoría.\n` +
+    `- Un saludo solo ("hola", "buenas", "qué tal") no es un pedido de catálogo: contestalo con buena onda y ` +
+    `preguntale en qué lo podés ayudar, sin listar productos, categorías, fotos ni descuentos. Mostrá productos ` +
+    `sólo si pide la lista o un producto puntual.\n` +
     `- Informá los precios exactamente como los devuelve la búsqueda. Si un precio viene con "antes", tiene un ` +
     `descuento vigente: decile al cliente el precio original, el descuento y el precio final, tal cual. Nunca ` +
     `redondees ni inventes descuentos, promociones, cuotas o cálculos de envío que la búsqueda no traiga, y nunca ` +
@@ -263,11 +297,24 @@ export function reglasDeVenta(
     `${REGLA_FOTOS_PEDIDAS}\n` +
     `${REGLA_FOTOS_SOLAS}\n` +
     `- Para vender: cuando el cliente elige un producto, decile en una frase qué le anotás (producto, ` +
-    `cantidad y precio) y preguntale "${cierre}". No le pidas que confirme el pedido ni le repitas el resumen ` +
+    `cantidad y precio) y preguntale "${cierre}"; si hay preguntas del pedido o del producto sin hacer, primero ` +
+    `hacé ésas (ver abajo) y recién al final la de cierre. No le pidas que confirme el pedido ni le repitas el resumen ` +
     `para que diga que sí.\n` +
-    `- Si el producto trae "preguntas al pedirlo", hacéselas al cliente (una por mensaje, con sus opciones si las ` +
-    `tiene) antes de crear el pedido, y mandá lo que contestó en \`respuestas\`. Las obligatorias no se pueden ` +
-    `saltear; las opcionales, si dice que no quiere, no las mandes. Nunca contestes por él ni inventes opciones.\n` +
+    `- Cuando el cliente elige un producto, primero contale el detalle de ese producto: nombre, precio y lo que ` +
+    `dice el catálogo de él (si la búsqueda trae su ficha armada, usá esa). Si hay preguntas, en ese mismo mensaje, ` +
+    `después del detalle, hacé la primera.\n` +
+    `- Si el producto trae "preguntas al pedirlo" (o hay "preguntas del pedido"), hacéselas al cliente apenas ` +
+    `elige un producto, en lugar de preguntarle si quiere algo más y antes de crear el pedido: en ese ` +
+    `orden, una por mensaje y con sus opciones, y recién después preguntale si quiere algo más. Una pregunta que ` +
+    `ya contestó (con una opción o con un pedido especial) no se la vuelvas a hacer: usá lo que dijo ` +
+    `(no des por hecho una respuesta que no te dio: aunque pida un ` +
+    `color o una variante, la pregunta se hace igual). Mandá lo que contestó en \`respuestas\` ` +
+    `con el id [pregunta …] (y el productoId en las de un producto). Las que dependen de otra se hacen sólo después ` +
+    `de esa, con las opciones de lo que eligió ahí; si cambia una respuesta anterior, volvé a preguntar las que ` +
+    `dependen de ella. Las obligatorias no se pueden saltear; las opcionales, si dice que no quiere, no las mandes. ` +
+    `Nunca contestes por él ni inventes opciones: si pide algo que no está y la pregunta no acepta otra cosa, ` +
+    `ofrecele las opciones que hay. Un pedido especial queda anotado para que el negocio lo confirme: nunca le ` +
+    `digas que está disponible.\n` +
     `- Si quiere algo más, buscalo y volvé a hacerle la misma pregunta. Cuando te diga que no ("no", "nada más", ` +
     `"eso es todo"), llamá crear_pedido con todo lo que eligió en esta charla y ${entrega}. Si no sabés su ` +
     `nombre, preguntáselo en ese momento, antes de crear el pedido.\n` +
@@ -302,9 +349,9 @@ export const REGLA_VOZ_DE_EQUIPO =
  * las corta la validación.
  */
 export const REGLA_FOTOS_SOLAS =
-  '- Las fotos mandalas sin esperar a que te las pidan: cuando le muestres productos de una búsqueda que dicen ' +
-  '"tiene foto", mandale con enviar_imagen_producto la de cada uno que le nombrás (hasta 3), salvo las que ya le ' +
-  'llegaron en esta charla. Las del listado de ver_catalogo ya le llegaron solas. No las describas: seguí la charla.';
+  '- Las fotos de los primeros resultados de una búsqueda y del listado de ver_catalogo le llegan solas, con su ' +
+  'nombre y precio al pie (el resultado lo marca "ya le llega en foto"): no las pidas de nuevo ni las describas. ' +
+  'Si le nombrás otro producto que dice "tiene foto" y todavía no la vio, mandásela con enviar_imagen_producto.';
 
 /** Pedir una foto y que conteste "no hay" cuando la búsqueda decía que sí. */
 export const REGLA_FOTOS_PEDIDAS =
@@ -778,6 +825,23 @@ export function bloqueAnuncio(anuncio: AnuncioDeOrigen | null): string {
 }
 
 /**
+ * Las preguntas globales del pedido (LAU-100) para el system prompt: se hacen
+ * una vez por pedido, tenga los productos que tenga. '' si no hay.
+ */
+export function bloquePreguntasDelPedido(preguntas: PreguntaPedido[]): string {
+  const globales = preguntasDe(preguntas, null);
+  if (globales.length === 0) return '';
+  return (
+    'Preguntas del pedido: hacéselas al cliente una sola vez por pedido, tenga los productos que tenga, apenas ' +
+    'elige el primer producto (antes de preguntarle si quiere algo más, por el envío o por el pago) y en este orden; ' +
+    'el sistema no te deja avanzar con el pedido hasta que se las hayas hecho. Si una acepta otra cosa y ' +
+    'pide algo que no está en las opciones, anotalo como pedido especial en vez de decirle que no lo tenés ' +
+    '(mandá sus respuestas en `respuestas` sin productoId):\n' +
+    globales.map((pregunta) => `- ${describirPreguntas([pregunta], preguntas)}`).join('\n')
+  );
+}
+
+/**
  * Resultados de una búsqueda tal como vuelven al modelo. Los textos del dueño
  * (nombre, descripción) van con `JSON.stringify` para que se lean
  * como dato; los ids van entre corchetes, que el modelo usa para
@@ -789,6 +853,7 @@ export function formatearResultados(
   consulta: string,
   productos: ProductoEncontrado[],
   agent?: Pick<Agent, 'mensajes' | 'nombreTitular'>,
+  conFoto: ReadonlySet<string> = new Set(),
 ): string {
   if (productos.length === 0) {
     const propio = agent && sinProductosPropio(agent, consulta);
@@ -809,12 +874,13 @@ export function formatearResultados(
       (producto.categoria ? `, categoría ${JSON.stringify(producto.categoria)}` : '') +
       (producto.tieneImagen ? ', tiene foto' : '') +
       (producto.tieneImagen && producto.fotosDeDetalle > 0 ? ` y ${producto.fotosDeDetalle} fotos de detalle` : '') +
+      (conFoto.has(producto.productoId) ? ', ya le llega en foto con su nombre y precio al pie' : '') +
       ')' +
       (producto.descripcion ? `: ${JSON.stringify(producto.descripcion.slice(0, 200))}` : '');
     return (
       `${cabecera}\n   - precio: ${precioParaElModelo(producto, producto.moneda)}, ${producto.stock}` +
       (producto.cuotas ? `\n   - cuotas: ${describirCuotas(producto.cuotas, producto.moneda)}` : '') +
-      (producto.preguntas ? `\n   - preguntas al pedirlo: ${describirPreguntas(producto.preguntas)}` : '') +
+      (producto.preguntas ? `\n   - preguntas al pedirlo: ${producto.preguntas}` : '') +
       (formatoLista && datos
         ? `\n   - ${LINEA_PARA_LISTA}: ${JSON.stringify(completarPlantilla(formatoLista, datos))}`
         : '') +
@@ -842,6 +908,14 @@ export function formatearResultados(
           'podés ofrecerlos directamente.';
     partes.push(
       `${encabezado}\n${parecidos.map((producto, indice) => formatear(producto, coinciden.length + indice)).join('\n')}`,
+    );
+  }
+  if (conFoto.size > 0) {
+    partes.push(
+      'Los que dicen "ya le llega en foto" le llegan como fotos, cada uno con su nombre y precio al pie: esas fotos ' +
+        'son la lista. No le escribas ninguna lista de productos ni precios en este mensaje (tampoco de los otros ' +
+        'resultados) ni pidas sus fotos: si corresponde saludalo y preguntale en una frase cuál le interesa o si ' +
+        'busca otra cosa. Los otros resultados mostráselos sólo si te pide más opciones.',
     );
   }
   return partes.join('\n');
@@ -912,6 +986,14 @@ export function leyendaDeProducto(producto: ProductoPanorama, agent?: Pick<Agent
     `${producto.nombre}\n${precio}` +
     (producto.descuento ? ` (con ${producto.descuento})` : '')
   );
+}
+
+/** El pie de la foto de un resultado de buscar_productos: igual que leyendaDeProducto, con los datos de la búsqueda. */
+export function leyendaDeEncontrado(producto: ProductoEncontrado, agent?: Pick<Agent, 'mensajes'>): string {
+  const datos = datosDeEncontrado(producto);
+  const propio = agent ? mensajePropio(agent, 'listadoProductos') : null;
+  if (propio) return completarPlantilla(propio, datos);
+  return `${producto.nombre}\n${datos.precio}`;
 }
 
 /** Una línea del listado: los datos para que el modelo la arme, o ya armada con el formato del dueño. */

@@ -5,6 +5,7 @@ import { Conversacion } from "@/components/chats/Conversacion";
 import { DevolverDialog } from "@/components/chats/DevolverDialog";
 import { Indicadores, type AtajoIndicador } from "@/components/chats/Indicadores";
 import { ListaChats, type Filtro } from "@/components/chats/ListaChats";
+import { PanelLateralVenta } from "@/components/chats/PanelLateralVenta";
 import { PanelVenta } from "@/components/chats/PanelVenta";
 import { useAvisos } from "@/components/ui/Avisos";
 import { sseUrl } from "@/lib/api";
@@ -26,11 +27,29 @@ import {
   type ListaChats as Lista,
 } from "@/lib/chats";
 import { cn } from "@/lib/cn";
+import { useMediaQuery } from "@/lib/pantalla";
 import { ErrorDeApi } from "@/lib/productos";
 
 function mensajeDe(err: unknown, porDefecto: string): string {
   return err instanceof ErrorDeApi ? err.message : porDefecto;
 }
+
+/**
+ * Desde qué ancho de la ventana (`md`, 48rem) las columnas van lado a lado:
+ * lista | chat en agenda y lista | chat | datos de la venta en ventas. Por
+ * debajo se ve la lista o el chat, uno por vez. Las clases son literales para
+ * que Tailwind las genere; la conversación usa el mismo corte.
+ */
+const CORTES = {
+  agenda: {
+    soloUna: "max-md:hidden",
+    grilla: "md:grid-cols-[var(--lista)_minmax(0,1fr)]",
+  },
+  ventas: {
+    soloUna: "max-md:hidden",
+    grilla: "md:grid-cols-[var(--lista)_minmax(0,1fr)_auto]",
+  },
+} as const;
 
 const TEXTO_TRATO: Record<CambioDeTrato["estado"], string> = {
   hecho: "Listo: el trato quedó hecho y el pedido, pendiente de pago.",
@@ -41,7 +60,7 @@ const TEXTO_TRATO: Record<CambioDeTrato["estado"], string> = {
 /**
  * Los chats de WhatsApp en Inicio (LAU-81): indicadores rápidos, la lista con
  * la etapa de cada venta, el chat abierto y, en cuentas de ventas, los datos
- * para cerrar el trato. En el celular se ve la lista o el chat, uno por vez.
+ * para cerrar el trato. Con poco ancho se ve la lista o el chat, uno por vez.
  */
 export function BandejaChats({
   ventas,
@@ -58,6 +77,12 @@ export function BandejaChats({
   const [errorLista, setErrorLista] = useState(false);
   const [indicadores, setIndicadores] = useState<IndicadoresChats | null>(null);
   const [filtro, setFiltro] = useState<Filtro>("todos");
+  const corte = CORTES[ventas ? "ventas" : "agenda"];
+  const columnasAlLado = useMediaQuery("(min-width: 48rem)");
+  const columnasRef = useRef(columnasAlLado);
+  useEffect(() => {
+    columnasRef.current = columnasAlLado;
+  }, [columnasAlLado]);
   const [busqueda, setBusqueda] = useState("");
   const [seleccionado, setSeleccionado] = useState<string | null>(null);
   const [detalle, setDetalle] = useState<DetalleChat | null>(null);
@@ -124,8 +149,9 @@ export function BandejaChats({
         (nueva) => {
           setLista(nueva);
           setErrorLista(false);
-          // En escritorio se abre el más reciente, así la pantalla no arranca vacía.
-          if (!seleccionadoRef.current && nueva.chats[0] && window.matchMedia("(min-width: 768px)").matches) {
+          // Con lista y chat a la vista se abre el más reciente, así la pantalla no arranca vacía.
+          const columnas = columnasRef.current;
+          if (!seleccionadoRef.current && nueva.chats[0] && columnas) {
             elegir(nueva.chats[0].id);
           }
         },
@@ -265,11 +291,21 @@ export function BandejaChats({
   const panel = ventas ? (
     <PanelVenta key={seleccionado} ficha={ficha} error={errorFicha} trabajando={trabajando} onTrato={marcarTrato} />
   ) : null;
+  // Los datos de la venta van en la tercera columna; con una sola, los muestra la conversación.
+  const conPanel = Boolean(panel && detalle) && columnasAlLado;
 
   return (
-    <>
-      <div className={cn("flex flex-wrap items-center justify-between gap-3", seleccionado && "max-md:hidden")}>
-        <h1 className="font-display text-[24px] leading-[1.15] font-bold tracking-[-0.025em] text-ink">{saludo}</h1>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 [@media(max-height:820px)]:justify-end",
+          seleccionado && corte.soloUna,
+        )}
+      >
+        {/* Con poca altura el saludo cede su lugar al chat; queda para el lector de pantalla. */}
+        <h1 className="font-display text-[24px] leading-[1.15] font-bold tracking-[-0.025em] text-ink [@media(max-height:820px)]:sr-only">
+          {saludo}
+        </h1>
         <Indicadores
           indicadores={indicadores}
           teEsperan={lista?.chats.filter((chat) => chat.teEspera).length ?? 0}
@@ -287,8 +323,16 @@ export function BandejaChats({
       {lista && lista.chats.length === 0 && sinChats && <div className="min-h-0 flex-1 overflow-y-auto">{sinChats}</div>}
 
       {lista && (lista.chats.length > 0 || !sinChats) && (
-        <div className="flex min-h-0 flex-1 gap-4">
-          <div className={cn("flex min-h-0 w-full flex-col md:w-[340px] md:flex-none lg:w-[360px]", seleccionado && "max-md:hidden")}>
+        <div
+          className={cn(
+            // Una columna: lista o chat de a uno. Con lugar, lista | chat | datos de la venta
+            // (plegables a un riel); en agenda, lista | chat. Lista y datos crecen por
+            // escalones (--lista, --panel) y el chat se queda con el resto.
+            "grid min-h-0 flex-1 grid-flow-col grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-3 [--lista:15rem] [--panel:15rem] lg:[--lista:18rem] xl:[--panel:18.75rem] xl:gap-4 xl:[--lista:20rem]",
+            corte.grilla,
+          )}
+        >
+          <div className={cn("flex min-h-0 min-w-0 flex-col", seleccionado && corte.soloUna)}>
             <ListaChats
               lista={lista}
               filtro={filtro}
@@ -299,7 +343,7 @@ export function BandejaChats({
               onElegir={elegir}
             />
           </div>
-          <div className={cn("min-h-0 min-w-0 flex-1 flex-col", seleccionado ? "flex" : "max-md:hidden md:flex")}>
+          <div className={cn("flex min-h-0 min-w-0 flex-col", !seleccionado && corte.soloUna)}>
             {detalle ? (
               <Conversacion
                 detalle={detalle}
@@ -317,14 +361,10 @@ export function BandejaChats({
               </div>
             )}
           </div>
-          {panel && detalle && (
-            <aside
-              aria-label="Datos de la venta"
-              data-tutorial="estado-trato"
-              className="hidden min-h-0 w-[320px] flex-none overflow-hidden rounded-lg border border-line bg-card p-4 xl:block"
-            >
+          {conPanel && (
+            <PanelLateralVenta>
               {panel}
-            </aside>
+            </PanelLateralVenta>
           )}
         </div>
       )}
@@ -338,6 +378,6 @@ export function BandejaChats({
           onCancelar={() => setDevolviendo(false)}
         />
       )}
-    </>
+    </div>
   );
 }

@@ -27,6 +27,9 @@ export type Suscripcion = {
 
 export type PlanId = "unico";
 
+/** Largo de la prueba gratis; mismo valor que DIAS_PRUEBA en api/src/subscription/subscription.rules.ts. */
+export const DIAS_PRUEBA = 30;
+
 type SuscripcionValue = {
   suscripcion: Suscripcion | null;
   /** Vuelve a preguntarle a la API; lo usa /plan al volver de Mercado Pago. */

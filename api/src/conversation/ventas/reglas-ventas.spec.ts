@@ -770,7 +770,7 @@ describe('leyendaDeProducto', () => {
 
 describe('fotos sin repetir', () => {
   it('manda las que la búsqueda marca con foto y no niega una que hay', () => {
-    expect(REGLA_FOTOS_SOLAS).toContain('Las del listado de ver_catalogo ya le llegaron solas');
+    expect(REGLA_FOTOS_SOLAS).toContain('del listado de ver_catalogo le llegan solas');
     expect(REGLA_FOTOS_PEDIDAS).toContain('Nunca le digas que no hay foto de algo que la búsqueda marca con foto');
     expect(reglasDeVenta({ nombreTitular: 'X', nombreBot: 'Y', haceEnvios: false, datosCliente: null } as unknown as Agent, false)).toContain(
       REGLA_FOTOS_PEDIDAS,

@@ -12,7 +12,7 @@ import {
   type Ranking,
 } from './catalogo.rules.js';
 import { leerCuotasProducto, type CuotasProducto } from './condiciones-pago.rules.js';
-import { leerPreguntas, type PreguntaProducto } from './preguntas-producto.rules.js';
+import { describirPreguntas, leerPreguntas, preguntasDe } from './preguntas-pedido.rules.js';
 import { mejorDescuento, type DescuentoAplicado } from './descuentos.rules.js';
 import { descuentosActivos } from './descuentos.types.js';
 import { EmbeddingsClient, literalVector } from './embeddings.client.js';
@@ -60,8 +60,11 @@ export type ProductoEncontrado = {
   descuento: DescuentoAplicado | null;
   /** En cuántas cuotas se vende; null o ausente = en un pago. */
   cuotas?: CuotasProducto | null;
-  /** Lo que hay que preguntarle al cliente al pedirlo; null o ausente = nada. */
-  preguntas?: PreguntaProducto[] | null;
+  /**
+   * Las preguntas del pedido de este producto (LAU-100), ya descriptas para
+   * el modelo (describirPreguntas); null o ausente = ninguna.
+   */
+  preguntas?: string | null;
   hayStock: boolean;
   /** "disponible" | "quedan N unidades" | "a pedido, se entrega en N días" | "sin stock" — ver describirStock. Lo que puede leer un cliente. */
   stock: string;
@@ -217,14 +220,16 @@ export class BusquedaService {
     reservadasDadas?: Map<string, number>,
   ): Promise<ProductoEncontrado[]> {
     if (ids.length === 0) return [];
-    const [productos, descuentos] = await Promise.all([
+    const [productos, descuentos, configPreguntas] = await Promise.all([
       this.prisma.producto.findMany({
         where: { id: { in: ids }, userId, activo: true },
         // Sólo si existe: los bytes nunca vienen en una búsqueda.
         include: { _count: { select: { imagenes: true } } },
       }),
       descuentosActivos(this.prisma, userId, ids),
+      this.prisma.configuracionPreguntas.findUnique({ where: { userId }, select: { preguntas: true } }),
     ]);
+    const todasLasPreguntas = leerPreguntas(configPreguntas?.preguntas);
     const ahora = new Date();
     const porId = new Map(productos.map((producto) => [producto.id, producto]));
     const reservadas =
@@ -253,7 +258,7 @@ export class BusquedaService {
           precioFinalCentavos: descuento?.precioFinalCentavos ?? producto.precioCentavos,
           descuento,
           cuotas: leerCuotasProducto(producto.cuotas, producto.precioCentavos, producto.moneda),
-          preguntas: leerPreguntas(producto.preguntasPedido),
+          preguntas: describirPreguntas(preguntasDe(todasLasPreguntas, producto.id), todasLasPreguntas) || null,
           hayStock: hayStock(producto, 1, reservadasProducto),
           stock: describirStock(producto, reservadasProducto),
           unidades: unidadesDisponibles(producto, reservadasProducto),

@@ -34,12 +34,13 @@ import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
 import { referenciaDeAnuncio, type ReferenciaAnuncio } from '../comercio/anuncios.rules.js';
 import { AnunciosService } from '../comercio/anuncios.service.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
+import { PreguntasService } from '../comercio/preguntas.service.js';
 import { MAX_BYTES_SUBIDA, procesarImagen } from '../comercio/imagenes.rules.js';
 import { VisionClient } from '../comercio/vision.client.js';
 import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
-import type { ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
+import { esFotoDePregunta, type ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
 import { avisoWhatsappCaido, avisoWhatsappParaVolverAVincular, type Aviso } from '../notificaciones/avisos.js';
 import { tipoAsistenteDe } from '../agents/agent-catalog.js';
 import { resumenDeError } from '../agents/openrouter.client.js';
@@ -147,6 +148,8 @@ export const MAX_BYTES_IMAGEN = MAX_BYTES_SUBIDA;
 export const MAX_IMAGENES_EN_CURSO = 3;
 /** Plazo de la descarga de una imagen. */
 const PLAZO_DESCARGA_IMAGEN_MS = 30_000;
+/** En el primer mensaje a un cliente, cuánto esperar entre el saludo y las fotos de productos. */
+export const PAUSA_ANTES_DE_FOTOS_MS = 3_000;
 
 /**
  * Cómo se presenta el socket ante WhatsApp. Tiene que ser un navegador que
@@ -358,6 +361,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly transcripcion: TranscripcionClient,
     private readonly anuncios: AnunciosService,
     private readonly vision: VisionClient,
+    private readonly preguntas: PreguntasService,
   ) {
     this.baileysLogger = pino({
       level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
@@ -1154,8 +1158,15 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`No se pudo evaluar el cupo de chats de ${userId}: ${resumenDeError(error)}`),
       );
       const partes = partirEnMensajes(respuesta.texto);
-      await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
-      await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio);
+      if (respuesta.primeraRespuesta && respuesta.imagenes.length > 0) {
+        // Primer contacto: el saludo antes que las fotos, y una pausa para que no le lleguen todas juntas.
+        await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio);
+        await esperar(PAUSA_ANTES_DE_FOTOS_MS);
+        await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
+      } else {
+        await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
+        await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio);
+      }
       const primero = items[0]!;
       this.logger.log(
         resumenDeRafaga(userId, {
@@ -1218,15 +1229,23 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * que las acompaña. Una que falla no corta nada: el texto sale igual.
    */
   private async enviarFotos(userId: string, sock: WASocket, remoteJid: string, imagenes: ImagenAEnviar[]): Promise<void> {
-    for (const { productoId, imagenId, leyenda } of imagenes) {
+    for (const imagen of imagenes) {
       try {
-        const foto = await this.imagenes.paraEnviar(userId, productoId, imagenId);
+        if (esFotoDePregunta(imagen)) {
+          // Una pregunta del pedido o una de sus opciones (LAU-100): su texto va al pie.
+          const datos = await this.preguntas.paraEnviar(userId, imagen.imagenPreguntaId);
+          if (!datos) continue;
+          await this.enviar(userId, sock, remoteJid, { image: datos, mimetype: 'image/jpeg', caption: imagen.leyenda ?? imagen.nombre });
+          continue;
+        }
+        const foto = await this.imagenes.paraEnviar(userId, imagen.productoId, imagen.imagenId);
         if (!foto) continue;
         // Las del listado traen nombre y precio; las demás, el nombre de la base.
-        await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: leyenda ?? foto.nombre });
+        await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: imagen.leyenda ?? foto.nombre });
       } catch (error) {
-        // Sin el JID ni el nombre del producto: sólo ids, como el resto de los logs de Baileys.
-        this.logger.error(`No se pudo mandar la foto del producto ${productoId} (cuenta ${userId}): ${(error as Error).message}`);
+        // Sin el JID ni textos del dueño: sólo ids, como el resto de los logs de Baileys.
+        const id = esFotoDePregunta(imagen) ? `de pregunta ${imagen.imagenPreguntaId}` : `del producto ${imagen.productoId}`;
+        this.logger.error(`No se pudo mandar la foto ${id} (cuenta ${userId}): ${(error as Error).message}`);
       }
     }
   }

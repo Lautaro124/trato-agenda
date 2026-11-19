@@ -46,11 +46,10 @@ test.describe('fotos de productos', () => {
     await expect(editor.getByRole('alert')).toContainText('JPG, PNG o WebP');
     await editor.getByRole('button', { name: 'Cancelar' }).click();
 
-    // En el banco de pruebas: primero busca, después manda la foto con el nombre al pie.
-    expect((await hablarConAgente(context.request, '¿Tenés mate de calabaza?')).reply).toContain('Tengo Mate de calabaza a $ 8.000.');
-    const conFoto = await hablarConAgente(context.request, 'Mandame una foto');
+    // En el banco de pruebas: la búsqueda ya manda la foto, con el nombre y el precio al pie.
+    const conFoto = await hablarConAgente(context.request, '¿Tenés mate de calabaza?');
     expect(conFoto.imagenes?.map((imagen) => imagen.nombre)).toEqual(['Mate de calabaza']);
-    expect(conFoto.reply).toContain('Ahí te mandé la foto. ¿Es lo que buscabas?');
+    expect(conFoto.reply).toContain('Te mandé la foto de Mate de calabaza. ¿Es lo que buscabas?');
 
     // Quitarla libera el lugar; el asistente ya no tiene qué mandar.
     const quitar = await context.request.delete(`${API_URL}/productos/${mate.id}/imagen`);
