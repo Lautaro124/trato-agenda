@@ -12,6 +12,7 @@ export type Pantalla =
   | "reuniones"
   | "productos"
   | "preguntas"
+  | "recomendaciones"
   | "ventas"
   | "envios"
   | "plan"
@@ -139,6 +140,8 @@ export function seccionesDe(user: Usuario): Seccion[] {
             destino("productos", "/productos", "Catálogo"),
             // Lo que el asistente le pregunta al cliente al armar el pedido (LAU-100).
             destino("preguntas", "/preguntas", "Preguntas"),
+            // Lo que el asistente recomienda o responde según lo que necesita el cliente (LAU-105).
+            destino("recomendaciones", "/recomendaciones", "Recomendaciones"),
             // Zonas, tarifas y respuestas del asistente sobre envíos (LAU-102).
             destino("envios", "/envios", "Envíos"),
             // Los anuncios de Facebook o Instagram desde los que escriben los clientes (LAU-103).
