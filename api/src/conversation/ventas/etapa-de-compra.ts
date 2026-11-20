@@ -80,7 +80,7 @@ export function taparDatos(texto: string): string {
 }
 
 /** Reemplaza cada palabra del nombre del cliente (sin importar mayúsculas) por "[name]". */
-function tapadorDeNombre(nombre: string | null): (texto: string) => string {
+export function tapadorDeNombre(nombre: string | null): (texto: string) => string {
   // Con tope: el nombre lo escribe el cliente y no hace falta un patrón enorme.
   const palabras = (nombre ?? '')
     .slice(0, 80)

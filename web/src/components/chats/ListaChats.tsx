@@ -14,11 +14,15 @@ import {
   type ChatResumen,
   type EtapaVenta,
   type ListaChats as Lista,
+  ACCIONES,
+  TEMPERATURAS,
+  type Temperatura,
+  type Tono,
 } from "@/lib/chats";
 import { cn } from "@/lib/cn";
 
-/** Quién contesta, la etapa de la venta (cuentas de ventas) o con turno (agenda). */
-export type Filtro = "todos" | AtencionChat | EtapaVenta | "cancelado" | "con_turno";
+/** Quién contesta, la etapa de la venta (cuentas de ventas), los que necesitan al dueño o con turno (agenda). */
+export type Filtro = "todos" | "accion" | AtencionChat | EtapaVenta | "cancelado" | "con_turno";
 
 const FILTROS: Array<{ id: Filtro; label: string }> = [
   { id: "todos", label: "Todos" },
@@ -26,10 +30,37 @@ const FILTROS: Array<{ id: Filtro; label: string }> = [
   { id: "humana", label: "Vos" },
 ];
 
+const FILTRO_ACCION: { id: Filtro; label: string } = { id: "accion", label: "Necesitan acción" };
+
+const TONOS_PUNTO: Record<Tono, string> = {
+  neutral: "bg-muted",
+  info: "bg-[var(--color-semantic-info-default)]",
+  warning: "bg-warning",
+  primary: "bg-primary",
+  success: "bg-success",
+  danger: "bg-danger",
+};
+
+const TONOS_TEXTO: Record<Tono, string> = {
+  neutral: "text-ink-secondary",
+  info: "text-[var(--color-semantic-info-text)]",
+  warning: "text-warning-text",
+  primary: "text-primary-active",
+  success: "text-success-text",
+  danger: "text-danger-text",
+};
+
 const FILTROS_VENTA: Array<{ id: Filtro; label: string }> = [
   ...ETAPAS_VISIBLES.map((etapa) => ({ id: etapa.id, label: etapa.label })),
   { id: "cancelado", label: "Cancelado" },
 ];
+
+/** El chip elegido va oscuro; "Necesitan acción" con chats pendientes se resalta para que se vea. */
+function estiloDeFiltro(elegido: boolean, resaltado: boolean): string {
+  if (elegido) return "border-ink bg-ink text-white";
+  if (resaltado) return "border-primary bg-primary-subtle text-primary-active hover:bg-sunken";
+  return "border-line bg-card text-ink-secondary hover:bg-sunken";
+}
 
 /** Bot o Vos: quién contesta este chat. */
 export function InsigniaAtencion({ atencion }: Readonly<{ atencion: AtencionChat }>) {
@@ -50,6 +81,7 @@ function plano(texto: string): string {
 
 function pasaFiltro(chat: ChatResumen, filtro: Filtro): boolean {
   if (filtro === "todos") return true;
+  if (filtro === "accion") return chat.accion !== null;
   if (filtro === "asistente" || filtro === "humana") return chat.atencion === filtro;
   if (filtro === "con_turno") return chat.turno !== null;
   return etiquetaDeVenta(chat)?.id === filtro;
@@ -87,9 +119,21 @@ export function ListaChats({
       : id === "asistente" || id === "humana"
         ? lista.cuenta[id]
         : lista.chats.filter((chat) => pasaFiltro(chat, id)).length;
-  // Las etapas se muestran sólo en una cuenta de ventas (los chats traen su etapa o su trato).
-  const ventas = lista.chats.some((chat) => chat.venta !== null || chat.trato !== null);
+  // Las etapas se muestran sólo en una cuenta de ventas (los chats traen su etapa, su trato o su análisis).
+  const ventas = lista.chats.some(
+    (chat) => chat.venta !== null || chat.trato !== null || chat.temperatura !== null || chat.accion !== null,
+  );
   const visibles = lista.chats.filter((chat) => coincide(chat, filtro, busqueda));
+  const conAccion = lista.chats.filter((chat) => chat.accion !== null).length;
+  const filtros = ventas ? [FILTROS[0]!, FILTRO_ACCION, ...FILTROS.slice(1), ...FILTROS_VENTA] : FILTROS;
+  // En "Todos", lo que necesita al dueño va primero y separado de lo que sigue el bot.
+  const agrupar = ventas && filtro === "todos" && visibles.some((chat) => chat.accion !== null);
+  const grupos = agrupar
+    ? [
+        { titulo: "Necesitan acción", chats: visibles.filter((chat) => chat.accion !== null) },
+        { titulo: "Los sigue el bot", chats: visibles.filter((chat) => chat.accion === null) },
+      ].filter((grupo) => grupo.chats.length > 0)
+    : [{ titulo: null, chats: visibles }];
 
   return (
     <section
@@ -118,7 +162,7 @@ export function ListaChats({
           data-tutorial="filtro-chats"
           className="flex gap-2 overflow-x-auto pb-0.5"
         >
-          {[...FILTROS, ...(ventas ? FILTROS_VENTA : [])].map(({ id, label }) => (
+          {filtros.map(({ id, label }) => (
             <button
               key={id}
               type="button"
@@ -126,7 +170,7 @@ export function ListaChats({
               onClick={() => onFiltro(id)}
               className={cn(
                 "h-8 flex-none rounded-full border px-3 text-[13px] font-semibold whitespace-nowrap",
-                filtro === id ? "border-ink bg-ink text-white" : "border-line bg-card text-ink-secondary hover:bg-sunken",
+                estiloDeFiltro(filtro === id, id === "accion" && conAccion > 0),
               )}
             >
               {label} · {cuenta(id)}
@@ -135,49 +179,22 @@ export function ListaChats({
         </div>
       </div>
 
-      <ul className="min-h-0 flex-1 overflow-y-auto">
-        {visibles.map((chat) => {
-          const activo = chat.id === seleccionado;
-          const contexto = contextoDe(chat);
-          const etiqueta = etiquetaDeVenta(chat);
-          const demora = demoraDe(chat);
-          return (
-            <li key={chat.id} className="border-b border-sunken last:border-b-0">
-              <button
-                type="button"
-                aria-current={activo ? "true" : undefined}
-                onClick={() => onElegir(chat.id)}
-                className={cn("flex w-full gap-2.5 px-3 py-2.5 text-left", activo ? "bg-primary-subtle" : "hover:bg-page")}
-              >
-                <span aria-hidden className="grid size-9 flex-none place-items-center rounded-full bg-sunken text-sm font-bold text-ink-secondary">
-                  {inicialDe(chat)}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-[14px] font-bold text-ink">{nombreDe(chat)}</span>
-                    {chat.ultimo && (
-                      <span className="flex-none text-xs text-ink-secondary">{horaCorta(chat.ultimo.createdAt)}</span>
-                    )}
-                  </span>
-                  <span className="truncate text-[13px] text-ink-secondary">{vistaPrevia(chat)}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                    {etiqueta && <EtiquetaVenta etiqueta={etiqueta} />}
-                    <InsigniaAtencion atencion={chat.atencion} />
-                    {chat.teEspera && (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-danger-text">
-                        <span aria-hidden className="size-2 rounded-full bg-danger" />
-                        Te espera
-                      </span>
-                    )}
-                    {demora && <span className="text-xs font-semibold text-ink-secondary">{demora}</span>}
-                    {!etiqueta && contexto && <span className="text-xs text-ink-secondary">{contexto}</span>}
-                  </span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {grupos.map((grupo) => (
+          <section key={grupo.titulo ?? "todos"} aria-label={grupo.titulo ?? undefined}>
+            {grupo.titulo && (
+              <h3 className="sticky top-0 z-[1] flex items-baseline justify-between gap-2 border-b border-sunken bg-page px-3 pt-2.5 pb-1.5 text-xs font-bold text-ink-secondary">
+                {grupo.titulo} · {grupo.chats.length}
+              </h3>
+            )}
+            <ul>
+              {grupo.chats.map((chat) => (
+                <FilaChat key={chat.id} chat={chat} activo={chat.id === seleccionado} onElegir={onElegir} />
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
       {visibles.length === 0 && (
         <p className="px-4 py-8 text-center text-sm text-ink-secondary">
           {lista.chats.length === 0
@@ -186,5 +203,77 @@ export function ListaChats({
         </p>
       )}
     </section>
+  );
+}
+
+/** Qué tan cerca está de comprar: estimado por el asistente. */
+export function EtiquetaTemperatura({ temperatura }: Readonly<{ temperatura: Temperatura }>) {
+  const { label, tono } = TEMPERATURAS[temperatura];
+  return (
+    <span className={cn("inline-flex h-[22px] items-center gap-1 rounded-full px-2 text-xs font-bold whitespace-nowrap", TONOS_ETIQUETA[tono])}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" />
+      </svg>
+      {label}
+    </span>
+  );
+}
+
+const TONOS_ETIQUETA: Record<Tono, string> = {
+  neutral: "bg-sunken text-ink-secondary",
+  info: "bg-[var(--color-semantic-info-subtle)] text-[var(--color-semantic-info-text)]",
+  warning: "bg-warning-subtle text-warning-text",
+  primary: "bg-primary-subtle text-primary-active",
+  success: "bg-success-subtle text-success-text",
+  danger: "bg-danger-subtle text-danger-text",
+};
+
+function FilaChat({ chat, activo, onElegir }: Readonly<{ chat: ChatResumen; activo: boolean; onElegir: (id: string) => void }>) {
+  const contexto = contextoDe(chat);
+  const etiqueta = etiquetaDeVenta(chat);
+  const demora = demoraDe(chat);
+  const accion = chat.accion ? ACCIONES[chat.accion] : null;
+  return (
+    <li className="border-b border-sunken last:border-b-0">
+      <button
+        type="button"
+        aria-current={activo ? "true" : undefined}
+        onClick={() => onElegir(chat.id)}
+        className={cn("flex w-full gap-2.5 px-3 py-2.5 text-left", activo ? "bg-primary-subtle" : "hover:bg-page")}
+      >
+        <span aria-hidden className="grid size-9 flex-none place-items-center rounded-full bg-sunken text-sm font-bold text-ink-secondary">
+          {inicialDe(chat)}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-[14px] font-bold text-ink">{nombreDe(chat)}</span>
+            {chat.ultimo && <span className="flex-none text-xs text-ink-secondary">{horaCorta(chat.ultimo.createdAt)}</span>}
+          </span>
+          <span className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-[13px] text-ink-secondary">{vistaPrevia(chat)}</span>
+            <span className="flex-none">
+              <InsigniaAtencion atencion={chat.atencion} />
+            </span>
+          </span>
+          {accion && (
+            <span className={cn("inline-flex items-center gap-1.5 text-xs font-bold", TONOS_TEXTO[accion.tono])}>
+              <span aria-hidden className={cn("size-2 rounded-full", TONOS_PUNTO[accion.tono])} />
+              {accion.label}
+            </span>
+          )}
+          <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+            {chat.temperatura && <EtiquetaTemperatura temperatura={chat.temperatura} />}
+            {etiqueta && <EtiquetaVenta etiqueta={etiqueta} />}
+            {chat.tema && (
+              <span className="inline-flex h-[22px] max-w-full items-center truncate rounded-full border border-line px-2 text-xs font-semibold text-ink-secondary">
+                {chat.tema.texto}
+              </span>
+            )}
+            {demora && <span className="text-xs font-semibold text-ink-secondary">{demora}</span>}
+            {!etiqueta && contexto && <span className="text-xs text-ink-secondary">{contexto}</span>}
+          </span>
+        </span>
+      </button>
+    </li>
   );
 }

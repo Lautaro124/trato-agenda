@@ -19,6 +19,8 @@ export default function InicioPage() {
   const router = useRouter();
   const { user, status } = useRequireSession();
   const [tieneAgente, setTieneAgente] = useState<boolean | null>(null);
+  // Sin nombre de usuario, el saludo usa el del negocio.
+  const [nombreNegocio, setNombreNegocio] = useState("");
 
   // Si todavía no generó un agente (llegó acá a mano), lo mandamos a completar el onboarding.
   useEffect(() => {
@@ -36,6 +38,7 @@ export default function InicioPage() {
           router.replace("/contanos");
           return;
         }
+        if (typeof agent.nombreTitular === "string") setNombreNegocio(agent.nombreTitular.trim());
         setTieneAgente(true);
       })
       .catch(() => setTieneAgente(true));
@@ -67,7 +70,7 @@ export default function InicioPage() {
         )}
         <BandejaChats
           ventas={user.tipoAsistente === "ventas"}
-          saludo={`Hola, ${user.name?.split(" ")[0] ?? "de nuevo"}`}
+          saludo={`Hola, ${user.name?.trim().split(" ")[0] || nombreNegocio || "de nuevo"}`}
           // Una tienda sin chats todavía: lo que le falta para que el asistente venda.
           sinChats={user.tipoAsistente === "ventas" ? <ColumnaVentas /> : undefined}
         />

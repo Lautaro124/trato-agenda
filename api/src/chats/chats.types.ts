@@ -19,6 +19,7 @@ import { LARGO_MAX_NOTA, MAX_CANTIDAD_POR_ITEM, MAX_ITEMS_POR_PEDIDO } from '../
 import type { MensajePublico } from '../comercio/ventas.types.js';
 import type { EstadoChat } from '../performance/lectura.rules.js';
 import type { Etapa } from '../performance/etapas.rules.js';
+import type { AccionChat, AnalisisVenta, Temperatura } from './analisis.rules.js';
 import type { AtencionChat } from './atencion.js';
 import { ESTADOS_TRATO, type EstadoTrato } from './trato.rules.js';
 
@@ -43,6 +44,12 @@ export type ChatResumen = {
   venta: { etapa: Etapa; estado: EstadoChat; derivado: boolean } | null;
   /** Sólo en cuentas de ventas: lo que marcó el dueño o salió del último pedido. */
   trato: EstadoTrato | null;
+  /** Sólo en ventas, con análisis y sin trato cerrado: qué tan cerca está de comprar (estimado). */
+  temperatura: Temperatura | null;
+  /** Sólo en ventas: el producto que más le interesa (de la base) o, si no hay, el tema que le importa. */
+  tema: { tipo: 'producto' | 'tema'; texto: string } | null;
+  /** Por qué necesita al dueño ahora; null si el bot se encarga. */
+  accion: AccionChat | null;
 };
 
 export type ListaChats = {
@@ -110,6 +117,8 @@ export type ProductoDeInteres = {
   /** Con el descuento por pagar en efectivo; null si el comercio no lo ofrece. */
   efectivoCentavos: number | null;
   planes: Array<{ cuotas: number; totalCentavos: number; cuotaCentavos: number; recargoCentavos: number }>;
+  /** Sólo en productos a demanda: días hábiles para tenerlo. */
+  plazoEntregaDias: number | null;
 };
 
 /** Lo que el dueño necesita para cerrar la venta: resumen, interés y el pedido actual. */
@@ -119,6 +128,8 @@ export type FichaChat = {
   productos: ProductoDeInteres[];
   pedido: { id: string; estado: string; totalCentavos: number | null; moneda: string } | null;
   trato: EstadoTrato | null;
+  /** Inteligencia comercial estimada por el asistente; null si todavía no hay. */
+  analisis: (AnalisisVenta & { temperatura: Temperatura }) | null;
 };
 
 export class ItemTratoDto {

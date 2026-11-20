@@ -13,6 +13,7 @@ import {
   cambiarTrato,
   devolverAlBot,
   enviarMensaje,
+  etiquetaDeVenta,
   listarChats,
   nombreDe,
   obtenerChat,
@@ -289,7 +290,14 @@ export function BandejaChats({
 
   const ultimoDelCliente = detalle?.mensajes.filter((m) => m.de === "cliente").at(-1)?.texto ?? "";
   const panel = ventas ? (
-    <PanelVenta key={seleccionado} ficha={ficha} error={errorFicha} trabajando={trabajando} onTrato={marcarTrato} />
+    <PanelVenta
+      key={seleccionado}
+      ficha={ficha}
+      etapa={detalle ? (etiquetaDeVenta(detalle.chat)?.label ?? null) : null}
+      error={errorFicha}
+      trabajando={trabajando}
+      onTrato={marcarTrato}
+    />
   ) : null;
   // Los datos de la venta van en la tercera columna; con una sola, los muestra la conversación.
   const conPanel = Boolean(panel && detalle) && columnasAlLado;
@@ -298,12 +306,11 @@ export function BandejaChats({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <div
         className={cn(
-          "flex flex-wrap items-center justify-between gap-3 [@media(max-height:820px)]:justify-end",
+          "flex flex-wrap items-center justify-between gap-3",
           seleccionado && corte.soloUna,
         )}
       >
-        {/* Con poca altura el saludo cede su lugar al chat; queda para el lector de pantalla. */}
-        <h1 className="font-display text-[24px] leading-[1.15] font-bold tracking-[-0.025em] text-ink [@media(max-height:820px)]:sr-only">
+        <h1 className="font-display text-[24px] leading-[1.15] font-bold tracking-[-0.025em] text-ink [@media(max-height:820px)]:text-[20px]">
           {saludo}
         </h1>
         <Indicadores
@@ -327,8 +334,9 @@ export function BandejaChats({
           className={cn(
             // Una columna: lista o chat de a uno. Con lugar, lista | chat | datos de la venta
             // (plegables a un riel); en agenda, lista | chat. Lista y datos crecen por
-            // escalones (--lista, --panel) y el chat se queda con el resto.
-            "grid min-h-0 flex-1 grid-flow-col grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-3 [--lista:15rem] [--panel:15rem] lg:[--lista:18rem] xl:[--panel:18.75rem] xl:gap-4 xl:[--lista:20rem]",
+            // escalones (--lista, --panel) y el chat se queda con el resto. En pantallas
+            // grandes (1920) los datos de la venta ganan aire para leerse sin apretarse.
+            "grid min-h-0 flex-1 grid-flow-col grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-3 [--lista:15rem] [--panel:15rem] lg:[--lista:18rem] lg:[--panel:16.25rem] xl:[--panel:18.75rem] xl:gap-4 xl:[--lista:20rem] 2xl:[--lista:22.5rem] 2xl:[--panel:23.75rem]",
             corte.grilla,
           )}
         >

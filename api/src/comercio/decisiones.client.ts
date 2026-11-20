@@ -28,8 +28,22 @@ export type PedidoDeEleccion = {
 };
 
 type RespuestaDecisiones = {
-  answers?: Record<string, { choice?: unknown; probabilities?: Record<string, unknown> }>;
+  answers?: Record<string, { choice?: unknown; noul?: unknown; probabilities?: Record<string, unknown> }>;
 };
+
+/**
+ * Una pregunta de varias en un mismo pedido (`decidir`). `noul` es sí/no y
+ * devuelve la probabilidad de "sí"; `choice` devuelve la de cada opción.
+ */
+export type PreguntaDecision =
+  | { tipo: 'noul'; instrucciones: string; si: string; no: string }
+  | { tipo: 'choice'; instrucciones: string; opciones: Record<string, string>; ninguna: string };
+
+/** Lo que contestó Jev a cada pregunta: de 0 a 1 (noul) o una por opción (choice). Sin respuesta legible, no está. */
+export type RespuestasDecision = Record<string, number | Record<string, number>>;
+
+/** Tope de preguntas por pedido: Jev no lo documenta, y un pedido más grande sólo suma demora. */
+export const MAX_PREGUNTAS_DECISION = 16;
 
 
 /**
@@ -77,12 +91,39 @@ export class DecisionesClient {
     return probabilidades;
   }
 
-  private async consultar(pedido: PedidoDeEleccion): Promise<RespuestaDecisiones> {
-    const ids = Object.keys(pedido.opciones);
-    if (ids.length > MAX_OPCIONES_DECISION) {
-      throw new DecisionesError(`Jev admite hasta ${MAX_OPCIONES_DECISION} opciones por pregunta.`);
+  /**
+   * Varias preguntas sobre el mismo `estado` en un solo pedido (Jev las
+   * contesta en paralelo, sin depender una de otra). Devuelve sólo lo que vino
+   * legible: una pregunta sin respuesta válida no aparece.
+   */
+  async decidir(estado: string, preguntas: Record<string, PreguntaDecision>): Promise<RespuestasDecision> {
+    const ids = Object.keys(preguntas);
+    if (ids.length === 0) return {};
+    if (ids.length > MAX_PREGUNTAS_DECISION) {
+      throw new DecisionesError(`Hasta ${MAX_PREGUNTAS_DECISION} preguntas por pedido.`);
     }
-    if (ids.includes('none')) throw new DecisionesError('"none" es una opción reservada.');
+    const questions = Object.fromEntries(Object.entries(preguntas).map(([id, pregunta]) => [id, aQuestion(pregunta)]));
+    const answers = (await this.pedir(estado, questions)).answers ?? {};
+    const respuestas: RespuestasDecision = {};
+    for (const [id, pregunta] of Object.entries(preguntas)) {
+      const leida = leerRespuesta(pregunta, answers[id]);
+      if (leida !== null) respuestas[id] = leida;
+    }
+    return respuestas;
+  }
+
+  private consultar(pedido: PedidoDeEleccion): Promise<RespuestaDecisiones> {
+    validarOpciones(Object.keys(pedido.opciones));
+    return this.pedir(pedido.estado, {
+      [PREGUNTA]: {
+        type: 'choice',
+        instructions: pedido.instrucciones,
+        criteria: { ...pedido.opciones, none: pedido.ninguna },
+      },
+    });
+  }
+
+  private async pedir(estado: string, questions: Record<string, unknown>): Promise<RespuestaDecisiones> {
     const apiKey = this.config.get('OPENROUTER_API_KEY', { infer: true });
     if (!apiKey) {
       throw new DecisionesError('OPENROUTER_API_KEY no está configurada. Definila en api/.env (ver README).');
@@ -102,14 +143,8 @@ export class DecisionesClient {
         },
         body: JSON.stringify({
           model: this.config.get('OPENROUTER_DECISIONS_MODEL', { infer: true }),
-          state: pedido.estado,
-          questions: {
-            [PREGUNTA]: {
-              type: 'choice',
-              instructions: pedido.instrucciones,
-              criteria: { ...pedido.opciones, none: pedido.ninguna },
-            },
-          },
+          state: estado,
+          questions,
           provider: POLITICA_DE_PROVEEDOR,
         }),
       });
@@ -129,6 +164,42 @@ export class DecisionesClient {
       clearTimeout(timeout);
     }
   }
+}
+
+function validarOpciones(ids: string[]): void {
+  if (ids.length > MAX_OPCIONES_DECISION) {
+    throw new DecisionesError(`Jev admite hasta ${MAX_OPCIONES_DECISION} opciones por pregunta.`);
+  }
+  if (ids.includes('none')) throw new DecisionesError('"none" es una opción reservada.');
+}
+
+function esProbabilidad(valor: unknown): valor is number {
+  return typeof valor === 'number' && Number.isFinite(valor) && valor >= 0 && valor <= 1;
+}
+
+/** Una pregunta de `decidir`, en el formato de la Decisions API. */
+function aQuestion(pregunta: PreguntaDecision): Record<string, unknown> {
+  if (pregunta.tipo === 'noul') {
+    return { type: 'noul', instructions: pregunta.instrucciones, criteria: { true: pregunta.si, false: pregunta.no } };
+  }
+  validarOpciones(Object.keys(pregunta.opciones));
+  return { type: 'choice', instructions: pregunta.instrucciones, criteria: { ...pregunta.opciones, none: pregunta.ninguna } };
+}
+
+type RespuestaCruda = NonNullable<RespuestaDecisiones['answers']>[string] | undefined;
+
+/** Lo legible de una respuesta: la probabilidad de "sí" (noul) o la de cada opción enviada (choice). Null si no hay nada. */
+function leerRespuesta(pregunta: PreguntaDecision, respuesta: RespuestaCruda): number | Record<string, number> | null {
+  if (!respuesta || typeof respuesta !== 'object') return null;
+  if (pregunta.tipo === 'noul') return esProbabilidad(respuesta.noul) ? respuesta.noul : null;
+  const crudas = respuesta.probabilities && typeof respuesta.probabilities === 'object' ? respuesta.probabilities : {};
+  const probabilidades = Object.fromEntries(
+    Object.entries(crudas).filter(
+      (entrada): entrada is [string, number] =>
+        esProbabilidad(entrada[1]) && (entrada[0] === 'none' || Object.hasOwn(pregunta.opciones, entrada[0])),
+    ),
+  );
+  return Object.keys(probabilidades).length > 0 ? probabilidades : null;
 }
 
 /**

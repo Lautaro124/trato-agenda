@@ -323,6 +323,12 @@ Inception.
   aparece en el texto de un anuncio o estado, Jev (`DecisionesClient.probabilidades`) revisa dos veces (todo el anuncio y la imagen sola) y elige
   entre el catálogo con ese texto y la descripción de la imagen; gana el de mayor
   probabilidad promedio si le gana a "ninguno" (`ganadorPromedio`, anuncios.rules.ts).
+- `api/src/chats/analisis-jev.rules.ts` — datos de la venta del panel (esquema
+  híbrido): en cada mensaje del cliente, Jev (`DecisionesClient.decidir`, varias
+  preguntas `noul`/`choice` en un pedido) estima probabilidad, ánimo, tema y
+  señales de un catálogo fijo; cada `CADA_CUANTOS_MENSAJES_RESUMIR`, el modelo de
+  chat agrega resumen, presupuesto, próximo paso y mensaje sugerido
+  (`armarPedidoDeTextos`). Sin Jev, el modelo de chat estima todo.
 - `api/src/config/env.ts` — defaults de `OPENROUTER_MODEL` y
   `OPENROUTER_MODEL_AGENTES`.
 - `api/evals/` — los evals, los perfiles y la lista de modelos con precios.

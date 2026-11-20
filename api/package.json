@@ -83,6 +83,7 @@
     "deepmerge-ts": "^8.0.2",
     "tmp": "^0.2.6",
     "multer": "^2.5.0",
+    "effect": "^3.22.1",
     "@sentry/bundler-plugins": {
       "glob": "^14.0.2"
     }

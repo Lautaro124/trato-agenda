@@ -228,6 +228,13 @@ model Conversation {
   /// ventana de mensajes recientes que se manda como contexto.
   resumen String?
 
+  /// Sólo en cuentas de ventas: la inteligencia comercial del chat
+  /// (probabilidad, sentimiento, a favor y en contra, próximo paso). Jev lo
+  /// estima en cada mensaje y la llamada del resumen agrega los textos; se
+  /// valida en src/chats/analisis.rules.ts. Es una estimación de los modelos;
+  /// se borra junto con el resumen por retención.
+  analisis Json?
+
   /// Nombre del cliente, preguntado una única vez al agendar el primer turno
   /// y reusado en los siguientes para no volver a pedirlo.
   nombreCliente String?
