@@ -80,6 +80,7 @@ model User {
   mensajesRecibidos MensajeRecibido[]
   configPreguntas   ConfiguracionPreguntas?
   imagenesPregunta  ImagenPregunta[]
+  configRecomendaciones ConfiguracionRecomendaciones?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1090,4 +1091,22 @@ model ImagenPregunta {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+/// Recomendaciones y flujos conversacionales de la cuenta (LAU-105): reglas
+/// que se definen una vez y se vinculan con productos, preguntas u opciones,
+/// las propiedades que consulta el asistente para elegir y explicar, y qué
+/// hace si no aplica ninguna. Forma y reglas en comercio/recomendaciones.rules.ts.
+model ConfiguracionRecomendaciones {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// En orden: entre reglas del mismo alcance gana la primera.
+  recomendaciones Json @default("[]")
+  /// Propiedades (nombre y valor) de un producto o de una opción de una pregunta.
+  propiedades     Json @default("[]")
+  /// "catalogo" | "derivar": qué hace el asistente si ninguna regla aplica.
+  sinCoincidencia String @default("catalogo")
+
+  updatedAt DateTime @updatedAt
 }

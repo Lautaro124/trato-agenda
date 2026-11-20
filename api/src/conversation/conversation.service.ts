@@ -18,7 +18,9 @@ import { CLAVE_YA_GUARDADO } from './graph/nodes/persistir.node.js';
 import { VENTANA_HISTORIAL, mensajesDesdeFilas } from './graph/historial.js';
 import { LIMITE_RECURSION_VENTAS } from './ventas/grafo-ventas.factory.js';
 import { resolucionesEnvioDeLaVuelta } from './ventas/envios-de-la-vuelta.js';
+import { JID_PRUEBA_RECOMENDACIONES, recomendacionesDeLaVuelta } from './ventas/recomendaciones-de-la-vuelta.js';
 import type { ResolucionEnvio } from '../envios/envios.rules.js';
+import type { ResultadoRecomendacion } from '../comercio/recomendaciones.rules.js';
 import { imagenesDeLaVuelta, type ImagenAEnviar } from './ventas/imagenes-de-la-vuelta.js';
 import {
   MENSAJE_DISCULPA_GENERICO,
@@ -41,6 +43,11 @@ export function jidDePrueba(userId: string): string {
 /** JID sintético del probador de envíos (LAU-102): otro hilo, para no mezclarse con el banco del Home. */
 export function jidDePruebaEnvios(userId: string): string {
   return `${WEB_TEST_JID_PREFIX}envios:${userId}`;
+}
+
+/** La conversación del probador de recomendaciones (LAU-105): aparte del Home y de la de envíos. */
+export function jidDePruebaRecomendaciones(userId: string): string {
+  return `${JID_PRUEBA_RECOMENDACIONES}${userId}`;
 }
 
 /** Prefijo común de las conversaciones de prueba: las listas de chats las excluyen todas. */
@@ -108,6 +115,8 @@ export type RespuestaConversacion = {
   sinAgente?: boolean;
   /** Lo que resolvió consultar_envio en esta vuelta (LAU-102): lo muestra el probador del panel. */
   resolucionesEnvio?: ResolucionEnvio[];
+  /** Lo que resolvió consultar_recomendacion en esta vuelta (LAU-105): lo muestra el probador del panel. */
+  recomendaciones?: ResultadoRecomendacion[];
   /** El asistente todavía no le había escrito nada a este cliente: el texto (el saludo) va antes que las fotos. */
   primeraRespuesta?: boolean;
 };
@@ -215,12 +224,14 @@ export class ConversationService {
       );
 
       const resolucionesEnvio = esVentas ? resolucionesEnvioDeLaVuelta(resultado.messages) : [];
+      const recomendaciones = esVentas ? recomendacionesDeLaVuelta(resultado.messages) : [];
       const ultimo = resultado.messages.at(-1);
       const contenido = typeof ultimo?.content === 'string' ? ultimo.content.trim() : '';
       return {
         texto: contenido || MENSAJE_SIN_RESPUESTA,
         imagenes: esVentas ? imagenesDeLaVuelta(resultado.messages) : [],
         ...(resolucionesEnvio.length > 0 ? { resolucionesEnvio } : {}),
+        ...(recomendaciones.length > 0 ? { recomendaciones } : {}),
         ...(yaLeHabiaEscrito(resultado.messages) ? {} : { primeraRespuesta: true }),
       };
     } catch (error) {
