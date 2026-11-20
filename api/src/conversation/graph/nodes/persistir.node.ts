@@ -9,13 +9,42 @@ import { Logger } from '@nestjs/common';
 import { resumenDeError, type OpenRouterClient } from '../../../agents/openrouter.client.js';
 import type { Prisma } from '../../../generated/prisma/client.js';
 import type { PrismaService } from '../../../prisma/prisma.service.js';
+import { estadoParaAnalisis, leerAnalisisJev, preguntasDeAnalisis } from '../../../chats/analisis-jev.rules.js';
+import {
+  analisisGuardado,
+  armarPedidoDeAnalisis,
+  armarPedidoDeTextos,
+  conJev,
+  conTextos,
+  LARGO_MAX_RESUMEN,
+  leerAnalisis,
+  leerTextos,
+  type AnalisisVenta,
+} from '../../../chats/analisis.rules.js';
+import type { DecisionesClient } from '../../../comercio/decisiones.client.js';
+import { aMensajesPublicos } from '../../../comercio/ventas.types.js';
+import { mensajesParaClasificar, type MensajeAClasificar } from '../../../performance/preguntas.rules.js';
 import { esFotoDePregunta, imagenesDeLaVuelta, type ImagenAEnviar } from '../../ventas/imagenes-de-la-vuelta.js';
 import type { EstadoComun } from '../state.js';
 
 export type DepsPersistir = {
   prisma: PrismaService;
   openRouter: OpenRouterClient;
+  /**
+   * Cuentas de ventas: la misma llamada que resume también analiza la venta
+   * (probabilidad, sentimiento, próximo paso) para el panel del dueño.
+   */
+  analizarVenta?: boolean;
+  /**
+   * Jev: con `analizarVenta`, estima probabilidad, ánimo y señales en cada
+   * mensaje del cliente, y la llamada del resumen sólo agrega los textos. Sin
+   * él (o sin OPENROUTER_API_KEY), esa llamada estima todo.
+   */
+  decisiones?: Pick<DecisionesClient, 'configurado'> & Partial<Pick<DecisionesClient, 'decidir'>>;
 };
+
+/** Mensajes recientes que lee el análisis de la venta. */
+const MENSAJES_PARA_ANALIZAR = 20;
 
 /**
  * Cada cuántos mensajes guardados se recalcula el resumen del cliente. Es una
@@ -130,6 +159,109 @@ export function crearNodoPersistir(deps: DepsPersistir) {
     }
   }
 
+  /**
+   * En ventas, el resumen y el análisis de la venta salen de una sola llamada
+   * que lee los últimos mensajes. Lo que vuelve se valida en
+   * analisis.rules.ts; si no es un JSON legible pero trae texto, se guarda
+   * como resumen, como antes. Nunca rompe la respuesta al cliente.
+   */
+  /** Los últimos mensajes de texto del chat, saneados (sin emails, links ni números largos). */
+  async function mensajesRecientes(conversationId: string): Promise<MensajeAClasificar[]> {
+    const filas = await deps.prisma.message.findMany({
+      where: { conversationId, role: { in: ['user', 'assistant'] } },
+      orderBy: { createdAt: 'desc' },
+      take: MENSAJES_PARA_ANALIZAR,
+      select: { role: true, content: true, createdAt: true },
+    });
+    return mensajesParaClasificar(aMensajesPublicos(filas.reverse()));
+  }
+
+  async function analisisActual(conversationId: string): Promise<AnalisisVenta | null> {
+    const fila = await deps.prisma.conversation.findUnique({ where: { id: conversationId }, select: { analisis: true } });
+    return analisisGuardado(fila?.analisis ?? null);
+  }
+
+  async function guardarAnalisis(conversationId: string, analisis: AnalisisVenta, resumen: string | null = null): Promise<void> {
+    await deps.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        analisis: analisis as unknown as Prisma.InputJsonObject,
+        ...(resumen ? { resumen: resumen.slice(0, LARGO_MAX_RESUMEN) } : {}),
+      },
+    });
+  }
+
+  /**
+   * Jev, en cada mensaje del cliente: probabilidad, ánimo, tema y señales.
+   * Conserva los textos que haya dejado el modelo de chat. Nunca rompe la
+   * respuesta al cliente: si falla, queda el análisis anterior.
+   */
+  async function analizarConJev(conversationId: string, nombreCliente: string | null): Promise<void> {
+    if (!deps.decisiones?.decidir) return;
+    try {
+      const estado = estadoParaAnalisis(await mensajesRecientes(conversationId), nombreCliente);
+      if (!estado) return;
+      const jev = leerAnalisisJev(await deps.decisiones.decidir(estado, preguntasDeAnalisis()));
+      if (!jev) return;
+      await guardarAnalisis(conversationId, conJev(await analisisActual(conversationId), jev, new Date()));
+    } catch (error) {
+      logger.error(`Jev no analizó la conversación ${conversationId}: ${resumenDeError(error)}`);
+    }
+  }
+
+  /**
+   * Con un análisis de Jev ya guardado, el modelo de chat sólo agrega el
+   * resumen, el presupuesto, el próximo paso y el mensaje sugerido. Devuelve
+   * false si no había análisis: entonces lo estima todo el modelo de chat.
+   */
+  async function completarTextos(conversationId: string, resumenPrevio: string | null): Promise<boolean> {
+    const analisis = await analisisActual(conversationId);
+    if (!analisis) return false;
+    try {
+      const mensajes = await mensajesRecientes(conversationId);
+      if (!mensajes.some((mensaje) => mensaje.de === 'cliente')) return true;
+      const resultado = await deps.openRouter.chat({
+        messages: armarPedidoDeTextos(resumenPrevio, mensajes, analisis),
+        reasoning: { enabled: false },
+        maxTokens: 600,
+      });
+      const textos = leerTextos(resultado.content);
+      if (!textos) return true;
+      await guardarAnalisis(conversationId, conTextos(analisis, textos, new Date()), textos.resumen);
+    } catch (error) {
+      logger.error(`No se pudieron completar los textos de la conversación ${conversationId}: ${resumenDeError(error)}`);
+    }
+    return true;
+  }
+
+  async function actualizarResumenYAnalisis(conversationId: string, resumenPrevio: string | null): Promise<void> {
+    try {
+      const mensajes = await mensajesRecientes(conversationId);
+      if (!mensajes.some((mensaje) => mensaje.de === 'cliente')) return;
+
+      const resultado = await deps.openRouter.chat({
+        messages: armarPedidoDeAnalisis(resumenPrevio, mensajes),
+        reasoning: { enabled: false },
+        maxTokens: 800,
+      });
+      const leido = leerAnalisis(resultado.content, new Date());
+      const textoPlano = !leido && resultado.content?.trim() && !resultado.content.trim().startsWith('{') ? resultado.content.trim() : null;
+      const resumen = leido?.resumen ?? textoPlano;
+      const analisis = leido?.analisis ?? null;
+      if (!resumen && !analisis) return;
+
+      await deps.prisma.conversation.update({
+        where: { id: conversationId },
+        data: {
+          ...(resumen ? { resumen: resumen.slice(0, LARGO_MAX_RESUMEN) } : {}),
+          ...(analisis ? { analisis: analisis as unknown as Prisma.InputJsonObject } : {}),
+        },
+      });
+    } catch (error) {
+      logger.error(`No se pudo analizar la conversación ${conversationId}: ${resumenDeError(error)}`);
+    }
+  }
+
   return async (state: EstadoComun): Promise<Record<string, never>> => {
     // De acá en adelante la respuesta queda guardada: ya no se descarta aunque el cliente siga escribiendo.
     state.cancelacion?.comprometer();
@@ -151,8 +283,20 @@ export function crearNodoPersistir(deps: DepsPersistir) {
 
     if (state.esPropietario) return {};
 
+    const conJevActivo = Boolean(deps.analizarVenta && deps.decisiones?.configurado && deps.decisiones.decidir);
+    if (conJevActivo && nuevos.some((mensaje) => mensaje.getType() === 'human')) {
+      await analizarConJev(conversation.id, conversation.nombreCliente);
+    }
+
     const total = await deps.prisma.message.count({ where: { conversationId: conversation.id } });
     if (total % CADA_CUANTOS_MENSAJES_RESUMIR !== 0) return {};
+
+    if (deps.analizarVenta) {
+      if (!conJevActivo || !(await completarTextos(conversation.id, conversation.resumen))) {
+        await actualizarResumenYAnalisis(conversation.id, conversation.resumen);
+      }
+      return {};
+    }
 
     const primerHumano = nuevos.find((mensaje) => mensaje.getType() === 'human');
     const ultimoAgente = nuevos.filter((mensaje) => mensaje.getType() === 'ai').at(-1);

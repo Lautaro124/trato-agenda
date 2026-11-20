@@ -34,6 +34,42 @@ export type ChatResumen = {
   venta: { etapa: EtapaVenta; estado: EstadoChat; derivado: boolean } | null;
   /** Sólo en cuentas de ventas: lo que marcó el dueño o salió del último pedido. */
   trato: EstadoTrato | null;
+  /** Sólo en ventas: qué tan cerca está de comprar, estimado por el asistente. */
+  temperatura: Temperatura | null;
+  /** Sólo en ventas: el producto que más le interesa o, si no hay, el tema. */
+  tema: { tipo: "producto" | "tema"; texto: string } | null;
+  /** Por qué necesita al dueño ahora; null si el bot se encarga. */
+  accion: AccionChat | null;
+};
+
+/** Copia de Temperatura y AccionChat en api/src/chats/analisis.rules.ts. */
+export type Temperatura = "caliente" | "tibio" | "frio";
+export type AccionChat = "te_espera" | "para_cerrar";
+
+export const TEMPERATURAS: Record<Temperatura, { label: string; tono: Tono }> = {
+  caliente: { label: "Caliente", tono: "primary" },
+  tibio: { label: "Tibio", tono: "warning" },
+  frio: { label: "Frío", tono: "info" },
+};
+
+export const ACCIONES: Record<AccionChat, { label: string; tono: Tono }> = {
+  te_espera: { label: "Te espera", tono: "danger" },
+  para_cerrar: { label: "Lista para cerrar", tono: "primary" },
+};
+
+/** La inteligencia comercial del chat: estimaciones del asistente, validadas en la API. */
+export type AnalisisVenta = {
+  probabilidad: number;
+  temperatura: Temperatura;
+  sentimiento: "positivo" | "neutro" | "negativo";
+  tendencia: "mejora" | "estable" | "empeora";
+  aFavor: string[];
+  enContra: string[];
+  presupuesto: string | null;
+  tema: string;
+  proximoPaso: string | null;
+  mensajeSugerido: string | null;
+  actualizadoAt: string;
 };
 
 /** Copia de ETAPAS en api/src/performance/etapas.rules.ts. */
@@ -54,8 +90,12 @@ export type ProductoDeInteres = {
   id: string;
   nombre: string;
   tipo: "vio" | "pidio";
+  moneda: string;
+  precioListaCentavos: number;
   efectivoCentavos: number | null;
-  planes: Array<{ cuotas: number }>;
+  planes: Array<{ cuotas: number; recargoCentavos: number }>;
+  /** Sólo en productos a demanda. */
+  plazoEntregaDias: number | null;
 };
 
 export type FichaChat = {
@@ -63,6 +103,8 @@ export type FichaChat = {
   productos: ProductoDeInteres[];
   pedido: { id: string; estado: string; totalCentavos: number | null; moneda: string } | null;
   trato: EstadoTrato | null;
+  /** null hasta que el asistente lo calcule (cada pocos mensajes). */
+  analisis: AnalisisVenta | null;
 };
 
 /** Lo que manda el panel al marcar el trato. Los precios los pone la API. */

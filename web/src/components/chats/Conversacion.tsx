@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { EtiquetaVenta } from "@/components/chats/EtiquetaVenta";
+import { EtiquetaTemperatura } from "@/components/chats/ListaChats";
 import { Button } from "@/components/ui/Button";
 import {
   contextoDe,
@@ -122,6 +123,7 @@ export function Conversacion({
           <div className="flex min-w-0 flex-col">
             <h2 className="truncate font-display text-[16px] font-bold">{nombre}</h2>
             <p className="flex min-w-0 items-center gap-2 truncate text-[12.5px] text-ink-secondary">
+              {chat.temperatura && <EtiquetaTemperatura temperatura={chat.temperatura} />}
               {etiqueta && <EtiquetaVenta etiqueta={etiqueta} />}
               {[chat.nombre && chat.telefono ? `+${chat.telefono}` : null, contexto].filter(Boolean).join(" · ") ||
                 "Sin turno ni pedido abierto"}
@@ -148,10 +150,11 @@ export function Conversacion({
       )}
 
       {panel && (
-        <details className="group border-b border-line md:hidden">
+        <details className="group/datos border-b border-line md:hidden">
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 px-4 text-sm font-bold text-ink md:px-5">
-            Datos de la venta
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="text-ink-secondary transition-transform group-open:rotate-180">
+            <span className="flex-1">Datos de la venta</span>
+            {chat.temperatura && <EtiquetaTemperatura temperatura={chat.temperatura} />}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="text-ink-secondary transition-transform group-open/datos:rotate-180">
               <path d="m6 9 6 6 6-6" />
             </svg>
           </summary>

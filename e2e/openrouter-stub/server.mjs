@@ -10,6 +10,8 @@
 //   - clasificación de preguntas del módulo de performance (sin tools, el
 //     system empieza con MARCA_CLASIFICACION): un JSON fijo con una pregunta
 //     de envío, sin resolver;
+//   - análisis de un chat de ventas (sin tools, el system empieza con
+//     MARCA_ANALISIS): resumen y análisis fijos, con probabilidad alta;
 //   - resumen del cliente (sin tools): texto fijo;
 //   - embeddings del catálogo de ventas: bolsa de palabras determinista;
 //   - la Decisions API (Jev) de las sugerencias de ventas: palabras en común.
@@ -21,6 +23,8 @@ const PUERTO = Number(process.env.PORT ?? 4010);
 
 /** Copia de MARCA_CLASIFICACION (api/src/performance/preguntas.rules.ts). */
 const MARCA_CLASIFICACION = 'Clasificá las preguntas de un cliente';
+/** Copia de MARCA_ANALISIS (api/src/chats/analisis.rules.ts). */
+const MARCA_ANALISIS = 'Analizá un chat de ventas';
 const ZONA = 'America/Argentina/Buenos_Aires';
 
 /** Registro de pedidos para que los tests afirmen qué mandó la API. */
@@ -442,6 +446,11 @@ function decisiones(body, res) {
   const respuestas = new Map();
   const opciones = new Map();
   for (const [id, pregunta] of Object.entries(body.questions ?? {})) {
+    // Sí/no (análisis de la venta): un "sí" fijo y alto, así el chat sale caliente y con señales.
+    if (pregunta.type === 'noul') {
+      respuestas.set(id, { type: 'noul', noul: 0.8, confidence: 0.9 });
+      continue;
+    }
     const ids = Object.keys(pregunta.criteria ?? {}).filter((opcion) => opcion !== 'none');
     opciones.set(id, ids);
     const puntajes = ids.map((opcion, indice) => {
@@ -526,6 +535,22 @@ const servidor = http.createServer(async (req, res) => {
       llamadas.push({ tipo: 'clasificacion', ...resumenDelPedido(body) });
       const preguntas = [{ texto: '¿Hacen envíos?', tema: 'envio', productoId: null, resuelta: false }];
       return responder(res, 200, completion(body.model, { content: JSON.stringify({ preguntas }) }));
+    }
+    if (typeof sistema === 'string' && sistema.startsWith(MARCA_ANALISIS)) {
+      llamadas.push({ tipo: 'analisis', ...resumenDelPedido(body) });
+      const analisis = {
+        resumen: 'Cliente de prueba E2E.',
+        probabilidad: 80,
+        sentimiento: 'positivo',
+        tendencia: 'mejora',
+        aFavor: ['Preguntó cómo pagar'],
+        enContra: ['Precio alto'],
+        presupuesto: null,
+        tema: 'pago',
+        proximoPaso: 'Contale las formas de pago.',
+        mensajeSugerido: '¿Querés que te cuente cómo podés pagarlo?',
+      };
+      return responder(res, 200, completion(body.model, { content: JSON.stringify(analisis) }));
     }
 
     llamadas.push({ tipo: 'resumen', ...resumenDelPedido(body) });

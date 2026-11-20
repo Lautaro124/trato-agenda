@@ -87,6 +87,55 @@ describe('DecisionesClient', () => {
     await expect(crearCliente().ordenar({ ...PEDIDO, opciones: muchas })).rejects.toThrow('hasta 254');
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  describe('decidir', () => {
+    const PREGUNTAS = {
+      compra: { tipo: 'noul', instrucciones: 'Will they buy?', si: 'Yes.', no: 'No.' },
+      animo: { tipo: 'choice', instrucciones: 'Mood?', opciones: { bien: 'Good', mal: 'Bad' }, ninguna: 'Unknown' },
+    } as const;
+
+    it('manda varias preguntas en un pedido, con la política ZDR, y devuelve sólo lo legible', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        respuesta({
+          answers: {
+            compra: { type: 'noul', noul: 0.8 },
+            animo: { type: 'choice', choice: 'bien', probabilities: { bien: 0.7, mal: 0.2, none: 0.1, inventada: 0.5 } },
+          },
+        }),
+      );
+
+      await expect(crearCliente().decidir('Customer: hola', PREGUNTAS)).resolves.toEqual({
+        compra: 0.8,
+        animo: { bien: 0.7, mal: 0.2, none: 0.1 },
+      });
+
+      const cuerpo = JSON.parse(String(vi.mocked(fetch).mock.calls[0]![1]!.body));
+      expect(cuerpo).toEqual({
+        model: 'typesafe/jev-1.13',
+        state: 'Customer: hola',
+        questions: {
+          compra: { type: 'noul', instructions: 'Will they buy?', criteria: { true: 'Yes.', false: 'No.' } },
+          animo: { type: 'choice', instructions: 'Mood?', criteria: { bien: 'Good', mal: 'Bad', none: 'Unknown' } },
+        },
+        provider: POLITICA_DE_PROVEEDOR,
+      });
+    });
+
+    it('descarta probabilidades fuera de 0 a 1 o que no son números', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        respuesta({ answers: { compra: { noul: 1.5 }, animo: { probabilities: { bien: '0.9', mal: -1 } } } }),
+      );
+      await expect(crearCliente().decidir('x', PREGUNTAS)).resolves.toEqual({});
+    });
+
+    it('sin preguntas no llama, y con "none" como opción falla antes de llamar', async () => {
+      await expect(crearCliente().decidir('x', {})).resolves.toEqual({});
+      await expect(
+        crearCliente().decidir('x', { a: { tipo: 'choice', instrucciones: 'x', opciones: { none: 'x' }, ninguna: 'x' } }),
+      ).rejects.toBeInstanceOf(DecisionesError);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('ordenDeLaRespuesta', () => {

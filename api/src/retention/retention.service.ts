@@ -133,9 +133,9 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
     const { count } = await this.prisma.conversation.updateMany({
       where: {
         updatedAt: { lt: limite },
-        OR: [{ resumen: { not: null } }, { nombreCliente: { not: null } }],
+        OR: [{ resumen: { not: null } }, { nombreCliente: { not: null } }, { analisis: { not: Prisma.DbNull } }],
       },
-      data: { resumen: null, nombreCliente: null },
+      data: { resumen: null, nombreCliente: null, analisis: Prisma.DbNull },
     });
     return count;
   }
