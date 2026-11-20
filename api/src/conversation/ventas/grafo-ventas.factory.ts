@@ -24,7 +24,7 @@ import type { NotificacionesService } from '../../notificaciones/notificaciones.
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { LIMITE_RECURSION } from '../graph/graph.factory.js';
 import { crearNodoConversacion } from '../graph/nodes/conversacion.node.js';
-import { crearNodoPersistir } from '../graph/nodes/persistir.node.js';
+import { crearNodoPersistir, type DepsPersistir } from '../graph/nodes/persistir.node.js';
 import { crearNodoCargarContextoVentas, type DepsContextoVentas } from './nodes/cargar-contexto-ventas.node.js';
 import { crearNodoCatalogo, type DepsCatalogo } from './nodes/catalogo.node.js';
 import { crearNodoValidacionVentas } from './nodes/validacion-ventas.node.js';
@@ -45,8 +45,8 @@ export type DepsGrafoVentas = {
   checkpointer?: BaseCheckpointSaver;
   /** Hasta cuánto para atrás ve el modelo el historial de un chat (HISTORIAL_IA_VENTANA). Por defecto, 14 días. */
   ventanaHistorialMs?: number;
-  /** Jev, para saber si ya es momento de pedir los datos del cliente. Sin él, la regla de siempre. */
-  decisiones?: DepsContextoVentas['decisiones'];
+  /** Jev: si ya es momento de pedir los datos del cliente y el análisis de la venta. Sin él, la regla de siempre y el análisis con el modelo de chat. */
+  decisiones?: NonNullable<DepsContextoVentas['decisiones']> & Partial<Pick<NonNullable<DepsPersistir['decisiones']>, 'decidir'>>;
   /** Módulo de performance (LAU-30). Sin él (evals, tests), no se registra nada. */
   registro?: NonNullable<DepsCatalogo['registro']> & NonNullable<DepsContextoVentas['registro']>;
   /** Módulo de envíos (LAU-102). Sin él (evals), consultar_envio contesta que no está disponible. */
@@ -75,7 +75,7 @@ export function construirGrafoVentas(deps: DepsGrafoVentas) {
     .addNode('validacion', crearNodoValidacionVentas())
     .addNode('catalogo', crearNodoCatalogo(deps))
     .addNode('verificar_respuesta', crearNodoVerificarRespuesta())
-    .addNode('persistir', crearNodoPersistir(deps))
+    .addNode('persistir', crearNodoPersistir({ prisma: deps.prisma, openRouter: deps.openRouter, analizarVenta: true, decisiones: deps.decisiones }))
     .addEdge(START, 'cargar_contexto')
     .addEdge('cargar_contexto', 'conversacion')
     .addConditionalEdges(

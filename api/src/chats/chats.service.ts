@@ -37,6 +37,15 @@ import type {
   ProductoDeInteres,
 } from './chats.types.js';
 import { estadoDelTrato, pasoParaTrato, type UltimoPedido } from './trato.rules.js';
+import { accionDe, analisisGuardado, temperaturaDe, type AnalisisVenta } from './analisis.rules.js';
+import { TEMAS } from '../performance/preguntas.rules.js';
+
+/** De qué habla el chat: el último producto que le interesó o, si no hay, lo que más le importa según el análisis. */
+function temaDelChat(producto: string | undefined, analisis: AnalisisVenta | null): ChatResumen['tema'] {
+  if (producto) return { tipo: 'producto', texto: producto };
+  if (analisis && analisis.tema !== 'otro') return { tipo: 'tema', texto: TEMAS[analisis.tema] };
+  return null;
+}
 
 /** Chats que muestra la lista: los de actividad más reciente. */
 const MAX_CHATS = 100;
@@ -51,8 +60,15 @@ const DIAS_INDICADORES = 7;
 /** Productos de interés que muestra la ficha: los más recientes. */
 const MAX_PRODUCTOS_FICHA = 6;
 
-type FilaChat = Pick<Conversation, 'id' | 'remoteJid' | 'nombreCliente' | 'atencion' | 'tratoCanceladoAt'>;
-const SELECT_FILA = { id: true, remoteJid: true, nombreCliente: true, atencion: true, tratoCanceladoAt: true } as const;
+type FilaChat = Pick<Conversation, 'id' | 'remoteJid' | 'nombreCliente' | 'atencion' | 'tratoCanceladoAt' | 'analisis'>;
+const SELECT_FILA = {
+  id: true,
+  remoteJid: true,
+  nombreCliente: true,
+  atencion: true,
+  tratoCanceladoAt: true,
+  analisis: true,
+} as const;
 type UltimoMensaje = Pick<Message, 'conversationId' | 'role' | 'content' | 'createdAt'>;
 
 /**
@@ -232,7 +248,7 @@ export class ChatsService {
     const ids = [...tipoDe.keys()].slice(0, MAX_PRODUCTOS_FICHA);
     const productos = await this.prisma.producto.findMany({
       where: { id: { in: ids }, userId, activo: true },
-      select: { id: true, nombre: true, precioCentavos: true, moneda: true },
+      select: { id: true, nombre: true, precioCentavos: true, moneda: true, plazoEntregaDias: true },
     });
     const porId = new Map(productos.map((producto) => [producto.id, producto]));
     const detalle: ProductoDeInteres[] = [];
@@ -250,14 +266,17 @@ export class ChatsService {
         contadoCentavos: cotizacion.contadoCentavos,
         efectivoCentavos: cotizacion.efectivoCentavos,
         planes: cotizacion.planes,
+        plazoEntregaDias: producto.plazoEntregaDias,
       });
     }
 
+    const analisis = (await this.esVentas(userId)) ? analisisGuardado(fila.analisis) : null;
     return {
       resumen: conversacion?.resumen ?? null,
       productos: detalle,
       pedido: pedido && { id: pedido.id, estado: pedido.estado, totalCentavos: pedido.totalCentavos, moneda: pedido.moneda },
       trato: estadoDelTrato(pedido, fila.tratoCanceladoAt),
+      analisis: analisis && { ...analisis, temperatura: temperaturaDe(analisis.probabilidad) },
     };
   }
 
@@ -432,7 +451,7 @@ export class ChatsService {
     if (filas.length === 0) return [];
     const ids = filas.map((fila) => fila.id);
     const esVentas = await this.esVentas(userId);
-    const [ultimos, turnos, ventas, etapas, ultimosPedidos] = await Promise.all([
+    const [ultimos, turnos, ventas, etapas, ultimosPedidos, intereses] = await Promise.all([
       this.prisma.$queryRaw<UltimoMensaje[]>`
         SELECT c."id" AS "conversationId", m."role", m."content", m."createdAt"
         FROM "Conversation" c
@@ -467,7 +486,17 @@ export class ChatsService {
             select: { conversationId: true, estado: true, createdAt: true },
           })
         : Promise.resolve([]),
+      // El producto más reciente que vio o pidió cada chat: el tema que muestra la lista.
+      esVentas
+        ? this.prisma.interesProducto.findMany({
+            where: { conversationId: { in: ids }, userId, producto: { userId, activo: true } },
+            orderBy: { createdAt: 'desc' },
+            distinct: ['conversationId'],
+            select: { conversationId: true, producto: { select: { nombre: true } } },
+          })
+        : Promise.resolve([]),
     ]);
+    const productoDe = new Map(intereses.map((fila) => [fila.conversationId, fila.producto.nombre]));
     const etapaDe = new Map(etapas.map((fila) => [fila.conversationId, fila]));
     const pedidoFinalDe = new Map(ultimosPedidos.map((fila) => [fila.conversationId, fila]));
     const ultimoDe = new Map(ultimos.map((fila) => [fila.conversationId, aMensajesPublicos([fila])[0] ?? null]));
@@ -483,17 +512,27 @@ export class ChatsService {
     return filas.map((fila) => {
       const atencion: AtencionChat = fila.atencion === 'humana' ? 'humana' : 'asistente';
       const ultimo = ultimoDe.get(fila.id) ?? null;
+      const teEspera = atencion === 'humana' && ultimo?.de === 'cliente';
+      const venta = ventaDe(etapaDe.get(fila.id), ahora);
+      const trato = esVentas ? estadoDelTrato(pedidoFinalDe.get(fila.id) ?? null, fila.tratoCanceladoAt) : null;
+      const analisis = esVentas ? analisisGuardado(fila.analisis) : null;
+      // Con el trato pagado o cancelado ya no hay nada que estimar.
+      const temperatura = analisis && trato !== 'pagado' && trato !== 'cancelado' ? temperaturaDe(analisis.probabilidad) : null;
+      const tema = temaDelChat(productoDe.get(fila.id), analisis);
       return {
         id: fila.id,
         nombre: fila.nombreCliente,
         telefono: telefonoDeJid(fila.remoteJid),
         atencion,
         ultimo,
-        teEspera: atencion === 'humana' && ultimo?.de === 'cliente',
+        teEspera,
         turno: turnoDe.get(fila.id) ?? null,
         pedido: pedidoDe.get(fila.id) ?? null,
-        venta: ventaDe(etapaDe.get(fila.id), ahora),
-        trato: esVentas ? estadoDelTrato(pedidoFinalDe.get(fila.id) ?? null, fila.tratoCanceladoAt) : null,
+        venta,
+        trato,
+        temperatura,
+        tema,
+        accion: accionDe({ teEspera, trato, temperatura, abandonado: venta?.estado === 'abandonado' }),
       };
     });
   }

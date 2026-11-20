@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 18 de noviembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 19 de noviembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -244,12 +244,25 @@ export default function PrivacidadPage() {
             en una frase corta, su tema, el producto si era sobre uno y si quedó contestada.
           </p>
           <p>
+            <Fuerte>Datos de la venta.</Fuerte> En un chat de ventas, con cada mensaje del cliente el
+            modelo de decisiones que se describe abajo estima qué tan probable es la venta, el ánimo
+            del cliente, qué le importa más y qué señales de compra u objeciones mostró (de una lista
+            fija; no escribe texto). Además, cada pocos mensajes mandamos al mismo modelo de chat, con
+            la misma configuración de no retención, los últimos mensajes de texto con el mismo filtro
+            (sin emails, links ni números largos), para actualizar el resumen del cliente, lo que dijo
+            que quiere gastar y un próximo paso con un mensaje sugerido. Es la misma llamada que ya
+            actualiza el resumen, no una extra. Lo guardamos con esa conversación, sólo lo ves vos en
+            tu panel y nunca se le manda al cliente: el mensaje sugerido lo copiás y lo mandás vos si
+            querés. Son estimaciones de los modelos; los precios, cuotas y plazos que ves al lado salen
+            de tu catálogo.
+          </p>
+          <p>
             Cuando un cliente pregunta qué vendés y tu catálogo es grande, el asistente le sugiere las
             categorías (o los productos) que más le pueden interesar. Para elegirlas usa{" "}
             <Scope>typesafe/jev-1.13</Scope>, un modelo de decisiones (no genera texto) al que también
             accedemos a través de OpenRouter, con la misma configuración de no retención. También lo
             usa para saber si el cliente ya terminó de elegir antes de pedirle sus datos de envío o de
-            contacto. Sólo recibe los últimos mensajes de la charla (los del cliente y las respuestas
+            contacto, y para los datos de la venta de tu panel. Sólo recibe los últimos mensajes de la charla (los del cliente y las respuestas
             del asistente), sin el número del cliente y con su nombre, sus emails y sus números de
             documento, teléfono o código postal tapados, y los nombres de tus categorías o productos.
           </p>
@@ -388,8 +401,8 @@ export default function PrivacidadPage() {
               consultas llegaron desde cada uno.
             </Punto>
             <Punto>
-              <Fuerte>Nombre y resumen de un cliente:</Fuerte> se borran a los 12 meses de inactividad
-              de esa conversación.
+              <Fuerte>Nombre, resumen y datos de la venta de un cliente:</Fuerte> se borran a los 12
+              meses de inactividad de esa conversación.
             </Punto>
             <Punto>
               <Fuerte>Turnos y eventos de tu agenda:</Fuerte> se conservan mientras tu cuenta exista,
