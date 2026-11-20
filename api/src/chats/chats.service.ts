@@ -37,8 +37,15 @@ import type {
   ProductoDeInteres,
 } from './chats.types.js';
 import { estadoDelTrato, pasoParaTrato, type UltimoPedido } from './trato.rules.js';
-import { accionDe, analisisGuardado, temperaturaDe } from './analisis.rules.js';
+import { accionDe, analisisGuardado, temperaturaDe, type AnalisisVenta } from './analisis.rules.js';
 import { TEMAS } from '../performance/preguntas.rules.js';
+
+/** De qué habla el chat: el último producto que le interesó o, si no hay, lo que más le importa según el análisis. */
+function temaDelChat(producto: string | undefined, analisis: AnalisisVenta | null): ChatResumen['tema'] {
+  if (producto) return { tipo: 'producto', texto: producto };
+  if (analisis && analisis.tema !== 'otro') return { tipo: 'tema', texto: TEMAS[analisis.tema] };
+  return null;
+}
 
 /** Chats que muestra la lista: los de actividad más reciente. */
 const MAX_CHATS = 100;
@@ -511,12 +518,7 @@ export class ChatsService {
       const analisis = esVentas ? analisisGuardado(fila.analisis) : null;
       // Con el trato pagado o cancelado ya no hay nada que estimar.
       const temperatura = analisis && trato !== 'pagado' && trato !== 'cancelado' ? temperaturaDe(analisis.probabilidad) : null;
-      const producto = productoDe.get(fila.id);
-      const tema: ChatResumen['tema'] = producto
-        ? { tipo: 'producto', texto: producto }
-        : analisis && analisis.tema !== 'otro'
-          ? { tipo: 'tema', texto: TEMAS[analisis.tema] }
-          : null;
+      const tema = temaDelChat(productoDe.get(fila.id), analisis);
       return {
         id: fila.id,
         nombre: fila.nombreCliente,

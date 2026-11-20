@@ -102,36 +102,12 @@ export class DecisionesClient {
     if (ids.length > MAX_PREGUNTAS_DECISION) {
       throw new DecisionesError(`Hasta ${MAX_PREGUNTAS_DECISION} preguntas por pedido.`);
     }
-    const questions: Record<string, unknown> = {};
-    for (const [id, pregunta] of Object.entries(preguntas)) {
-      if (pregunta.tipo === 'noul') {
-        questions[id] = { type: 'noul', instructions: pregunta.instrucciones, criteria: { true: pregunta.si, false: pregunta.no } };
-      } else {
-        validarOpciones(Object.keys(pregunta.opciones));
-        questions[id] = {
-          type: 'choice',
-          instructions: pregunta.instrucciones,
-          criteria: { ...pregunta.opciones, none: pregunta.ninguna },
-        };
-      }
-    }
+    const questions = Object.fromEntries(Object.entries(preguntas).map(([id, pregunta]) => [id, aQuestion(pregunta)]));
     const answers = (await this.pedir(estado, questions)).answers ?? {};
     const respuestas: RespuestasDecision = {};
     for (const [id, pregunta] of Object.entries(preguntas)) {
-      const respuesta = answers[id];
-      if (!respuesta || typeof respuesta !== 'object') continue;
-      if (pregunta.tipo === 'noul') {
-        if (esProbabilidad(respuesta.noul)) respuestas[id] = respuesta.noul;
-        continue;
-      }
-      const probabilidades: Record<string, number> = {};
-      const crudas = respuesta.probabilities && typeof respuesta.probabilities === 'object' ? respuesta.probabilities : {};
-      for (const [opcion, valor] of Object.entries(crudas)) {
-        if (esProbabilidad(valor) && (opcion === 'none' || Object.hasOwn(pregunta.opciones, opcion))) {
-          probabilidades[opcion] = valor;
-        }
-      }
-      if (Object.keys(probabilidades).length > 0) respuestas[id] = probabilidades;
+      const leida = leerRespuesta(pregunta, answers[id]);
+      if (leida !== null) respuestas[id] = leida;
     }
     return respuestas;
   }
@@ -199,6 +175,31 @@ function validarOpciones(ids: string[]): void {
 
 function esProbabilidad(valor: unknown): valor is number {
   return typeof valor === 'number' && Number.isFinite(valor) && valor >= 0 && valor <= 1;
+}
+
+/** Una pregunta de `decidir`, en el formato de la Decisions API. */
+function aQuestion(pregunta: PreguntaDecision): Record<string, unknown> {
+  if (pregunta.tipo === 'noul') {
+    return { type: 'noul', instructions: pregunta.instrucciones, criteria: { true: pregunta.si, false: pregunta.no } };
+  }
+  validarOpciones(Object.keys(pregunta.opciones));
+  return { type: 'choice', instructions: pregunta.instrucciones, criteria: { ...pregunta.opciones, none: pregunta.ninguna } };
+}
+
+type RespuestaCruda = NonNullable<RespuestaDecisiones['answers']>[string] | undefined;
+
+/** Lo legible de una respuesta: la probabilidad de "sí" (noul) o la de cada opción enviada (choice). Null si no hay nada. */
+function leerRespuesta(pregunta: PreguntaDecision, respuesta: RespuestaCruda): number | Record<string, number> | null {
+  if (!respuesta || typeof respuesta !== 'object') return null;
+  if (pregunta.tipo === 'noul') return esProbabilidad(respuesta.noul) ? respuesta.noul : null;
+  const crudas = respuesta.probabilities && typeof respuesta.probabilities === 'object' ? respuesta.probabilities : {};
+  const probabilidades = Object.fromEntries(
+    Object.entries(crudas).filter(
+      (entrada): entrada is [string, number] =>
+        esProbabilidad(entrada[1]) && (entrada[0] === 'none' || Object.hasOwn(pregunta.opciones, entrada[0])),
+    ),
+  );
+  return Object.keys(probabilidades).length > 0 ? probabilidades : null;
 }
 
 /**

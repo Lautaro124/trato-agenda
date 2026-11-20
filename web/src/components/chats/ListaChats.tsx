@@ -55,6 +55,13 @@ const FILTROS_VENTA: Array<{ id: Filtro; label: string }> = [
   { id: "cancelado", label: "Cancelado" },
 ];
 
+/** El chip elegido va oscuro; "Necesitan acción" con chats pendientes se resalta para que se vea. */
+function estiloDeFiltro(elegido: boolean, resaltado: boolean): string {
+  if (elegido) return "border-ink bg-ink text-white";
+  if (resaltado) return "border-primary bg-primary-subtle text-primary-active hover:bg-sunken";
+  return "border-line bg-card text-ink-secondary hover:bg-sunken";
+}
+
 /** Bot o Vos: quién contesta este chat. */
 export function InsigniaAtencion({ atencion }: Readonly<{ atencion: AtencionChat }>) {
   return atencion === "humana" ? <Badge tone="primary">Vos</Badge> : <Badge tone="success">Bot</Badge>;
@@ -163,11 +170,7 @@ export function ListaChats({
               onClick={() => onFiltro(id)}
               className={cn(
                 "h-8 flex-none rounded-full border px-3 text-[13px] font-semibold whitespace-nowrap",
-                filtro === id
-                  ? "border-ink bg-ink text-white"
-                  : id === "accion" && conAccion > 0
-                    ? "border-primary bg-primary-subtle text-primary-active hover:bg-sunken"
-                    : "border-line bg-card text-ink-secondary hover:bg-sunken",
+                estiloDeFiltro(filtro === id, id === "accion" && conAccion > 0),
               )}
             >
               {label} · {cuenta(id)}

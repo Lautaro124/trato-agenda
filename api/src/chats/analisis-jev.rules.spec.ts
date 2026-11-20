@@ -31,7 +31,7 @@ describe('estadoParaAnalisis', () => {
   it('se queda con lo último si la charla es larga', () => {
     const mensajes = Array.from({ length: 16 }, () => ({ de: 'cliente' as const, texto: 'a'.repeat(400) }));
     const estado = estadoParaAnalisis(mensajes, null);
-    expect(estado.length).toBe(LARGO_MAX_ESTADO_ANALISIS);
+    expect(estado).toHaveLength(LARGO_MAX_ESTADO_ANALISIS);
     expect(estado.endsWith('a')).toBe(true);
   });
 });

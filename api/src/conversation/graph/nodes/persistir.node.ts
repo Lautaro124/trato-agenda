@@ -281,21 +281,32 @@ export function crearNodoPersistir(deps: DepsPersistir) {
       await deps.prisma.message.create({ data: { conversationId: conversation.id, ...fila } });
     }
 
-    if (state.esPropietario) return {};
+    if (!state.esPropietario) await recordar(conversation, nuevos);
+    return {};
+  };
 
+  /**
+   * Lo que el asistente "recuerda" del cliente: en ventas, el análisis de Jev
+   * en cada mensaje; cada pocos mensajes, el resumen (y en ventas, los textos
+   * del análisis).
+   */
+  async function recordar(
+    conversation: EstadoComun['contexto']['conversation'],
+    nuevos: BaseMessage[],
+  ): Promise<void> {
     const conJevActivo = Boolean(deps.analizarVenta && deps.decisiones?.configurado && deps.decisiones.decidir);
     if (conJevActivo && nuevos.some((mensaje) => mensaje.getType() === 'human')) {
       await analizarConJev(conversation.id, conversation.nombreCliente);
     }
 
     const total = await deps.prisma.message.count({ where: { conversationId: conversation.id } });
-    if (total % CADA_CUANTOS_MENSAJES_RESUMIR !== 0) return {};
+    if (total % CADA_CUANTOS_MENSAJES_RESUMIR !== 0) return;
 
     if (deps.analizarVenta) {
       if (!conJevActivo || !(await completarTextos(conversation.id, conversation.resumen))) {
         await actualizarResumenYAnalisis(conversation.id, conversation.resumen);
       }
-      return {};
+      return;
     }
 
     const primerHumano = nuevos.find((mensaje) => mensaje.getType() === 'human');
@@ -306,6 +317,5 @@ export function crearNodoPersistir(deps: DepsPersistir) {
       primerHumano ? textoDe(primerHumano) : '',
       ultimoAgente ? textoDe(ultimoAgente) : '',
     );
-    return {};
-  };
+  }
 }
