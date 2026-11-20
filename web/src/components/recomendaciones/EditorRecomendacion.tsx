@@ -656,20 +656,24 @@ export function EditorRecomendacion({
         )}
 
         <div className="flex flex-col gap-3 rounded-md border border-line p-4">
-          <label className="flex cursor-pointer items-start gap-3">
+          <div className="flex items-start gap-3">
             <input
+              id={`${id}-con-requisito`}
               type="checkbox"
+              aria-describedby={`${id}-con-requisito-ayuda`}
               className={cn(CHECK, "mt-1")}
               checked={regla.requisito !== null}
               onChange={(e) => cambiar({ requisito: e.target.checked ? { dato: "", pregunta: "", siNoCumple: "explicar" } : null })}
             />
-            <span className="flex flex-col gap-0.5">
-              <span className="text-[14px] font-semibold text-ink">Necesita un dato antes</span>
-              <span className="text-[13px] leading-[1.5] text-ink-secondary">
+            <div className="flex flex-col gap-0.5">
+              <label htmlFor={`${id}-con-requisito`} className="cursor-pointer text-[14px] font-semibold text-ink">
+                Necesita un dato antes
+              </label>
+              <span id={`${id}-con-requisito-ayuda`} className="text-[13px] leading-[1.5] text-ink-secondary">
                 Si falta un dato que cambia la respuesta, el asistente lo pregunta antes de confirmar.
               </span>
-            </span>
-          </label>
+            </div>
+          </div>
           {regla.requisito && (
             <div className="grid gap-3 md:grid-cols-2">
               <div>

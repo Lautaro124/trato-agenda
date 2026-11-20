@@ -119,6 +119,7 @@ export const CONFIGURACION_VACIA: ConfiguracionRecomendaciones = { recomendacion
 
 type Resultado<T> = { valor: T } | { error: string };
 type Opciones = { estricto: boolean };
+const ESTRICTO: Opciones = { estricto: true };
 
 function esObjeto(valor: unknown): valor is Record<string, unknown> {
   return typeof valor === 'object' && valor !== null && !Array.isArray(valor);
@@ -511,7 +512,7 @@ function normalizarPropiedades(
 export function normalizarConfiguracion(
   entrada: unknown,
   preguntas: PreguntaPedido[],
-  opciones: Opciones = { estricto: true },
+  opciones: Opciones = ESTRICTO,
 ): { configuracion: ConfiguracionRecomendaciones } | { error: string } {
   if (!esObjeto(entrada)) return { error: 'La configuración no es válida.' };
   const crudas = entrada.recomendaciones ?? [];

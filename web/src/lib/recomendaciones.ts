@@ -207,7 +207,7 @@ export function problemaDe(configuracion: ConfiguracionRecomendaciones, pregunta
     }
   }
   for (const { propiedades } of configuracion.propiedades) {
-    if (propiedades.some((p) => !p.nombre.trim() !== !p.valor.trim())) return "Cada propiedad necesita nombre y valor.";
+    if (propiedades.some((p) => Boolean(p.nombre.trim()) !== Boolean(p.valor.trim()))) return "Cada propiedad necesita nombre y valor.";
   }
   return null;
 }
