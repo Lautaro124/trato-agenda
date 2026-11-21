@@ -62,6 +62,8 @@ function crearPrisma(
     enviosActivo?: boolean;
     /** ConfiguracionPreguntas.preguntas (LAU-100); sin ella, no hay preguntas del pedido. */
     preguntas?: unknown[];
+    /** ConfiguracionRecomendaciones.recomendaciones (LAU-105); sin ella, no hay recomendaciones. */
+    recomendaciones?: unknown[];
   } = {},
 ) {
   return {
@@ -70,11 +72,19 @@ function crearPrisma(
     producto: {
       groupBy: vi.fn().mockResolvedValue([{ categoria: 'Mates', _count: { _all: 12 } }]),
       count: vi.fn().mockResolvedValue(opciones.totalProductos ?? 12),
+      findMany: vi.fn().mockResolvedValue([]),
     },
     cuentaMercadoPago: { findUnique: vi.fn().mockResolvedValue(opciones.mpConectado ? { id: 'mp-1' } : null) },
     condicionesPago: { findUnique: vi.fn().mockResolvedValue(opciones.condicionesPago ?? null) },
     configuracionEnvios: { findUnique: vi.fn().mockResolvedValue(opciones.enviosActivo ? { activo: true } : null) },
     configuracionPreguntas: { findUnique: vi.fn().mockResolvedValue(opciones.preguntas ? { preguntas: opciones.preguntas } : null) },
+    configuracionRecomendaciones: {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue(
+          opciones.recomendaciones ? { recomendaciones: opciones.recomendaciones, propiedades: [], sinCoincidencia: 'catalogo' } : null,
+        ),
+    },
     venta: {
       findMany: vi.fn().mockResolvedValue(opciones.pedidos ?? []),
       findFirst: vi.fn().mockResolvedValue(null),
@@ -189,6 +199,7 @@ function correr(
     registro?: ReturnType<typeof crearRegistro>;
     envios?: { resolver: Mock };
     preguntas?: { imagenesParaEnviar: Mock };
+    recomendaciones?: { consultar: Mock };
   },
   esPropietario = false,
   mensajes: BaseMessage[] = [new HumanMessage('¿tenés mates?')],
@@ -297,6 +308,54 @@ describe('grafo de ventas', () => {
     const llm = crearModelo([new AIMessage('Hola.')]);
     await correr({ prisma: crearPrisma({ totalProductos: 0 }), llm, busqueda: { buscar: vi.fn() } });
     expect(sistemaDe(llm)).toContain('todavía no cargó productos');
+  });
+
+  describe('recomendaciones (LAU-105)', () => {
+    const SOPORTES = {
+      id: 'soportes',
+      nombre: 'Soportes solubles',
+      activa: true,
+      disparador: { tipo: 'consulta', necesidad: 'quiere retirar soportes difíciles', ejemplos: [] },
+      alcance: 'global',
+      accion: { tipo: 'recomendar', productos: ['pva'], opciones: null, criterio: null },
+    };
+
+    it('sin recomendaciones activas no ofrece consultar_recomendacion ni las describe', async () => {
+      const llm = crearModelo([new AIMessage('Hola.')]);
+      await correr({ prisma: crearPrisma({ recomendaciones: [{ ...SOPORTES, activa: false }] }), llm, busqueda: { buscar: vi.fn() } });
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).not.toContain('consultar_recomendacion');
+      expect(sistemaDe(llm)).not.toContain('[recomendacion soportes]');
+    });
+
+    it('con una activa, la describe en el prompt y resuelve la consulta en el backend', async () => {
+      const resultado = {
+        estado: 'aplicada',
+        regla: { id: 'soportes', nombre: 'Soportes solubles', accion: 'recomendar', activa: true },
+        requisito: null,
+        candidatos: [],
+        propiedadesDelProducto: [],
+        evaluadas: [],
+        nota: null,
+      };
+      const consultar = vi.fn().mockResolvedValue({ resultado, texto: 'Aplica la recomendación "Soportes solubles".' });
+      const llm = crearModelo([
+        llamada('consultar_recomendacion', { reglaIds: [' soportes ', 'soportes'] }),
+        new AIMessage('Te recomiendo el PVA: se disuelve en agua.'),
+      ]);
+      const salida = await correr(
+        { prisma: crearPrisma({ recomendaciones: [SOPORTES] }), llm, busqueda: { buscar: vi.fn() }, recomendaciones: { consultar } },
+        false,
+        [new HumanMessage('Me cuesta sacar los soportes')],
+      );
+      const [herramientas] = llm.bindTools.mock.calls[0] as unknown as [Array<{ name: string }>];
+      expect(herramientas.map((h) => h.name)).toContain('consultar_recomendacion');
+      expect(sistemaDe(llm)).toContain('[recomendacion soportes] cuando el cliente cuenta que "quiere retirar soportes difíciles"');
+      expect(consultar).toHaveBeenCalledWith('user-1', { reglaIds: ['soportes'], incluirPausadas: false });
+      const tool = resultadoDe(salida.messages, 'consultar_recomendacion');
+      expect(tool.content).toContain('Soportes solubles');
+      expect((tool as ToolMessage & { artifact?: unknown }).artifact).toEqual({ tipo: 'resultado_recomendacion', resultado });
+    });
   });
 
   describe('envíos (LAU-102)', () => {

@@ -23,7 +23,7 @@ import { ErrorDeApi } from "@/lib/productos";
 export type ProductoElegible = { id: string; nombre: string };
 
 const ICONO = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" } as const;
-const SEGMENTO =
+export const SEGMENTO =
   "flex min-h-11 cursor-pointer items-center gap-2 rounded-md border-2 border-line bg-card px-3.5 text-[14px] font-semibold text-ink has-checked:border-primary has-checked:bg-primary-subtle has-checked:font-bold has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-[var(--color-semantic-border-focus)]";
 
 function IconoImagen({ tamano = 18 }: Readonly<{ tamano?: number }>) {
@@ -123,7 +123,7 @@ function SlotImagen({
 }
 
 /** Elige productos del catálogo por nombre. */
-function ElegirProductos({
+export function ElegirProductos({
   elegidos,
   productos,
   onCambio,

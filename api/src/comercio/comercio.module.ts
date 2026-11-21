@@ -19,6 +19,8 @@ import { HistoricoVentasService } from './historico.service.js';
 import { ImagenesService } from './imagenes.service.js';
 import { PreguntasController } from './preguntas.controller.js';
 import { PreguntasService } from './preguntas.service.js';
+import { RecomendacionesController } from './recomendaciones.controller.js';
+import { RecomendacionesService } from './recomendaciones.service.js';
 import { EmbeddingsClient } from './embeddings.client.js';
 import { IndexadorService } from './indexador.service.js';
 import { ProductosController } from './productos.controller.js';
@@ -53,6 +55,7 @@ import { VisionClient } from './vision.client.js';
     CondicionesPagoController,
     AnunciosController,
     PreguntasController,
+    RecomendacionesController,
   ],
   providers: [
     ProductosService,
@@ -72,6 +75,7 @@ import { VisionClient } from './vision.client.js';
     AnunciosService,
     VisionClient,
     PreguntasService,
+    RecomendacionesService,
   ],
   exports: [
     BusquedaService,
@@ -85,6 +89,7 @@ import { VisionClient } from './vision.client.js';
     AnunciosService,
     VisionClient,
     PreguntasService,
+    RecomendacionesService,
   ],
 })
 export class ComercioModule {}

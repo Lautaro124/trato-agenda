@@ -10,6 +10,7 @@ import { HistoricoVentasService } from '../comercio/historico.service.js';
 import { EnviosService } from '../envios/envios.service.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
 import { PreguntasService } from '../comercio/preguntas.service.js';
+import { RecomendacionesService } from '../comercio/recomendaciones.service.js';
 import { SugerenciasService } from '../comercio/sugerencias.service.js';
 import { VentasService } from '../comercio/ventas.service.js';
 import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
@@ -66,6 +67,7 @@ export const grafoVentasProvider = {
     RegistroPerformanceService,
     EnviosService,
     PreguntasService,
+    RecomendacionesService,
   ],
   useFactory: (
     prisma: PrismaService,
@@ -83,6 +85,7 @@ export const grafoVentasProvider = {
     registro: RegistroPerformanceService,
     envios: EnviosService,
     preguntas: PreguntasService,
+    recomendaciones: RecomendacionesService,
   ): GrafoVentas =>
     construirGrafoVentas({
       prisma,
@@ -100,5 +103,6 @@ export const grafoVentasProvider = {
       registro,
       envios,
       preguntas,
+      recomendaciones,
     }),
 };
