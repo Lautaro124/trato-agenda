@@ -26,6 +26,8 @@ export type ContextoVentas = {
   preguntasConImagenes?: boolean;
   /** Las preguntas del pedido de la cuenta (LAU-100): la validación exige haberlas hecho antes de avanzar el pedido. */
   preguntas?: PreguntaPedido[];
+  /** La cuenta tiene recomendaciones activas (LAU-105): se ofrece consultar_recomendacion. */
+  recomendacionesActivas?: boolean;
 };
 
 export const EstadoVentas = new StateSchema({

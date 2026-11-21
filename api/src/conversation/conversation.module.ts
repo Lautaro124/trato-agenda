@@ -11,6 +11,7 @@ import { CheckpointerService } from './checkpointer.provider.js';
 import { ConversationController } from './conversation.controller.js';
 import { grafoProvider, grafoVentasProvider } from './conversation.providers.js';
 import { ProbadorEnviosController } from './probador-envios.controller.js';
+import { ProbadorRecomendacionesController } from './probador-recomendaciones.controller.js';
 import { ConversationService } from './conversation.service.js';
 import { llmProvider } from './llm.provider.js';
 
@@ -26,7 +27,7 @@ import { llmProvider } from './llm.provider.js';
     SubscriptionModule,
     PassportModule.register({ session: false }),
   ],
-  controllers: [ConversationController, ProbadorEnviosController],
+  controllers: [ConversationController, ProbadorEnviosController, ProbadorRecomendacionesController],
   providers: [ConversationService, CheckpointerService, llmProvider, grafoProvider, grafoVentasProvider],
   // CheckpointerService se exporta para que el borrado de cuenta pueda limpiar
   // los threads de LangGraph, que están fuera del cascade de Prisma.

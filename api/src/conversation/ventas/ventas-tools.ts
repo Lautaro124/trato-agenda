@@ -7,6 +7,11 @@
 import { z } from 'zod';
 import { esAccionDeVentas, type AccionVentasId } from '../../agents/agent-catalog.js';
 import type { EsquemaHerramienta } from '../conversation-tools.js';
+import {
+  ESTADOS_REQUISITO,
+  LARGOS_RECOMENDACION,
+  MAX_REGLAS_POR_CONSULTA,
+} from '../../comercio/recomendaciones.rules.js';
 
 export const esquemaBuscarProductos = z.object({
   consulta: z
@@ -299,6 +304,50 @@ export const ESQUEMA_IMAGENES_PREGUNTA: EsquemaHerramienta = {
   schema: esquemaEnviarImagenesPregunta,
 };
 
+/**
+ * Recomendaciones del comercio (LAU-105): como la de envíos, no es una acción
+ * del catálogo del agente; la ve el modelo sólo si la cuenta tiene alguna
+ * activa (ContextoVentas.recomendacionesActivas).
+ */
+export const HERRAMIENTA_RECOMENDACION = 'consultar_recomendacion';
+
+export const esquemaConsultarRecomendacion = z.object({
+  reglaIds: z
+    .array(z.string().max(40))
+    .min(1)
+    .max(MAX_REGLAS_POR_CONSULTA)
+    .describe('Los ids [recomendacion …] de todas las situaciones que coinciden con lo que dice el cliente.'),
+  productoId: z
+    .string()
+    .max(40)
+    .optional()
+    .describe('El id [producto …] del producto del que habla o que está pidiendo el cliente, si hay uno.'),
+  respuesta: z
+    .string()
+    .max(LARGOS_RECOMENDACION.respuesta)
+    .optional()
+    .describe('Si la situación es una respuesta a una pregunta del pedido: la opción que eligió el cliente, tal cual. ' +
+        'No la mandes si todavía no eligió.'),
+  requisito: z
+    .enum(ESTADOS_REQUISITO)
+    .optional()
+    .describe(
+      'Sólo si antes te pidió un dato: "cumple" o "no_cumple" según lo que contestó el cliente; "no_se" si todavía no lo dijo.',
+    ),
+});
+
+export const ESQUEMA_RECOMENDACION: EsquemaHerramienta = {
+  name: HERRAMIENTA_RECOMENDACION,
+  description:
+    'Devuelve qué recomendación del comercio aplica a lo que dice el cliente, qué hacer y con qué propiedades ' +
+    'explicarlo: los productos u opciones disponibles para recomendar, una respuesta o una pregunta. Usala antes de ' +
+    'responder cuando el cliente cuenta una situación de la lista de recomendaciones (aunque lo diga con otras ' +
+    'palabras), responde una pregunta del pedido que figura ahí o, mientras le hacés una de esas preguntas, te ' +
+    'cuenta su situación en vez de elegir. Si dice que falta un dato, preguntáselo y volvé ' +
+    'a llamarla.',
+  schema: esquemaConsultarRecomendacion,
+};
+
 /** Acciones que llegaron después de los primeros asistentes y vienen con `buscar_productos`. */
 const ACCIONES_CON_LA_BUSQUEDA: AccionVentasId[] = [
   'ver_catalogo',
@@ -324,7 +373,8 @@ export function accionesDeVentas(allowedActions: string[]): AccionVentasId[] {
 
 /**
  * Herramientas visibles para un agente de ventas: las habilitadas, la de
- * envíos si el módulo está activo, la de imágenes de preguntas si hay, y las
+ * envíos si el módulo está activo, la de imágenes de preguntas si hay, la de
+ * recomendaciones si hay alguna activa, y las
  * del dueño si corresponde.
  */
 export function herramientasDeVentas(
@@ -335,11 +385,13 @@ export function herramientasDeVentas(
   // El contexto llega tipado como el común de los grafos; el de ventas trae `enviosActivo`.
   const enviosActivo = (contexto as { enviosActivo?: unknown } | undefined)?.enviosActivo === true;
   const conImagenes = (contexto as { preguntasConImagenes?: unknown } | undefined)?.preguntasConImagenes === true;
+  const conRecomendaciones = (contexto as { recomendacionesActivas?: unknown } | undefined)?.recomendacionesActivas === true;
   const vende = accionesDeVentas(allowedActions).includes('crear_pedido');
   return [
     ...accionesDeVentas(allowedActions).map((id) => ESQUEMAS_VENTAS[id]),
     ...(enviosActivo ? [ESQUEMA_ENVIO] : []),
     ...(conImagenes && vende ? [ESQUEMA_IMAGENES_PREGUNTA] : []),
+    ...(conRecomendaciones ? [ESQUEMA_RECOMENDACION] : []),
     ...(esPropietario ? Object.values(ESQUEMAS_PROPIETARIO_VENTAS) : []),
   ];
 }

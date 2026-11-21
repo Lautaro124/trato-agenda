@@ -19,6 +19,8 @@ import { claveDeFoto, fotosMandadas, HERRAMIENTA_IMAGEN, imagenesDeLaVuelta } fr
 import {
   accionesDeVentas,
   ESQUEMA_ENVIO,
+  ESQUEMA_RECOMENDACION,
+  HERRAMIENTA_RECOMENDACION,
   ESQUEMA_IMAGENES_PREGUNTA,
   ESQUEMAS_PROPIETARIO_VENTAS,
   ESQUEMAS_VENTAS,
@@ -153,6 +155,7 @@ function esquemaPara(state: EstadoVentasValue, nombre: string): EsquemaHerramien
     return ESQUEMAS_VENTAS[nombre];
   }
   if (nombre === HERRAMIENTA_ENVIO) return state.contexto.enviosActivo ? ESQUEMA_ENVIO : undefined;
+  if (nombre === HERRAMIENTA_RECOMENDACION) return state.contexto.recomendacionesActivas ? ESQUEMA_RECOMENDACION : undefined;
   if (nombre === HERRAMIENTA_IMAGENES_PREGUNTA) {
     const vende = accionesDeVentas(agent.allowedActions).includes('crear_pedido');
     return state.contexto.preguntasConImagenes && vende ? ESQUEMA_IMAGENES_PREGUNTA : undefined;
@@ -309,6 +312,25 @@ export function validarLlamadaVentas(
     historial.fotosPedidas = MAX_IMAGENES_POR_MENSAJE;
     const segun = typeof args.segun === 'string' ? args.segun.trim().slice(0, MAX_LARGO_CONSULTA) : '';
     return { ok: true, operacion: { ...llamada, args: { preguntaId, ...(segun ? { segun } : {}) } } };
+  }
+
+  if (llamada.nombre === HERRAMIENTA_RECOMENDACION) {
+    const reglaIds = [...new Set((args.reglaIds as string[]).map((id) => id.trim()).filter(Boolean))];
+    if (reglaIds.length === 0) return { ok: false, motivo: 'Mandá los ids [recomendacion …] que coinciden con lo que dice el cliente.' };
+    const productoId = typeof args.productoId === 'string' ? args.productoId.trim() : '';
+    const respuesta = typeof args.respuesta === 'string' ? args.respuesta.trim() : '';
+    return {
+      ok: true,
+      operacion: {
+        ...llamada,
+        args: {
+          reglaIds,
+          ...(productoId ? { productoId } : {}),
+          ...(respuesta ? { respuesta } : {}),
+          ...(args.requisito ? { requisito: args.requisito } : {}),
+        },
+      },
+    };
   }
 
   if (llamada.nombre === 'crear_pedido') {

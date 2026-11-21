@@ -53,6 +53,8 @@ export type DepsGrafoVentas = {
   envios?: DepsCatalogo['envios'];
   /** Preguntas del pedido (LAU-100): sus imágenes. Sin él (evals), no se mandan. */
   preguntas?: DepsCatalogo['preguntas'];
+  /** Recomendaciones del comercio (LAU-105). Sin él (evals), consultar_recomendacion no encuentra reglas. */
+  recomendaciones?: DepsCatalogo['recomendaciones'];
 };
 
 /**

@@ -48,6 +48,9 @@ import type { EnviosService } from '../../../envios/envios.service.js';
 import { formatearResolucionEnvio } from '../../../envios/envios.respuesta.js';
 import type { ConsultaEnvio } from '../../../envios/envios.rules.js';
 import { artifactDeEnvio } from '../envios-de-la-vuelta.js';
+import type { RecomendacionesService } from '../../../comercio/recomendaciones.service.js';
+import type { ConsultaRecomendacion, EstadoRequisito } from '../../../comercio/recomendaciones.rules.js';
+import { artifactDeRecomendacion, esPruebaDeRecomendaciones } from '../recomendaciones-de-la-vuelta.js';
 
 export type DepsCatalogo = {
   busqueda: Pick<BusquedaService, 'buscar'>;
@@ -60,6 +63,8 @@ export type DepsCatalogo = {
   preguntas?: Pick<PreguntasService, 'imagenesParaEnviar'>;
   /** Módulo de envíos (LAU-102): el resolvedor de tarifas. Sin él (evals), consultar_envio no se ofrece. */
   envios?: Pick<EnviosService, 'resolver'>;
+  /** Recomendaciones del comercio (LAU-105). Sin él (evals), consultar_recomendacion sigue sin reglas. */
+  recomendaciones?: Pick<RecomendacionesService, 'consultar'>;
   /** Módulo de performance (LAU-30): qué productos vio o pidió el chat y si se derivó. Sin él (evals), nada. */
   registro?: Pick<
     RegistroPerformanceService,
@@ -71,7 +76,7 @@ export type DepsCatalogo = {
 type Resultado =
   | string
   | { texto: string; imagen: ImagenAEnviar | ImagenAEnviar[] }
-  | { texto: string; artifact: ReturnType<typeof artifactDeEnvio> };
+  | { texto: string; artifact: ReturnType<typeof artifactDeEnvio> | ReturnType<typeof artifactDeRecomendacion> };
 
 /**
  * Las fotos que salen solas con el listado de ver_catalogo, sea la lista
@@ -259,6 +264,19 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
     return { texto: formatearResolucionEnvio(resolucion), artifact: artifactDeEnvio(resolucion) };
   }
 
+  async function consultarRecomendacion(state: EstadoVentasValue, args: Args): Promise<Resultado> {
+    if (!deps.recomendaciones) return 'Las recomendaciones del comercio no están disponibles: respondé con el catálogo.';
+    const consulta: ConsultaRecomendacion = {
+      reglaIds: Array.isArray(args.reglaIds) ? args.reglaIds.map(String) : [],
+      ...(typeof args.productoId === 'string' ? { productoId: args.productoId } : {}),
+      ...(typeof args.respuesta === 'string' ? { respuesta: args.respuesta } : {}),
+      ...(typeof args.requisito === 'string' ? { requisito: args.requisito as EstadoRequisito } : {}),
+      incluirPausadas: esPruebaDeRecomendaciones(state.remoteJid),
+    };
+    const { resultado, texto } = await deps.recomendaciones.consultar(state.ownerUserId, consulta);
+    return { texto, artifact: artifactDeRecomendacion(resultado) };
+  }
+
   async function derivarConsulta(state: EstadoVentasValue, args: Args): Promise<string> {
     const { agent, conversation } = state.contexto;
     const titular = agent.nombreTitular || 'el negocio';
@@ -427,6 +445,8 @@ export function crearNodoCatalogo(deps: DepsCatalogo) {
         return derivarConsulta(state, args);
       case 'consultar_envio':
         return consultarEnvio(state, args);
+      case 'consultar_recomendacion':
+        return consultarRecomendacion(state, args);
       case 'listar_ventas':
       case 'resumen_ventas':
         return historicoDeVentas(state, operacion);
