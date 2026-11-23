@@ -11,7 +11,7 @@ async function armarAsistenteDeVentas(
   await page.goto('/contanos');
   await elegirAsistente(page, 'ventas');
   // Ventas no pregunta turnos ni horarios ni cómo vende (eso lo dice cada producto), sí por el local y,
-  // opcional, por los datos del cliente, por cómo cobra sin link y cuándo atiende: siete pasos.
+  // opcional, por los datos del cliente, por cómo cobra y cuándo atiende: siete pasos.
   await expect(visible(page.getByText('Paso 2 de 7'))).toBeVisible();
   await visible(page.getByLabel('¿Cómo se llama tu negocio?')).fill(negocio);
   await botonContinuar(page).click();
@@ -29,9 +29,14 @@ async function armarAsistenteDeVentas(
   // Los datos del cliente se pueden saltear.
   await expect(visible(page.getByRole('heading', { name: '¿Le pedís datos a tus clientes?' }))).toBeVisible();
   await botonContinuar(page).click();
-  // El cobro sin link: por defecto se coordina por el chat.
-  await expect(visible(page.getByRole('heading', { name: '¿Cómo cobrás los pedidos sin link de pago?' }))).toBeVisible();
-  if (opciones.cobro) await visible(page.getByRole('radio', { name: new RegExp(opciones.cobro) })).check();
+  // Cobra el asistente por defecto (con Mercado Pago, que se conecta después); cobrando
+  // el dueño aparecen las formas de cobro sin link.
+  await expect(visible(page.getByRole('heading', { name: '¿Cómo cobrás tus ventas?' }))).toBeVisible();
+  await expect(visible(page.getByRole('radio', { name: /Que cobre tu asistente/ }))).toHaveAttribute('aria-checked', 'true');
+  if (opciones.cobro) {
+    await visible(page.getByRole('radio', { name: /Lo cobrás vos/ })).click();
+    await visible(page.getByRole('radio', { name: new RegExp(opciones.cobro) })).check();
+  }
   await botonContinuar(page).click();
   await pasarHorarioAtencion(page);
   await visible(page.getByLabel('Nombre del asistente')).fill('Sol');
@@ -73,6 +78,9 @@ test.describe('onboarding de un comercio', () => {
     expect(agente.tipoAsistente).toBe('ventas');
     expect(agente.local).toEqual({ tieneLocal: false, horarios: [], retiroEnLocal: false });
     expect(agente.allowedActions).toEqual(expect.arrayContaining(['buscar_productos', 'crear_pedido']));
+    // Cobrando el asistente no se guarda cobro sin link: lo que no va por link se coordina por el chat.
+    const condiciones = await context.request.get(`${API_URL}/condiciones-pago`);
+    expect(((await condiciones.json()) as { cobroManual: unknown }).cobroManual).toBeNull();
 
     // La navegación de una cuenta de ventas: Inicio, Tratos y Rendimiento arriba, el catálogo agrupado, sin calendario.
     await page.goto('/inicio');

@@ -151,6 +151,14 @@ export type PasoId =
 export type Atencion = "individual" | "grupal" | "ambas";
 
 /**
+ * Quién cierra el cobro de un pedido de ventas: el asistente con un link de
+ * Mercado Pago (la cuenta del comercio, conectada por OAuth) o el dueño, con
+ * las formas de cobro sin link (LAU-34). Sólo ordena el onboarding: lo que
+ * decide si sale un link es que Mercado Pago esté conectado.
+ */
+export type QuienCobra = "asistente" | "vos";
+
+/**
  * Los pasos de cada asistente, en orden. Ventas no pide turnos ni franja: lo
  * que ofrece sale del catálogo, que se carga en /productos. Los dos piden
  * cuándo atiende el asistente por WhatsApp (LAU-29), que no es la franja de turnos.
@@ -174,7 +182,7 @@ export const PASOS: Record<TipoAsistente, Array<{ id: PasoId; label: string }>> 
     { id: "negocio", label: "Tu negocio" },
     { id: "local", label: "Tu local" },
     { id: "datos", label: "Datos del cliente" },
-    { id: "cobro", label: "Cobro sin link" },
+    { id: "cobro", label: "Cobro" },
     { id: "cuando", label: "Cuándo atiende" },
     { id: "asistente", label: "Tu asistente" },
   ],
@@ -205,7 +213,7 @@ export const AYUDA_POR_PASO: Record<PasoId, string> = {
   horarios: "Fuera de esta franja el asistente no ofrece horarios.",
   local: "Lo que no cargues, el asistente no lo inventa: te pasa la consulta a vos.",
   datos: "Es opcional: lo podés cambiar cuando quieras desde Cuenta.",
-  cobro: "Aplica a los pedidos que no van con link de Mercado Pago. Lo cambiás cuando quieras desde Cuenta.",
+  cobro: "Lo cambiás cuando quieras desde Cuenta. Los precios y totales los calcula Trato, no el asistente.",
   cuando:
     "Fuera de este horario el asistente no empieza chats nuevos: los ves vos en WhatsApp. Lo cambiás o lo sacás desde Cuenta.",
   asistente: "Así arranca cada conversación en WhatsApp.",
@@ -485,7 +493,10 @@ export function useOnboarding() {
   const [atenderSiempre, setAtenderSiempre] = useState(false);
   // Cobro sin link (LAU-34): no viaja con el asistente, se guarda aparte al crearlo.
   const [cobro, setCobro] = useState<BorradorCobro>(COBRO_INICIAL);
-  const cobroManual = aCobroManual(cobro);
+  const [quienCobra, setQuienCobra] = useState<QuienCobra>("asistente");
+  // Cobrando el asistente no se configura cobro sin link: lo que no va por link
+  // (dólares) se coordina por el chat, que es lo que queda sin guardar nada.
+  const cobroManual = quienCobra === "vos" ? aCobroManual(cobro) : null;
   const problemaCobro = problemaDeCobroManual(cobroManual);
 
   const elegirTipoUso = useCallback(
@@ -580,7 +591,10 @@ export function useOnboarding() {
     horarios: `${horaDesde}–${horaHasta}`,
     local: local.resumen,
     datos: datosCliente.resumen,
-    cobro: { chat: "Por el chat", transferencia: "Transferencia", otro_canal: "Otro canal" }[cobro.modo],
+    cobro:
+      quienCobra === "asistente"
+        ? "Con Mercado Pago"
+        : { chat: "Por el chat", transferencia: "Transferencia", otro_canal: "Otro canal" }[cobro.modo],
     cuando: atenderSiempre ? "Siempre" : `${diasConAtencion} ${diasConAtencion === 1 ? "día" : "días"}`,
     asistente: nombreBot.trim(),
   };
@@ -679,6 +693,8 @@ export function useOnboarding() {
     atenderSiempre,
     setAtenderSiempre,
     cobro,
+    quienCobra,
+    setQuienCobra,
     cambiarCobro: (cambio: Partial<BorradorCobro>) => setCobro((previo) => ({ ...previo, ...cambio })),
     problemaCobro,
     /** Lo que se guarda en PUT /condiciones-pago una vez creado el asistente de ventas. */
