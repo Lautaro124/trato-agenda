@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { AYUDA_POR_PASO, type Onboarding } from "@/app/contanos/useOnboarding";
-import { ControlesCobroManual } from "@/components/cuenta/ControlesCobroManual";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
@@ -25,6 +24,7 @@ import { ControlesLugar } from "./ControlesLugar";
 import { ElegirAsistente, ICONO_BOLSA } from "./ElegirAsistente";
 import { ElegirAtencion } from "./ElegirAtencion";
 import { ListaClases } from "./ListaClases";
+import { PasoCobro } from "./PasoCobro";
 import { VistaPreviaChat } from "./VistaPreviaChat";
 
 const TILDE = (
@@ -95,13 +95,6 @@ function RielPasos({ ob }: { ob: Onboarding }) {
           <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
             <span className="[&>svg]:size-[15px]">{ICONO_BOLSA}</span>
             Cargar tus productos
-          </p>
-          <p className="flex items-center gap-2 text-[13px] text-ink-secondary">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <rect x="3" y="6" width="18" height="13" rx="2" />
-              <path d="M3 10h18" />
-            </svg>
-            Conectar Mercado Pago
           </p>
         </div>
       )}
@@ -183,7 +176,7 @@ const TILDE_VERDE = (
 const PODERES_VENTAS = [
   "Buscar en tu catálogo y decir precio y stock",
   "Tomar el pedido y reservar la mercadería",
-  "Mandar el link de pago a tu nombre",
+  "Cobrar con Mercado Pago, directo a tu cuenta",
   "Pasarte lo que no sabe responder",
 ];
 
@@ -358,17 +351,10 @@ function ContenidoDelPaso({
         <>
           <Pregunta
             tituloRef={tituloRef}
-            titulo="¿Cómo cobrás los pedidos sin link de pago?"
-            bajada="Si el cliente no paga con Mercado Pago (dólares, efectivo o prefiere transferir), tu asistente le indica cómo pagarte. Los totales los calcula Trato."
+            titulo="¿Cómo cobrás tus ventas?"
+            bajada="Elegí si el cobro lo cierra tu asistente o si lo seguís vos. Los precios y totales salen de tu catálogo: el asistente nunca los inventa."
           />
-          <div className="max-w-[640px]">
-            <ControlesCobroManual cobro={ob.cobro} onCambio={ob.cambiarCobro} conMensaje={false} />
-            {ob.problemaCobro && ob.cobro.modo === "transferencia" && (ob.cobro.alias || ob.cobro.titular) && (
-              <p role="alert" className="mt-3 text-[13px] text-danger-text">
-                {ob.problemaCobro}
-              </p>
-            )}
-          </div>
+          <PasoCobro ob={ob} />
         </>
       );
 
