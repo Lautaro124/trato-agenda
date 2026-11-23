@@ -74,6 +74,37 @@ function PedidoDeDatos({ ob }: { ob: Onboarding }) {
   );
 }
 
+/** En el paso "cobro": cómo cierra el pedido según quién cobra y, si cobra el dueño, cómo. */
+function CierreDelCobro({ ob }: { ob: Onboarding }) {
+  const { haceEnvios, campos } = ob.datosCliente;
+  // PedidoDeDatos ya puso el "Dale, uno" cuando hay datos que pedir.
+  const sinDatos = !haceEnvios && campos.length === 0;
+  const cliente = sinDatos && <DelCliente>Dale, uno. Soy Martina</DelCliente>;
+  if (ob.quienCobra === "asistente") {
+    return (
+      <>
+        {cliente}
+        <DelAsistente>Te lo guardo 30 minutos, Martina. Pagalo desde este link:</DelAsistente>
+        <LinkDePago />
+      </>
+    );
+  }
+  const { modo, alias, titular } = ob.cobro;
+  const total = "Anoté tu pedido, Martina: son $ 8.000.";
+  const texto =
+    modo === "transferencia"
+      ? `${total} Transferí al alias ${alias.trim() || "tu.alias"}${titular.trim() ? `, a nombre de ${titular.trim()}` : ""}, y mandame el comprobante por acá.`
+      : modo === "otro_canal"
+        ? `${total} En un rato te escribimos para coordinar el pago.`
+        : `${total} ¿Cómo preferís pagarlo?`;
+  return (
+    <>
+      {cliente}
+      <DelAsistente>{texto}</DelAsistente>
+    </>
+  );
+}
+
 /** Lo que contestaría el asistente si le preguntan por el local, con lo cargado hasta ahora. */
 function respuestaDelLocal(ob: Onboarding): string {
   const { local } = ob;
@@ -148,6 +179,7 @@ export function VistaPreviaChat({ ob, className }: { ob: Onboarding; className?:
               </>
             )}
             {(paso === "datos" || paso === "cobro" || alFinal) && <PedidoDeDatos ob={ob} />}
+            {paso === "cobro" && <CierreDelCobro ob={ob} />}
           </>
         ) : (
           <>
