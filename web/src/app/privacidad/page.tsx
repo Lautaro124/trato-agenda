@@ -8,9 +8,9 @@ export const metadata = {
     "Qué datos trata Trato, cómo los protege, cuánto los conserva y cómo cumple la Google API Services User Data Policy, incluido el requisito de Limited Use.",
 };
 
-function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Seccion({ titulo, id, children }: { titulo: string; id?: string; children: React.ReactNode }) {
   return (
-    <section className="mt-6">
+    <section id={id} className="mt-6 scroll-mt-6">
       <h2 className="mb-2 font-display text-[16px] font-semibold text-ink">{titulo}</h2>
       <div className="space-y-2.5 text-[13.5px] leading-[1.65] text-ink-secondary">{children}</div>
     </section>
@@ -449,7 +449,7 @@ export default function PrivacidadPage() {
           </Lista>
         </Seccion>
 
-        <Seccion titulo="Cómo borrar tu cuenta y tus datos">
+        <Seccion titulo="Cómo borrar tu cuenta y tus datos" id="eliminar-datos">
           <p>
             Podés borrar todo vos mismo, sin escribirnos: en la aplicación, en{" "}
             <Fuerte>Cuenta → Eliminar mi cuenta</Fuerte>. Cuando lo hacés, en el mismo momento:

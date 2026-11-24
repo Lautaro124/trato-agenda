@@ -256,6 +256,15 @@ describe('WhatsappService — ramas de handleConnectionUpdate', () => {
       expect(connectSpy).not.toHaveBeenCalled();
     });
 
+    it('al desvincular descarta las ráfagas pendientes del dueño', async () => {
+      const { service } = crearServicio();
+      const descartar = vi.spyOn((service as unknown as { rafagas: { descartar(p: string): void } }).rafagas, 'descartar');
+
+      await service.unlink(userId);
+
+      expect(descartar).toHaveBeenCalledWith(`${userId}\n`);
+    });
+
     it('si al reintentar la sesión ya no está registrada en la base, no reconecta', async () => {
       const { service, connectSpy } = crearServicio();
 
