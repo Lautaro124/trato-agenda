@@ -177,8 +177,12 @@ export default function PrivacidadPage() {
           <p>
             Usamos tus datos únicamente para hacer funcionar el servicio que contrataste: coordinar
             turnos por WhatsApp y reflejarlos en tu agenda o, en un comercio, vender tus productos,
-            registrar los pedidos y avisarte. No hacemos publicidad, no hacemos perfilado con fines
-            comerciales y no vendemos datos a nadie.
+            registrar los pedidos y avisarte. No hacemos publicidad, no vendemos datos a nadie y no
+            usamos tus datos ni los de tus clientes para ningún otro fin. Lo único parecido a un
+            perfilado es el análisis de cada chat de ventas que ves en tu panel, y lo describimos
+            completo en «Datos de la venta» (más abajo): es una estimación para ayudarte a atender
+            mejor a ese cliente, no se usa para publicidad ni se comparte, y no decide nada sobre
+            él.
           </p>
           <p>
             <Fuerte>De tu calendario leemos lo mínimo.</Fuerte> Para calcular tu disponibilidad
@@ -244,17 +248,40 @@ export default function PrivacidadPage() {
             en una frase corta, su tema, el producto si era sobre uno y si quedó contestada.
           </p>
           <p>
-            <Fuerte>Datos de la venta.</Fuerte> En un chat de ventas, con cada mensaje del cliente el
-            modelo de decisiones que se describe abajo estima qué tan probable es la venta, el ánimo
-            del cliente, qué le importa más y qué señales de compra u objeciones mostró (de una lista
-            fija; no escribe texto). Además, cada pocos mensajes mandamos al mismo modelo de chat, con
-            la misma configuración de no retención, los últimos mensajes de texto con el mismo filtro
-            (sin emails, links ni números largos), para actualizar el resumen del cliente, lo que dijo
-            que quiere gastar y un próximo paso con un mensaje sugerido. Es la misma llamada que ya
-            actualiza el resumen, no una extra. Lo guardamos con esa conversación, sólo lo ves vos en
-            tu panel y nunca se le manda al cliente: el mensaje sugerido lo copiás y lo mandás vos si
-            querés. Son estimaciones de los modelos; los precios, cuotas y plazos que ves al lado salen
-            de tu catálogo.
+            <Fuerte>Datos de la venta (análisis de cada chat).</Fuerte> Es la única parte donde
+            inferimos algo sobre un cliente tuyo. Para qué: que veas qué chats conviene atender o
+            cerrar primero. Para quién: sólo para vos, en tu panel; no se le muestra al cliente, no
+            se comparte con nadie y no se usa para publicidad ni para entrenar modelos.
+          </p>
+          <Lista>
+            <Punto>
+              <Fuerte>Lo que dijo el cliente (dato declarado):</Fuerte> el presupuesto que mencionó,
+              tal como lo escribió, si lo dijo.
+            </Punto>
+            <Punto>
+              <Fuerte>Lo que estiman los modelos (inferencia):</Fuerte> qué tan probable es la venta
+              (de 0 a 100), el ánimo del cliente y su tendencia, qué le importa más, qué señales de
+              compra u objeciones mostró (de una lista fija), un resumen del cliente, un próximo paso
+              para vos y un mensaje sugerido que copiás y mandás vos si querés.
+            </Punto>
+          </Lista>
+          <p>
+            <Fuerte>Con qué datos y quién lo calcula.</Fuerte> En cada mensaje del cliente, el modelo
+            de decisiones que se describe abajo lee los últimos mensajes de la charla (sin el número,
+            con el nombre, los emails y los números largos tapados) y estima probabilidad, ánimo,
+            tema y señales; no escribe texto. Cada pocos mensajes, mandamos al mismo modelo de chat,
+            con la misma configuración de no retención y el mismo filtro, los últimos mensajes de
+            texto para actualizar el resumen, el presupuesto, el próximo paso y el mensaje sugerido.
+            Es la misma llamada que ya actualiza el resumen, no una extra.
+          </p>
+          <p>
+            <Fuerte>Límites.</Fuerte> Son estimaciones y pueden estar equivocadas: no son un hecho
+            sobre el cliente ni una garantía de que compre. Ni el modelo ni este análisis deciden si
+            se le vende ni qué se le cobra: los precios, cuotas y plazos salen de tu catálogo, y el
+            análisis lo ves vos, no lo usa el asistente para contestarle. Conservamos el análisis con esa
+            conversación y se borra junto con el nombre y el resumen del cliente a los 12 meses sin
+            actividad (o antes, si borrás tu cuenta). Si un cliente tuyo quiere que se lo borremos,
+            escribinos.
           </p>
           <p>
             Cuando un cliente pregunta qué vendés y tu catálogo es grande, el asistente le sugiere las
