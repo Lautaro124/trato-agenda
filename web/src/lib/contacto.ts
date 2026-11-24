@@ -17,5 +17,5 @@ export const DOMINIO = "tratoagenda.com";
  * que identificar a quién reclamarle, y la verificación OAuth de Google lo
  * mira: tiene que coincidir con el titular del proyecto en Cloud Console.
  */
-export const RESPONSABLE = "Raúl Gonzalez";
-export const CUIT = "20-22390119-1";
+export const RESPONSABLE = "LAUTARO GABRIEL GONZALEZ";
+export const CUIT = "20-42672267-5";

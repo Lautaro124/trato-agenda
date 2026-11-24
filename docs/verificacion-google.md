@@ -345,7 +345,7 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
 - [ ] **Probar los scopes de punta a punta** (ver abajo).
 - [ ] **Grabar y subir el video** como *unlisted* en YouTube.
 - [ ] **Verificar que el nombre del responsable coincida con la consola.** La
-      política y los términos declaran a **Raúl Gonzalez, CUIT 20-22390119-1**
+      política y los términos declaran a **LAUTARO GABRIEL GONZALEZ, CUIT 20-42672267-5**
       como responsable del tratamiento (`web/src/lib/contacto.ts`). El *developer
       contact* y el titular del proyecto Cloud tienen que ser la misma persona,
       o Google pregunta.
