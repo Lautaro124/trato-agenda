@@ -56,7 +56,7 @@ function PedidoDeDatos({ ob }: { ob: Onboarding }) {
   // "¿Envío o retiro?" sólo si además se puede retirar en el local.
   const eligeEntrega = haceEnvios && ob.local.tieneLocal && ob.local.retiroEnLocal;
   if (!haceEnvios && campos.length === 0) return null;
-  // "código postal", pero "DNI" sigue en mayúsculas.
+  // "código postal", pero una sigla (todo en mayúsculas) se deja como está.
   const lista = campos
     .map(({ etiqueta }) => (etiqueta === etiqueta.toUpperCase() ? etiqueta : etiqueta[0].toLowerCase() + etiqueta.slice(1)))
     .join(", ");

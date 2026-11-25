@@ -318,6 +318,9 @@ describe('reglasDeVenta', () => {
 
   it('no le recita la descripción al cliente', () => {
     expect(reglasDeVenta(agent, true)).toContain('no se la recites al cliente');
+    // LAU-106: nunca se pide el DNI, haya o no datos configurados.
+    expect(reglasDeVenta(agent, true)).toContain('Nunca le pidas al cliente su DNI');
+    expect(reglasDeVenta({ ...agent, datosCliente: [{ tipo: 'dni', obligatorio: true }] } as Agent, true)).not.toContain('"DNI"');
   });
 
   it('mientras el cliente sigue eligiendo no le pide datos', () => {

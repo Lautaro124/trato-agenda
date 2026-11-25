@@ -17,7 +17,12 @@ import {
   valorDeCuota,
   type CondicionesPago,
 } from '../../comercio/condiciones-pago.rules.js';
-import { leerConfigDatosCliente, reglaDeDatosCliente, type EtapaDeCompra } from '../../comercio/datos-cliente.rules.js';
+import {
+  leerConfigDatosCliente,
+  REGLA_SIN_DOCUMENTOS,
+  reglaDeDatosCliente,
+  type EtapaDeCompra,
+} from '../../comercio/datos-cliente.rules.js';
 import {
   detalleParaElModelo,
   diaCorto,
@@ -321,6 +326,7 @@ export function reglasDeVenta(
     `- El link de pago mandalo tal cual te lo devuelve crear_pedido, sin acortarlo ni cambiarlo, y avisale ` +
     `hasta qué hora vale.\n` +
     (reglaDatos ? `${reglaDatos}\n` : '') +
+    `${REGLA_SIN_DOCUMENTOS}\n` +
     (enviosActivo
       ? REGLA_ENVIOS +
         (leerLocal(agent)?.retiroEnLocal

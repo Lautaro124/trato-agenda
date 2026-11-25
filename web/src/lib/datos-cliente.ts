@@ -8,7 +8,7 @@ import { useCallback, useMemo, useState } from "react";
  * los del DTO, así que superarlos acá sería un 400.
  */
 
-export type TipoCampoEstandar = "codigoPostal" | "direccion" | "provincia" | "pais" | "email" | "dni";
+export type TipoCampoEstandar = "codigoPostal" | "direccion" | "provincia" | "pais" | "email";
 export type TipoCampo = TipoCampoEstandar | "personalizado";
 
 export const CAMPOS_ESTANDAR: Array<{ tipo: TipoCampoEstandar; etiqueta: string }> = [
@@ -17,8 +17,15 @@ export const CAMPOS_ESTANDAR: Array<{ tipo: TipoCampoEstandar; etiqueta: string 
   { tipo: "provincia", etiqueta: "Provincia" },
   { tipo: "pais", etiqueta: "País" },
   { tipo: "email", etiqueta: "Email" },
-  { tipo: "dni", etiqueta: "DNI" },
 ];
+
+/**
+ * El asistente no pide documentos de identidad (LAU-106): ni como campo
+ * estándar ni como dato propio. Espejo de `esEtiquetaDeDocumento` en la API.
+ */
+function pideDocumento(texto: string): boolean {
+  return /dni|documento|cuil|pasaporte|cedula/.test(clave(texto));
+}
 
 export const MAX_CAMPOS_PERSONALIZADOS = 5;
 export const LARGO_MIN_ETIQUETA = 2;
@@ -105,6 +112,10 @@ export function useDatosCliente(inicial?: { haceEnvios: boolean; datosCliente: C
     const etiqueta = nuevo.replace(/\s+/g, " ").trim().slice(0, LARGO_MAX_ETIQUETA);
     if (etiqueta.length < LARGO_MIN_ETIQUETA) {
       setAvisoNuevo(`Escribí al menos ${LARGO_MIN_ETIQUETA} letras.`);
+      return;
+    }
+    if (pideDocumento(etiqueta)) {
+      setAvisoNuevo("El asistente no pide el DNI ni otros documentos de identidad.");
       return;
     }
     const nueva = clave(etiqueta);

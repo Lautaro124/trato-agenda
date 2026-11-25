@@ -2,7 +2,27 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
-import { GenerateAgentDto, leerTiposEvento } from './agents.types.js';
+import { ActualizarDatosClienteDto, GenerateAgentDto, leerTiposEvento } from './agents.types.js';
+
+describe('ActualizarDatosClienteDto (LAU-106)', () => {
+  const validar = (datosCliente: unknown[]) =>
+    validate(plainToInstance(ActualizarDatosClienteDto, { haceEnvios: false, datosCliente }), { whitelist: true });
+
+  it('rechaza activar el DNI, como campo estándar o con un dato propio', async () => {
+    expect(await validar([{ tipo: 'dni', obligatorio: true }])).not.toHaveLength(0);
+    expect(await validar([{ tipo: 'personalizado', etiqueta: 'DNI', obligatorio: true }])).not.toHaveLength(0);
+    expect(await validar([{ tipo: 'personalizado', etiqueta: 'Nro. de documento', obligatorio: false }])).not.toHaveLength(0);
+  });
+
+  it('acepta el resto de los datos', async () => {
+    expect(
+      await validar([
+        { tipo: 'email', obligatorio: true },
+        { tipo: 'personalizado', etiqueta: 'Entre calles', obligatorio: false },
+      ]),
+    ).toHaveLength(0);
+  });
+});
 
 const base = {
   tipoTitular: 'negocio',
