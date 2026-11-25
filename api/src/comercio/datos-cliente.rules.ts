@@ -352,7 +352,7 @@ export function pideDocumentoEnTexto(texto: string): boolean {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
-    .replace(/\./g, '');
+    .replaceAll('.', '');
   return /\b(?:dni|documentos?|cuil|pasaporte|cedula)\b/.test(limpio);
 }
 
