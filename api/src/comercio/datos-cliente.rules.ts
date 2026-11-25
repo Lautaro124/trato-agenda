@@ -343,6 +343,20 @@ export function reglaDeDatosCliente(
 }
 
 /**
+ * ¿Un texto libre (la pregunta de un pedido, su ayuda) pide un documento de
+ * identidad? Por palabras completas y no por subcadena: el texto es largo y,
+ * sin espacios, "red ni" formaría "dni". "D.N.I." cuenta como "dni".
+ */
+export function pideDocumentoEnTexto(texto: string): boolean {
+  const limpio = texto
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replaceAll('.', '');
+  return /\b(?:dni|documentos?|cuil|pasaporte|cedula)\b/.test(limpio);
+}
+
+/**
  * Siempre va en las reglas de venta, haya o no datos configurados: el
  * asistente no pide documentos de identidad aunque el cliente los ofrezca o un
  * comercio con una configuración vieja los hubiera pedido (LAU-106).
