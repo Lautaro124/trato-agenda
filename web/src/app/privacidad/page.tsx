@@ -250,10 +250,13 @@ export default function PrivacidadPage() {
             en una frase corta, su tema, el producto si era sobre uno y si quedó contestada.
           </p>
           <p>
-            <Fuerte>Datos de la venta (análisis de cada chat).</Fuerte> Es la única parte donde
-            inferimos algo sobre un cliente tuyo. Para qué: que veas qué chats conviene atender o
-            cerrar primero. Para quién: sólo para vos, en tu panel; no se le muestra al cliente, no
-            se comparte con nadie y no se usa para publicidad ni para entrenar modelos.
+            <Fuerte>Datos de la venta (análisis de cada chat).</Fuerte> Además de las recomendaciones
+            de productos y de saber si el cliente ya terminó de elegir (que describimos más abajo),
+            este es el análisis que infiere cómo viene la venta con cada cliente tuyo. Para qué: que
+            veas qué chats conviene atender o cerrar primero. Para quién: sólo para vos, en tu panel;
+            no se le muestra al cliente, no se comparte con otros comercios ni con terceros, y no se
+            usa para publicidad ni para entrenar modelos. Lo procesan únicamente los proveedores de
+            IA que describimos en esta sección, con la configuración de no retención.
           </p>
           <Lista>
             <Punto>

@@ -96,6 +96,53 @@ describe('normalizarPreguntas', () => {
     expect(aclaracion).toMatchObject({ tipo: 'texto', ayuda: 'Ej.: es para regalo', opciones: [] });
   });
 
+  describe('no pide documentos de identidad (LAU-106)', () => {
+    const conDni = [
+      { id: 'dni', texto: '¿Cuál es tu DNI?', tipo: 'texto', obligatoria: true, alcance: 'global' },
+      {
+        id: 'tipo',
+        texto: '¿Qué tipo querés?',
+        tipo: 'opciones',
+        obligatoria: false,
+        alcance: 'global',
+        opciones: [{ id: 'a', texto: 'A' }],
+      },
+      {
+        id: 'depende',
+        texto: '¿Y el número?',
+        tipo: 'texto',
+        obligatoria: true,
+        dependeDe: { preguntaId: 'dni', siRespuestas: [] },
+      },
+    ];
+
+    it.each(['¿Cuál es tu DNI?', 'Pasame tu D.N.I.', 'Número de documento', 'Tu CUIL', '¿Pasaporte?'])(
+      'rechaza al guardar la pregunta %j',
+      (texto) => {
+        const resultado = normalizarPreguntas([{ id: 'p', texto, tipo: 'texto', obligatoria: true, alcance: 'global' }]);
+        expect(resultado).toEqual({ error: expect.stringContaining('documento de identidad') });
+      },
+    );
+
+    it('rechaza una ayuda que lo pida', () => {
+      const resultado = normalizarPreguntas([
+        { id: 'p', texto: 'Datos', tipo: 'texto', ayuda: 'Ej.: tu DNI', obligatoria: false, alcance: 'global' },
+      ]);
+      expect(resultado).toEqual({ error: expect.stringContaining('documento de identidad') });
+    });
+
+    it('al leer lo guardado saca la pregunta del DNI y las que dependen de ella, y deja el resto', () => {
+      expect(leerPreguntas(conDni).map((pregunta) => pregunta.id)).toEqual(['tipo']);
+    });
+
+    it('no confunde texto común con un documento', () => {
+      const resultado = normalizarPreguntas([
+        { id: 'p', texto: '¿Querés el verde ni el rojo? Es para redni', tipo: 'texto', obligatoria: false, alcance: 'global' },
+      ]);
+      expect(resultado).toMatchObject({ preguntas: [{ id: 'p' }] });
+    });
+  });
+
   it('acepta lista vacía o null como sin preguntas', () => {
     expect(normalizarPreguntas([])).toEqual({ preguntas: [] });
     expect(normalizarPreguntas(null)).toEqual({ preguntas: [] });
