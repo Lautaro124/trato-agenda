@@ -1,22 +1,35 @@
 import type { ConfigService } from '@nestjs/config';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../config/env.js';
+import type { Email, EmailService } from '../email/email.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { WhatsappService } from '../whatsapp/whatsapp.service.js';
-import { CodigoAccesoService, MAX_INTENTOS_POR_CODIGO, mensajeConCodigo } from './codigo-acceso.service.js';
+import { CodigoAccesoService, emailConCodigo, MAX_INTENTOS_POR_CODIGO, mensajeConCodigo } from './codigo-acceso.service.js';
 
 type FilaCodigo = { id: string; userId: string; hash: string; expiraAt: Date; intentos: number; createdAt: Date };
 
 const TELEFONO = '5491122334455';
 
-function crear(opciones: { nodeEnv?: string; socketVivo?: boolean; hayUsuario?: boolean } = {}) {
+const EMAIL = 'titular@ejemplo.com';
+
+function crear(
+  opciones: {
+    nodeEnv?: string;
+    socketVivo?: boolean;
+    hayUsuario?: boolean;
+    /** Email de recuperación verificado de la cuenta (LAU-109). */
+    emailRecuperacion?: string | null;
+    /** Si el proveedor de email acepta el envío. */
+    emailOk?: boolean;
+  } = {},
+) {
   let codigos: FilaCodigo[] = [];
   const prisma = {
     user: {
       // La búsqueda prueba varias formas del mismo número: alcanza con que una sea la del usuario.
       findMany: vi.fn().mockImplementation(({ where }: { where: { phoneNumber: { in: string[] } } }) =>
         opciones.hayUsuario !== false && where.phoneNumber.in.includes(TELEFONO)
-          ? [{ id: 'user-1', phoneNumber: TELEFONO }]
+          ? [{ id: 'user-1', phoneNumber: TELEFONO, emailRecuperacion: opciones.emailRecuperacion ?? null }]
           : [],
       ),
     },
@@ -50,18 +63,29 @@ function crear(opciones: { nodeEnv?: string; socketVivo?: boolean; hayUsuario?: 
     }),
   } as unknown as WhatsappService;
 
+  const emailsEnviados: Email[] = [];
+  const emails = {
+    enviar: vi.fn().mockImplementation((email: Email) => {
+      if (opciones.emailOk === false) return Promise.resolve(false);
+      emailsEnviados.push(email);
+      return Promise.resolve(true);
+    }),
+  } as unknown as EmailService;
+
   const config = {
     get: () => opciones.nodeEnv ?? 'development',
   } as unknown as ConfigService<Env, true>;
 
-  const service = new CodigoAccesoService(prisma, whatsapp, config);
+  const service = new CodigoAccesoService(prisma, whatsapp, emails, config);
   const pedir = async (ip = '1.1.1.1') => {
     service.solicitar(TELEFONO, ip);
     await service.pendiente;
   };
   const codigoEnviado = () => enviados.at(-1)!.match(/\d{6}/)![0];
 
-  return { service, prisma, whatsapp, pedir, codigoEnviado, filas: () => codigos };
+  const codigoPorEmail = () => emailsEnviados.at(-1)!.texto.match(/\d{6}/)![0];
+
+  return { service, prisma, whatsapp, emails, emailsEnviados, pedir, codigoEnviado, codigoPorEmail, filas: () => codigos };
 }
 
 describe('CodigoAccesoService', () => {
@@ -147,6 +171,65 @@ describe('CodigoAccesoService', () => {
     expect(codigo).toMatch(/^\d{6}$/);
     await expect(service.verificar(TELEFONO, codigo!)).resolves.toMatchObject({ id: 'user-1' });
     expect(service.ultimoCodigoDev(TELEFONO)).toBeNull();
+  });
+
+  describe('recuperación sin Baileys (LAU-109)', () => {
+    it('en producción con WhatsApp desconectado el código llega al email verificado y sirve', async () => {
+      const { service, pedir, emails, whatsapp, codigoPorEmail, filas } = crear({
+        nodeEnv: 'production',
+        emailRecuperacion: EMAIL,
+      });
+
+      await pedir();
+
+      expect(whatsapp.enviarAlPropioChat).toHaveBeenCalled();
+      expect(emails.enviar).toHaveBeenCalledWith(expect.objectContaining({ para: EMAIL }));
+      expect(filas()).toHaveLength(1);
+      await expect(service.verificar(TELEFONO, codigoPorEmail())).resolves.toMatchObject({ id: 'user-1' });
+    });
+
+    it('con los dos canales el mismo código sale por WhatsApp y por email', async () => {
+      const { pedir, codigoEnviado, codigoPorEmail } = crear({
+        nodeEnv: 'production',
+        socketVivo: true,
+        emailRecuperacion: EMAIL,
+      });
+
+      await pedir();
+
+      expect(codigoPorEmail()).toBe(codigoEnviado());
+    });
+
+    it('sin email de recuperación no manda ningún email', async () => {
+      const { pedir, emails } = crear({ nodeEnv: 'production', socketVivo: true });
+
+      await pedir();
+
+      expect(emails.enviar).not.toHaveBeenCalled();
+    });
+
+    it('si falla el email y no hay socket no deja un código huérfano', async () => {
+      const { pedir, filas } = crear({ nodeEnv: 'production', emailRecuperacion: EMAIL, emailOk: false });
+
+      await pedir();
+
+      expect(filas()).toHaveLength(0);
+    });
+
+    it('un número sin cuenta no manda emails: el 202 no delata nada', async () => {
+      const { pedir, emails } = crear({ nodeEnv: 'production', hayUsuario: false });
+
+      await pedir();
+
+      expect(emails.enviar).not.toHaveBeenCalled();
+    });
+
+    it('el email trae el código y cuánto dura', () => {
+      const { asunto, texto } = emailConCodigo('654321');
+      expect(asunto).not.toContain('654321');
+      expect(texto).toContain('654321');
+      expect(texto).toContain('10 minutos');
+    });
   });
 
   it('el mensaje dice cuánto dura el código', () => {

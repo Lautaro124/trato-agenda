@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { AgentsModule } from '../agents/agents.module.js';
 import { CalendarModule } from '../calendar/calendar.module.js';
 import { ConversationModule } from '../conversation/conversation.module.js';
+import { EmailModule } from '../email/email.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { WhatsappModule } from '../whatsapp/whatsapp.module.js';
 import { CuentaService } from './cuenta.service.js';
@@ -14,6 +15,7 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
 import { DevAuthController } from './dev-auth.controller.js';
+import { EmailRecuperacionService } from './email-recuperacion.service.js';
 import { GoogleStrategy } from './google.strategy.js';
 import { AltaGuard } from './guards/alta.guard.js';
 import { JwtStrategy } from './jwt.strategy.js';
@@ -34,6 +36,8 @@ import { loginDevPermitido } from './usuario-dev.js';
     WhatsappModule,
     SubscriptionModule,
     ConversationModule,
+    // Email de recuperación y códigos de acceso sin WhatsApp (LAU-109).
+    EmailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -54,6 +58,7 @@ import { loginDevPermitido } from './usuario-dev.js';
     CuentaService,
     AltaWhatsappService,
     CodigoAccesoService,
+    EmailRecuperacionService,
     LoginWhatsappService,
     AltaGuard,
     GoogleStrategy,

@@ -28,6 +28,14 @@ describe('LoginWhatsappService.entrar', () => {
     await expect(service.entrar(TELEFONO, 'clave-correcta', 'ip')).resolves.toMatchObject({ id: 'user-1' });
   });
 
+  it('entra aunque WhatsApp esté desconectado: no consulta la sesión de Baileys (LAU-109)', async () => {
+    const { service, prisma } = await crear();
+
+    await expect(service.entrar(TELEFONO, 'clave-correcta', 'ip')).resolves.toMatchObject({ id: 'user-1' });
+    // El servicio ni recibe WhatsappService: sólo lee la cuenta y compara la contraseña.
+    expect(Object.keys(prisma)).toEqual(['user']);
+  });
+
   it('contraseña mala, número sin cuenta y cuenta sin contraseña dan el mismo 401', async () => {
     const mala = await crear();
     const sinCuenta = await crear({ hayUsuario: false });

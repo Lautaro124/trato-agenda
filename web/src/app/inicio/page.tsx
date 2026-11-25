@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { AvisoEmailRecuperacion } from "@/components/AvisoEmailRecuperacion";
 import { AvisoSuscripcion } from "@/components/AvisoSuscripcion";
 import { BandejaChats } from "@/components/chats/BandejaChats";
 import { ColumnaVentas } from "@/components/inicio/ColumnaVentas";
@@ -67,6 +68,7 @@ export default function InicioPage() {
             </Link>
           </div>
         )}
+        {!user.debePonerPassword && <AvisoEmailRecuperacion user={user} />}
         <BandejaChats
           ventas={user.tipoAsistente === "ventas"}
           // Una tienda sin chats todavía: lo que le falta para que el asistente venda.
