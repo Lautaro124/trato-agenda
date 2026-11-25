@@ -340,7 +340,7 @@ function ContenidoDelPaso({
           <Pregunta
             tituloRef={tituloRef}
             titulo="¿Le pedís datos a tus clientes?"
-            bajada="Opcional. Si hacés envíos o necesitás algo más que el nombre (un email, el DNI), el asistente se lo pide antes de cerrar el pedido. Lo podés saltear y cambiar después desde Cuenta."
+            bajada="Opcional. Si hacés envíos o necesitás algo más que el nombre (un email, la dirección), el asistente se lo pide antes de cerrar el pedido. Lo podés saltear y cambiar después desde Cuenta."
           />
           <EditorDatosCliente datos={ob.datosCliente} puedeRetirar={ob.local.tieneLocal && ob.local.retiroEnLocal} />
         </>

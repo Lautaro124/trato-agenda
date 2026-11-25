@@ -21,6 +21,7 @@
  * ImagenPregunta, referidas por id.
  */
 import { normalizarTexto } from './catalogo.rules.js';
+import { pideDocumentoEnTexto } from './datos-cliente.rules.js';
 
 export const MAX_PREGUNTAS = 40;
 export const MAX_OPCIONES_POR_RAMA = 12;
@@ -184,6 +185,9 @@ function normalizarPregunta(
   const texto = limpiar(cruda.texto);
   if (!texto) return { error: `${lugar} está vacía.` };
   if (texto.length > LARGOS_PREGUNTA.texto) return { error: `${lugar} tiene más de ${LARGOS_PREGUNTA.texto} caracteres.` };
+  if (pideDocumentoEnTexto(texto) || (typeof cruda.ayuda === 'string' && pideDocumentoEnTexto(cruda.ayuda))) {
+    return { error: `${lugar} pide un documento de identidad: el asistente no puede pedir el DNI ni similares.` };
+  }
   if (!(TIPOS_PREGUNTA as readonly unknown[]).includes(cruda.tipo)) return { error: `${lugar} tiene un tipo inválido.` };
   const tipo = cruda.tipo as TipoPregunta;
   if (cruda.imagenId !== null && cruda.imagenId !== undefined && !esId(cruda.imagenId)) {
@@ -256,6 +260,16 @@ function normalizarPregunta(
   return { valor: { ...base, ayuda: null, opciones: lista.valor, otra } };
 }
 
+/** ¿Es una pregunta guardada que pide un documento, o depende de una que se omitió por eso? */
+function pidePapeles(cruda: Record<string, unknown>, omitidas: Set<string>): boolean {
+  const depende = cruda.dependeDe;
+  if (esObjeto(depende) && typeof depende.preguntaId === 'string' && omitidas.has(depende.preguntaId)) return true;
+  return (
+    (typeof cruda.texto === 'string' && pideDocumentoEnTexto(cruda.texto)) ||
+    (typeof cruda.ayuda === 'string' && pideDocumentoEnTexto(cruda.ayuda))
+  );
+}
+
 /**
  * Las preguntas del formulario, validadas y en orden. `estricto` (al guardar)
  * aplica además los topes de cantidad; lo leído de la base se acepta aunque
@@ -271,7 +285,14 @@ export function normalizarPreguntas(
     return { error: `Podés tener hasta ${MAX_PREGUNTAS} preguntas.` };
   }
   const preguntas: PreguntaPedido[] = [];
+  // Lo guardado antes de LAU-106 puede tener una pregunta que pide el DNI: al leerla se
+  // saca (y las que dependen de ella), así no traba el pedido ni se le hace al cliente.
+  const omitidas = new Set<string>();
   for (const [indice, cruda] of entrada.entries()) {
+    if (!opciones.estricto && esObjeto(cruda) && pidePapeles(cruda, omitidas)) {
+      if (typeof cruda.id === 'string') omitidas.add(cruda.id);
+      continue;
+    }
     const pregunta = normalizarPregunta(cruda, indice, preguntas, opciones);
     if ('error' in pregunta) return pregunta;
     preguntas.push(pregunta.valor);

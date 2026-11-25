@@ -491,6 +491,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   /** Cierra la sesión y borra las credenciales guardadas. */
   async unlink(userId: string): Promise<void> {
+    // Lo que un cliente escribió y todavía no se contestó (o se está armando)
+    // no sale: tras la baja de la cuenta no tiene a quién responderle.
+    this.rafagas.descartar(`${userId}\n`);
     const socketVivo = this.sockets.get(userId);
     if (socketVivo) {
       // Dispara connection.update con loggedOut, que hace la limpieza (ver handleConnectionUpdate).

@@ -142,8 +142,13 @@ export default function TerminosPage() {
           <p>
             Podés borrar tu cuenta y todos tus datos vos mismo, desde <strong className="font-semibold text-ink">Cuenta → Eliminar mi cuenta</strong>{" "}
             en la aplicación: eso desvincula tu WhatsApp, revoca el acceso a tu Google Calendar si lo
-            habías conectado, borra los tokens de tu cuenta de Mercado Pago y borra todo, sin pasar por
-            nosotros. Si preferís que lo hagamos, escribinos a{" "}
+            habías conectado, borra los tokens de tu cuenta de Mercado Pago y borra tus datos, sin pasar por
+            nosotros. Hay excepciones, que detallamos en la{" "}
+            <a href="/privacidad#eliminar-datos" className="text-link">
+              Política de Privacidad
+            </a>
+            : los eventos que ya están en tu Google Calendar, tu autorización del lado de Mercado
+            Pago y una huella irreversible que evita reiniciar la prueba gratis. Si preferís que lo hagamos, escribinos a{" "}
             <a href={`mailto:${EMAIL_SOPORTE}`} className="text-link">
               {EMAIL_SOPORTE}
             </a>

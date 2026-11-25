@@ -49,7 +49,7 @@ export class AgentsController {
     return aAgentPublico(agent);
   }
 
-  /** Qué datos le pide el asistente de ventas al cliente (envío, DNI, campos propios). */
+  /** Qué datos le pide el asistente de ventas al cliente (envío, email, campos propios). */
   @Put('me/datos-cliente')
   async actualizarDatosCliente(
     @CurrentUser() user: User,

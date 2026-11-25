@@ -14,6 +14,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateBy,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
@@ -35,6 +36,7 @@ import {
   type HorarioGrupal,
 } from './turnos-grupales.js';
 import {
+  esEtiquetaDeDocumento,
   LARGO_MAX_ETIQUETA,
   leerConfigDatosCliente,
   MAX_CAMPOS,
@@ -233,6 +235,13 @@ export class CampoClienteDto {
   @ValidateIf((campo: CampoClienteDto) => campo.tipo === 'personalizado' || campo.etiqueta !== undefined)
   @IsString()
   @MaxLength(LARGO_MAX_ETIQUETA)
+  @ValidateBy({
+    name: 'etiquetaSinDocumento',
+    validator: {
+      validate: (valor: unknown) => typeof valor !== 'string' || !esEtiquetaDeDocumento(valor),
+      defaultMessage: () => 'El asistente no puede pedir el DNI ni otros documentos de identidad.',
+    },
+  })
   etiqueta?: string;
 
   @IsBoolean()
