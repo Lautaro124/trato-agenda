@@ -50,12 +50,19 @@ const BURBUJA: Record<MensajeChat["de"], string> = {
  * El texto en párrafos: una línea en blanco separa con un respiro corto en
  * vez de un renglón vacío entero, que en pantallas chicas comía la mitad del chat.
  */
-function parrafos(texto: string | null | undefined): string[] {
+function parrafos(texto: string | null | undefined): { texto: string; desde: number }[] {
   if (!texto) return [];
-  return texto
-    .split(/\n[ \t]*\n\s*/)
-    .map((parrafo) => parrafo.trim())
-    .filter(Boolean);
+  // `desde` (dónde empieza en el mensaje) sirve de key estable, aunque dos párrafos digan lo mismo.
+  const resultado: { texto: string; desde: number }[] = [];
+  let desde = 0;
+  for (const separador of texto.matchAll(/\n[ \t]*\n\s*/g)) {
+    const parrafo = texto.slice(desde, separador.index).trim();
+    if (parrafo) resultado.push({ texto: parrafo, desde });
+    desde = separador.index + separador[0].length;
+  }
+  const ultimo = texto.slice(desde).trim();
+  if (ultimo) resultado.push({ texto: ultimo, desde });
+  return resultado;
 }
 
 const AUTOR: Record<Exclude<MensajeChat["de"], "cliente">, { texto: string; color: string }> = {
@@ -206,14 +213,14 @@ export function Conversacion({
               )}
               {mensaje.imagenes && mensaje.imagenes.length > 0 && (
                 <span className="mt-1 mb-1 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                  {mensaje.imagenes.map((imagen, i) => (
-                    <FotoEnviada key={i} imagen={imagen} />
+                  {mensaje.imagenes.map((imagen) => (
+                    <FotoEnviada key={urlImagenEnviada(imagen)} imagen={imagen} />
                   ))}
                 </span>
               )}
               {parrafos(mensaje.texto).map((parrafo, i, todos) => (
-                <span key={i} className={cn("block break-words whitespace-pre-line", i > 0 && "mt-1")}>
-                  {parrafo}
+                <span key={parrafo.desde} className={cn("block break-words whitespace-pre-line", i > 0 && "mt-1")}>
+                  {parrafo.texto}
                   {/* Reserva el lugar de la hora en el último renglón, así no ocupa uno propio. */}
                   {i === todos.length - 1 && (
                     <span aria-hidden className="invisible ml-2 text-[11px]">
