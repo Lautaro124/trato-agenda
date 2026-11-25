@@ -17,7 +17,12 @@ import { leerLocal } from '../agents/local.js';
 import type { Agent } from '../generated/prisma/client.js';
 
 
-export const TIPOS_CAMPO_ESTANDAR = ['codigoPostal', 'direccion', 'provincia', 'pais', 'email', 'dni'] as const;
+/**
+ * El DNI no está (LAU-106): el asistente no pide documentos de identidad por
+ * WhatsApp. Una configuración vieja con `dni` se lee sin ese campo (ver
+ * `normalizarCampos`), así los pedidos se completan igual.
+ */
+export const TIPOS_CAMPO_ESTANDAR = ['codigoPostal', 'direccion', 'provincia', 'pais', 'email'] as const;
 export type TipoCampoEstandar = (typeof TIPOS_CAMPO_ESTANDAR)[number];
 
 export const TIPOS_CAMPO = [...TIPOS_CAMPO_ESTANDAR, 'personalizado'] as const;
@@ -29,8 +34,17 @@ export const ETIQUETAS_CAMPO: Record<TipoCampoEstandar, string> = {
   provincia: 'Provincia',
   pais: 'País',
   email: 'Email',
-  dni: 'DNI',
 };
+
+/**
+ * ¿La etiqueta de un dato propio pide un documento de identidad ("DNI",
+ * "Nro. de documento", "CUIL", "Pasaporte")? Se compara sin tildes, mayúsculas
+ * ni separadores, para que "D.N.I." y "d n i" caigan igual. Los comercios no
+ * pueden reintroducir por esta vía lo que se sacó de los campos estándar.
+ */
+export function esEtiquetaDeDocumento(etiqueta: string): boolean {
+  return /dni|documento|cuil|pasaporte|cedula/.test(claveDeCampo(etiqueta));
+}
 
 /** Datos propios del comercio ("Entre calles", "Horario de entrega"). */
 export const MAX_CAMPOS_PERSONALIZADOS = 5;
@@ -99,7 +113,7 @@ export function normalizarCampos(
     } else if (campo.tipo === 'personalizado' && typeof campo.etiqueta === 'string') {
       const etiqueta = limpiarEtiqueta(campo.etiqueta);
       const clave = claveDeCampo(etiqueta);
-      if (etiqueta.length < LARGO_MIN_ETIQUETA || !clave || vistas.has(clave)) continue;
+      if (etiqueta.length < LARGO_MIN_ETIQUETA || !clave || vistas.has(clave) || esEtiquetaDeDocumento(etiqueta)) continue;
       if (personalizados >= MAX_CAMPOS_PERSONALIZADOS) continue;
       vistas.add(clave);
       personalizados++;
@@ -173,16 +187,11 @@ export function camposAPedir(config: ConfigDatosCliente, entrega: Entrega | null
 
 // Las etiquetas del dominio no llevan puntos: sin cuantificadores superpuestos, no hay backtracking (ReDoS).
 const EMAIL = /^[^\s@]{1,64}@[^\s@.]+(?:\.[^\s@.]+)+$/;
-const DNI = /^\d{6,10}$/;
 
-/** Corrige lo que se puede corregir sin adivinar (puntos del DNI) o devuelve el problema. */
+/** Revisa lo que se puede revisar (hoy, el email) o devuelve el problema. */
 function revisarValor(campo: CampoCliente, valor: string): { valor: string } | { problema: string } {
   if (campo.tipo === 'email') {
     return EMAIL.test(valor) ? { valor } : { problema: `el email ${JSON.stringify(valor)} no parece válido` };
-  }
-  if (campo.tipo === 'dni') {
-    const digitos = valor.replace(/[\s.-]/g, '');
-    return DNI.test(digitos) ? { valor: digitos } : { problema: `el DNI ${JSON.stringify(valor)} no parece válido` };
   }
   return { valor };
 }
@@ -332,6 +341,16 @@ export function reglaDeDatosCliente(
   }
   return lineas.join('\n');
 }
+
+/**
+ * Siempre va en las reglas de venta, haya o no datos configurados: el
+ * asistente no pide documentos de identidad aunque el cliente los ofrezca o un
+ * comercio con una configuración vieja los hubiera pedido (LAU-106).
+ */
+export const REGLA_SIN_DOCUMENTOS =
+  '- Nunca le pidas al cliente su DNI ni otro número de documento de identidad (CUIL, pasaporte, cédula), ' +
+  'aunque te lo ofrezca o una regla de acá parezca pedirlo. Si lo escribe solo, no lo repitas ni lo mandes en ' +
+  '"datosCliente": seguí sin él.';
 
 /** "Código postal: 1414 · Dirección: Corrientes 1234", para el CSV y el chat del dueño. */
 export function resumenDeDatos(datos: DatoCliente[]): string {

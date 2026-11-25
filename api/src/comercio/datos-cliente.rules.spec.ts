@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   camposAPedir,
+  esEtiquetaDeDocumento,
   leerCamposCliente,
   leerConfigDatosCliente,
   leerDatosDeVenta,
@@ -17,7 +18,7 @@ const SIN_ENVIOS: ConfigDatosCliente = {
   puedeRetirar: false,
   campos: [
     { tipo: 'email', etiqueta: 'Email', obligatorio: true },
-    { tipo: 'dni', etiqueta: 'DNI', obligatorio: false },
+    { tipo: 'personalizado', etiqueta: 'Barrio', obligatorio: false },
   ],
 };
 
@@ -50,6 +51,21 @@ describe('normalizarCampos', () => {
     ]);
   });
 
+  it('no deja activar el DNI ni reintroducirlo con un dato propio (LAU-106)', () => {
+    expect(
+      normalizarCampos([
+        { tipo: 'dni', obligatorio: true },
+        { tipo: 'personalizado', etiqueta: 'DNI', obligatorio: true },
+        { tipo: 'personalizado', etiqueta: 'D.N.I.', obligatorio: true },
+        { tipo: 'personalizado', etiqueta: 'Número de documento', obligatorio: true },
+        { tipo: 'personalizado', etiqueta: 'CUIL', obligatorio: false },
+        { tipo: 'personalizado', etiqueta: 'Pasaporte', obligatorio: false },
+        { tipo: 'personalizado', etiqueta: 'Entre calles', obligatorio: false },
+      ]),
+    ).toEqual([{ tipo: 'personalizado', etiqueta: 'Entre calles', obligatorio: false }]);
+    expect(esEtiquetaDeDocumento('Horario de entrega')).toBe(false);
+  });
+
   it(`acepta hasta ${MAX_CAMPOS_PERSONALIZADOS} personalizados`, () => {
     const muchos = Array.from({ length: 8 }, (_, i) => ({ tipo: 'personalizado', etiqueta: `Dato ${i}`, obligatorio: false }));
     expect(normalizarCampos(muchos)).toHaveLength(MAX_CAMPOS_PERSONALIZADOS);
@@ -68,6 +84,20 @@ describe('lectura de las columnas Json', () => {
     // Sin local cargado no hay retiro.
     expect(leerConfigDatosCliente({ haceEnvios: true, datosCliente: [] }).puedeRetirar).toBe(false);
     expect(leerCamposCliente({ no: 'es una lista' })).toEqual([]);
+  });
+
+  it('una config heredada con DNI (estándar o propio) se lee sin ese campo y el resto queda igual', () => {
+    expect(
+      leerCamposCliente([
+        { tipo: 'email', obligatorio: true },
+        { tipo: 'dni', obligatorio: true },
+        { tipo: 'personalizado', etiqueta: 'Documento', obligatorio: true },
+        { tipo: 'personalizado', etiqueta: 'Entre calles', obligatorio: false },
+      ]),
+    ).toEqual([
+      { tipo: 'email', etiqueta: 'Email', obligatorio: true },
+      { tipo: 'personalizado', etiqueta: 'Entre calles', obligatorio: false },
+    ]);
   });
 
   it('lee los datos de una venta', () => {
@@ -144,7 +174,28 @@ describe('validarDatosPedido', () => {
     });
   });
 
-  it('revisa el email y el DNI: el obligatorio mal escrito traba, el opcional se descarta', () => {
+  it('un comercio que exigía DNI cierra el pedido sin pedirlo y no guarda el que el modelo mande (LAU-106)', () => {
+    const heredada = leerConfigDatosCliente({
+      haceEnvios: false,
+      datosCliente: [
+        { tipo: 'email', obligatorio: true },
+        { tipo: 'dni', obligatorio: true },
+      ],
+    });
+    expect(
+      validarDatosPedido(heredada, {
+        datosCliente: [
+          { campo: 'Email', valor: 'juan@mail.com' },
+          { campo: 'DNI', valor: '30111222' },
+        ],
+      }),
+    ).toEqual({ ok: true, entrega: null, datos: [{ etiqueta: 'Email', valor: 'juan@mail.com' }] });
+    // Y sin el dato, que antes trababa el pedido, ya no falta nada.
+    expect(validarDatosPedido(heredada, { datosCliente: [{ campo: 'Email', valor: 'juan@mail.com' }] })).toMatchObject({ ok: true });
+    expect(reglaDeDatosCliente(heredada) as string).not.toMatch(/DNI/i);
+  });
+
+  it('revisa el email: el obligatorio mal escrito traba, el opcional se descarta', () => {
     expect(validarDatosPedido(SIN_ENVIOS, { datosCliente: [{ campo: 'Email', valor: 'juan@' }] })).toEqual({
       ok: false,
       motivo: expect.stringContaining('el email "juan@" no parece válido'),
@@ -153,18 +204,18 @@ describe('validarDatosPedido', () => {
       validarDatosPedido(SIN_ENVIOS, {
         datosCliente: [
           { campo: 'Email', valor: 'juan@mail.com' },
-          { campo: 'DNI', valor: 'abc' },
-        ],
-      }),
-    ).toEqual({ ok: true, entrega: null, datos: [{ etiqueta: 'Email', valor: 'juan@mail.com' }] });
-    expect(
-      validarDatosPedido(SIN_ENVIOS, {
-        datosCliente: [
-          { campo: 'Email', valor: 'juan@mail.com' },
+          { campo: 'Barrio', valor: 'Caballito' },
           { campo: 'DNI', valor: '30.111.222' },
         ],
       }),
-    ).toMatchObject({ ok: true, datos: [{ etiqueta: 'Email' }, { etiqueta: 'DNI', valor: '30111222' }] });
+    ).toEqual({
+      ok: true,
+      entrega: null,
+      datos: [
+        { etiqueta: 'Email', valor: 'juan@mail.com' },
+        { etiqueta: 'Barrio', valor: 'Caballito' },
+      ],
+    });
   });
 });
 
@@ -194,7 +245,7 @@ describe('reglaDeDatosCliente', () => {
   it('sin envíos los pide en cada pedido', () => {
     const regla = reglaDeDatosCliente(SIN_ENVIOS) as string;
     expect(regla).not.toContain('Hacemos envíos');
-    expect(regla).toContain('"Email" (obligatorio), "DNI" (opcional)');
+    expect(regla).toContain('"Email" (obligatorio), "Barrio" (opcional)');
   });
 
   it('sin decisión de Jev pide los datos recién cuando el cliente no quiere nada más', () => {

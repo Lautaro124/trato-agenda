@@ -136,9 +136,11 @@ export default function PrivacidadPage() {
             el lugar donde se sacó; el asistente sólo se la manda a un cliente que la pide). De cada pedido: el nombre
             que da el cliente, su número de WhatsApp, los productos, el total, el estado y las fechas,
             y, si pagó con Mercado Pago, el número de operación. Si configurás que el asistente pida
-            datos para el envío o para el pedido (código postal, dirección, provincia, país, email, DNI
+            datos para el envío o para el pedido (código postal, dirección, provincia, país, email
             u otros que definas vos), también guardamos lo que el cliente conteste, sólo los datos que
-            vos elegiste pedir. Si configurás preguntas para el pedido, guardamos esas preguntas, sus
+            vos elegiste pedir. El asistente no pide el DNI ni otros documentos de identidad, y no
+            te deja configurarlo; si algún pedido anterior lo tiene guardado, se borra con los demás
+            datos del cliente a los 12 meses. Si configurás preguntas para el pedido, guardamos esas preguntas, sus
             opciones y las imágenes que les subas (achicadas y sin metadatos, como las fotos), y lo que
             el cliente conteste: la opción que elige y, si responde con sus palabras o pide algo que no
             está entre las opciones, ese texto como nota del pedido. También el historial de cada pedido, si lo atiende una persona y por
@@ -439,7 +441,7 @@ export default function PrivacidadPage() {
             <Punto>
               <Fuerte>Ventas:</Fuerte> se conservan mientras tu cuenta exista, porque son tu histórico.
               A los 12 meses de cada pedido se borran el nombre, el número de WhatsApp y los demás datos
-              que dio el cliente (dirección, email, DNI y los que hayas pedido), las notas del pedido
+              que dio el cliente (dirección, email y los que hayas pedido), las notas del pedido
               con lo que escribió en las preguntas, el motivo escrito de
               la derivación y tus notas. Los productos, los montos y las fechas quedan.
             </Punto>

@@ -9,7 +9,7 @@ import { firmaDatosCliente, payloadDatosCliente, useDatosCliente, type CampoClie
 type Guardado = { haceEnvios: boolean; datosCliente: CampoCliente[] };
 
 /**
- * Qué datos le pide el asistente de ventas al cliente (envíos, DNI, datos
+ * Qué datos le pide el asistente de ventas al cliente (envíos, email, datos
  * propios): lo mismo que el paso opcional de /contanos, editable después.
  */
 export function SeccionDatosCliente() {
