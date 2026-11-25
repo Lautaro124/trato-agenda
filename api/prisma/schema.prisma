@@ -57,6 +57,7 @@ model User {
   tutorialesVistos String[] @default([])
 
   whatsappSession   WhatsappSession?
+  canalWhatsapp     CanalWhatsapp?
   agent             Agent?
   conversaciones    Conversation[]
   suscripcion       Subscription?
@@ -1113,6 +1114,32 @@ model ConfiguracionRecomendaciones {
   propiedades     Json @default("[]")
   /// "catalogo" | "derivar": qué hace el asistente si ninguna regla aplica.
   sinCoincidencia String @default("catalogo")
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Cómo atiende WhatsApp un comercio (LAU-110). Una cuenta sin fila usa
+/// Baileys y no está en pausa: las de antes no necesitan migrar nada. Ver
+/// src/whatsapp/proveedor/canales.service.ts.
+model CanalWhatsapp {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// "baileys" por ahora: el proveedor por el que entra y sale todo.
+  proveedor String @default("baileys")
+
+  /// Pausa sólo las respuestas automáticas: la vinculación, Chats y los
+  /// mensajes desde el panel siguen andando. Lo que llega se guarda para el dueño.
+  automatizacionPausada Boolean @default(false)
+
+  /// Sube con cada cambio de proveedor o de pausa: lo que se recibió o armó
+  /// con otra generación no sale, ni por el proveedor viejo ni por el nuevo.
+  generacion Int @default(0)
+
+  /// Lo que el dueño tiene que resolver ("volver_a_vincular", "sin_conexion").
+  /// Un código, nunca un mensaje del proveedor ni datos personales.
+  ultimoFallo   String?
+  ultimoFalloAt DateTime?
 
   updatedAt DateTime @updatedAt
 }

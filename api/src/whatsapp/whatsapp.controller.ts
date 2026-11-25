@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Sse, UseGuards, type MessageEvent } from '@nestjs/common';
+import { IsBoolean } from 'class-validator';
 import type { Observable } from 'rxjs';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -6,6 +7,11 @@ import { SolicitarCodigoDto } from '../auth/whatsapp-auth.controller.js';
 import type { User } from '../generated/prisma/client.js';
 import { WhatsappService } from './whatsapp.service.js';
 import type { WhatsappStatus } from './whatsapp.types.js';
+
+export class PausarAutomatizacionDto {
+  @IsBoolean()
+  pausada!: boolean;
+}
 
 @Controller('whatsapp')
 @UseGuards(JwtAuthGuard)
@@ -33,6 +39,16 @@ export class WhatsappController {
   @Sse('link/stream')
   linkStream(@CurrentUser() user: User): Observable<MessageEvent> {
     return this.whatsappService.linkEvents$(user.id);
+  }
+
+  /**
+   * Pausa o reanuda las respuestas automáticas (LAU-110): la contingencia de
+   * atención manual. WhatsApp sigue vinculado y Chats sigue andando.
+   */
+  @Post('automatizacion')
+  @HttpCode(HttpStatus.OK)
+  pausarAutomatizacion(@CurrentUser() user: User, @Body() dto: PausarAutomatizacionDto): Promise<WhatsappStatus> {
+    return this.whatsappService.pausarAutomatizacion(user.id, dto.pausada);
   }
 
   @Post('unlink')
