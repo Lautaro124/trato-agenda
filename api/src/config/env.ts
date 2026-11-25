@@ -95,6 +95,16 @@ export type Env = {
    * paró, antes de contestarle igual (ver AgrupadorDeRafagas).
    */
   WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: number;
+  /**
+   * API key de Resend para los emails transaccionales (LAU-109): verificar el
+   * email de recuperación y mandar códigos de acceso sin depender de
+   * WhatsApp. Vacía = no se mandan emails y la web no ofrece sumar uno.
+   */
+  EMAIL_API_KEY: string;
+  /** Remitente, de un dominio verificado en Resend. */
+  EMAIL_FROM: string;
+  /** Base de la API de Resend. Sólo la cambiaría un stub. */
+  EMAIL_API_URL: string;
 };
 
 const REQUIRED = [
@@ -118,6 +128,8 @@ export const OPENROUTER_DECISIONS_URL_POR_DEFECTO = 'https://openrouter.ai/api/a
 export const MERCADOPAGO_BASE_URL_POR_DEFECTO = 'https://api.mercadopago.com';
 export const LINEAR_API_URL_POR_DEFECTO = 'https://api.linear.app/graphql';
 export const MERCADOLIBRE_API_URL_POR_DEFECTO = 'https://api.mercadolibre.com';
+export const EMAIL_API_URL_POR_DEFECTO = 'https://api.resend.com';
+export const EMAIL_FROM_POR_DEFECTO = 'Trato <no-responder@tratoagenda.com>';
 
 export const HISTORIAL_IA_VENTANA_POR_DEFECTO = '14d';
 
@@ -214,6 +226,12 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     throw new Error('MERCADOLIBRE_CLIENT_ID y MERCADOLIBRE_CLIENT_SECRET van juntas: definí las dos o ninguna.');
   }
 
+  const emailApiUrl = sinBarrasFinales(String(raw.EMAIL_API_URL || EMAIL_API_URL_POR_DEFECTO));
+  // La API key viaja en el header y los códigos de acceso en el cuerpo.
+  if (nodeEnv === 'production' && !emailApiUrl.startsWith('https://')) {
+    throw new Error('EMAIL_API_URL tiene que ser https en producción.');
+  }
+
   const escribiendoVence = String(raw.WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS || ESCRIBIENDO_VENCE_POR_DEFECTO_MS / 1000);
   const escribiendoVenceSegundos = Number(escribiendoVence);
   if (!Number.isInteger(escribiendoVenceSegundos) || escribiendoVenceSegundos < 5 || escribiendoVenceSegundos > 300) {
@@ -261,5 +279,8 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     MERCADOLIBRE_CLIENT_SECRET: mercadoLibreClientSecret,
     IMPORTACION_HOSTS_DE_PRUEBA: hostsDePrueba,
     WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: escribiendoVenceSegundos,
+    EMAIL_API_KEY: String(raw.EMAIL_API_KEY ?? ''),
+    EMAIL_FROM: String(raw.EMAIL_FROM || EMAIL_FROM_POR_DEFECTO),
+    EMAIL_API_URL: emailApiUrl,
   };
 }

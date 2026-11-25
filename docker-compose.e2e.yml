@@ -96,6 +96,9 @@ services:
       LINEAR_API_KEY: ""
       LINEAR_TEAM_ID: ""
       LINEAR_PROJECT_ID: ""
+      # Sin Resend, por lo mismo: los emails de la cuenta quedan en memoria y los
+      # specs los leen de /auth/dev/ultimo-email.
+      EMAIL_API_KEY: ""
     depends_on:
       openrouter-stub:
         condition: service_healthy

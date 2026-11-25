@@ -24,6 +24,7 @@ import { AltaWhatsappService } from './alta-whatsapp.service.js';
 import { AuthService } from './auth.service.js';
 import type { DestinoTrasLogin } from './auth.types.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
+import { EmailRecuperacionService } from './email-recuperacion.service.js';
 import { opcionesDeCookie } from './cookie.js';
 import { COOKIE_ALTA, SEGUNDOS_ALTA } from './cookies-de-paso.js';
 import { AltaGuard, type RequestConAlta } from './guards/alta.guard.js';
@@ -61,8 +62,9 @@ export class VerificarCodigoDto extends SolicitarCodigoDto {
 /**
  * Las puertas de entrada sin Google: crear la cuenta escaneando el QR (o con
  * el código de vinculación, desde el mismo celular), entrar
- * con número + contraseña, y recuperar la contraseña con un código que llega
- * al chat propio de WhatsApp. Son públicas; los límites de abuso viven en los
+ * con número + contraseña (no toca la sesión de Baileys: anda con WhatsApp
+ * desconectado), y recuperar la contraseña con un código que llega al chat
+ * propio de WhatsApp y al email de recuperación verificado. Son públicas; los límites de abuso viven en los
  * servicios.
  */
 @Controller('auth/whatsapp')
@@ -72,6 +74,7 @@ export class WhatsappAuthController {
     private readonly altas: AltaWhatsappService,
     private readonly codigos: CodigoAccesoService,
     private readonly logins: LoginWhatsappService,
+    private readonly emailsRecuperacion: EmailRecuperacionService,
     private readonly whatsappService: WhatsappService,
     private readonly agentsService: AgentsService,
     private readonly config: ConfigService<Env, true>,
@@ -151,7 +154,9 @@ export class WhatsappAuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ destino: DestinoTrasLogin }> {
     const { id } = await this.codigos.verificar(dto.telefono, dto.codigo);
-    return this.entrar(await this.logins.guardar(id, dto.nuevaPassword), res);
+    const user = await this.logins.guardar(id, dto.nuevaPassword);
+    this.emailsRecuperacion.avisarCambioDePassword(user);
+    return this.entrar(user, res);
   }
 
   private async entrar(user: User, res: Response): Promise<{ destino: DestinoTrasLogin }> {

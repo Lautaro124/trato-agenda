@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Logger, Post, Req, Res, UseGuards } from '@nestjs/common';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { AgentsService } from '../agents/agents.service.js';
@@ -7,6 +7,7 @@ import { CALENDARIO_GOOGLE, CalendarService } from '../calendar/calendar.service
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuthService } from './auth.service.js';
 import { CuentaService } from './cuenta.service.js';
+import { EmailRecuperacionService } from './email-recuperacion.service.js';
 import { aUsuarioPublico, type UsuarioPublico } from './auth.types.js';
 import { nombreCookie, opcionesDeCookie } from './cookie.js';
 import { COOKIE_CONECTAR, SEGUNDOS_CONECTAR } from './cookies-de-paso.js';
@@ -32,6 +33,23 @@ export class CambiarPasswordDto {
   actual?: string;
 }
 
+export class SolicitarEmailRecuperacionDto {
+  @IsEmail({}, { message: 'Revisá el email.' })
+  @MaxLength(254)
+  email!: string;
+
+  /** La actual: una sesión robada sola no alcanza para redirigir la recuperación. */
+  @IsString()
+  @MaxLength(PASSWORD_MAX)
+  password!: string;
+}
+
+export class ConfirmarEmailRecuperacionDto {
+  @IsString()
+  @Matches(/^\d{6}$/, { message: 'El código tiene 6 dígitos.' })
+  codigo!: string;
+}
+
 /** Lo que /cuenta lee de `?google=` al volver de conectar Google. */
 type ResultadoEnCuenta = 'conectado' | 'google_en_uso' | 'migracion_incompleta';
 
@@ -45,6 +63,7 @@ export class AuthController {
     private readonly agentsService: AgentsService,
     private readonly calendarService: CalendarService,
     private readonly logins: LoginWhatsappService,
+    private readonly emailsRecuperacion: EmailRecuperacionService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
   ) {}
@@ -91,7 +110,35 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() user: User): Promise<UsuarioPublico> {
-    return aUsuarioPublico(user, await this.agentsService.findByUserId(user.id));
+    return aUsuarioPublico(user, await this.agentsService.findByUserId(user.id), {
+      emailDisponible: this.emailsRecuperacion.disponible(),
+    });
+  }
+
+  /**
+   * Sumar o cambiar el email de recuperación (LAU-109): pide la contraseña
+   * actual y manda un código a la dirección nueva. No queda guardado hasta
+   * confirmarlo.
+   */
+  @Post('email-recuperacion')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.ACCEPTED)
+  async solicitarEmailRecuperacion(
+    @CurrentUser() user: User,
+    @Body() dto: SolicitarEmailRecuperacionDto,
+  ): Promise<void> {
+    await this.emailsRecuperacion.solicitar(user, dto.email, dto.password);
+  }
+
+  @Post('email-recuperacion/confirmar')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async confirmarEmailRecuperacion(
+    @CurrentUser() user: User,
+    @Body() dto: ConfirmarEmailRecuperacionDto,
+  ): Promise<{ emailRecuperacion: string | null }> {
+    const actualizado = await this.emailsRecuperacion.confirmar(user, dto.codigo);
+    return { emailRecuperacion: actualizado.emailRecuperacion };
   }
 
   /**
@@ -107,6 +154,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
     const actualizado = await this.logins.cambiarPassword(user, dto.nueva, dto.actual);
+    if (user.passwordHash) this.emailsRecuperacion.avisarCambioDePassword(actualizado);
     ponerCookieDeSesion(res, this.config, await this.authService.issueSessionToken(actualizado));
   }
 

@@ -30,7 +30,7 @@ export type JwtPayload = {
 };
 
 /** Vista pública del usuario: nunca incluye el refresh token de Google. */
-export type UsuarioPublico = Pick<User, 'id' | 'email' | 'name' | 'avatarUrl' | 'phoneNumber'> & {
+export type UsuarioPublico = Pick<User, 'id' | 'email' | 'name' | 'avatarUrl' | 'phoneNumber' | 'emailRecuperacion'> & {
   calendario: 'google' | 'local';
   /** Nunca el hash: sólo si hay una contraseña puesta. */
   tienePassword: boolean;
@@ -40,6 +40,14 @@ export type UsuarioPublico = Pick<User, 'id' | 'email' | 'name' | 'avatarUrl' | 
   tipoAsistente: 'agenda' | 'ventas' | null;
   /** Recorridos guiados ya vistos: la web no los vuelve a abrir solos. */
   tutorialesVistos: Tutorial[];
+  /** Si la API puede mandar emails y la cuenta tiene WhatsApp: sin eso la web no ofrece sumar uno de recuperación. */
+  puedeSumarEmailRecuperacion: boolean;
+  /**
+   * Cuenta de WhatsApp sin Google ni email de recuperación: su único camino
+   * para recuperar el acceso es la sesión de Baileys. La web le muestra el
+   * aviso para sumar un email (LAU-109).
+   */
+  debeSumarEmailRecuperacion: boolean;
 };
 
 /**
@@ -50,9 +58,18 @@ export function debePonerPassword(user: Pick<User, 'googleId' | 'phoneNumber' | 
   return user.googleId === null && user.phoneNumber !== null && user.passwordHash === null;
 }
 
+/** Ver `UsuarioPublico.debeSumarEmailRecuperacion`. */
+export function debeSumarEmailRecuperacion(
+  user: Pick<User, 'googleId' | 'phoneNumber' | 'emailRecuperacion'>,
+  emailDisponible: boolean,
+): boolean {
+  return emailDisponible && user.googleId === null && user.phoneNumber !== null && user.emailRecuperacion === null;
+}
+
 export function aUsuarioPublico(
   user: User,
   agent: { tipoAsistente: string } | null = null,
+  { emailDisponible = false }: { emailDisponible?: boolean } = {},
 ): UsuarioPublico {
   const tipoAsistente = agent ? tipoAsistenteDe(agent) : null;
   return {
@@ -61,11 +78,14 @@ export function aUsuarioPublico(
     name: user.name,
     avatarUrl: user.avatarUrl,
     phoneNumber: user.phoneNumber,
+    emailRecuperacion: user.emailRecuperacion,
     calendario: user.calendario === 'local' ? 'local' : 'google',
     tienePassword: user.passwordHash !== null,
     debePonerPassword: debePonerPassword(user),
     tipoAsistente,
     tutorialesVistos: tutorialesVistos(user.tutorialesVistos),
+    puedeSumarEmailRecuperacion: emailDisponible && user.phoneNumber !== null,
+    debeSumarEmailRecuperacion: debeSumarEmailRecuperacion(user, emailDisponible),
   };
 }
 
