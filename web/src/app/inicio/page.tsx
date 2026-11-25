@@ -57,6 +57,8 @@ export default function InicioPage() {
       <AvisoSuscripcion />
 
       <main className="flex min-h-0 w-full flex-1 flex-col gap-3 bg-page p-3 md:p-4">
+        {/* El título visible está en el encabezado; éste es para lectores de pantalla. */}
+        <h1 className="sr-only">Inicio</h1>
         {user.debePonerPassword && (
           <div role="status" className="rounded-md border border-line bg-card p-4 text-[13.5px] text-ink">
             Todavía no elegiste una contraseña: sin ella no vas a poder volver a entrar con tu número.{" "}
