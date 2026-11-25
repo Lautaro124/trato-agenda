@@ -224,6 +224,12 @@ model Conversation {
   /// JID de Baileys del cliente que escribe, ej "5491122334455@s.whatsapp.net".
   remoteJid String
 
+  /// Número del cliente (sólo dígitos) cuando el JID no lo trae: los chats
+  /// con identificador LID ("…@lid") lo esconden, y WhatsApp lo da aparte
+  /// (`remoteJidAlt` o el mapeo LID→número de la sesión). Sirve para que el
+  /// dueño reconozca el chat en Inicio. Null si no se pudo saber.
+  telefono String?
+
   /// Resumen breve del cliente (quién es, qué buscó, preferencias), que el
   /// agente actualiza tras cada intercambio para "recordarlo" más allá de la
   /// ventana de mensajes recientes que se manda como contexto.

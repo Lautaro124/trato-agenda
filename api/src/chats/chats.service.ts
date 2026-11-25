@@ -60,10 +60,11 @@ const DIAS_INDICADORES = 7;
 /** Productos de interés que muestra la ficha: los más recientes. */
 const MAX_PRODUCTOS_FICHA = 6;
 
-type FilaChat = Pick<Conversation, 'id' | 'remoteJid' | 'nombreCliente' | 'atencion' | 'tratoCanceladoAt' | 'analisis'>;
+type FilaChat = Pick<Conversation, 'id' | 'remoteJid' | 'telefono' | 'nombreCliente' | 'atencion' | 'tratoCanceladoAt' | 'analisis'>;
 const SELECT_FILA = {
   id: true,
   remoteJid: true,
+  telefono: true,
   nombreCliente: true,
   atencion: true,
   tratoCanceladoAt: true,
@@ -336,7 +337,7 @@ export class ChatsService {
     ahora: Date,
   ): Promise<void> {
     if (!dto.items || dto.items.length === 0) throw new BadRequestException('Elegí al menos un producto.');
-    const telefono = telefonoDeJid(fila.remoteJid);
+    const telefono = fila.telefono ?? telefonoDeJid(fila.remoteJid);
     let venta;
     try {
       venta = await this.ventas.crearPedido({
@@ -447,10 +448,37 @@ export class ChatsService {
    * Arma los resúmenes con lecturas en lote: último mensaje, próximo turno y
    * pedido abierto; en una cuenta de ventas, además la etapa y el último pedido.
    */
+  /**
+   * El número de cada chat: el del JID, el guardado o, en un chat LID que
+   * todavía no lo tiene, el del mapeo de la sesión de WhatsApp (que se guarda
+   * para no volver a buscarlo). Sin número, Inicio muestra "Cliente sin número".
+   */
+  private async telefonos(userId: string, filas: FilaChat[]): Promise<Map<string, string | null>> {
+    const resultado = new Map<string, string | null>();
+    await Promise.all(
+      filas.map(async (fila) => {
+        const conocido = fila.telefono ?? telefonoDeJid(fila.remoteJid);
+        if (conocido) {
+          resultado.set(fila.id, conocido);
+          return;
+        }
+        const resuelto = await this.whatsapp.telefonoDeLid(userId, fila.remoteJid);
+        resultado.set(fila.id, resuelto);
+        if (resuelto) {
+          await this.prisma.conversation
+            .updateMany({ where: { id: fila.id, userId, telefono: null }, data: { telefono: resuelto } })
+            // Sólo el tipo: el mensaje de Prisma puede copiar los argumentos, con el número.
+            .catch((error: unknown) => this.logger.warn(`No se pudo guardar el número de un chat de ${userId}: ${(error as Error).name}`));
+        }
+      }),
+    );
+    return resultado;
+  }
+
   private async resumir(userId: string, filas: FilaChat[], ahora: Date): Promise<ChatResumen[]> {
     if (filas.length === 0) return [];
     const ids = filas.map((fila) => fila.id);
-    const esVentas = await this.esVentas(userId);
+    const [esVentas, telefonoDe] = await Promise.all([this.esVentas(userId), this.telefonos(userId, filas)]);
     const [ultimos, turnos, ventas, etapas, ultimosPedidos, intereses] = await Promise.all([
       this.prisma.$queryRaw<UltimoMensaje[]>`
         SELECT c."id" AS "conversationId", m."role", m."content", m."createdAt"
@@ -522,7 +550,7 @@ export class ChatsService {
       return {
         id: fila.id,
         nombre: fila.nombreCliente,
-        telefono: telefonoDeJid(fila.remoteJid),
+        telefono: telefonoDe.get(fila.id) ?? null,
         atencion,
         ultimo,
         teEspera,

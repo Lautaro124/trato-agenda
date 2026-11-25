@@ -171,10 +171,13 @@ test.describe('estado del trato (ventas)', () => {
     await panel.getByRole('button', { name: 'Marcar como pagado' }).click();
     await expect(panel.getByRole('button', { name: 'Pagado' })).toHaveAttribute('aria-pressed', 'true');
     await expect(chat).toContainText('Pagado');
-    await expect(page.getByRole('region', { name: 'Indicadores rápidos' }).getByRole('button', { name: /^100 % chat a venta/ })).toBeVisible();
-
     // Un trato pagado no se cancela desde acá: el botón ya no está.
     await expect(panel.getByRole('button', { name: 'Cancelado' })).toHaveCount(0);
+
+    // Los indicadores se ven sólo sin un chat abierto.
+    await expect(page.getByRole('region', { name: 'Indicadores rápidos' })).toHaveCount(0);
+    await chat.getByRole('button', { name: 'Cerrar el chat' }).click();
+    await expect(page.getByRole('region', { name: 'Indicadores rápidos' }).getByRole('button', { name: /^100 % chat a venta/ })).toBeVisible();
   });
 
   test('cancelado sin pedido deja la marca y la API no deja tocar el trato de otra cuenta', async ({ page, context, usuarioDev, browser }) => {
