@@ -18,6 +18,8 @@ import makeWASocket, {
   fetchLatestWaWebVersion,
   isJidGroup,
   isJidStatusBroadcast,
+  isLidUser,
+  jidNormalizedUser,
   makeCacheableSignalKeyStore,
   type proto,
   type AnyMessageContent,
@@ -32,6 +34,7 @@ import { Observable, ReplaySubject, map } from 'rxjs';
 import { Limitador } from '../auth/limitador.js';
 import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
 import { referenciaDeAnuncio, type ReferenciaAnuncio } from '../comercio/anuncios.rules.js';
+import { telefonoDeJid } from '../comercio/ventas.rules.js';
 import { AnunciosService } from '../comercio/anuncios.service.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
 import { PreguntasService } from '../comercio/preguntas.service.js';
@@ -722,6 +725,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       // Ni grupos ni estados: un estado de un contacto no es un mensaje al
       // negocio, y contestarlo publicaría en `status@broadcast`.
       if (!remoteJid || isJidGroup(remoteJid) || isJidStatusBroadcast(remoteJid)) continue;
+      // Un chat LID no trae el número en el JID: WhatsApp lo manda aparte y se guarda para mostrarlo en Inicio.
+      if (isLidUser(remoteJid)) void this.recordarTelefono(userId, remoteJid, mensaje.key.remoteJidAlt);
 
       const texto = mensaje.message?.conversation ?? mensaje.message?.extendedTextMessage?.text;
       if (mensaje.key.fromMe) {
@@ -744,6 +749,37 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       );
     }
     await Promise.all(recepciones);
+  }
+
+  /**
+   * Guarda el número de un chat LID si todavía no lo tenía. Sólo actualiza:
+   * el chat lo crea la conversación cuando el asistente lo atiende, y si
+   * todavía no existe, Inicio lo resuelve después con `telefonoDeLid`.
+   */
+  private async recordarTelefono(userId: string, remoteJid: string, alternativo: string | undefined): Promise<void> {
+    const telefono = alternativo ? telefonoDeJid(jidNormalizedUser(alternativo)) : null;
+    if (!telefono) return;
+    await this.prisma.conversation
+      .updateMany({ where: { userId, remoteJid, telefono: null }, data: { telefono } })
+      // Sólo el tipo: el mensaje de Prisma puede copiar los argumentos, con el número.
+      .catch((error: unknown) => this.logger.warn(`No se pudo guardar el número de un chat de ${userId}: ${(error as Error).name}`));
+  }
+
+  /**
+   * El número detrás de un JID LID, según el mapeo que guarda la sesión de
+   * WhatsApp de la cuenta. Null si no es LID, la cuenta no está conectada o
+   * WhatsApp todavía no compartió el número.
+   */
+  async telefonoDeLid(userId: string, remoteJid: string): Promise<string | null> {
+    if (!isLidUser(remoteJid)) return null;
+    const sock = this.sockets.get(userId);
+    if (!sock) return null;
+    try {
+      const pn = await sock.signalRepository.lidMapping.getPNForLID(remoteJid);
+      return pn ? telefonoDeJid(jidNormalizedUser(pn)) : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Corre `tarea` después de la recepción anterior del mismo chat, aunque esa haya fallado. */
