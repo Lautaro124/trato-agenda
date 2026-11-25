@@ -42,7 +42,7 @@ test.describe('recorrido guiado', () => {
     // El reloj falso deja pasar la espera antes de abrir sin dormir el test.
     await page.clock.install();
     await page.reload();
-    await expect(page.getByRole('heading', { name: /^Hola/ })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Lista de chats' })).toBeVisible();
     await page.clock.runFor(2_000);
     await expect(page.getByRole('dialog')).toBeHidden();
   });

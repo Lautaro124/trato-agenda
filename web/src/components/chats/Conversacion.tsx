@@ -46,6 +46,25 @@ const BURBUJA: Record<MensajeChat["de"], string> = {
   asistente: "self-end rounded-br-sm bg-accent-subtle",
   dueno: "self-end rounded-br-sm bg-primary-subtle",
 };
+/**
+ * El texto en párrafos: una línea en blanco separa con un respiro corto en
+ * vez de un renglón vacío entero, que en pantallas chicas comía la mitad del chat.
+ */
+function parrafos(texto: string | null | undefined): { texto: string; desde: number }[] {
+  if (!texto) return [];
+  // `desde` (dónde empieza en el mensaje) sirve de key estable, aunque dos párrafos digan lo mismo.
+  const resultado: { texto: string; desde: number }[] = [];
+  let desde = 0;
+  for (const separador of texto.matchAll(/\n[ \t]*\n\s*/g)) {
+    const parrafo = texto.slice(desde, separador.index).trim();
+    if (parrafo) resultado.push({ texto: parrafo, desde });
+    desde = separador.index + separador[0].length;
+  }
+  const ultimo = texto.slice(desde).trim();
+  if (ultimo) resultado.push({ texto: ultimo, desde });
+  return resultado;
+}
+
 const AUTOR: Record<Exclude<MensajeChat["de"], "cliente">, { texto: string; color: string }> = {
   asistente: { texto: "Bot", color: "text-success-text" },
   dueno: { texto: "Vos", color: "text-primary-active" },
@@ -69,7 +88,7 @@ export function Conversacion({
   detalle: DetalleChat;
   trabajando: boolean;
   enviando: boolean;
-  /** Debajo de 1024px, donde lista y chat se ven de a uno: vuelve a la lista. */
+  /** Cierra el chat: con poco ancho vuelve a la lista; con columnas, deja ver los indicadores. */
   onVolver: () => void;
   onTomar: () => void;
   onDevolver: () => void;
@@ -101,7 +120,7 @@ export function Conversacion({
 
   return (
     <section aria-label={`Chat con ${nombre}`} className="flex min-h-0 flex-1 flex-col rounded-lg border border-line bg-card">
-      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-3 py-2 md:px-4">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-line px-2 py-1.5 md:px-4">
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
@@ -115,6 +134,18 @@ export function Conversacion({
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="m15 18-6-6 6-6" />
+            </svg>
+          </button>
+          {/* Con lista y chat lado a lado: cerrarlo vuelve a mostrar los indicadores. */}
+          <button
+            type="button"
+            onClick={onVolver}
+            aria-label="Cerrar el chat"
+            title="Cerrar el chat"
+            className="hidden size-9 flex-none place-items-center rounded-md text-ink-secondary hover:bg-sunken hover:text-ink md:grid"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
           <span aria-hidden className={cn("hidden size-9 flex-none place-items-center rounded-full bg-sunken text-sm font-bold text-ink-secondary", "md:grid")}>
@@ -144,7 +175,7 @@ export function Conversacion({
       </header>
 
       {esVos && (
-        <p className="bg-primary-subtle px-3 py-2 text-[13px] font-semibold text-primary-active md:px-4">
+        <p className="bg-primary-subtle px-3 py-1.5 text-[12.5px] font-semibold text-primary-active md:px-4">
           El bot está en pausa en este chat hasta que lo devuelvas.
         </p>
       )}
@@ -162,27 +193,50 @@ export function Conversacion({
         </details>
       )}
 
-      <div ref={historial} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-page p-3 md:px-5 md:py-4">
+      <div ref={historial} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto bg-page px-2.5 py-2 md:px-4 md:py-3">
         {mensajes.length === 0 && <p className="m-auto text-sm text-ink-secondary">Todavía no hay mensajes de texto.</p>}
-        {mensajes.map((mensaje) => (
-          <div key={mensaje.id} className={cn("max-w-[80%] rounded-lg px-3.5 py-2.5 text-[15px] leading-[1.45] md:max-w-[72%]", BURBUJA[mensaje.de])}>
-            <span className={cn("block text-xs font-bold", mensaje.de === "cliente" ? "text-ink-secondary" : AUTOR[mensaje.de].color)}>
-              {mensaje.de === "cliente" ? nombre : AUTOR[mensaje.de].texto}
-            </span>
-            {mensaje.imagenes && mensaje.imagenes.length > 0 && (
-              <span className="mt-1 mb-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                {mensaje.imagenes.map((imagen, indice) => (
-                  <FotoEnviada key={indice} imagen={imagen} />
-                ))}
-              </span>
-            )}
-            {mensaje.texto && <span className="break-words whitespace-pre-line">{mensaje.texto}</span>}
-            <span className="mt-1 block text-right text-[11px] text-ink-secondary">{horaDeMensaje(mensaje.createdAt)}</span>
-          </div>
-        ))}
+        {mensajes.map((mensaje, indice) => {
+          // Como en WhatsApp: los mensajes seguidos del mismo autor van juntos y el autor se nombra una vez.
+          const abreGrupo = mensajes[indice - 1]?.de !== mensaje.de;
+          const hora = horaDeMensaje(mensaje.createdAt);
+          return (
+            <div
+              key={mensaje.id}
+              className={cn(
+                "relative max-w-[85%] rounded-lg px-2.5 py-1.5 text-[14px] leading-[1.35] md:max-w-[72%]",
+                BURBUJA[mensaje.de],
+                abreGrupo && indice > 0 && "mt-1.5",
+              )}
+            >
+              {abreGrupo && mensaje.de !== "cliente" && (
+                <span className={cn("block text-[11.5px] font-bold", AUTOR[mensaje.de].color)}>{AUTOR[mensaje.de].texto}</span>
+              )}
+              {mensaje.imagenes && mensaje.imagenes.length > 0 && (
+                <span className="mt-1 mb-1 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {mensaje.imagenes.map((imagen) => (
+                    <FotoEnviada key={urlImagenEnviada(imagen)} imagen={imagen} />
+                  ))}
+                </span>
+              )}
+              {parrafos(mensaje.texto).map((parrafo, i, todos) => (
+                <span key={parrafo.desde} className={cn("block break-words whitespace-pre-line", i > 0 && "mt-1")}>
+                  {parrafo.texto}
+                  {/* Reserva el lugar de la hora en el último renglón, así no ocupa uno propio. */}
+                  {i === todos.length - 1 && (
+                    <span aria-hidden className="invisible ml-2 text-[11px]">
+                      {hora}
+                    </span>
+                  )}
+                </span>
+              ))}
+              {!mensaje.texto && <span aria-hidden className="block h-3" />}
+              <span className="absolute right-2.5 bottom-1 text-[11px] leading-none text-ink-secondary">{hora}</span>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="border-t border-line px-3 py-2.5 md:px-4">
+      <div className="border-t border-line px-2.5 py-2 md:px-4">
         {esVos ? (
           <form
             className="flex items-end gap-2.5"
@@ -194,7 +248,7 @@ export function Conversacion({
             <label className="min-w-0 flex-1">
               <span className="sr-only">Tu mensaje para {nombre}</span>
               <textarea
-                rows={2}
+                rows={1}
                 maxLength={LARGO_MAX_MENSAJE}
                 value={borrador}
                 onChange={(e) => setBorrador(e.target.value)}
@@ -205,14 +259,14 @@ export function Conversacion({
                   }
                 }}
                 placeholder="Escribí tu respuesta… sale por tu WhatsApp"
-                className="w-full resize-none rounded-md border border-line-strong bg-card px-3 py-2.5 text-[15px] text-ink"
+                className="field-sizing-content block max-h-32 min-h-11 w-full resize-none rounded-md border border-line-strong bg-card px-3 py-2.5 text-[15px] leading-[1.35] text-ink"
               />
             </label>
             <button
               type="submit"
               aria-label="Enviar mensaje"
               disabled={enviando || !borrador.trim()}
-              className="grid size-12 flex-none place-items-center rounded-md bg-primary text-primary-on hover:bg-primary-hover disabled:opacity-40"
+              className="grid size-11 flex-none place-items-center rounded-md bg-primary text-primary-on hover:bg-primary-hover disabled:opacity-40"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M22 2 11 13" />
