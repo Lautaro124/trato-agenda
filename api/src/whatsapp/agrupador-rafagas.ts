@@ -29,6 +29,8 @@ type Corrida<T> = {
   cancelaciones: number;
   /** Se cerró la sesión o se apaga la API: si se cancela, no se vuelve a encolar. */
   olvidada: boolean;
+  /** Quién recibe sus mensajes si, olvidada, termina cancelada (ver `descartar`). */
+  alSoltar?: (items: T[]) => void;
 };
 
 /**
@@ -112,18 +114,28 @@ export class AgrupadorDeRafagas<T> {
     this.programar(clave);
   }
 
-  /** Olvida lo pendiente de un dueño (sesión cerrada o transferida): no se contesta por un socket que ya no es suyo. */
-  descartar(prefijo: string): void {
+  /**
+   * Olvida lo pendiente de un dueño (sesión cerrada o transferida, o el canal
+   * cambió): no se contesta por una conexión que ya no es suya. Devuelve lo
+   * que esperaba su ráfaga; `alSoltar` recibe además lo de una respuesta en
+   * armado que terminó cancelada, para que quien llama lo guarde si quiere.
+   * Lo ya comprometido no vuelve: termina por su lado.
+   */
+  descartar(prefijo: string, alSoltar?: (items: T[]) => void): T[] {
+    const pendientes: T[] = [];
     for (const [clave, rafaga] of this.rafagas) {
       if (!clave.startsWith(prefijo)) continue;
       if (rafaga.timer) clearTimeout(rafaga.timer);
       this.rafagas.delete(clave);
+      pendientes.push(...rafaga.items);
     }
     for (const [clave, { corrida }] of this.enCurso) {
       if (!clave.startsWith(prefijo)) continue;
       corrida.olvidada = true;
+      corrida.alSoltar = alSoltar;
       corrida.cancelacion.cancelar();
     }
+    return pendientes;
   }
 
   /**
@@ -191,6 +203,7 @@ export class AgrupadorDeRafagas<T> {
       .catch((error: unknown) => {
         if (error instanceof VueltaCancelada || corrida.cancelacion.cancelada) {
           if (!corrida.olvidada) this.reencolar(clave, corrida);
+          else corrida.alSoltar?.(corrida.items);
           return;
         }
         this.alFallar(clave, error);
