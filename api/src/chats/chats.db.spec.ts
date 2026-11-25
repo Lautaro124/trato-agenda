@@ -19,6 +19,7 @@ function crearWhatsapp() {
     interrumpir: vi.fn(),
     contestarPendientes: vi.fn().mockResolvedValue(true),
     enviarDesdePanel: vi.fn().mockResolvedValue(true),
+    telefonoDeLid: vi.fn().mockResolvedValue(null),
   };
 }
 
@@ -104,6 +105,26 @@ describe.skipIf(!hayBaseDePrueba)('ChatsService (Postgres)', () => {
     expect(chats[0]!.ultimo).toMatchObject({ de: 'asistente', texto: 'Sí, el jueves.' });
     expect(cuenta).toEqual({ todos: 2, asistente: 2, humana: 0 });
     await expect(service.detalle(otro.id, nuevo.id)).rejects.toThrow('No existe ese chat.');
+  });
+
+  it('un chat LID muestra el número del mapeo de WhatsApp y lo guarda para la próxima', async () => {
+    const dueno = await crearUsuarioDePrueba(prisma);
+    const lid = await chatCon(dueno.id, '123456789012345@lid', [
+      { role: 'user', content: { content: 'hola' }, createdAt: new Date('2026-11-02T10:00:00Z') },
+    ]);
+    const sinMapeo = await chatCon(dueno.id, '999999999999999@lid', [
+      { role: 'user', content: { content: 'hola' }, createdAt: new Date('2026-11-01T10:00:00Z') },
+    ]);
+    const whatsapp = crearWhatsapp();
+    whatsapp.telefonoDeLid.mockImplementation((_userId: string, jid: string) =>
+      Promise.resolve(jid === '123456789012345@lid' ? '5491100000009' : null),
+    );
+
+    const { chats } = await servicio(whatsapp).listar(dueno.id);
+
+    expect(chats.find((chat) => chat.id === lid.id)?.telefono).toBe('5491100000009');
+    expect(chats.find((chat) => chat.id === sinMapeo.id)?.telefono).toBeNull();
+    expect((await prisma.conversation.findUniqueOrThrow({ where: { id: lid.id } })).telefono).toBe('5491100000009');
   });
 
   it('tomar y devolver: devolver arrastra los pedidos derivados y pide contestar lo pendiente con la nota', async () => {

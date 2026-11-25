@@ -59,17 +59,17 @@ const TEXTO_TRATO: Record<CambioDeTrato["estado"], string> = {
 };
 
 /**
- * Los chats de WhatsApp en Inicio (LAU-81): indicadores rápidos, la lista con
- * la etapa de cada venta, el chat abierto y, en cuentas de ventas, los datos
- * para cerrar el trato. Con poco ancho se ve la lista o el chat, uno por vez.
+ * Los chats de WhatsApp en Inicio (LAU-81): indicadores rápidos (sólo sin
+ * chat abierto), la lista con la etapa de cada venta, el chat abierto y, en
+ * cuentas de ventas, los datos para cerrar el trato. Ningún chat se abre solo:
+ * así se ven los indicadores al entrar. Con poco ancho se ve la lista o el
+ * chat, uno por vez.
  */
 export function BandejaChats({
   ventas,
-  saludo,
   sinChats,
 }: Readonly<{
   ventas: boolean;
-  saludo: string;
   /** Lo que se muestra mientras la cuenta no tiene ningún chat (por ejemplo, lo que falta para vender). */
   sinChats?: ReactNode;
 }>) {
@@ -80,10 +80,6 @@ export function BandejaChats({
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const corte = CORTES[ventas ? "ventas" : "agenda"];
   const columnasAlLado = useMediaQuery("(min-width: 48rem)");
-  const columnasRef = useRef(columnasAlLado);
-  useEffect(() => {
-    columnasRef.current = columnasAlLado;
-  }, [columnasAlLado]);
   const [busqueda, setBusqueda] = useState("");
   const [seleccionado, setSeleccionado] = useState<string | null>(null);
   const [detalle, setDetalle] = useState<DetalleChat | null>(null);
@@ -150,15 +146,10 @@ export function BandejaChats({
         (nueva) => {
           setLista(nueva);
           setErrorLista(false);
-          // Con lista y chat a la vista se abre el más reciente, así la pantalla no arranca vacía.
-          const columnas = columnasRef.current;
-          if (!seleccionadoRef.current && nueva.chats[0] && columnas) {
-            elegir(nueva.chats[0].id);
-          }
         },
         () => setErrorLista(true),
       ),
-    [elegir],
+    [],
   );
 
   const cargarIndicadores = useCallback(
@@ -304,22 +295,15 @@ export function BandejaChats({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-      <div
-        className={cn(
-          "flex flex-wrap items-center justify-between gap-3",
-          seleccionado && corte.soloUna,
-        )}
-      >
-        <h1 className="font-display text-[24px] leading-[1.15] font-bold tracking-[-0.025em] text-ink [@media(max-height:820px)]:text-[20px]">
-          {saludo}
-        </h1>
+      {/* Los indicadores son un resumen general: con un chat abierto se van y le dejan la altura a los mensajes. */}
+      {!seleccionado && (
         <Indicadores
           indicadores={indicadores}
           teEsperan={lista?.chats.filter((chat) => chat.teEspera).length ?? 0}
           activo={atajo}
           onElegir={elegirAtajo}
         />
-      </div>
+      )}
 
       {errorLista && !lista && (
         <p role="alert" className="rounded-md bg-danger-subtle p-3 text-sm text-danger-text">
