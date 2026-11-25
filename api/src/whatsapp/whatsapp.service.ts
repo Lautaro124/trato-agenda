@@ -21,6 +21,7 @@ import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
 import { BaileysProveedor } from './baileys/baileys.proveedor.js';
 import { CanalesWhatsapp, type EstadoCanal } from './proveedor/canales.service.js';
 import type {
+  ContenidoEntrante,
   ContenidoSaliente,
   EntranteCanal,
   FalloCanal,
@@ -425,18 +426,25 @@ export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
         if (contenido.tipo === 'texto') await this.guardarRespuestaDelDueno(entrante, contenido.texto);
         continue;
       }
-      const leer: (() => Promise<Entrada>) | undefined =
-        contenido.tipo === 'texto'
-          ? () => Promise.resolve({ texto: contenido.texto })
-          : contenido.tipo === 'audio'
-            ? () => this.escucharAudio(userId, contenido.segundos, contenido.media)
-            : contenido.tipo === 'imagen'
-              ? () => this.verImagen(userId, contenido.caption, contenido.media)
-              : undefined;
+      const leer = this.lectorDe(userId, contenido);
       if (!leer) continue;
       recepciones.push(this.enOrden(userId, entrante.chat, () => this.recibirMensajeDeCliente(entrante, leer)));
     }
     await Promise.all(recepciones);
+  }
+
+  /** Cómo sacar el texto de lo que mandó el cliente; undefined si el asistente no lo mira. */
+  private lectorDe(userId: string, contenido: ContenidoEntrante): (() => Promise<Entrada>) | undefined {
+    switch (contenido.tipo) {
+      case 'texto':
+        return () => Promise.resolve({ texto: contenido.texto });
+      case 'audio':
+        return () => this.escucharAudio(userId, contenido.segundos, contenido.media);
+      case 'imagen':
+        return () => this.verImagen(userId, contenido.caption, contenido.media);
+      default:
+        return undefined;
+    }
   }
 
   /** "Escribiendo…" del cliente: demora la respuesta de una ráfaga que todavía espera. */
@@ -632,21 +640,7 @@ export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
     const canal = await this.canales.estado(userId);
     const enAtencionHumana = await chatEnAtencionHumana(this.prisma, userId, remoteJid);
     if (canal.automatizacionPausada || enAtencionHumana) {
-      // La pausa es de toda la cuenta: una vencida no paga transcripciones ni
-      // visión por ella. El texto se guarda igual; el resto lo tiene el dueño en su teléfono.
-      if (
-        !enAtencionHumana &&
-        entrante.contenido.tipo !== 'texto' &&
-        !(await this.subscriptionService.asistenteActivo(userId))
-      ) {
-        return;
-      }
-      // El dueño ve de qué anuncio llegó, y el asistente lo sabe al retomar.
-      await this.registrarAnuncio(entrante);
-      // Un audio que no se pudo escuchar no se guarda: el dueño lo tiene en su teléfono.
-      const entrada = await leer();
-      if (!('texto' in entrada)) return;
-      await this.guardarParaElDueno(userId, remoteJid, entrada);
+      await this.guardarSinContestar(entrante, leer, enAtencionHumana);
       return;
     }
     const { generacion } = canal;
@@ -721,6 +715,23 @@ export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
       enviadoEn: entrante.enviadoEn,
       recibidoEn: Date.now(),
     });
+  }
+
+  /**
+   * El asistente no contesta (chat en atención humana o cuenta en pausa): lo
+   * que escribió el cliente queda en el historial para el dueño, con el anuncio
+   * del que llegó, y el asistente lo ve al retomar.
+   */
+  private async guardarSinContestar(entrante: EntranteCanal, leer: () => Promise<Entrada>, enAtencionHumana: boolean): Promise<void> {
+    const { userId } = entrante.sesion;
+    // La pausa es de toda la cuenta: una vencida no paga transcripciones ni
+    // visión por ella. El texto se guarda igual; el resto lo tiene el dueño en su teléfono.
+    const leerCuesta = entrante.contenido.tipo !== 'texto';
+    if (!enAtencionHumana && leerCuesta && !(await this.subscriptionService.asistenteActivo(userId))) return;
+    await this.registrarAnuncio(entrante);
+    // Un audio que no se pudo escuchar no se guarda: el dueño lo tiene en su teléfono.
+    const entrada = await leer();
+    if ('texto' in entrada) await this.guardarParaElDueno(userId, entrante.chat, entrada);
   }
 
   /** Lo que el asistente no va a contestar, en el historial para el dueño. */
@@ -944,26 +955,25 @@ export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
     remoteJid: string,
     imagenes: ImagenAEnviar[],
   ): Promise<void> {
+    // De a una y en orden: así le llegan al cliente.
+    for (const imagen of imagenes) await this.enviarFoto(sesion, generacion, remoteJid, imagen);
+  }
+
+  private async enviarFoto(sesion: SesionCanal, generacion: number, remoteJid: string, imagen: ImagenAEnviar): Promise<void> {
     const { userId } = sesion;
-    for (const imagen of imagenes) {
-      try {
-        if (esFotoDePregunta(imagen)) {
-          // Una pregunta del pedido o una de sus opciones (LAU-100): su texto va al pie.
-          const datos = await this.preguntas.paraEnviar(userId, imagen.imagenPreguntaId);
-          if (!datos) continue;
-          await this.enviarAutomatico(sesion, generacion, remoteJid, { imagen: datos, leyenda: imagen.leyenda ?? imagen.nombre });
-          continue;
-        }
-        const foto = await this.imagenes.paraEnviar(userId, imagen.productoId, imagen.imagenId);
-        if (!foto) continue;
-        // Las del listado traen nombre y precio; las demás, el nombre de la base.
-        await this.enviarAutomatico(sesion, generacion, remoteJid, { imagen: foto.datos, leyenda: imagen.leyenda ?? foto.nombre });
-      } catch (error) {
-        if (error instanceof CanalCambiado) throw error;
-        // Sin el JID ni textos del dueño: sólo ids, como el resto de los logs de WhatsApp.
-        const id = esFotoDePregunta(imagen) ? `de pregunta ${imagen.imagenPreguntaId}` : `del producto ${imagen.productoId}`;
-        this.logger.error(`No se pudo mandar la foto ${id} (cuenta ${userId}): ${(error as Error).message}`);
-      }
+    try {
+      const foto = esFotoDePregunta(imagen)
+        ? // Una pregunta del pedido o una de sus opciones (LAU-100): su texto va al pie.
+          await this.preguntas.paraEnviar(userId, imagen.imagenPreguntaId).then((datos) => datos && { datos, nombre: imagen.nombre })
+        : await this.imagenes.paraEnviar(userId, imagen.productoId, imagen.imagenId);
+      if (!foto) return;
+      // Las del listado traen nombre y precio; las demás, el nombre de la base.
+      await this.enviarAutomatico(sesion, generacion, remoteJid, { imagen: foto.datos, leyenda: imagen.leyenda ?? foto.nombre });
+    } catch (error) {
+      if (error instanceof CanalCambiado) throw error;
+      // Sin el JID ni textos del dueño: sólo ids, como el resto de los logs de WhatsApp.
+      const id = esFotoDePregunta(imagen) ? `de pregunta ${imagen.imagenPreguntaId}` : `del producto ${imagen.productoId}`;
+      this.logger.error(`No se pudo mandar la foto ${id} (cuenta ${userId}): ${(error as Error).message}`);
     }
   }
 }
