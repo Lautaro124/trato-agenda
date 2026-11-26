@@ -16,7 +16,7 @@ describe.skipIf(!hayBaseDePrueba)('marcar tutoriales vistos (Postgres)', () => {
     await prisma.$connect();
     // Este endpoint sólo usa Prisma.
     const nada = null as never;
-    controller = new AuthController(nada, nada, nada, nada, nada, prisma, nada);
+    controller = new AuthController(nada, nada, nada, nada, nada, nada, prisma, nada);
   });
 
   afterAll(async () => {

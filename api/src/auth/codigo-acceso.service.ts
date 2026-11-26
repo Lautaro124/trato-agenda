@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import type { Env } from '../config/env.js';
 import type { User } from '../generated/prisma/client.js';
+import { EmailService } from '../email/email.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { Limitador } from './limitador.js';
@@ -16,8 +17,13 @@ const UNA_HORA_MS = 60 * UN_MINUTO_MS;
 
 const RECHAZO = 'El código no es válido o venció. Pedí uno nuevo.';
 
-function hashDe(codigo: string): string {
+export function hashDe(codigo: string): string {
   return createHash('sha256').update(codigo).digest('hex');
+}
+
+/** Seis dígitos al azar (con ceros adelante). */
+export function generarCodigo(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, '0');
 }
 
 export function codigoCorrecto(recibido: string, hashGuardado: string): boolean {
@@ -33,10 +39,23 @@ export function mensajeConCodigo(codigo: string): string {
   );
 }
 
+export function emailConCodigo(codigo: string): { asunto: string; texto: string } {
+  return {
+    asunto: 'Tu código para entrar a Trato',
+    texto:
+      `${mensajeConCodigo(codigo)}
+
+` +
+      'Lo pidieron desde la pantalla de recuperar contraseña de Trato con el número de tu cuenta.',
+  };
+}
+
 /**
- * Volver a entrar al panel con una cuenta de WhatsApp: el código se manda al
- * chat propio del titular ("Vos") por la misma sesión de Baileys que atiende
- * a sus clientes, así que recibirlo prueba que se tiene ese WhatsApp.
+ * Volver a entrar al panel con una cuenta de WhatsApp. El código sale por los
+ * dos canales que la cuenta probó tener: el chat propio del titular ("Vos"),
+ * por la sesión de Baileys que atiende a sus clientes, y el email de
+ * recuperación verificado (LAU-109), que no depende de esa sesión. Con
+ * WhatsApp desconectado alcanza con el email.
  *
  * Nunca revela si un número tiene cuenta: pedir un código contesta igual en
  * los dos casos. Se guarda sólo el hash, vence a los 10 minutos, admite 5
@@ -57,6 +76,7 @@ export class CodigoAccesoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsappService,
+    private readonly emails: EmailService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
@@ -86,7 +106,7 @@ export class CodigoAccesoService {
     const user = await buscarUsuarioPorTelefono(this.prisma, telefono);
     if (!user) return;
 
-    const codigo = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const codigo = generarCodigo();
     await this.prisma.codigoAcceso.deleteMany({ where: { userId: user.id } });
     await this.prisma.codigoAcceso.create({
       data: {
@@ -96,19 +116,24 @@ export class CodigoAccesoService {
       },
     });
 
-    const enviado = await this.whatsapp.enviarAlPropioChat(user.id, mensajeConCodigo(codigo)).catch((error: unknown) => {
-      this.logger.warn(`No se pudo mandar el código a ${user.id}: ${(error as Error).message}`);
-      return false;
-    });
-    if (enviado) return;
+    const [porWhatsapp, porEmail] = await Promise.all([
+      this.whatsapp.enviarAlPropioChat(user.id, mensajeConCodigo(codigo)).catch((error: unknown) => {
+        this.logger.warn(`No se pudo mandar el código por WhatsApp a ${user.id}: ${(error as Error).message}`);
+        return false;
+      }),
+      user.emailRecuperacion
+        ? this.emails.enviar({ para: user.emailRecuperacion, ...emailConCodigo(codigo) })
+        : Promise.resolve(false),
+    ]);
 
     if (!this.enProduccion()) {
-      // Sin socket (login dev, E2E): el código queda a mano para /auth/dev/ultimo-codigo.
+      // Login dev y E2E: el código queda a mano para /auth/dev/ultimo-codigo.
       this.ultimosDev.set(claveDeTelefono(telefono), codigo);
-      this.logger.debug(`Código de acceso dev para ${telefono}: ${codigo}`);
       return;
     }
-    // Sin WhatsApp conectado el código no le llega a nadie: no tiene sentido guardarlo.
+    if (porWhatsapp || porEmail) return;
+    // Sin WhatsApp conectado ni email de recuperación el código no le llega a nadie: no tiene sentido guardarlo.
+    this.logger.warn(`Código de acceso sin canal para ${user.id}: WhatsApp desconectado y sin email de recuperación.`);
     await this.prisma.codigoAcceso.deleteMany({ where: { userId: user.id } });
   }
 

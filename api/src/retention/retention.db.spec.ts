@@ -161,6 +161,24 @@ describe.skipIf(!hayBaseDePrueba)('retención de ventas y avisos (Postgres)', ()
     const quedan = await prisma.mensajeRecibido.findMany({ where: { userId: dueno.id }, select: { waId: true } });
     expect(quedan.map(({ waId }) => waId)).toEqual(['NUEVO']);
   });
+  it('borra las verificaciones de email vencidas sin confirmar y deja las vigentes', async () => {
+    const otro = await crearUsuarioDePrueba(prisma);
+    await prisma.verificacionEmail.createMany({
+      data: [
+        { userId: dueno.id, email: 'vencida@ejemplo.com', hash: 'h', expiraAt: new Date(AHORA.getTime() - 1000) },
+        { userId: otro.id, email: 'vigente@ejemplo.com', hash: 'h', expiraAt: new Date(AHORA.getTime() + 60_000) },
+      ],
+    });
+
+    await servicio['purgarVerificacionesDeEmail'](AHORA);
+
+    const quedan = await prisma.verificacionEmail.findMany({
+      where: { userId: { in: [dueno.id, otro.id] } },
+      select: { email: true },
+    });
+    expect(quedan).toEqual([{ email: 'vigente@ejemplo.com' }]);
+    await prisma.user.delete({ where: { id: otro.id } });
+  });
   it('a los 12 meses el registro de performance se desliga del chat y queda como conteo', async () => {
     const conversation = await prisma.conversation.create({
       data: { userId: dueno.id, remoteJid: '5491100000001@s.whatsapp.net' },

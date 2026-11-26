@@ -30,6 +30,13 @@ model User {
   /// no tiene que pasar en silencio a la agenda local.
   calendario String @default("google")
 
+  /// Email para recuperar el acceso sin depender de WhatsApp (LAU-109). Sólo
+  /// se guarda después de probarlo con un código mandado ahí (ver
+  /// auth/email-recuperacion.service.ts): si está, está verificado. Separado
+  /// de `email`, que es el de Google y se reescribe en cada login con Google.
+  emailRecuperacion String?   @unique
+  emailVerificadoAt DateTime?
+
   /// Contraseña para entrar con número de WhatsApp (scrypt, ver
   /// auth/password.ts). Nunca en claro. Las cuentas de Google no la usan.
   passwordHash String?
@@ -56,32 +63,33 @@ model User {
   /// catálogo de claves vive en src/auth/tutoriales.ts.
   tutorialesVistos String[] @default([])
 
-  whatsappSession   WhatsappSession?
-  canalWhatsapp     CanalWhatsapp?
-  whatsappCloud     CuentaWhatsappCloud?
-  agent             Agent?
-  conversaciones    Conversation[]
-  suscripcion       Subscription?
-  eventos           Evento[]
-  codigosAcceso     CodigoAcceso[]
-  productos         Producto[]
-  descuentos        Descuento[]
-  imagenesProducto  ImagenProducto[]
-  ventas            Venta[]
-  cuentaMercadoPago CuentaMercadoPago?
-  notificaciones    Notificacion[]
-  sugerencias       SugerenciaMejora[]
-  condicionesPago   CondicionesPago?
-  etapasChat        EtapaChat[]
-  interesProductos  InteresProducto[]
-  preguntasChat     PreguntaChat[]
-  configEnvios      ConfiguracionEnvios?
-  zonasEnvio        ZonaEnvio[]
-  consultasEnvio    ConsultaEnvioSinResolver[]
-  anuncios          Anuncio[]
-  mensajesRecibidos MensajeRecibido[]
-  configPreguntas   ConfiguracionPreguntas?
-  imagenesPregunta  ImagenPregunta[]
+  whatsappSession       WhatsappSession?
+  canalWhatsapp         CanalWhatsapp?
+  whatsappCloud         CuentaWhatsappCloud?
+  agent                 Agent?
+  conversaciones        Conversation[]
+  suscripcion           Subscription?
+  eventos               Evento[]
+  codigosAcceso         CodigoAcceso[]
+  verificacionEmail     VerificacionEmail?
+  productos             Producto[]
+  descuentos            Descuento[]
+  imagenesProducto      ImagenProducto[]
+  ventas                Venta[]
+  cuentaMercadoPago     CuentaMercadoPago?
+  notificaciones        Notificacion[]
+  sugerencias           SugerenciaMejora[]
+  condicionesPago       CondicionesPago?
+  etapasChat            EtapaChat[]
+  interesProductos      InteresProducto[]
+  preguntasChat         PreguntaChat[]
+  configEnvios          ConfiguracionEnvios?
+  zonasEnvio            ZonaEnvio[]
+  consultasEnvio        ConsultaEnvioSinResolver[]
+  anuncios              Anuncio[]
+  mensajesRecibidos     MensajeRecibido[]
+  configPreguntas       ConfiguracionPreguntas?
+  imagenesPregunta      ImagenPregunta[]
   configRecomendaciones ConfiguracionRecomendaciones?
 
   createdAt DateTime @default(now())
@@ -438,6 +446,23 @@ model CodigoAcceso {
   @@index([userId])
 }
 
+/// Email de recuperación que la cuenta está probando: el código que se le
+/// mandó (sólo el hash) y a qué dirección. Recién al confirmarlo pasa a
+/// `User.emailRecuperacion`. Uno por cuenta: pedir otro reemplaza al anterior.
+model VerificacionEmail {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  email    String
+  /// SHA-256 hex del código.
+  hash     String
+  expiraAt DateTime
+  intentos Int      @default(0)
+
+  createdAt DateTime @default(now())
+}
+
 /// Producto del catálogo de una cuenta de ventas, con su precio y su stock.
 /// No hay variantes: un talle o un color distinto es otro producto.
 ///
@@ -462,15 +487,15 @@ model Producto {
   moneda      String  @default("ARS")
 
   /// Precio en centavos, como `Subscription.montoCentavos`.
-  precioCentavos Int
+  precioCentavos   Int
   /// Unidades en stock. Null = producto a demanda: no se controla cantidad y vale `disponible`.
-  stock          Int?
+  stock            Int?
   /// Switch manual "hay / no hay", que sólo cuenta cuando `stock` es null.
-  disponible     Boolean @default(true)
+  disponible       Boolean @default(true)
   /// A demanda (`stock` null): en cuántos días se entrega. Con stock queda en null.
   plazoEntregaDias Int?
   /// Con stock controlado: por debajo de esto se avisa al dueño.
-  stockMinimo    Int?
+  stockMinimo      Int?
 
   /// Baja lógica: un producto borrado deja de venderse pero sus ventas
   /// guardan igual su snapshot.
@@ -488,19 +513,19 @@ model Producto {
   /// de `textoBusqueda`, el indexador lo recalcula.
   embeddingHash String?
 
-  itemsVenta      ItemVenta[]
-  intereses       InteresProducto[]
-  preguntas       PreguntaChat[]
+  itemsVenta ItemVenta[]
+  intereses  InteresProducto[]
+  preguntas  PreguntaChat[]
   /// El descuento propio del producto (del formulario), si tiene.
-  descuento       Descuento?
+  descuento  Descuento?
   /// Hasta MAX_IMAGENES_POR_PRODUCTO fotos; la de menor `orden` es la principal
   /// (la que sale al mostrar el producto) y el resto, las de detalle.
-  imagenes        ImagenProducto[]
-  anuncios        Anuncio[]
+  imagenes   ImagenProducto[]
+  anuncios   Anuncio[]
   /// Cuotas del producto (LAU-34): { modo: "recargo", recargoPorcentaje, planes: [3, 6] }
   /// o { modo: "precios", planes: [{ cuotas, totalCentavos }] }; null = en un pago.
   /// Reglas en comercio/condiciones-pago.rules.ts.
-  cuotas          Json?
+  cuotas     Json?
 
   /// Importación rápida (LAU-31): de dónde salió el producto, como clave
   /// estable ("ml:MLA123", "web:<hash>"). Con ella reimportar el mismo enlace
@@ -841,11 +866,11 @@ model EtapaChat {
 
   /// La más avanzada que alcanzó; nunca retrocede.
   /// "consulta" | "vio_productos" | "eligiendo" | "lista" | "pedido" | "pagado"
-  etapa    String  @default("consulta")
+  etapa           String    @default("consulta")
   /// Última etapa que calculó Jev: "eligiendo" | "lista". Null si nunca se calculó.
-  etapaJev String?
+  etapaJev        String?
   /// El chat se derivó a una persona (derivar_consulta o atención humana).
-  derivado Boolean @default(false)
+  derivado        Boolean   @default(false)
   /// Primera vez que el asistente le cotizó el envío (consultar_envio, LAU-102).
   consultoEnvioAt DateTime?
 
@@ -947,8 +972,8 @@ model ZonaEnvio {
   estado String
 
   /// Modalidades que ofrece (no aplican a "sin_cobertura").
-  domicilio Boolean @default(false)
-  sucursal  Boolean @default(false)
+  domicilio               Boolean @default(false)
+  sucursal                Boolean @default(false)
   /// Null = sin precio; 0 = sin cargo, explícito.
   tarifaDomicilioCentavos Int?
   tarifaSucursalCentavos  Int?
@@ -1022,15 +1047,15 @@ model Anuncio {
 
   /// `sourceId` de Meta: identifica el anuncio dentro de la cuenta. Un anuncio
   /// que el dueño cargó sólo con su link no lo tiene hasta que llega el primer chat.
-  sourceId   String?
-  sourceType String?
-  sourceUrl  String?
+  sourceId             String?
+  sourceType           String?
+  sourceUrl            String?
   /// Link del anuncio normalizado (`claveDeLink`): reconoce el primer chat de
   /// un anuncio que el dueño cargó con el link en vez del id.
-  urlClave   String?
+  urlClave             String?
   /// Textos del anuncio, tal como los manda WhatsApp (recortados): datos, nunca instrucciones.
-  titulo String?
-  cuerpo String?
+  titulo               String?
+  cuerpo               String?
   /// Miniatura normalizada a JPEG (procesarImagen), sin metadatos.
   miniatura            Bytes?
   /// Lo que leyó el modelo de visión en la miniatura; se calcula una sola vez.
@@ -1110,9 +1135,9 @@ model ConfiguracionRecomendaciones {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// En orden: entre reglas del mismo alcance gana la primera.
-  recomendaciones Json @default("[]")
+  recomendaciones Json   @default("[]")
   /// Propiedades (nombre y valor) de un producto o de una opción de una pregunta.
-  propiedades     Json @default("[]")
+  propiedades     Json   @default("[]")
   /// "catalogo" | "derivar": qué hace el asistente si ninguna regla aplica.
   sinCoincidencia String @default("catalogo")
 

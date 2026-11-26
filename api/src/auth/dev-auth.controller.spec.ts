@@ -9,6 +9,7 @@ import { AgentsService } from '../agents/agents.service.js';
 import type { Env } from '../config/env.js';
 import { AuthService } from './auth.service.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
+import { EmailService } from '../email/email.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { contrasenaCorrecta, DevAuthController } from './dev-auth.controller.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
@@ -38,6 +39,10 @@ async function crearApp(entorno: Entorno, opciones: { tieneAgente?: boolean } = 
       { provide: AuthService, useValue: authService },
       { provide: AgentsService, useValue: agentsService },
       { provide: CodigoAccesoService, useValue: { ultimoCodigoDev: vi.fn().mockReturnValue('123456') } },
+      {
+        provide: EmailService,
+        useValue: { ultimoDev: vi.fn().mockReturnValue({ para: 'a@b.com', asunto: 'Asunto', texto: 'Código 654321' }) },
+      },
       { provide: ConfigService, useValue: { get: (clave: string) => valores[clave] } },
       { provide: PrismaService, useValue: {} },
     ],
@@ -173,6 +178,17 @@ describe('DevAuthController', () => {
 
     ({ app } = await crearApp({ NODE_ENV: 'production' }));
     await request(app.getHttpServer()).get('/auth/dev/ultimo-codigo?telefono=5491122334455').expect(404);
+  });
+
+  it('GET /auth/dev/ultimo-email devuelve el último email dev y 404 en producción', async () => {
+    ({ app } = await crearApp({}));
+    await request(app.getHttpServer())
+      .get('/auth/dev/ultimo-email?para=a@b.com')
+      .expect(200, { asunto: 'Asunto', texto: 'Código 654321' });
+    await app.close();
+
+    ({ app } = await crearApp({ NODE_ENV: 'production' }));
+    await request(app.getHttpServer()).get('/auth/dev/ultimo-email?para=a@b.com').expect(404);
   });
 
   it('POST /auth/dev/chat responde 404 en producción y valida el body', async () => {

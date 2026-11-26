@@ -10,6 +10,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { AltaWhatsappService } from './alta-whatsapp.service.js';
 import { AuthService } from './auth.service.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
+import { EmailRecuperacionService } from './email-recuperacion.service.js';
 import { LoginWhatsappService } from './login-whatsapp.service.js';
 import { WhatsappAuthController } from './whatsapp-auth.controller.js';
 
@@ -21,6 +22,7 @@ async function crearApp() {
     guardar: vi.fn().mockResolvedValue(USUARIO),
   };
   const codigos = { verificar: vi.fn().mockResolvedValue({ ...USUARIO, passwordHash: null }), solicitar: vi.fn() };
+  const emailsRecuperacion = { avisarCambioDePassword: vi.fn() };
   const valores: Record<string, string> = { NODE_ENV: 'development', SESSION_COOKIE_NAME: 'trato_session' };
 
   const modulo = await Test.createTestingModule({
@@ -30,6 +32,7 @@ async function crearApp() {
       { provide: AltaWhatsappService, useValue: {} },
       { provide: CodigoAccesoService, useValue: codigos },
       { provide: LoginWhatsappService, useValue: logins },
+      { provide: EmailRecuperacionService, useValue: emailsRecuperacion },
       { provide: WhatsappService, useValue: {} },
       { provide: AgentsService, useValue: { findByUserId: vi.fn().mockResolvedValue({ id: 'agent-1' }) } },
       { provide: ConfigService, useValue: { get: (clave: string) => valores[clave] } },
@@ -40,7 +43,7 @@ async function crearApp() {
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   await app.init();
-  return { app, logins, codigos };
+  return { app, logins, codigos, emailsRecuperacion };
 }
 
 describe('WhatsappAuthController', () => {
@@ -97,5 +100,16 @@ describe('WhatsappAuthController', () => {
       .send({ telefono: '5491122334455', codigo: '123456', nuevaPassword: 'una-nueva-clave' })
       .expect(200, { destino: '/inicio' });
     expect(logins.guardar).toHaveBeenCalledWith('user-1', 'una-nueva-clave');
+  });
+
+  it('recuperar avisa del cambio de contraseña al email de recuperación', async () => {
+    let emailsRecuperacion;
+    ({ app, emailsRecuperacion } = await crearApp());
+
+    await request(app.getHttpServer())
+      .post('/auth/whatsapp/codigo/verificar')
+      .send({ telefono: '5491122334455', codigo: '123456', nuevaPassword: 'una-nueva-clave' })
+      .expect(200);
+    expect(emailsRecuperacion.avisarCambioDePassword).toHaveBeenCalledWith(expect.objectContaining({ id: 'user-1' }));
   });
 });
