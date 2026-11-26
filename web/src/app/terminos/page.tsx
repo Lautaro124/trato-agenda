@@ -28,7 +28,7 @@ export default function TerminosPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Términos de servicio
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 24 de noviembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 26 de noviembre de 2026</p>
 
         <Seccion titulo="El servicio">
           <p>
@@ -99,9 +99,10 @@ export default function TerminosPage() {
 
         <Seccion titulo="Tu cuenta de WhatsApp">
           <p>
-            Si creás la cuenta con WhatsApp, el número que vinculás es tu cuenta: quien tenga ese
-            WhatsApp puede entrar a tu panel, con el QR o con el código que mandamos a su propio chat.
-            Cuidá el acceso a tu teléfono como cuidás el de tu WhatsApp.
+            Tu asistente atiende el número de WhatsApp Business que conectás desde tu cuenta de Meta,
+            por la API oficial de WhatsApp. Tenés que ser titular de ese número o estar autorizado a
+            usarlo, y cumplir las políticas de WhatsApp Business y de comercio de Meta. Podés
+            desconectarlo cuando quieras desde Trato o desde tu cuenta de Meta.
           </p>
         </Seccion>
 

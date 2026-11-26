@@ -190,11 +190,11 @@ export default function RecuperarContrasenaPage() {
 
         <div className="mt-6 rounded-md bg-sunken p-4 text-[12.5px] leading-[1.6] text-ink-secondary">
           ¿No te llega? Revisá el spam de tu email. Si WhatsApp está desconectado y no confirmaste un email,
-          el código no tiene por dónde salir:{" "}
-          <Link href="/entrar/whatsapp" className="text-link">
-            escaneá el QR de nuevo
-          </Link>{" "}
-          y volvés a tu misma cuenta, con todos tus datos; ahí elegís la contraseña. Si conectaste Google
+          el código no tiene por dónde salir: escribinos a{" "}
+          <a href="mailto:soporte@tratoagenda.com" className="text-link">
+            soporte@tratoagenda.com
+          </a>{" "}
+          desde el email de tu negocio y te ayudamos a volver a tu cuenta. Si conectaste Google
           desde Tu cuenta, también podés{" "}
           <a href={`${API_URL}/auth/google`} className="text-link">
             entrar con Google

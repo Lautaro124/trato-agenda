@@ -39,6 +39,8 @@ export type Usuario = {
   puedeSumarEmailRecuperacion: boolean;
   /** Cuenta de WhatsApp sin Google ni email de recuperación: se le muestra el aviso para sumarlo. */
   debeSumarEmailRecuperacion: boolean;
+  /** Cuenta de antes de la API oficial: vincula por QR o código. Las nuevas sólo conectan WhatsApp Business. */
+  vinculaConBaileys: boolean;
 };
 
 /**

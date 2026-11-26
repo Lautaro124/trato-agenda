@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import {
   ConnectedCard,
@@ -16,7 +15,6 @@ import { Button } from "@/components/ui/Button";
 import { useEsCelular } from "@/lib/dispositivo";
 import { useRequireSession } from "@/lib/session";
 import { textoDeError, useVinculacion } from "@/lib/vinculacion";
-import { useConfigOficial } from "@/lib/whatsapp-oficial";
 
 export type { LinkState } from "@/lib/vinculacion";
 
@@ -34,19 +32,24 @@ export default function VincularPage() {
   const { user, status } = useRequireSession();
   // Arranca (o resume) la vinculación real y se suscribe al stream de eventos.
   // Si ya estaba vinculado, la API contesta "connected" de una.
-  const { state, qr, phone, motivo, regenerar, pedirCodigo } = useVinculacion(ENDPOINTS, status === "authenticated");
+  // Sólo las cuentas de antes de la API oficial vinculan por QR o código; las
+  // nuevas conectan WhatsApp Business en /vincular/oficial.
+  const porBaileys = status === "authenticated" && user?.vinculaConBaileys === true;
+  const { state, qr, phone, motivo, regenerar, pedirCodigo } = useVinculacion(ENDPOINTS, porBaileys);
   // En el celular no se puede escanear la propia pantalla: ahí arranca con el código.
   const esCelular = useEsCelular();
-  // Sólo con las variables de Meta en la API se ofrece la conexión oficial.
-  const oficial = useConfigOficial(status === "authenticated");
   const [elegido, setElegido] = useState<"qr" | "codigo" | null>(null);
   const metodo = elegido ?? (esCelular ? "codigo" : "qr");
   // Con código, "vencido" se muestra en la misma tarjeta, que conserva el número tipeado.
   const enCodigo = metodo === "codigo" && (state === "active" || state === "expired");
 
+  useEffect(() => {
+    if (status === "authenticated" && user && !user.vinculaConBaileys) router.replace("/vincular/oficial");
+  }, [status, user, router]);
+
   // Mientras la API no conteste quién es, no mostramos el QR: si no hay sesión,
   // useRequireSession ya está redirigiendo a /entrar.
-  if (status !== "authenticated" || !user || esCelular === null) {
+  if (status !== "authenticated" || !user || !user.vinculaConBaileys || esCelular === null) {
     return (
       <main className="grid min-h-dvh place-items-center bg-page p-6">
         <p className="text-sm text-muted">Cargando tu sesión…</p>
@@ -93,11 +96,6 @@ export default function VincularPage() {
         )}
         {metodo === "qr" && state === "expired" && <ExpiredCard token={qr ?? ""} onRegenerate={regenerar} />}
         {state === "error" && <ErrorCard code={textoDeError(motivo)} onRetry={regenerar} />}
-        {oficial?.disponible && state !== "connected" && (
-          <Link href="/vincular/oficial" className="mt-4 text-[13px] text-primary underline">
-            ¿Tenés WhatsApp Business? Conectalo con la API oficial de Meta
-          </Link>
-        )}
       </main>
     </div>
   );

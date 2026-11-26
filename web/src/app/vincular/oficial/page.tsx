@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { ConnectedCard } from "@/components/LinkStateCards";
 import { Button } from "@/components/ui/Button";
@@ -33,8 +32,29 @@ export default function VincularOficialPage() {
   const [coexistencia, setCoexistencia] = useState(true);
   const [pin, setPin] = useState("");
   const [paso, setPaso] = useState<Paso>({ tipo: "elegir" });
+  // Las cuentas de antes de la API oficial siguen vinculando por QR o código en /vincular.
+  const porBaileys = user?.vinculaConBaileys === true;
 
-  if (status !== "authenticated" || !user || config === null) {
+  useEffect(() => {
+    if (status === "authenticated" && porBaileys) router.replace("/vincular");
+  }, [status, porBaileys, router]);
+
+  // Si ya está conectado, lo muestra en vez de volver a pedir el alta.
+  useEffect(() => {
+    if (status !== "authenticated" || porBaileys) return;
+    let vigente = true;
+    apiFetch("/whatsapp/status")
+      .then((respuesta) => (respuesta.ok ? (respuesta.json() as Promise<{ linked?: boolean; phoneNumber?: string | null }>) : null))
+      .then((datos) => {
+        if (vigente && datos?.linked) setPaso({ tipo: "conectado", telefono: datos.phoneNumber ?? "" });
+      })
+      .catch(() => undefined);
+    return () => {
+      vigente = false;
+    };
+  }, [status, porBaileys]);
+
+  if (status !== "authenticated" || !user || porBaileys || config === null) {
     return (
       <main className="grid min-h-dvh place-items-center bg-page p-6">
         <p className="text-sm text-muted">Cargando…</p>
@@ -97,11 +117,7 @@ export default function VincularOficialPage() {
 
             {!config.disponible ? (
               <p className="text-[13.5px] text-ink-secondary">
-                La conexión oficial todavía no está disponible. Mientras tanto podés{" "}
-                <Link href="/vincular" className="text-primary underline">
-                  vincular tu WhatsApp
-                </Link>
-                .
+                La conexión con WhatsApp Business todavía no está disponible. Probá de nuevo en un rato.
               </p>
             ) : (
               <>

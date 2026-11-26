@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 25 de noviembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 26 de noviembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -118,7 +118,10 @@ export default function PrivacidadPage() {
             <Fuerte>De WhatsApp.</Fuerte> El número que vinculás, y de cada persona que le escribe a tu
             asistente: su número, el texto de los mensajes que intercambia con el asistente, el nombre
             que da para agendar y un resumen breve de lo que pidió. Es lo que le permite coordinar los
-            turnos y lo que ves en el historial de tu panel.
+            turnos y lo que ves en el historial de tu panel. Cuando conectás WhatsApp Business desde
+            Meta, guardamos además los identificadores de tu cuenta de WhatsApp Business y de tu número,
+            y el permiso que nos das para atenderlo, cifrado. Podés quitarlo cuando quieras desde Trato o
+            desde la configuración de tu cuenta de Meta.
           </p>
           <p>
             <Fuerte>Si atendés un chat vos.</Fuerte> En la pantalla Chats de tu panel ves el texto de
@@ -390,8 +393,9 @@ export default function PrivacidadPage() {
               llamada.
             </Punto>
             <Punto>
-              <Fuerte>WhatsApp (Meta)</Fuerte>: es la red por la que viajan los mensajes entre tus
-              clientes y tu asistente.
+              <Fuerte>WhatsApp (Meta)</Fuerte>: los mensajes entre tus clientes y tu asistente viajan
+              por la API oficial de WhatsApp Business (Cloud API), con el permiso que le das a Trato
+              desde tu cuenta de Meta.
             </Punto>
             <Punto>
               <Fuerte>Mercado Pago</Fuerte>: el cobro de la suscripción y, si lo conectás, el de tus
@@ -475,10 +479,6 @@ export default function PrivacidadPage() {
             <Punto>
               <Fuerte>Tu catálogo:</Fuerte> mientras tu cuenta exista. Un producto que borrás deja de
               ofrecerse en el momento, y su foto se borra.
-            </Punto>
-            <Punto>
-              <Fuerte>Un registro con WhatsApp que no se terminó</Fuerte> (se pidió el código QR pero
-              nunca se escaneó): se borra dentro de las 24 horas.
             </Punto>
             <Punto>
               <Fuerte>Un email de recuperación que no confirmaste:</Fuerte> la dirección y la huella

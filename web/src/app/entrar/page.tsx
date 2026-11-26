@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { FooterLegal } from "@/components/FooterLegal";
@@ -18,17 +17,6 @@ const PITCH = [
   "Agenda turnos o vende tus productos con link de pago.",
   "Un mes gratis, sin tarjeta.",
 ];
-
-/** Mismo tamaño que `Button` lg, pero es un enlace a otra ruta: el verde lo distingue como WhatsApp. */
-const BOTON_WHATSAPP =
-  "inline-flex min-h-[54px] w-full items-center justify-center gap-2.5 rounded-md bg-[var(--color-primitive-green-700)] px-6 py-3 text-[17px] font-bold text-white shadow-sm transition-colors hover:bg-[var(--color-primitive-green-800)]";
-
-const ICONO_WHATSAPP = (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="M3 21l1.65-3.8A9 9 0 1 1 7.5 19.9L3 21" />
-    <path d="M8.5 8.2l1.4-.4.9 2-1 .9a5.5 5.5 0 0 0 3.5 3.5l.9-1 2 .9-.4 1.4c-4 .2-7.5-3.3-7.3-7.3z" />
-  </svg>
-);
 
 type Pestana = "entrar" | "nueva";
 
@@ -171,17 +159,7 @@ export default function EntrarPage() {
           ) : (
             <div id="panel-nueva" role="tabpanel" aria-labelledby="pestana-nueva">
               <h2 className="mb-1.5 font-display text-2xl font-bold tracking-[-0.02em] text-ink">Creá tu cuenta gratis</h2>
-              <p className="mb-5 text-sm leading-[1.6] text-ink-secondary">Elegí con qué la creás. Tarda un minuto.</p>
-
-              <Link href="/entrar/whatsapp" className={BOTON_WHATSAPP}>
-                {ICONO_WHATSAPP}
-                Crear cuenta con WhatsApp
-              </Link>
-              <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
-                Vinculás tu WhatsApp con un código y listo. Tus turnos quedan en la agenda de Trato.
-              </p>
-
-              <Separador>o</Separador>
+              <p className="mb-5 text-sm leading-[1.6] text-ink-secondary">La creás con tu cuenta de Google. Tarda un minuto.</p>
 
               <Button
                 variant="secondary"
@@ -194,7 +172,7 @@ export default function EntrarPage() {
                 {pending ? "Entrando…" : "Crear cuenta con Google"}
               </Button>
               <p className="mt-2 text-[13px] leading-[1.55] text-ink-secondary">
-                Tus turnos van a tu Google Calendar. Después vinculás WhatsApp.
+                Después conectás tu WhatsApp Business con la API oficial de Meta, en un par de pasos.
               </p>
             </div>
           )}

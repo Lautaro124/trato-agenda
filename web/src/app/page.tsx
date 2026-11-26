@@ -14,8 +14,8 @@ export const metadata = {
 const PASOS = [
   {
     numero: 1,
-    titulo: "Entrás como quieras",
-    texto: "Escaneás el QR con tu WhatsApp o entrás con Google. Seguís usando el mismo número de siempre.",
+    titulo: "Conectás tu WhatsApp",
+    texto: "Creás tu cuenta con Google y conectás tu WhatsApp Business con la API oficial de Meta. Seguís usando el mismo número.",
   },
   {
     numero: 2,
@@ -300,7 +300,7 @@ export default function Home() {
               Que tu WhatsApp trabaje mientras vos atendés
             </h2>
             <p className="max-w-[40ch] text-pretty text-[16px] leading-[1.6] text-white/85">
-              Creás tu cuenta, escaneás el QR y esta misma semana el asistente ya está respondiendo.
+              Creás tu cuenta, conectás tu WhatsApp Business y esta misma semana el asistente ya está respondiendo.
             </p>
           </div>
           <div className="flex min-w-0 flex-wrap gap-3">
