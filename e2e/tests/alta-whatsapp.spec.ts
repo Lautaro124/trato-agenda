@@ -17,6 +17,7 @@ test.describe('sin alta por QR', () => {
   test('/entrar/whatsapp lleva a /entrar', async ({ page }) => {
     await page.goto('/entrar/whatsapp');
     await esperarRuta(page, '/entrar');
+    await expect(page).toHaveURL(/\/entrar$/);
   });
 
   test('la API no arranca altas por QR', async ({ request }) => {

@@ -467,7 +467,9 @@ class SesionCloud implements SesionCanal {
   }
 
   /** La Cloud API no avisa cuándo escribe el cliente: queda el silencio fijo de la ráfaga. */
-  seguirPresencia(): void {}
+  seguirPresencia(): void {
+    // Nada que suscribir: la ráfaga espera su silencio fijo.
+  }
 
   /** Lo cosmético nunca frena ni falla. */
   private estadoDeLectura(messageId: string, escribiendo: boolean): void {

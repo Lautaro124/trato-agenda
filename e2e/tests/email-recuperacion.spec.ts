@@ -41,7 +41,7 @@ test.describe('email de recuperación', () => {
     await page.getByRole('link', { name: 'Sumar email' }).click();
     await esperarRuta(page, '/cuenta');
 
-    await page.getByLabel('Email de recuperación').fill(email);
+    await page.getByRole('textbox', { name: 'Email de recuperación' }).fill(email);
     await page.getByLabel('Contraseña actual para el email').fill(PASSWORD);
     await page.getByRole('button', { name: 'Mandarme el código' }).click();
 
@@ -74,7 +74,7 @@ test.describe('email de recuperación', () => {
     await crearAgentePorApi(page.context().request);
 
     await page.goto('/cuenta');
-    await page.getByLabel('Email de recuperación').fill(emailUnico());
+    await page.getByRole('textbox', { name: 'Email de recuperación' }).fill(emailUnico());
     await page.getByLabel('Contraseña actual para el email').fill('no-es-esta');
     await page.getByRole('button', { name: 'Mandarme el código' }).click();
 

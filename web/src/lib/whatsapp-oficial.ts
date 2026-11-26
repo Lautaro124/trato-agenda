@@ -38,7 +38,7 @@ export function useConfigOficial(habilitado: boolean): ConfigOficial | null {
   useEffect(() => {
     if (!habilitado) return;
     let vigente = true;
-    apiFetch("/whatsapp/cloud/config")
+    void apiFetch("/whatsapp/cloud/config")
       .then((respuesta) => (respuesta.ok ? (respuesta.json() as Promise<ConfigOficial>) : { disponible: false as const }))
       .catch(() => ({ disponible: false as const }))
       .then((datos) => {
@@ -80,15 +80,6 @@ export function cargarSdk(config: Extract<ConfigOficial, { disponible: true }>):
   return carga;
 }
 
-/** Si un mensaje de la ventana viene de Meta (Embedded Signup lo manda por `postMessage`). */
-function esDeMeta(origen: string): boolean {
-  try {
-    const { protocol, hostname } = new URL(origen);
-    return protocol === "https:" && (hostname === "facebook.com" || hostname.endsWith(".facebook.com"));
-  } catch {
-    return false;
-  }
-}
 
 export type ResultadoDelPopup =
   | { tipo: "listo"; codigo: string; datos: DatosDelAlta }
@@ -117,7 +108,12 @@ export function abrirEmbeddedSignup(sdk: SdkDeFacebook, configId: string, coexis
     };
 
     function alRecibir(evento: MessageEvent) {
-      if (!esDeMeta(evento.origin) || typeof evento.data !== "string") return;
+      // Embedded Signup manda el resultado por `postMessage` desde Facebook: cualquier otro origen se ignora.
+      const origen = evento.origin;
+      if (origen !== "https://www.facebook.com" && origen !== "https://web.facebook.com" && origen !== "https://business.facebook.com") {
+        return;
+      }
+      if (typeof evento.data !== "string") return;
       let mensaje: { type?: unknown; event?: unknown; data?: { waba_id?: unknown; phone_number_id?: unknown } };
       try {
         mensaje = JSON.parse(evento.data);

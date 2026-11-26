@@ -1,4 +1,7 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+
+/** Clave al azar por proceso: sólo sirve para comparar sin filtrar tiempo, no protege nada. */
+const CLAVE_DE_COMPARACION = randomBytes(32);
 
 /**
  * El webhook de la Cloud API firma el cuerpo crudo con el secreto de la app:
@@ -15,8 +18,8 @@ export function firmaDeMetaValida(cuerpo: Buffer, cabecera: string | undefined, 
 
 /** Compara dos textos sin filtrar por tiempo en qué carácter difieren. */
 export function igualesSinFiltrarTiempo(a: string, b: string): boolean {
-  const hashA = createHmac('sha256', 'trato/comparar').update(a).digest();
-  const hashB = createHmac('sha256', 'trato/comparar').update(b).digest();
+  const hashA = createHmac('sha256', CLAVE_DE_COMPARACION).update(a).digest();
+  const hashB = createHmac('sha256', CLAVE_DE_COMPARACION).update(b).digest();
   return timingSafeEqual(hashA, hashB);
 }
 
