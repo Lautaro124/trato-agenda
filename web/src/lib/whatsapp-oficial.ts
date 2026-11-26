@@ -109,8 +109,11 @@ export function abrirEmbeddedSignup(sdk: SdkDeFacebook, configId: string, coexis
 
     function alRecibir(evento: MessageEvent) {
       // Embedded Signup manda el resultado por `postMessage` desde Facebook: cualquier otro origen se ignora.
-      const origen = evento.origin;
-      if (origen !== "https://www.facebook.com" && origen !== "https://web.facebook.com" && origen !== "https://business.facebook.com") {
+      if (
+        evento.origin !== "https://www.facebook.com" &&
+        evento.origin !== "https://web.facebook.com" &&
+        evento.origin !== "https://business.facebook.com"
+      ) {
         return;
       }
       if (typeof evento.data !== "string") return;
