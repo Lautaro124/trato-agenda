@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
-import { json } from 'express';
+import { json, raw } from 'express';
 import { AppModule } from './app.module.js';
 import { chequeoDeOrigen } from './auth/csrf-origin.js';
 import { LoggerConSentry } from './observabilidad/logger-con-sentry.js';
@@ -14,6 +14,8 @@ import type { Env } from './config/env.js';
 const LIMITE_IMPORTACION = '6mb';
 /** Y de `POST /importacion/confirmar`: diez productos revisados. */
 const LIMITE_CONFIRMAR_IMPORTACION = '1mb';
+/** Y del webhook de la API oficial de WhatsApp, que llega crudo para verificar su firma. */
+const LIMITE_WEBHOOK_WHATSAPP = '1mb';
 
 async function bootstrap() {
   // Los parsers se registran a mano (abajo) para que sólo la importación del
@@ -45,6 +47,8 @@ async function bootstrap() {
   // antes que el parser global, que ve el body ya leído y no lo toca.
   app.use('/productos/importar', json({ limit: LIMITE_IMPORTACION }));
   app.use('/importacion/confirmar', json({ limit: LIMITE_CONFIRMAR_IMPORTACION }));
+  // La firma de Meta es sobre los bytes tal como llegaron: esta ruta no se parsea como JSON.
+  app.use('/whatsapp/cloud/webhook', raw({ type: () => true, limit: LIMITE_WEBHOOK_WHATSAPP }));
   app.useBodyParser('json');
   app.useBodyParser('urlencoded', { extended: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

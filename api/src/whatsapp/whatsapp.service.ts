@@ -1,40 +1,8 @@
 import { chatEnAtencionHumana, guardarMensajeEnPausa, tomarChat } from '../chats/atencion.js';
-import {
-  ConflictException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  ServiceUnavailableException,
-  type MessageEvent,
-  type OnModuleDestroy,
-  type OnModuleInit,
-} from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, type MessageEvent, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import makeWASocket, {
-  Browsers,
-  DisconnectReason,
-  downloadMediaMessage,
-  fetchLatestWaWebVersion,
-  isJidGroup,
-  isJidStatusBroadcast,
-  isLidUser,
-  jidNormalizedUser,
-  makeCacheableSignalKeyStore,
-  type proto,
-  type AnyMessageContent,
-  type WAMessage,
-  type WAMessageKey,
-  type WASocket,
-  type WAVersion,
-} from '@whiskeysockets/baileys';
 import { randomInt } from 'node:crypto';
-import pino from 'pino';
-import { Observable, ReplaySubject, map } from 'rxjs';
-import { Limitador } from '../auth/limitador.js';
-import { claveDeTelefono, telefonoParaWhatsapp } from '../auth/telefono.js';
-import { referenciaDeAnuncio, type ReferenciaAnuncio } from '../comercio/anuncios.rules.js';
-import { telefonoDeJid } from '../comercio/ventas.rules.js';
+import type { Observable } from 'rxjs';
 import { AnunciosService } from '../comercio/anuncios.service.js';
 import { ImagenesService } from '../comercio/imagenes.service.js';
 import { PreguntasService } from '../comercio/preguntas.service.js';
@@ -44,22 +12,32 @@ import type { Env } from '../config/env.js';
 import { ConversationService } from '../conversation/conversation.service.js';
 import { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 import { esFotoDePregunta, type ImagenAEnviar } from '../conversation/ventas/imagenes-de-la-vuelta.js';
-import { avisoWhatsappCaido, avisoWhatsappParaVolverAVincular, type Aviso } from '../notificaciones/avisos.js';
 import { tipoAsistenteDe } from '../agents/agent-catalog.js';
 import { resumenDeError } from '../agents/openrouter.client.js';
-import { NotificacionesService } from '../notificaciones/notificaciones.service.js';
-import { avisarASentry } from '../observabilidad/aviso-a-sentry.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SubscriptionService } from '../subscription/subscription.service.js';
 import { VueltaCancelada, type Cancelacion } from '../conversation/cancelacion.js';
 import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
+import { BaileysProveedor } from './baileys/baileys.proveedor.js';
+import { CloudProveedor, type AltaCloud } from './cloud/cloud.proveedor.js';
+import { CanalesWhatsapp, type EstadoCanal } from './proveedor/canales.service.js';
+import type {
+  ContenidoEntrante,
+  ContenidoSaliente,
+  EntranteCanal,
+  FalloCanal,
+  IdProveedor,
+  MediaEntrante,
+  ProveedorWhatsapp,
+  ReceptorCanal,
+  SesionCanal,
+} from './proveedor/proveedor.js';
 import {
   MAX_BYTES_AUDIO,
   MAX_SEGUNDOS_AUDIO,
   TranscripcionClient,
   formatoDeAudio,
 } from './transcripcion.client.js';
-import { CacheConVencimiento, MensajesEnviados, TTL_REINTENTOS_MS } from './caches.js';
 import {
   ESPERA_LEIDO_MS,
   MAX_CARACTERES_RAFAGA,
@@ -69,50 +47,20 @@ import {
   esperaDeEscucha,
   partirEnMensajes,
 } from './ritmo-humano.js';
-import { PREFIJO_TIEMPOS, demoraDeEntrega, resumenDeRafaga, timestampEnMs } from './metricas.js';
-import {
-  MINUTOS_CAIDO_PARA_AVISAR,
-  correspondeAvisarCaida,
-  demoraDeReconexion,
-  politicaDeCierre,
-} from './reconexion.js';
-import { copiarSesion, estaVinculado, extraerTelefono, usePrismaAuthState } from './whatsapp-auth-state.js';
-import type { LinkEvent, WhatsappStatus } from './whatsapp.types.js';
+import { PREFIJO_TIEMPOS, demoraDeEntrega, resumenDeRafaga } from './metricas.js';
+import type { WhatsappStatus } from './whatsapp.types.js';
 
-/**
- * Un usuario sin Google ni teléfono es un alta por WhatsApp que todavía no
- * terminó: si el número escaneado ya es de otra cuenta, no es un error, es
- * alguien volviendo a entrar, y `AltaWhatsappService.finalizar` lo resuelve.
- */
-export function esAltaPendiente(user: { googleId: string | null; phoneNumber: string | null }): boolean {
-  return user.googleId === null && user.phoneNumber === null;
-}
-
-/** JID del chat consigo mismo ("Vos" en WhatsApp). */
-export function jidPropio(telefono: string): string {
-  return `${telefono}@s.whatsapp.net`;
-}
-
-/**
- * Códigos de vinculación que se pueden pedir por número y por hora. Cada pedido
- * le manda una notificación a ese teléfono, y quien lo pide no prueba todavía
- * que sea suyo: sin esto, cualquiera podría llenarle de avisos el WhatsApp a otro.
- */
-export const MAX_CODIGOS_POR_NUMERO_HORA = 5;
-/**
- * Y por cuenta (o alta): sin esto una sola cuenta podía mandarle la
- * notificación a un número distinto en cada pedido, y cada pedido abre un
- * socket desde la IP del servidor.
- */
-export const MAX_CODIGOS_POR_CUENTA = 5;
-const QUINCE_MINUTOS_MS = 15 * 60 * 1000;
-/** Cuánto esperar a que el socket nuevo hable con WhatsApp antes de pedir el código. */
-export const ESPERA_SOCKET_LISTO_MS = 20_000;
-const UNA_HORA_MS = 60 * 60 * 1000;
-/** Cada cuánto se vuelve a preguntar la versión de WhatsApp Web, y cuánto se la espera. */
-const VIGENCIA_VERSION_WA_MS = 12 * UNA_HORA_MS;
-const ESPERA_VERSION_WA_MS = 5_000;
-const REINTENTO_VERSION_WA_MS = 10 * 60 * 1000;
+// Lo propio de Baileys vive en su proveedor; se reexporta para quien ya lo importaba de acá.
+export {
+  ESPERA_SOCKET_LISTO_MS,
+  MAX_CODIGOS_POR_CUENTA,
+  MAX_CODIGOS_POR_NUMERO_HORA,
+  NAVEGADOR_WHATSAPP,
+  esAltaPendiente,
+  formatearCodigoDeVinculacion,
+  hostDeMedia,
+  jidPropio,
+} from './baileys/baileys.proveedor.js';
 
 /** Lo que recibe un chat ya iniciado que escribe fuera del horario de atención (LAU-37). */
 export const AVISO_FUERA_DE_HORARIO = 'El vendedor que te atendió no está disponible.';
@@ -155,61 +103,6 @@ const PLAZO_DESCARGA_IMAGEN_MS = 30_000;
 export const PAUSA_ANTES_DE_FOTOS_MS = 3_000;
 
 /**
- * Cómo se presenta el socket ante WhatsApp. Tiene que ser un navegador que
- * WhatsApp conozca y con versión fija: con un nombre propio
- * (`Browsers.appropriate('Trato')`, que además mandaba el kernel del
- * contenedor como versión) el QR andaba, pero el código de vinculación
- * (`requestPairingCode`) se rechazaba siempre como "código incorrecto".
- * Por eso en "Dispositivos vinculados" aparece "Chrome (Ubuntu)" y no "Trato".
- */
-export const NAVEGADOR_WHATSAPP = Browsers.ubuntu('Chrome');
-
-/** "ABCD1234" → "ABCD-1234", como lo muestra WhatsApp al pedirlo. */
-export function formatearCodigoDeVinculacion(codigo: string): string {
-  return codigo.length === 8 ? `${codigo.slice(0, 4)}-${codigo.slice(4)}` : codigo;
-}
-
-/** Forma mínima que necesitamos de un error de desconexión de Baileys (Boom). */
-type ErrorConDisconnectCode = { output?: { statusCode?: number } };
-
-function codigoDeDesconexion(error: unknown): number | undefined {
-  return (error as ErrorConDisconnectCode | undefined)?.output?.statusCode;
-}
-
-/**
- * Un mensaje de cliente esperando a que termine su ráfaga. Viaja con su socket
- * para contestar por el mismo. `enviadoEn` (el timestamp de WhatsApp) y
- * `recibidoEn` (cuándo nos lo entregó Baileys) son sólo para medir tiempos.
- */
-type MensajeEntrante = {
-  userId: string;
-  remoteJid: string;
-  sock: WASocket;
-  /** Sin key: mensajes del cliente ya guardados que el dueño pidió que conteste el asistente al devolverle el chat. */
-  key?: WAMessageKey;
-  /** El mensaje ya está en el historial (se guardó mientras atendía una persona): no se vuelve a guardar. */
-  yaGuardado?: boolean;
-  /** El anuncio desde el que llegó el mensaje (LAU-103), para vincularlo a la conversación al contestar. */
-  anuncioId?: string;
-  texto: string;
-  enviadoEn: number | null;
-  recibidoEn: number;
-};
-
-/** Lo que se sacó de un mensaje del cliente: su texto, o el aviso fijo con el que se contesta. */
-/** `maxCaracteres`: el tope del texto si no es MAX_CARACTERES_RAFAGA (una transcripción). */
-type Entrada = { texto: string; escucharHasta?: number; maxCaracteres?: number } | { aviso: string };
-
-/** `fileLength` de WhatsApp puede llegar como Long. */
-function aNumero(valor: number | { toNumber(): number } | null | undefined): number {
-  if (valor == null) return 0;
-  return typeof valor === 'number' ? valor : valor.toNumber();
-}
-
-/** Host de media de WhatsApp cuando el mensaje no trae `url`. */
-const HOST_MEDIA_WHATSAPP = 'mmg.whatsapp.net';
-
-/**
  * Audios que se descargan y transcriben a la vez, entre todas las cuentas. Uno
  * de 25 MB ocupa en memoria varias veces su tamaño (partes, Buffer, base64 y el
  * body JSON): sin tope, varios en paralelo pueden tirar la única réplica y con
@@ -230,126 +123,69 @@ export function plazoDeDescarga(bytes: number): number {
 }
 
 /**
- * El host del que se puede bajar el audio, o undefined si el mensaje apunta a
- * otro lado. `url` y `directPath` los arma el que manda el mensaje y Baileys
- * los usa tal cual: sin esto, un cliente modificado haría que la API pida
- * cualquier URL (red interna, metadata del proveedor…). Exige un `directPath`
- * de ruta simple (sin `@`, `\`, `//` ni `:`, que cambiarían el host al
- * concatenarlo) y, si viene `url`, que sea https de `*.whatsapp.net`.
+ * Cómo queda en `MensajeRecibido` el id de un mensaje. Los de Baileys, tal
+ * cual (así siguen valiendo los ya registrados); los de otro proveedor, con su
+ * nombre adelante, así dos proveedores nunca se pisan los ids.
  */
-export function hostDeMedia(media: { url?: string | null; directPath?: string | null }): string | undefined {
-  if (!media.directPath || !/^\/(?!\/)[\w\-.~%/?=&+]*$/.test(media.directPath)) return undefined;
-  if (!media.url) return HOST_MEDIA_WHATSAPP;
-  try {
-    const url = new URL(media.url);
-    const esDeWhatsapp = url.protocol === 'https:' && !url.port && url.hostname.endsWith('.whatsapp.net');
-    return esDeWhatsapp && !url.username && !url.password ? url.hostname : undefined;
-  } catch {
-    return undefined;
-  }
+export function claveDeMensaje(proveedor: IdProveedor, idExterno: string): string {
+  return proveedor === 'baileys' ? idExterno : `${proveedor}:${idExterno}`;
 }
-
-type FlujoDeMedia = AsyncIterable<Buffer> & { destroy(): void };
 
 /**
- * Abre la descarga y la junta con tope de bytes y de tiempo. Baileys no deja
- * pasarle un AbortSignal: al vencer el plazo se destruye el stream (o el que
- * llegue tarde), así un servidor que manda de a gotas no deja el chat trabado.
+ * Un mensaje de cliente esperando a que termine su ráfaga. Viaja con su
+ * sesión para contestar por la misma, y con la generación del canal en la que
+ * llegó: si el comercio cambió de proveedor o pausó, no sale. `enviadoEn` (el
+ * timestamp de WhatsApp) y `recibidoEn` (cuándo nos lo entregó el proveedor)
+ * son sólo para medir tiempos.
  */
-async function descargarConTope(abrir: () => Promise<FlujoDeMedia>, max: number, plazoMs: number): Promise<Buffer | null> {
-  const descarga = abrir();
-  let timer: NodeJS.Timeout | undefined;
-  const vencimiento = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`La descarga del audio pasó ${plazoMs}ms.`)), plazoMs);
-  });
-  let flujo: FlujoDeMedia | undefined;
-  try {
-    flujo = await Promise.race([descarga, vencimiento]);
-    return await Promise.race([leerHasta(flujo, max), vencimiento]);
-  } finally {
-    clearTimeout(timer);
-    if (flujo) flujo.destroy();
-    else void descarga.then((tarde) => tarde.destroy(), () => undefined);
-  }
-}
+type MensajeEntrante = {
+  userId: string;
+  remoteJid: string;
+  sesion: SesionCanal;
+  generacion: number;
+  /** Mensajes del cliente ya guardados que el dueño pidió que conteste el asistente al devolverle el chat. */
+  yaGuardado?: boolean;
+  /** El anuncio desde el que llegó el mensaje (LAU-103), para vincularlo a la conversación al contestar. */
+  anuncioId?: string;
+  texto: string;
+  enviadoEn: number | null;
+  recibidoEn: number;
+};
 
-/** Junta el stream en memoria; null (y lo corta) si pasa de `max` bytes. */
-async function leerHasta(flujo: FlujoDeMedia, max: number): Promise<Buffer | null> {
-  const partes: Buffer[] = [];
-  let total = 0;
-  for await (const parte of flujo) {
-    total += parte.length;
-    if (total > max) {
-      flujo.destroy();
-      return null;
-    }
-    partes.push(parte);
-  }
-  return Buffer.concat(partes);
-}
+/** Lo que se sacó de un mensaje del cliente: su texto, o el aviso fijo con el que se contesta. */
+/** `maxCaracteres`: el tope del texto si no es MAX_CARACTERES_RAFAGA (una transcripción). */
+type Entrada = { texto: string; escucharHasta?: number; maxCaracteres?: number } | { aviso: string };
+
+/** Por qué no salió lo que el asistente armó: el canal cambió mientras tanto. */
+class CanalCambiado extends Error {}
 
 function esperar(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * La atención de los clientes por WhatsApp, sin importar el proveedor que la
+ * transporta (LAU-110): atención humana, suscripción, horario, audios,
+ * imágenes, ráfagas por chat y el ritmo de las respuestas. Cada comercio usa
+ * el proveedor de su `CanalWhatsapp` (hoy, Baileys), y sólo ése puede recibir
+ * y contestar: lo que llega por otro se ignora y lo que se armó con otra
+ * generación del canal no sale.
+ */
 @Injectable()
-export class WhatsappService implements OnModuleInit, OnModuleDestroy {
+export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
   private readonly logger = new Logger(WhatsappService.name);
-  private readonly baileysLogger: pino.Logger;
+  private readonly proveedores: ReadonlyMap<IdProveedor, ProveedorWhatsapp>;
 
-  private readonly sockets = new Map<string, WASocket>();
-  private readonly events = new Map<string, ReplaySubject<LinkEvent>>();
-  /** Reintentos desde la última conexión abierta (ver reconexion.ts). */
-  private readonly reconnectAttempts = new Map<string, number>();
-  /** El reintento programado de cada usuario: cerrar o desvincular lo cancela. */
-  private readonly reconexionesPendientes = new Map<string, NodeJS.Timeout>();
-  /** Desde cuándo está caída una sesión vinculada, para avisar si no vuelve. */
-  private readonly caidoDesde = new Map<string, number>();
-  /** Caídas ya avisadas: una sola vez por caída. */
-  private readonly caidaAvisada = new Set<string>();
-  /** `badSession` seguidos por usuario (ver MAX_SESIONES_MALAS_SEGUIDAS). */
-  private readonly sesionesMalas = new Map<string, number>();
-  /** Última promesa de `saveCreds` en vuelo por usuario, para no emitir "connected" antes de que persista. */
-  private readonly pendingSaves = new Map<string, Promise<void>>();
-  /** Espera los guardados en vuelo de la sesión (creds y claves) de cada usuario. */
-  private readonly guardadosEnVuelo = new Map<string, () => Promise<void>>();
-  /** Distingue el "connecting" del arranque del socket del "connecting" post-escaneo. */
-  private readonly qrMostrado = new Set<string>();
-  /** Cuándo arrancó el socket vivo de cada usuario, para medir cuánto tarda en abrir. */
-  private readonly conectandoDesde = new Map<string, number>();
-  /**
-   * Usuarios vinculando con código (desde el mismo celular) en vez de QR. Un
-   * corte antes de que ingresen el código no se reintenta: las credenciales ya
-   * tienen el número en `me` y reconectar intentaría un login que no existe.
-   */
-  private readonly modoCodigo = new Set<string>();
-  /**
-   * Quien espera el primer QR de un socket nuevo: es la señal de que ya habló
-   * con WhatsApp. Por socket y no por usuario, así dos pedidos seguidos no se
-   * pisan la espera.
-   */
-  private readonly esperandoQr = new Map<WASocket, () => void>();
   /** Descargas y transcripciones de audio en curso (ver MAX_AUDIOS_EN_CURSO). */
   private audiosEnCurso = 0;
   /** Descargas y descripciones de imágenes en curso (ver MAX_IMAGENES_EN_CURSO). */
   private imagenesEnCurso = 0;
-  private readonly codigosPorNumero = new Limitador(MAX_CODIGOS_POR_NUMERO_HORA, UNA_HORA_MS);
-  private readonly codigosPorCuenta = new Limitador(MAX_CODIGOS_POR_CUENTA, QUINCE_MINUTOS_MS);
-  /** Un pedido de código a la vez por cuenta: dos seguidos se cerraban el socket entre sí. */
-  private readonly pidiendoCodigo = new Set<string>();
-  /** Cuántas veces pidió reenvío cada mensaje; Baileys lo usa para no reintentar para siempre. */
-  private readonly reintentosDeMensajes = new CacheConVencimiento(TTL_REINTENTOS_MS);
-  /** Lo último que mandó cada cuenta, para reenviarlo si el teléfono del cliente no lo pudo descifrar. */
-  private readonly enviados = new MensajesEnviados();
   /**
    * La última recepción de cada chat. Un audio tarda unos segundos en
    * descargarse y transcribirse: lo que el cliente manda después espera, así
    * entra a la ráfaga en el orden en que lo mandó.
    */
   private readonly recepciones = new Map<string, Promise<void>>();
-  /** Versión de WhatsApp Web con la que se conecta; se refresca cada VIGENCIA_VERSION_WA_MS. */
-  private versionWa: { version: WAVersion; hasta: number } | null = null;
-  private consultandoVersion: Promise<WAVersion> | null = null;
   /** Junta los mensajes seguidos de cada chat y los contesta de a una respuesta por vez. */
   private readonly rafagas: AgrupadorDeRafagas<MensajeEntrante>;
 
@@ -359,16 +195,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly conversationService: ConversationService,
     private readonly subscriptionService: SubscriptionService,
     private readonly imagenes: ImagenesService,
-    private readonly notificaciones: NotificacionesService,
     private readonly horarioAtencion: HorarioAtencionService,
     private readonly transcripcion: TranscripcionClient,
     private readonly anuncios: AnunciosService,
     private readonly vision: VisionClient,
     private readonly preguntas: PreguntasService,
+    private readonly baileys: BaileysProveedor,
+    private readonly canales: CanalesWhatsapp,
+    private readonly cloud: CloudProveedor,
   ) {
-    this.baileysLogger = pino({
-      level: this.config.get('NODE_ENV', { infer: true }) === 'production' ? 'warn' : 'debug',
-    });
+    this.proveedores = new Map<IdProveedor, ProveedorWhatsapp>([
+      [baileys.id, baileys],
+      [cloud.id, cloud],
+    ]);
+    for (const proveedor of this.proveedores.values()) proveedor.escuchar(this);
     // En el constructor y no como campo: necesita la configuración ya inyectada.
     this.rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
       (_clave, items, cancelacion) => this.contestarRafaga(items, cancelacion),
@@ -381,159 +221,150 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /** Al bootear la API, resumimos toda sesión que ya haya completado el pairing. */
-  async onModuleInit(): Promise<void> {
-    const sesiones = await this.prisma.whatsappSession.findMany({
-      where: { registered: true },
-      select: { userId: true },
-    });
-
-    for (const { userId } of sesiones) {
-      this.connect(userId).catch((error: unknown) =>
-        this.logger.error(`No se pudo resumir la sesión de WhatsApp de ${userId}`, error as Error),
-      );
-    }
-  }
-
-  /** Apagado prolijo: cerramos el transporte sin invalidar la sesión guardada. */
-  async onModuleDestroy(): Promise<void> {
+  /** Lo que no se contestó se pierde al apagar, como antes; los proveedores cierran sus conexiones. */
+  onModuleDestroy(): void {
     this.rafagas.cerrar();
-    for (const timer of this.reconexionesPendientes.values()) clearTimeout(timer);
-    this.reconexionesPendientes.clear();
-    await Promise.all(
-      [...this.sockets.values()].map((sock) => sock.end(undefined).catch(() => undefined)),
-    );
   }
+
+  // ─── Vinculación: QR o código con SSE (Baileys) o Embedded Signup (oficial). ─
 
   /** Stream de eventos de vinculación para un usuario, listo para `@Sse()`. */
   linkEvents$(userId: string): Observable<MessageEvent> {
-    return this.getOrCreateSubject(userId).asObservable().pipe(map((data) => ({ data })));
+    return this.baileys.linkEvents$(userId);
   }
 
-  /**
-   * Arranca (o resume) la vinculación de un usuario. Idempotente: si ya hay
-   * una sesión conectada, sólo re-emite "connected".
-   */
+  /** Arranca (o resume) la vinculación por QR. Idempotente si ya está conectada. */
   async startLink(userId: string): Promise<void> {
-    const socketVivo = this.sockets.get(userId);
-    if (socketVivo && estaVinculado(socketVivo.authState.creds)) {
-      this.emit(userId, {
-        state: 'connected',
-        phoneNumber: extraerTelefono(socketVivo.authState.creds),
-      });
-      return;
-    }
+    await this.volverABaileys(userId);
+    return this.baileys.startLink(userId);
+  }
 
-    // Venga de un QR vencido o de un código a medio ingresar, se arranca limpio.
-    await this.empezarDeCero(userId);
-    await this.connect(userId);
+  /** Vincular sin QR, desde el mismo celular (ver `BaileysProveedor.pedirCodigo`). */
+  async pedirCodigo(userId: string, telefono: string): Promise<string> {
+    await this.volverABaileys(userId);
+    return this.baileys.pedirCodigo(userId, telefono);
   }
 
   /**
-   * Vincular sin QR, desde el mismo celular: WhatsApp le manda una
-   * notificación a ese número y la persona ingresa el código que devolvemos
-   * ("Vincular con el número de teléfono"). Siempre con un socket nuevo,
-   * porque un código anterior queda guardado en las credenciales.
-   *
-   * No mira si el número ya tiene cuenta en Trato (eso diría qué números
-   * existen): igual que con el QR, `asignarTelefono` lo resuelve al conectar.
+   * Vincular por QR o código es de Baileys y sólo lo conservan las cuentas que
+   * ya lo usaban (`User.vinculaConBaileys`): las nuevas conectan por la API
+   * oficial. Con un número conectado por la oficial tampoco se ofrece: habría
+   * dos emisores para el mismo comercio. Si la cuenta usaba la oficial y la
+   * desconectó, vuelve a Baileys.
    */
-  async pedirCodigo(userId: string, telefono: string): Promise<string> {
-    if (this.pidiendoCodigo.has(userId)) {
-      throw new ConflictException('Ya estamos pidiendo un código: esperá un momento.');
+  private async volverABaileys(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { vinculaConBaileys: true } });
+    if (!user?.vinculaConBaileys) {
+      throw new ForbiddenException({
+        message: 'Conectá tu WhatsApp Business con la API oficial de Meta.',
+        motivo: 'solo_api_oficial',
+      });
     }
-    this.pidiendoCodigo.add(userId);
-    try {
-      return await this.pedirCodigoSinPisarse(userId, telefono);
-    } finally {
-      this.pidiendoCodigo.delete(userId);
+    const canal = await this.canales.estado(userId);
+    if (canal.proveedor === 'baileys') return;
+    if (this.proveedor(canal).sesionVinculada(userId)) {
+      throw new ConflictException('Tu WhatsApp está conectado por la API oficial: desconectalo antes de vincular otro.');
     }
+    await this.cambiarProveedor(userId, 'baileys');
   }
 
-  private async pedirCodigoSinPisarse(userId: string, telefono: string): Promise<string> {
-    const socketVivo = this.sockets.get(userId);
-    // La base y no sólo el socket: una sesión vinculada puede estar sin socket
-    // un rato (reconectando, al arrancar) y empezar de cero la dejaría muda.
-    const sesion = await this.prisma.whatsappSession.findUnique({ where: { userId }, select: { registered: true } });
-    if (sesion?.registered || (socketVivo && estaVinculado(socketVivo.authState.creds))) {
-      throw new ConflictException('Este WhatsApp ya está vinculado.');
-    }
-    if (!this.codigosPorCuenta.permitir(userId)) {
-      throw new HttpException('Pediste demasiados códigos: probá en unos minutos.', HttpStatus.TOO_MANY_REQUESTS);
-    }
-    if (!this.codigosPorNumero.permitir(claveDeTelefono(telefono))) {
-      throw new HttpException('Pediste demasiados códigos para ese número: probá en un rato.', HttpStatus.TOO_MANY_REQUESTS);
-    }
-
-    await this.empezarDeCero(userId);
-    this.modoCodigo.add(userId);
-    await this.connect(userId);
-    // `connect` vuelve apenas crea el socket, antes de que llegue nada de la
-    // red: registrar la espera acá no se pierde el primer QR.
-    const sock = this.sockets.get(userId);
-    try {
-      if (!sock) throw new Error('El socket no quedó registrado.');
-      await this.esperarPrimerQr(sock);
-      return formatearCodigoDeVinculacion(await sock.requestPairingCode(telefonoParaWhatsapp(telefono)));
-    } catch (error) {
-      // Sin el número ni el código: sólo el id y el motivo.
-      this.logger.warn(`No se pudo pedir el código de vinculación de ${userId}: ${(error as Error).message}`);
-      // Si otro pedido ya lo reemplazó, ese socket no es nuestro para cerrar.
-      if (sock && this.sockets.get(userId) === sock) await this.empezarDeCero(userId);
-      throw new ServiceUnavailableException('WhatsApp no respondió: probá de nuevo en un momento.');
-    } finally {
-      if (sock) this.esperandoQr.delete(sock);
-    }
+  /**
+   * Conecta el número por la API oficial (Embedded Signup) y pasa el comercio
+   * a ese proveedor. Lo que esperaba respuesta queda para el dueño, y la
+   * sesión de Baileys se cierra: un solo emisor por comercio.
+   */
+  async conectarCloud(userId: string, alta: AltaCloud): Promise<WhatsappStatus> {
+    await this.cloud.conectar(userId, alta);
+    await this.cambiarProveedor(userId, 'cloud');
+    await this.baileys.unlink(userId).catch((error: unknown) =>
+      this.logger.warn(`No se pudo cerrar la sesión de Baileys de ${userId} al pasar a la API oficial: ${resumenDeError(error)}`),
+    );
+    return this.status(userId);
   }
 
-  /** Estado de vinculación fuera del SSE, para el badge del header. */
+  /** El número de un alta que ya es de otra cuenta pasa a esa cuenta (ver `BaileysProveedor.transferirSesion`). */
+  transferirSesion(desde: string, hacia: string): Promise<void> {
+    return this.baileys.transferirSesion(desde, hacia);
+  }
+
+  /** Cierra el socket de un alta abandonada sin tocar el teléfono de nadie. */
+  descartar(userId: string): Promise<void> {
+    return this.baileys.descartar(userId);
+  }
+
+  // ─── Estado del canal ───────────────────────────────────────────────────────
+
+  /**
+   * Estado de vinculación fuera del SSE, para el badge del header, con el
+   * proveedor, la pausa y lo que haya que resolver. Una base caída no esconde
+   * la vinculación: el canal queda como el de siempre.
+   */
   async status(userId: string): Promise<WhatsappStatus> {
-    const session = await this.prisma.whatsappSession.findUnique({ where: { userId } });
-    return { linked: session?.registered ?? false, phoneNumber: session?.phoneNumber ?? null };
+    const canal = await this.canales.estado(userId);
+    const vinculacion = await this.proveedor(canal).status(userId);
+    return {
+      ...vinculacion,
+      proveedor: canal.proveedor,
+      automatizacionPausada: canal.automatizacionPausada,
+      fallo: canal.fallo,
+    };
   }
 
-  /** Cierra la sesión y borra las credenciales guardadas. */
+  /**
+   * Pausa o reanuda las respuestas automáticas del comercio (la contingencia
+   * de atención manual): lo que llegue se guarda para el dueño, que sigue
+   * contestando desde Chats o su teléfono. Pausar corta lo que se estaba
+   * armando; lo que esperaba su ráfaga queda guardado sin contestar.
+   */
+  async pausarAutomatizacion(userId: string, pausada: boolean): Promise<WhatsappStatus> {
+    await this.canales.pausar(userId, pausada);
+    if (pausada) await this.dejarPendientesParaElDueno(userId);
+    return this.status(userId);
+  }
+
+  /**
+   * Pasa el comercio a otro proveedor. Desde ese momento lo que llegue por el
+   * anterior se ignora y nada de lo que esperaba (o se armaba) sale por
+   * ninguno: queda guardado para el dueño. No vincula ni desvincula nada: la
+   * conexión nueva la arma su propio flujo.
+   */
+  async cambiarProveedor(userId: string, proveedor: IdProveedor): Promise<WhatsappStatus> {
+    if (!this.proveedores.has(proveedor)) throw new Error(`Proveedor de WhatsApp desconocido: ${proveedor}`);
+    await this.canales.cambiarProveedor(userId, proveedor);
+    await this.dejarPendientesParaElDueno(userId);
+    return this.status(userId);
+  }
+
+  /** Cierra la sesión y borra las credenciales guardadas, en todos los proveedores (baja de cuenta). */
   async unlink(userId: string): Promise<void> {
     // Lo que un cliente escribió y todavía no se contestó (o se está armando)
     // no sale: tras la baja de la cuenta no tiene a quién responderle.
     this.rafagas.descartar(`${userId}\n`);
-    const socketVivo = this.sockets.get(userId);
-    if (socketVivo) {
-      // Dispara connection.update con loggedOut, que hace la limpieza (ver handleConnectionUpdate).
-      await socketVivo.logout().catch(() => undefined);
-      return;
-    }
-
-    // Sin socket puede haber un reintento esperando: que no reviva lo que se desvinculó.
-    this.cancelarReconexion(userId);
-    this.olvidarCaida(userId);
-    await this.prisma.whatsappSession.deleteMany({ where: { userId } });
+    await Promise.all([...this.proveedores.values()].map((proveedor) => proveedor.unlink(userId)));
   }
 
+  // ─── Lo que manda el resto de la API ────────────────────────────────────────
+
   /**
-   * Manda un mensaje al chat propio del titular (lo usa el login con código).
-   * Devuelve false si no hay un socket vinculado por donde mandarlo.
+   * Manda un mensaje al chat propio del titular (lo usa el login con código),
+   * por el proveedor del comercio. false si no hay por dónde mandarlo.
    */
   async enviarAlPropioChat(userId: string, texto: string): Promise<boolean> {
-    const sock = this.sockets.get(userId);
-    const telefono = sock && estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
-    if (!sock || !telefono) return false;
-    // `handleMessagesUpsert` ignora los `fromMe`: el asistente no se contesta esto.
-    // Directo y no por `enviar`: puede ser un código de acceso, que no queda en
-    // memoria para reenvíos (la base sólo guarda su hash).
-    await sock.sendMessage(jidPropio(telefono), { text: texto });
-    return true;
+    return this.proveedor(await this.canales.estado(userId)).enviarAlPropioChat(userId, texto);
   }
 
   /**
    * Manda un mensaje del negocio al chat de un cliente (el aviso de pago
    * aprobado) y lo deja en el historial de esa conversación, como si lo
-   * hubiera escrito el asistente. false si no hay un socket vinculado.
+   * hubiera escrito el asistente. Es automático: con la pausa no sale. false
+   * si no hay una sesión vinculada.
    */
   async enviarAlCliente(userId: string, remoteJid: string, texto: string): Promise<boolean> {
-    const sock = this.sockets.get(userId);
-    if (!sock || !estaVinculado(sock.authState.creds)) return false;
-    await this.enviar(userId, sock, remoteJid, { text: texto });
+    const canal = await this.canales.estado(userId);
+    if (canal.automatizacionPausada) return false;
+    const sesion = this.proveedor(canal).sesionVinculada(userId);
+    if (!sesion) return false;
+    await sesion.enviar(remoteJid, { texto });
     const conversation = await this.prisma.conversation.findUnique({
       where: { userId_remoteJid: { userId, remoteJid } },
       select: { id: true },
@@ -548,207 +379,154 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Alguien escaneó el QR de un alta con un número que ya es de otra cuenta:
-   * esa cuenta se queda con la vinculación nueva y el usuario pendiente se
-   * descarta (lo borra quien llama). El orden importa porque `saveCreds`
-   * escribe por `userId`:
-   *
-   * 1. se espera a que el pendiente termine de persistir y se cierra su socket
-   *    sin logout (sus credenciales son las buenas);
-   * 2. se cierra la sesión vieja de la cuenta con logout, sacándola antes del
-   *    mapa para que su `loggedOut` no borre la fila que estamos por escribir;
-   * 3. se copian credenciales y claves a la cuenta (`copiarSesion`) y se
-   *    reconecta con su `userId`.
+   * El chat pasó a una persona: se descarta la respuesta que el asistente
+   * estaba armando, si todavía no se comprometió (LAU-81).
    */
-  async transferirSesion(desde: string, hacia: string): Promise<void> {
-    await this.esperarGuardados(desde);
-    await this.cerrarSocket(desde, 'end');
-    await this.cerrarSocket(hacia, 'logout');
-    // Cerrar también puede guardar: nada de ninguno de los dos puede escribir después de copiar.
-    await Promise.all([this.esperarGuardados(desde), this.esperarGuardados(hacia)]);
-
-    await copiarSesion(this.prisma, desde, hacia);
-    this.pendingSaves.delete(desde);
-    this.guardadosEnVuelo.delete(desde);
-    this.events.get(desde)?.complete();
-    this.events.delete(desde);
-
-    this.reconnectAttempts.delete(hacia);
-    await this.connect(hacia);
-  }
-
-  /** Cierra el socket de un alta abandonada sin tocar el teléfono de nadie. */
-  async descartar(userId: string): Promise<void> {
-    await this.descartarSinCerrarEventos(userId);
-    this.events.get(userId)?.complete();
-    this.events.delete(userId);
+  interrumpir(userId: string, remoteJid: string): void {
+    this.rafagas.interrumpir(`${userId}\n${remoteJid}`);
   }
 
   /**
-   * Saca el socket del mapa antes de cerrarlo: desde ahí sus eventos son de un
-   * socket viejo y `handleConnectionUpdate` los ignora.
+   * El dueño devolvió el chat y eligió que el asistente conteste lo que el
+   * cliente escribió mientras tanto (ya guardado). Pasa por la ráfaga del
+   * chat, así se serializa con lo que llegue. Con la suscripción vencida o la
+   * automatización en pausa el asistente no contesta. false si no hay una
+   * sesión vinculada.
    */
-  private async cerrarSocket(userId: string, modo: 'end' | 'logout'): Promise<void> {
-    // Lo que un cliente escribió y todavía no se contestó no sale por un socket cerrado.
-    this.rafagas.descartar(`${userId}\n`);
-    this.modoCodigo.delete(userId);
-    this.enviados.olvidar(userId);
-    this.cancelarReconexion(userId);
-    this.olvidarCaida(userId);
-    this.sesionesMalas.delete(userId);
-    const sock = this.sockets.get(userId);
-    if (!sock) return;
-    this.sockets.delete(userId);
-    this.reconnectAttempts.delete(userId);
-    this.qrMostrado.delete(userId);
-    if (modo === 'logout') await sock.logout().catch(() => undefined);
-    await sock.end(undefined).catch(() => undefined);
-  }
-
-  /**
-   * Deja el número recién vinculado en `User.phoneNumber`, que es con lo que
-   * se entra después por código. Devuelve false si el número es de otra
-   * cuenta y este usuario no es un alta pendiente (un titular de Google
-   * vinculando el WhatsApp de otro).
-   */
-  private async asignarTelefono(userId: string, telefono: string): Promise<boolean> {
-    const [user, dueno] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: userId }, select: { googleId: true, phoneNumber: true } }),
-      this.prisma.user.findUnique({ where: { phoneNumber: telefono }, select: { id: true } }),
-    ]);
-    if (!user) return false;
-    if (dueno && dueno.id !== userId) return esAltaPendiente(user);
-    if (user.phoneNumber !== telefono) {
-      await this.prisma.user.update({ where: { id: userId }, data: { phoneNumber: telefono } });
-    }
+  async contestarPendientes(userId: string, remoteJid: string, texto: string): Promise<boolean> {
+    const canal = await this.canales.estado(userId);
+    const sesion = this.proveedor(canal).sesionVinculada(userId);
+    if (!sesion || canal.automatizacionPausada) return false;
+    if (!(await this.asistenteListo(userId))) return false;
+    if (!(await this.subscriptionService.asistenteActivo(userId))) return false;
+    this.rafagas.agregar(`${userId}\n${remoteJid}`, {
+      userId,
+      remoteJid,
+      sesion,
+      generacion: canal.generacion,
+      yaGuardado: true,
+      texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
+      enviadoEn: null,
+      recibidoEn: Date.now(),
+    });
     return true;
   }
 
   /**
-   * Cierra el socket sin vincular y borra lo que haya quedado a medio
-   * guardar: una sesión ya vinculada (`registered: true`) no se toca.
+   * Un mensaje que el dueño escribe desde el panel (LAU-81). Sale por la
+   * misma vía que todo lo demás (`SesionCanal.enviar`), así su eco no se toma
+   * como un mensaje desde el teléfono. Sin chequeos de suscripción, horario
+   * ni pausa: esas reglas frenan sólo al asistente. false si no hay una
+   * sesión vinculada.
    */
-  private async empezarDeCero(userId: string): Promise<void> {
-    await this.cerrarSocket(userId, 'end');
-    await this.esperarGuardados(userId);
-    await this.prisma.whatsappSession.deleteMany({ where: { userId, registered: false } });
-    this.reconnectAttempts.delete(userId);
-  }
-
-  /** Se resuelve con el primer QR de ese socket, o falla a los ESPERA_SOCKET_LISTO_MS. */
-  private esperarPrimerQr(sock: WASocket): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('WhatsApp no mandó el QR a tiempo.')), ESPERA_SOCKET_LISTO_MS);
-      timer.unref();
-      this.esperandoQr.set(sock, () => {
-        clearTimeout(timer);
-        resolve();
-      });
-    });
-  }
-
-  private async connect(userId: string): Promise<void> {
-    const { state, saveCreds, esperarGuardados } = await usePrismaAuthState(
-      this.prisma,
-      userId,
-      this.config.get('TOKEN_ENCRYPTION_KEY', { infer: true }),
-    );
-
-    const version = await this.versionDeWhatsappWeb();
-
-    const sock = makeWASocket({
-      // Con caché delante, cada lectura de clave no es una consulta a Postgres.
-      auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, this.baileysLogger) },
-      logger: this.baileysLogger,
-      browser: NAVEGADOR_WHATSAPP,
-      version,
-      // El historial que baja al vincular se ignora (`type !== 'notify'`), y
-      // descifrarlo demoraba la vinculación y retenía los mensajes nuevos.
-      syncFullHistory: false,
-      shouldSyncHistoryMessage: () => false,
-      // En línea, el teléfono del dueño deja de recibir notificaciones.
-      markOnlineOnConnect: false,
-      msgRetryCounterCache: this.reintentosDeMensajes,
-      getMessage: async (key) => this.enviados.buscar(userId, key.id),
-    });
-
-    this.sockets.set(userId, sock);
-    this.guardadosEnVuelo.set(userId, esperarGuardados);
-    this.qrMostrado.delete(userId);
-    this.conectandoDesde.set(userId, Date.now());
-    sock.ev.on('creds.update', () => {
-      this.pendingSaves.set(userId, saveCreds());
-    });
-    sock.ev.on('connection.update', (update) => {
-      this.handleConnectionUpdate(userId, update, sock).catch((error: unknown) =>
-        this.logger.error(`Fallo procesando connection.update de ${userId}`, error as Error),
-      );
-    });
-    // "Escribiendo…" del cliente: demora la respuesta de una ráfaga que todavía espera.
-    sock.ev.on('presence.update', ({ id, presences }) => {
-      const estados = Object.values(presences).map((presencia) => presencia.lastKnownPresence);
-      if (estados.length === 0) return;
-      const escribe = estados.some((estado) => estado === 'composing' || estado === 'recording');
-      this.rafagas.escribiendo(`${userId}\n${id}`, escribe);
-    });
-    sock.ev.on('messages.upsert', (upsert) => {
-      this.handleMessagesUpsert(userId, sock, upsert).catch((error: unknown) =>
-        this.logger.error(`Fallo procesando mensajes entrantes de ${userId}`, error as Error),
-      );
-    });
+  async enviarDesdePanel(userId: string, remoteJid: string, texto: string): Promise<boolean> {
+    const sesion = this.proveedor(await this.canales.estado(userId)).sesionVinculada(userId);
+    if (!sesion) return false;
+    await sesion.enviar(remoteJid, { texto });
+    return true;
   }
 
   /**
-   * Mensajes entrantes de clientes del negocio (no del dueño): los pasamos al
-   * agente conversacional y mandamos su respuesta. Sólo chats 1:1 en vivo —
-   * se ignoran grupos, mensajes propios y el historial que llega al conectar.
-   * No se contestan de a uno: van a la ráfaga de su chat (ver
+   * El número detrás de un chat LID, según el proveedor del comercio. Null si
+   * no es LID, la cuenta no está conectada o todavía no se sabe.
+   */
+  async telefonoDeLid(userId: string, remoteJid: string): Promise<string | null> {
+    return this.proveedor(await this.canales.estado(userId)).telefonoDeChat(userId, remoteJid);
+  }
+
+  // ─── ReceptorCanal: lo que llega de los proveedores ─────────────────────────
+
+  /**
+   * Mensajes entrantes de un comercio, ya normalizados por su proveedor. Los
+   * de clientes no se contestan de a uno: van a la ráfaga de su chat (ver
    * `AgrupadorDeRafagas`) y salen juntos cuando el cliente deja de escribir.
+   * Lo que llega por un proveedor que no es el del comercio se ignora entero:
+   * con dos conectados a la vez, el mismo mensaje llegaría por los dos.
    *
    * Si se venció el mes de prueba y no hay suscripción, el asistente queda en
    * silencio: no contestamos nada ni marcamos el mensaje como leído, así el
-   * dueño lo ve sin leer. La sesión de Baileys sigue vinculada, así que cuando
-   * paga vuelve a responder sin re-escanear el QR.
+   * dueño lo ve sin leer. La sesión sigue vinculada, así que cuando paga
+   * vuelve a responder sin re-escanear el QR.
    */
-  private async handleMessagesUpsert(
-    userId: string,
-    sock: WASocket,
-    upsert: { messages: WAMessage[]; type: string },
-  ): Promise<void> {
-    if (upsert.type !== 'notify') return;
+  async recibir(entrantes: EntranteCanal[]): Promise<void> {
+    const primero = entrantes[0];
+    if (!primero) return;
+    const { userId, proveedor } = primero.sesion;
+    const canal = await this.canales.estado(userId);
+    if (canal.proveedor !== proveedor) {
+      this.logger.debug(`Mensajes de ${userId} por ${proveedor} ignorados: el comercio usa ${canal.proveedor}.`);
+      return;
+    }
 
     // Cada chat en orden (`enOrden`), pero sin esperar a uno para empezar con
     // otro: un audio que se está "escuchando" no frena a los demás chats del lote.
     const recepciones: Promise<void>[] = [];
-    for (const mensaje of upsert.messages) {
-      const remoteJid = mensaje.key.remoteJid;
-      // Ni grupos ni estados: un estado de un contacto no es un mensaje al
-      // negocio, y contestarlo publicaría en `status@broadcast`.
-      if (!remoteJid || isJidGroup(remoteJid) || isJidStatusBroadcast(remoteJid)) continue;
-      // Un chat LID no trae el número en el JID: WhatsApp lo manda aparte y se guarda para mostrarlo en Inicio.
-      if (isLidUser(remoteJid)) void this.recordarTelefono(userId, remoteJid, mensaje.key.remoteJidAlt);
-
-      const texto = mensaje.message?.conversation ?? mensaje.message?.extendedTextMessage?.text;
-      if (mensaje.key.fromMe) {
+    for (const entrante of entrantes) {
+      // Un chat LID no trae el número en el JID: el proveedor lo manda aparte y se guarda para mostrarlo en Inicio.
+      if (entrante.telefono) void this.recordarTelefono(userId, entrante.chat, entrante.telefono);
+      const { contenido } = entrante;
+      if (entrante.deMi) {
         // Lo que el dueño contesta desde su teléfono: sólo se guarda en un chat en atención humana.
-        if (texto) await this.guardarRespuestaDelDueno(userId, sock, remoteJid, mensaje.key.id, texto);
+        if (contenido.tipo === 'texto') await this.guardarRespuestaDelDueno(entrante, contenido.texto);
         continue;
       }
-      const leer: (() => Promise<Entrada>) | undefined = texto
-        ? () => Promise.resolve({ texto })
-        : mensaje.message?.audioMessage
-          ? () => this.escucharAudio(userId, sock, mensaje)
-          : mensaje.message?.imageMessage
-            ? () => this.verImagen(userId, sock, mensaje)
-            : undefined;
+      const leer = this.lectorDe(userId, contenido);
       if (!leer) continue;
-      // El anuncio o el estado propio desde el que escribió (LAU-103), venga en un texto, una imagen o un audio.
-      const anuncio = referenciaDeAnuncio(mensaje.message);
-      recepciones.push(
-        this.enOrden(userId, remoteJid, () => this.recibirMensajeDeCliente(userId, sock, mensaje, remoteJid, leer, anuncio)),
-      );
+      recepciones.push(this.enOrden(userId, entrante.chat, () => this.recibirMensajeDeCliente(entrante, leer)));
     }
     await Promise.all(recepciones);
+  }
+
+  /** Cómo sacar el texto de lo que mandó el cliente; undefined si el asistente no lo mira. */
+  private lectorDe(userId: string, contenido: ContenidoEntrante): (() => Promise<Entrada>) | undefined {
+    switch (contenido.tipo) {
+      case 'texto':
+        return () => Promise.resolve({ texto: contenido.texto });
+      case 'audio':
+        return () => this.escucharAudio(userId, contenido.segundos, contenido.media);
+      case 'imagen':
+        return () => this.verImagen(userId, contenido.caption, contenido.media);
+      default:
+        return undefined;
+    }
+  }
+
+  /** "Escribiendo…" del cliente: demora la respuesta de una ráfaga que todavía espera. */
+  clienteEscribiendo(sesion: SesionCanal, chat: string, escribe: boolean): void {
+    this.rafagas.escribiendo(`${sesion.userId}\n${chat}`, escribe);
+  }
+
+  /** Lo que un cliente escribió y todavía no se contestó no sale por una conexión cerrada. */
+  sesionCerrada(userId: string): void {
+    this.rafagas.descartar(`${userId}\n`);
+  }
+
+  fallo(userId: string, proveedor: IdProveedor, fallo: FalloCanal | null): void {
+    void this.canales.registrarFallo(userId, proveedor, fallo);
+  }
+
+  private proveedor(canal: EstadoCanal): ProveedorWhatsapp {
+    // `CanalesWhatsapp` sólo devuelve proveedores conocidos; Baileys si alguno no está registrado.
+    return this.proveedores.get(canal.proveedor) ?? this.baileys;
+  }
+
+  /**
+   * Lo que esperaba su ráfaga cuando el canal cambió (pausa o proveedor) no
+   * sale: queda en el historial como lo que llega en atención humana, para
+   * que el dueño lo vea en Chats. Lo que se estaba armando se corta (o, si ya
+   * se comprometió, deja de salir en el próximo envío).
+   */
+  private async dejarPendientesParaElDueno(userId: string): Promise<void> {
+    const guardar = async (items: MensajeEntrante[]) => {
+      for (const item of items) {
+        if (item.yaGuardado) continue;
+        await guardarMensajeEnPausa(this.prisma, userId, item.remoteJid, item.texto).catch((error: unknown) =>
+          this.logger.error(`No se pudo guardar un mensaje pendiente de ${userId}: ${resumenDeError(error)}`),
+        );
+      }
+    };
+    // Lo de una respuesta que se estaba armando llega cuando termina de cancelarse.
+    await guardar(this.rafagas.descartar(`${userId}\n`, (items) => void guardar(items)));
   }
 
   /**
@@ -756,30 +534,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * el chat lo crea la conversación cuando el asistente lo atiende, y si
    * todavía no existe, Inicio lo resuelve después con `telefonoDeLid`.
    */
-  private async recordarTelefono(userId: string, remoteJid: string, alternativo: string | undefined): Promise<void> {
-    const telefono = alternativo ? telefonoDeJid(jidNormalizedUser(alternativo)) : null;
-    if (!telefono) return;
+  private async recordarTelefono(userId: string, remoteJid: string, telefono: string): Promise<void> {
     await this.prisma.conversation
       .updateMany({ where: { userId, remoteJid, telefono: null }, data: { telefono } })
       // Sólo el tipo: el mensaje de Prisma puede copiar los argumentos, con el número.
       .catch((error: unknown) => this.logger.warn(`No se pudo guardar el número de un chat de ${userId}: ${(error as Error).name}`));
-  }
-
-  /**
-   * El número detrás de un JID LID, según el mapeo que guarda la sesión de
-   * WhatsApp de la cuenta. Null si no es LID, la cuenta no está conectada o
-   * WhatsApp todavía no compartió el número.
-   */
-  async telefonoDeLid(userId: string, remoteJid: string): Promise<string | null> {
-    if (!isLidUser(remoteJid)) return null;
-    const sock = this.sockets.get(userId);
-    if (!sock) return null;
-    try {
-      const pn = await sock.signalRepository.lidMapping.getPNForLID(remoteJid);
-      return pn ? telefonoDeJid(jidNormalizedUser(pn)) : null;
-    } catch {
-      return null;
-    }
   }
 
   /** Corre `tarea` después de la recepción anterior del mismo chat, aunque esa haya fallado. */
@@ -801,36 +560,24 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * falla la descarga o la transcripción (o no se entiende nada), con
    * AVISO_AUDIO_FALLIDO. El audio queda sólo en memoria.
    */
-  private async escucharAudio(userId: string, sock: WASocket, mensaje: WAMessage): Promise<Entrada> {
-    const audio = mensaje.message!.audioMessage!;
+  private async escucharAudio(userId: string, segundos: number, media: MediaEntrante): Promise<Entrada> {
     // Desde que llegó: la descarga y la transcripción corren dentro de esa espera, no se suman.
-    const escucharHasta = Date.now() + esperaDeEscucha(audio.seconds ?? 0, randomInt(0, 1001) / 1000);
-    if ((audio.seconds ?? 0) > MAX_SEGUNDOS_AUDIO || aNumero(audio.fileLength) > MAX_BYTES_AUDIO) {
+    const escucharHasta = Date.now() + esperaDeEscucha(segundos, randomInt(0, 1001) / 1000);
+    if (segundos > MAX_SEGUNDOS_AUDIO || media.bytes > MAX_BYTES_AUDIO) {
       return { aviso: AVISO_AUDIO_LARGO };
     }
-    const formato = formatoDeAudio(audio.mimetype);
-    const host = hostDeMedia(audio);
-    if (!formato || !host) return { aviso: AVISO_AUDIO_FALLIDO };
+    const formato = formatoDeAudio(media.mime);
+    if (!formato || !media.descargable) return { aviso: AVISO_AUDIO_FALLIDO };
     if (this.audiosEnCurso >= MAX_AUDIOS_EN_CURSO) {
       this.logger.warn(`Audio de ${userId} sin escuchar: hay ${this.audiosEnCurso} en curso.`);
       return { aviso: AVISO_AUDIO_FALLIDO };
     }
     this.audiosEnCurso++;
     try {
-      // En stream y con tope: `seconds` y `fileLength` los declara el que manda y pueden mentir.
-      // `host` fijo: el reintento por reupload no puede volver a sacarlo de `url`.
-      // Sólo el audio validado: Baileys descarga el primer contenido con media
-      // que encuentre (o el de adentro de un `ephemeralMessage`), y el
-      // remitente podría poner otro antes, sin validar.
-      const soloElAudio: WAMessage = { key: mensaje.key, message: { audioMessage: audio } };
-      const contenido = await descargarConTope(
-        () =>
-          downloadMediaMessage(soloElAudio, 'stream', { host }, { logger: this.baileysLogger, reuploadRequest: sock.updateMediaMessage }),
-        MAX_BYTES_AUDIO,
-        plazoDeDescarga(aNumero(audio.fileLength)),
-      );
+      // En stream y con tope: `segundos` y `bytes` los declara el que manda y pueden mentir.
+      const contenido = await media.descargar(MAX_BYTES_AUDIO, plazoDeDescarga(media.bytes));
       if (!contenido) return { aviso: AVISO_AUDIO_LARGO };
-      const texto = await this.transcripcion.transcribir(contenido, formato, audio.seconds ?? 0);
+      const texto = await this.transcripcion.transcribir(contenido, formato, segundos);
       return texto
         ? { texto: `${PREFIJO_AUDIO}${texto}`, escucharHasta, maxCaracteres: MAX_CARACTERES_AUDIO }
         : { aviso: AVISO_AUDIO_FALLIDO };
@@ -849,15 +596,14 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * Si no se puede ver, recibe IMAGEN_NO_VISTA (y el epígrafe) y pide una
    * aclaración. La imagen queda sólo en memoria.
    */
-  private async verImagen(userId: string, sock: WASocket, mensaje: WAMessage): Promise<Entrada> {
-    const imagen = mensaje.message!.imageMessage!;
+  private async verImagen(userId: string, caption: string | null | undefined, media: MediaEntrante): Promise<Entrada> {
     // En una línea: un salto no puede simular otro mensaje ni el prefijo de la descripción.
-    const caption = imagen.caption?.replace(/\s+/g, ' ').trim();
-    const epigrafe = caption ? `\nTexto del cliente: ${caption}` : '';
+    const limpio = caption?.replace(/\s+/g, ' ').trim();
+    const epigrafe = limpio ? `\nTexto del cliente: ${limpio}` : '';
     const noVista = { texto: `${IMAGEN_NO_VISTA}${epigrafe}` };
     if (!this.vision.configurado) return noVista;
     const descripcion = await this.conCupoDeImagen(userId, 'ver una imagen', async () => {
-      const datos = await this.descargarImagen(sock, mensaje.key, imagen);
+      const datos = await this.descargarImagen(media);
       return datos ? await this.vision.describir(datos) : null;
     });
     return descripcion ? { texto: `${PREFIJO_IMAGEN}${descripcion}${epigrafe}` } : noVista;
@@ -884,24 +630,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Descarga una imagen de WhatsApp y la deja como una foto de producto
-   * (procesarImagen). Igual que un audio: host fijo, tope de bytes y de
-   * tiempo. null si no es de WhatsApp, pesa de más o no llegó.
+   * Descarga una imagen del cliente y la deja como una foto de producto
+   * (procesarImagen). Igual que un audio: host del proveedor, tope de bytes y
+   * de tiempo. null si no es del proveedor, pesa de más o no llegó.
    */
-  private async descargarImagen(
-    sock: WASocket,
-    key: WAMessageKey,
-    imagen: proto.Message.IImageMessage,
-  ): Promise<Buffer | null> {
-    const host = hostDeMedia(imagen);
-    if (!host || aNumero(imagen.fileLength) > MAX_BYTES_IMAGEN) return null;
-    const soloLaImagen: WAMessage = { key, message: { imageMessage: imagen } };
-    const contenido = await descargarConTope(
-      () =>
-        downloadMediaMessage(soloLaImagen, 'stream', { host }, { logger: this.baileysLogger, reuploadRequest: sock.updateMediaMessage }),
-      MAX_BYTES_IMAGEN,
-      PLAZO_DESCARGA_IMAGEN_MS,
-    );
+  private async descargarImagen(media: MediaEntrante): Promise<Buffer | null> {
+    if (!media.descargable || media.bytes > MAX_BYTES_IMAGEN) return null;
+    const contenido = await media.descargar(MAX_BYTES_IMAGEN, PLAZO_DESCARGA_IMAGEN_MS);
     return contenido ? (await procesarImagen(contenido)).datos : null;
   }
 
@@ -909,23 +644,19 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * Registra el anuncio desde el que escribió el cliente (LAU-103), sólo en
    * una cuenta de ventas. Nunca frena el mensaje: si falla, se contesta igual.
    */
-  private async registrarAnuncio(
-    userId: string,
-    sock: WASocket,
-    mensaje: WAMessage,
-    anuncio: ReferenciaAnuncio | null,
-  ): Promise<string | undefined> {
+  private async registrarAnuncio(entrante: EntranteCanal): Promise<string | undefined> {
+    const { anuncio, imagenDelAnuncio } = entrante;
     if (!anuncio) return undefined;
+    const { userId } = entrante.sesion;
     try {
       const agent = await this.prisma.agent.findUnique({ where: { userId }, select: { tipoAsistente: true } });
       if (!agent || tipoAsistenteDe(agent) !== 'ventas') return undefined;
       // Un estado citado trae sólo una miniatura borrosa: la primera vez se
       // baja la imagen para leer el nombre del producto. Si no se puede, queda la miniatura.
-      const { imagen, ...ref } = anuncio;
-      const imagenCompleta = imagen
-        ? () => this.conCupoDeImagen(userId, 'bajar la imagen de un estado', () => this.descargarImagen(sock, mensaje.key, imagen))
+      const imagenCompleta = imagenDelAnuncio
+        ? () => this.conCupoDeImagen(userId, 'bajar la imagen de un estado', () => this.descargarImagen(imagenDelAnuncio))
         : undefined;
-      return (await this.anuncios.registrar(userId, mensaje.key.remoteJid!, ref, imagenCompleta)) ?? undefined;
+      return (await this.anuncios.registrar(userId, entrante.chat, anuncio, imagenCompleta)) ?? undefined;
     } catch (error) {
       this.logger.error(`No se pudo registrar el anuncio de un mensaje de ${userId}: ${resumenDeError(error)}`);
       return undefined;
@@ -933,39 +664,30 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Un mensaje de un cliente: pasa por la atención humana, la suscripción y
-   * el horario de atención antes de sumarse a la ráfaga de su chat. `leer`
-   * saca el texto (en un audio, lo transcribe) y se llama recién después de
-   * esos chequeos, así un audio que no se va a contestar no se paga.
+   * Un mensaje de un cliente: pasa por la atención humana, la pausa, la
+   * suscripción y el horario de atención antes de sumarse a la ráfaga de su
+   * chat. `leer` saca el texto (en un audio, lo transcribe) y se llama recién
+   * después de esos chequeos, así un audio que no se va a contestar no se paga.
    */
-  private async recibirMensajeDeCliente(
-    userId: string,
-    sock: WASocket,
-    mensaje: WAMessage,
-    remoteJid: string,
-    leer: () => Promise<Entrada>,
-    anuncio: ReferenciaAnuncio | null = null,
-  ): Promise<void> {
+  private async recibirMensajeDeCliente(entrante: EntranteCanal, leer: () => Promise<Entrada>): Promise<void> {
+    const { sesion, chat: remoteJid } = entrante;
+    const { userId } = sesion;
     // Antes que nada: una reentrega de un mensaje ya atendido no se vuelve a
     // contestar ni a guardar, aunque llegue horas después como `notify`.
-    if (!(await this.primeraEntrega(userId, mensaje))) return;
+    if (!(await this.primeraEntrega(entrante))) return;
 
-    // El chat lo atiende una persona (LAU-81): el asistente no contesta, ni
-    // marca leído, ni muestra "escribiendo…". El mensaje queda guardado para
-    // que el dueño lo vea en Chats y el asistente al retomar. Va antes de la
+    // El chat lo atiende una persona (LAU-81), o el comercio pausó las
+    // respuestas automáticas (LAU-110): el asistente no contesta, ni marca
+    // leído, ni muestra "escribiendo…". El mensaje queda guardado para que el
+    // dueño lo vea en Chats y el asistente al retomar. Va antes de la
     // suscripción y el horario: esas reglas frenan sólo al asistente.
-    if (await chatEnAtencionHumana(this.prisma, userId, remoteJid)) {
-      // El dueño ve de qué anuncio llegó, y el asistente lo sabe al retomar.
-      await this.registrarAnuncio(userId, sock, mensaje, anuncio);
-      // Un audio que no se pudo escuchar no se guarda: el dueño lo tiene en su teléfono.
-      const entrada = await leer();
-      if (!('texto' in entrada)) return;
-      const texto = entrada.texto.slice(0, entrada.maxCaracteres ?? MAX_CARACTERES_RAFAGA);
-      await guardarMensajeEnPausa(this.prisma, userId, remoteJid, texto).catch((error: unknown) =>
-          this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
-        );
+    const canal = await this.canales.estado(userId);
+    const enAtencionHumana = await chatEnAtencionHumana(this.prisma, userId, remoteJid);
+    if (canal.automatizacionPausada || enAtencionHumana) {
+      await this.guardarSinContestar(entrante, leer, enAtencionHumana);
       return;
     }
+    const { generacion } = canal;
 
     // Una cuenta recién vinculada que no terminó de configurarse no mira ni
     // contesta nada: ni lee el mensaje, ni lo guarda, ni transcribe un audio.
@@ -982,7 +704,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // Después de la suscripción (una cuenta vencida no gasta descargas ni
     // visión) y antes del horario: aunque hoy no se conteste, el anuncio
     // queda registrado para el panel (LAU-103).
-    const anuncioId = await this.registrarAnuncio(userId, sock, mensaje, anuncio);
+    const anuncioId = await this.registrarAnuncio(entrante);
 
     // Fuera del horario de atención (LAU-29) un chat nuevo no se atiende:
     // silencio igual que con la suscripción vencida, y el dueño lo ve en su
@@ -992,7 +714,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const atencion = await this.horarioAtencion.atencion(userId, remoteJid, new Date());
     if (atencion !== 'atender') {
       if (atencion === 'avisar') {
-        await this.enviar(userId, sock, remoteJid, { text: AVISO_FUERA_DE_HORARIO }).catch((error: unknown) =>
+        await this.enviarAutomatico(sesion, generacion, remoteJid, { texto: AVISO_FUERA_DE_HORARIO }).catch((error: unknown) =>
           this.logger.error(`No se pudo mandar el aviso de fuera de horario de ${userId}: ${(error as Error).message}`),
         );
       }
@@ -1002,12 +724,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     // Se marca leído a ESPERA_LEIDO_MS de que llegó, sin esperar a la ráfaga ni
     // al audio: lo cosmético nunca frena la respuesta.
-    setTimeout(() => void sock.readMessages([mensaje.key]).catch(() => undefined), ESPERA_LEIDO_MS);
+    setTimeout(() => sesion.marcarLeido(entrante), ESPERA_LEIDO_MS);
 
     const entrada = await leer();
     if (!('texto' in entrada)) {
       // Fuera del historial, igual que el aviso de fuera de horario.
-      await this.enviar(userId, sock, remoteJid, { text: entrada.aviso }).catch((error: unknown) =>
+      await this.enviarAutomatico(sesion, generacion, remoteJid, { texto: entrada.aviso }).catch((error: unknown) =>
         this.logger.error(`No se pudo avisar que un audio no se escuchó a ${userId}: ${(error as Error).message}`),
       );
       return;
@@ -1017,21 +739,51 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (entrada.escucharHasta) {
       await esperar(Math.max(0, entrada.escucharHasta - Date.now()));
       // Mientras tanto se cerró o reemplazó la sesión: `descartar` ya no lo alcanza y no saldría.
-      if (this.sockets.get(userId) !== sock) return;
+      if (!sesion.vigente()) return;
+    }
+    // Mientras se leía, el comercio pausó o cambió de proveedor: queda para el dueño.
+    if (!this.canales.vigente(userId, sesion.proveedor, generacion)) {
+      await this.guardarParaElDueno(userId, remoteJid, entrada);
+      return;
     }
 
-    // Para enterarse de si sigue escribiendo (presence.update). Si WhatsApp no avisa, queda el silencio fijo.
-    sock.presenceSubscribe(remoteJid).catch(() => undefined);
+    // Para enterarse de si sigue escribiendo. Si el proveedor no avisa, queda el silencio fijo.
+    sesion.seguirPresencia(remoteJid);
     this.rafagas.agregar(`${userId}\n${remoteJid}`, {
       userId,
       remoteJid,
-      sock,
-      key: mensaje.key,
+      sesion,
+      generacion,
       ...(anuncioId ? { anuncioId } : {}),
       texto: entrada.texto.slice(0, entrada.maxCaracteres ?? MAX_CARACTERES_RAFAGA),
-      enviadoEn: timestampEnMs(mensaje.messageTimestamp),
+      enviadoEn: entrante.enviadoEn,
       recibidoEn: Date.now(),
     });
+  }
+
+  /**
+   * El asistente no contesta (chat en atención humana o cuenta en pausa): lo
+   * que escribió el cliente queda en el historial para el dueño, con el anuncio
+   * del que llegó, y el asistente lo ve al retomar.
+   */
+  private async guardarSinContestar(entrante: EntranteCanal, leer: () => Promise<Entrada>, enAtencionHumana: boolean): Promise<void> {
+    const { userId } = entrante.sesion;
+    // La pausa es de toda la cuenta: una vencida no paga transcripciones ni
+    // visión por ella. El texto se guarda igual; el resto lo tiene el dueño en su teléfono.
+    const leerCuesta = entrante.contenido.tipo !== 'texto';
+    if (!enAtencionHumana && leerCuesta && !(await this.subscriptionService.asistenteActivo(userId))) return;
+    await this.registrarAnuncio(entrante);
+    // Un audio que no se pudo escuchar no se guarda: el dueño lo tiene en su teléfono.
+    const entrada = await leer();
+    if ('texto' in entrada) await this.guardarParaElDueno(userId, entrante.chat, entrada);
+  }
+
+  /** Lo que el asistente no va a contestar, en el historial para el dueño. */
+  private async guardarParaElDueno(userId: string, remoteJid: string, entrada: { texto: string; maxCaracteres?: number }): Promise<void> {
+    const texto = entrada.texto.slice(0, entrada.maxCaracteres ?? MAX_CARACTERES_RAFAGA);
+    await guardarMensajeEnPausa(this.prisma, userId, remoteJid, texto).catch((error: unknown) =>
+      this.logger.error(`No se pudo guardar un mensaje en atención humana de ${userId}: ${(error as Error).message}`),
+    );
   }
 
   /**
@@ -1047,21 +799,22 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Reclama el mensaje por su id de WhatsApp (`MensajeRecibido`): false si ya
-   * se había atendido. WhatsApp puede volver a entregarlo, sobre todo el
-   * reenvío que Baileys le pide al teléfono vinculado cuando no pudo
-   * descifrar un mensaje: llega cuando el teléfono se conecta, horas después,
-   * aunque el mensaje ya se hubiera descifrado y contestado. Se reclama antes
-   * de atenderlo: si algo falla después, no se reintenta, igual que el resto
-   * de los efectos ya comprometidos. Sin id o si la base falla, se atiende.
+   * Reclama el mensaje por su id (`MensajeRecibido`): false si ya se había
+   * atendido. WhatsApp puede volver a entregarlo, sobre todo el reenvío que
+   * Baileys le pide al teléfono vinculado cuando no pudo descifrar un
+   * mensaje: llega cuando el teléfono se conecta, horas después, aunque el
+   * mensaje ya se hubiera descifrado y contestado. Se reclama antes de
+   * atenderlo: si algo falla después, no se reintenta, igual que el resto de
+   * los efectos ya comprometidos. Sin id o si la base falla, se atiende.
    */
-  private async primeraEntrega(userId: string, mensaje: WAMessage): Promise<boolean> {
-    const waId = mensaje.key.id;
-    if (!waId) return true;
+  private async primeraEntrega(entrante: EntranteCanal): Promise<boolean> {
+    const { userId, proveedor } = entrante.sesion;
+    if (!entrante.idExterno) return true;
+    const waId = claveDeMensaje(proveedor, entrante.idExterno);
     try {
       const { count } = await this.prisma.mensajeRecibido.createMany({ data: [{ userId, waId }], skipDuplicates: true });
       if (count > 0) return true;
-      const enviadoEn = timestampEnMs(mensaje.messageTimestamp);
+      const { enviadoEn } = entrante;
       const demora = enviadoEn === null ? '?' : `${Math.round((Date.now() - enviadoEn) / 1000)}s`;
       this.logger.warn(`Mensaje reentregado a ${userId} ignorado: ya se había atendido (enviado hace ${demora}).`);
       return false;
@@ -1076,19 +829,14 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * cliente (LAU-81): el chat pasa a él (si lo tenía el asistente, se corta
    * la respuesta en curso) y el mensaje se guarda, es la mitad de la charla
    * que el asistente no vio. Se descartan su propio chat (los códigos de
-   * acceso), lo que salió de la API (`enviados`, que vuelve como eco) y los
-   * chats que el asistente nunca atendió.
+   * acceso), lo que salió de la API (su eco) y los chats que el asistente
+   * nunca atendió.
    */
-  private async guardarRespuestaDelDueno(
-    userId: string,
-    sock: WASocket,
-    remoteJid: string,
-    id: string | null | undefined,
-    texto: string,
-  ): Promise<void> {
-    if (this.enviados.buscar(userId, id)) return;
-    const telefono = estaVinculado(sock.authState.creds) ? extraerTelefono(sock.authState.creds) : undefined;
-    if (telefono && remoteJid === jidPropio(telefono)) return;
+  private async guardarRespuestaDelDueno(entrante: EntranteCanal, texto: string): Promise<void> {
+    const { sesion, chat: remoteJid } = entrante;
+    const { userId } = sesion;
+    if (sesion.esEnviadoPorTrato(entrante.idExterno)) return;
+    if (remoteJid === sesion.chatPropio()) return;
     try {
       const conversation = await this.prisma.conversation.findUnique({
         where: { userId_remoteJid: { userId, remoteJid } },
@@ -1109,50 +857,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * El chat pasó a una persona: se descarta la respuesta que el asistente
-   * estaba armando, si todavía no se comprometió (LAU-81).
-   */
-  interrumpir(userId: string, remoteJid: string): void {
-    this.rafagas.interrumpir(`${userId}\n${remoteJid}`);
-  }
-
-  /**
-   * El dueño devolvió el chat y eligió que el asistente conteste lo que el
-   * cliente escribió mientras tanto (ya guardado). Pasa por la ráfaga del
-   * chat, así se serializa con lo que llegue. Con la suscripción vencida el
-   * asistente no contesta. false si no hay un socket vinculado.
-   */
-  async contestarPendientes(userId: string, remoteJid: string, texto: string): Promise<boolean> {
-    const sock = this.sockets.get(userId);
-    if (!sock || !estaVinculado(sock.authState.creds)) return false;
-    if (!(await this.asistenteListo(userId))) return false;
-    if (!(await this.subscriptionService.asistenteActivo(userId))) return false;
-    this.rafagas.agregar(`${userId}\n${remoteJid}`, {
-      userId,
-      remoteJid,
-      sock,
-      yaGuardado: true,
-      texto: texto.slice(0, MAX_CARACTERES_RAFAGA),
-      enviadoEn: null,
-      recibidoEn: Date.now(),
-    });
-    return true;
-  }
-
-  /**
-   * Un mensaje que el dueño escribe desde el panel (LAU-81). Sale por la
-   * misma vía que todo lo demás (`enviar`), así su eco no se toma como un
-   * mensaje desde el teléfono. Sin chequeos de suscripción ni horario: esas
-   * reglas frenan sólo al asistente. false si no hay un socket vinculado.
-   */
-  async enviarDesdePanel(userId: string, remoteJid: string, texto: string): Promise<boolean> {
-    const sock = this.sockets.get(userId);
-    if (!sock || !estaVinculado(sock.authState.creds)) return false;
-    await this.enviar(userId, sock, remoteJid, { text: texto });
-    return true;
-  }
-
-  /**
    * Contesta una ráfaga como lo haría una persona: muestra
    * "escribiendo…" mientras el modelo piensa y manda la respuesta en uno a
    * MAX_PARTES mensajes, cada uno después de lo que tardaría en tipearlo. El
@@ -1161,14 +865,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    *
    * Si el cliente manda otro mensaje mientras se arma, `responder` corta con
    * VueltaCancelada y no se manda nada: el agrupador la rehace con todo junto.
-   * Si ya estaba comprometida, sale igual.
+   * Si ya estaba comprometida, sale igual, salvo que el canal haya cambiado
+   * (pausa o proveedor): entonces deja de salir y lo que faltaba queda en el
+   * historial para el dueño.
    */
   private async contestarRafaga(items: MensajeEntrante[], cancelacion: Cancelacion): Promise<void> {
-    const { userId, remoteJid, sock } = items.at(-1)!;
+    const { userId, remoteJid, sesion, generacion } = items.at(-1)!;
     const texto = items.map((item) => item.texto).join('\n');
 
     // Lo cosmético ("escribiendo…") nunca frena la respuesta.
-    const escribiendo = this.mostrarEscribiendo(sock, remoteJid);
+    const escribiendo = this.mostrarEscribiendo(sesion, remoteJid);
     const inicio = Date.now();
     try {
       const yaGuardado = items.every((item) => item.yaGuardado);
@@ -1199,12 +905,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       const partes = partirEnMensajes(respuesta.texto);
       if (respuesta.primeraRespuesta && respuesta.imagenes.length > 0) {
         // Primer contacto: el saludo antes que las fotos, y una pausa para que no le lleguen todas juntas.
-        await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio);
+        await this.enviarEnOrden(sesion, generacion, remoteJid, partes, escribiendo, finModelo - inicio);
         await esperar(PAUSA_ANTES_DE_FOTOS_MS);
-        await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
+        await this.enviarFotos(sesion, generacion, remoteJid, respuesta.imagenes);
       } else {
-        await this.enviarFotos(userId, sock, remoteJid, respuesta.imagenes);
-        await this.enviarEnOrden(userId, sock, remoteJid, partes, escribiendo, finModelo - inicio);
+        await this.enviarFotos(sesion, generacion, remoteJid, respuesta.imagenes);
+        await this.enviarEnOrden(sesion, generacion, remoteJid, partes, escribiendo, finModelo - inicio);
       }
       const primero = items[0]!;
       this.logger.log(
@@ -1217,9 +923,31 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           partes: partes.length,
         }),
       );
+    } catch (error) {
+      // La respuesta ya está en el historial: el dueño la ve en Chats y decide.
+      if (error instanceof CanalCambiado) {
+        this.logger.warn(`Respuesta de ${userId} sin terminar de mandar: el canal cambió mientras salía.`);
+        return;
+      }
+      throw error;
     } finally {
       escribiendo.parar();
     }
+  }
+
+  /**
+   * Toda salida automática a un cliente pasa por acá: si el comercio pausó o
+   * cambió de proveedor desde que llegó el mensaje, no sale (`CanalCambiado`).
+   * Se chequea justo antes de cada envío, sin nada asincrónico en el medio.
+   */
+  private async enviarAutomatico(
+    sesion: SesionCanal,
+    generacion: number,
+    chat: string,
+    contenido: ContenidoSaliente,
+  ): Promise<void> {
+    if (!this.canales.vigente(sesion.userId, sesion.proveedor, generacion)) throw new CanalCambiado();
+    await sesion.enviar(chat, contenido);
   }
 
   /**
@@ -1229,8 +957,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * modelo) sólo se descuenta de la primera.
    */
   private async enviarEnOrden(
-    userId: string,
-    sock: WASocket,
+    sesion: SesionCanal,
+    generacion: number,
     remoteJid: string,
     partes: string[],
     escribiendo: { renovar: () => void },
@@ -1241,330 +969,55 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // randomInt y no Math.random: es sólo jitter de tipeo, pero así no lo marca el análisis estático.
     const espera = demoraRestante(demoraDeEscritura(parte, randomInt(0, 1001) / 1000), transcurrido);
     if (espera > 0) await esperar(espera);
-    await this.enviar(userId, sock, remoteJid, { text: parte });
+    await this.enviarAutomatico(sesion, generacion, remoteJid, { texto: parte });
     if (resto.length === 0) return;
     escribiendo.renovar();
-    return this.enviarEnOrden(userId, sock, remoteJid, resto, escribiendo, 0);
+    return this.enviarEnOrden(sesion, generacion, remoteJid, resto, escribiendo, 0);
   }
 
   /** "Escribiendo…" en el chat del cliente, renovado antes de que WhatsApp lo apague solo. */
-  private mostrarEscribiendo(sock: WASocket, remoteJid: string): { renovar: () => void; parar: () => void } {
-    const avisar = (estado: 'composing' | 'paused') => {
-      sock.sendPresenceUpdate(estado, remoteJid).catch(() => undefined);
-    };
-    avisar('composing');
-    const intervalo = setInterval(() => avisar('composing'), RENOVAR_ESCRIBIENDO_MS);
+  private mostrarEscribiendo(sesion: SesionCanal, remoteJid: string): { renovar: () => void; parar: () => void } {
+    sesion.escribiendo(remoteJid, true);
+    const intervalo = setInterval(() => sesion.escribiendo(remoteJid, true), RENOVAR_ESCRIBIENDO_MS);
     return {
-      renovar: () => avisar('composing'),
+      renovar: () => sesion.escribiendo(remoteJid, true),
       parar: () => {
         clearInterval(intervalo);
-        avisar('paused');
+        sesion.escribiendo(remoteJid, false);
       },
     };
   }
 
   /**
    * Las fotos de productos que eligió el asistente de ventas, antes del texto
-   * que las acompaña. Una que falla no corta nada: el texto sale igual.
+   * que las acompaña. Una que falla no corta nada: el texto sale igual. Un
+   * canal que cambió sí corta: no sale nada más.
    */
-  private async enviarFotos(userId: string, sock: WASocket, remoteJid: string, imagenes: ImagenAEnviar[]): Promise<void> {
-    for (const imagen of imagenes) {
-      try {
-        if (esFotoDePregunta(imagen)) {
-          // Una pregunta del pedido o una de sus opciones (LAU-100): su texto va al pie.
-          const datos = await this.preguntas.paraEnviar(userId, imagen.imagenPreguntaId);
-          if (!datos) continue;
-          await this.enviar(userId, sock, remoteJid, { image: datos, mimetype: 'image/jpeg', caption: imagen.leyenda ?? imagen.nombre });
-          continue;
-        }
-        const foto = await this.imagenes.paraEnviar(userId, imagen.productoId, imagen.imagenId);
-        if (!foto) continue;
-        // Las del listado traen nombre y precio; las demás, el nombre de la base.
-        await this.enviar(userId, sock, remoteJid, { image: foto.datos, mimetype: 'image/jpeg', caption: imagen.leyenda ?? foto.nombre });
-      } catch (error) {
-        // Sin el JID ni textos del dueño: sólo ids, como el resto de los logs de Baileys.
-        const id = esFotoDePregunta(imagen) ? `de pregunta ${imagen.imagenPreguntaId}` : `del producto ${imagen.productoId}`;
-        this.logger.error(`No se pudo mandar la foto ${id} (cuenta ${userId}): ${(error as Error).message}`);
-      }
-    }
-  }
-
-  /**
-   * Toda salida a un cliente pasa por acá: lo enviado queda en `enviados`
-   * para que `getMessage` lo encuentre si el cliente pide reenvío.
-   */
-  private async enviar(userId: string, sock: WASocket, jid: string, contenido: AnyMessageContent): Promise<void> {
-    const enviado = await sock.sendMessage(jid, contenido);
-    this.enviados.guardar(userId, enviado?.key.id, enviado?.message);
-  }
-
-  /**
-   * La versión de WhatsApp Web vigente: WhatsApp rechaza cada tanto las viejas
-   * (405) y la de fábrica de Baileys envejece. Si no se puede averiguar,
-   * `fetchLatestWaWebVersion` devuelve la de fábrica y se usa esa.
-   */
-  private versionDeWhatsappWeb(): Promise<WAVersion> {
-    if (this.versionWa && this.versionWa.hasta > Date.now()) return Promise.resolve(this.versionWa.version);
-    // Al bootear se resumen todas las sesiones a la vez: una sola consulta para todas.
-    this.consultandoVersion ??= fetchLatestWaWebVersion({ signal: AbortSignal.timeout(ESPERA_VERSION_WA_MS) })
-      .then(({ version, isLatest }) => {
-        // Sin la última se vuelve a probar antes, en vez de quedarse 12 h con la de fábrica.
-        const vigencia = isLatest ? VIGENCIA_VERSION_WA_MS : REINTENTO_VERSION_WA_MS;
-        this.versionWa = { version, hasta: Date.now() + vigencia };
-        this.logger.log(`Versión de WhatsApp Web: ${version.join('.')}${isLatest ? '' : ' (la de fábrica: no se pudo consultar)'}`);
-        return version;
-      })
-      .finally(() => {
-        this.consultandoVersion = null;
-      });
-    return this.consultandoVersion;
-  }
-
-  private async handleConnectionUpdate(
-    userId: string,
-    update: Partial<{ connection: 'open' | 'connecting' | 'close'; qr: string; lastDisconnect: { error: unknown } }>,
-    sock?: WASocket,
+  private async enviarFotos(
+    sesion: SesionCanal,
+    generacion: number,
+    remoteJid: string,
+    imagenes: ImagenAEnviar[],
   ): Promise<void> {
-    // Un socket que ya no es el del usuario (transferido, descartado) no manda más.
-    if (sock && this.sockets.get(userId) !== sock) return;
-
-    if (update.qr) {
-      if (sock) {
-        this.esperandoQr.get(sock)?.();
-        this.esperandoQr.delete(sock);
-      }
-      this.qrMostrado.add(userId);
-      this.emit(userId, { state: 'active', qr: update.qr });
-      return;
-    }
-
-    if (update.connection === 'connecting' && this.qrMostrado.has(userId)) {
-      // El QR ya se mostró: este "connecting" es el handshake post-escaneo.
-      this.emit(userId, { state: 'connecting' });
-      return;
-    }
-
-    if (update.connection === 'open') {
-      const desde = this.conectandoDesde.get(userId);
-      if (desde !== undefined) {
-        this.logger.log(`${PREFIJO_TIEMPOS} · conexión de ${userId} abierta en ${Date.now() - desde}ms`);
-        this.conectandoDesde.delete(userId);
-      }
-      const caida = this.caidoDesde.get(userId);
-      if (caida !== undefined) {
-        this.logger.log(`${PREFIJO_TIEMPOS} · conexión de ${userId} recuperada tras ${Math.round((Date.now() - caida) / 1000)}s caída`);
-      }
-      this.olvidarCaida(userId);
-      this.sesionesMalas.delete(userId);
-      this.reconnectAttempts.delete(userId);
-      this.qrMostrado.delete(userId);
-      this.modoCodigo.delete(userId);
-      const sock = this.sockets.get(userId);
-      const phoneNumber = sock && extraerTelefono(sock.authState.creds);
-      // Esperamos a que el último `creds.update` haya persistido antes de avisar
-      // al frontend: si no, /whatsapp/status puede leer `registered: false` justo
-      // después de que el usuario ve "conectado".
-      await this.esperarGuardados(userId);
-      if (phoneNumber && !(await this.asignarTelefono(userId, phoneNumber))) {
-        this.logger.warn(`El número vinculado por ${userId} ya es de otra cuenta: se desvincula.`);
-        this.emit(userId, { state: 'error', motivo: 'numero_en_uso' });
-        await this.descartarSinCerrarEventos(userId);
-        return;
-      }
-      this.emit(userId, { state: 'connected', phoneNumber: phoneNumber || undefined });
-      return;
-    }
-
-    if (update.connection !== 'close') return;
-
-    const codigo = codigoDeDesconexion(update.lastDisconnect?.error);
-    this.conectandoDesde.delete(userId);
-    const intentos = this.reconnectAttempts.get(userId) ?? 0;
-    // Hoy un corte recuperable no dejaba rastro: con esto se ve cada cierre y su motivo.
-    this.logger.warn(
-      `${PREFIJO_TIEMPOS} · conexión de ${userId} cerrada (código ${codigo ?? 'desconocido'}, ` +
-        `reintentos previos ${intentos})`,
-    );
-
-    const credenciales = (sock ?? this.sockets.get(userId))?.authState.creds;
-    const vinculado = Boolean(credenciales && estaVinculado(credenciales));
-    const sesionesMalas = codigo === DisconnectReason.badSession ? (this.sesionesMalas.get(userId) ?? 0) + 1 : 0;
-    this.sesionesMalas.set(userId, sesionesMalas);
-
-    switch (politicaDeCierre(codigo, { vinculado, modoCodigo: this.modoCodigo.has(userId), intentos, sesionesMalas })) {
-      case 'desvincular':
-        this.sockets.delete(userId);
-        this.reconnectAttempts.delete(userId);
-        this.sesionesMalas.delete(userId);
-        this.cancelarReconexion(userId);
-        this.olvidarCaida(userId);
-        this.prisma.whatsappSession.deleteMany({ where: { userId } }).catch((error: unknown) =>
-          this.logger.error(`No se pudo borrar la sesión de WhatsApp de ${userId}`, error as Error),
-        );
-        this.emit(userId, { state: 'error' });
-        return;
-
-      case 'codigo_vencido':
-        // El código venció (o se cortó) antes de que lo ingresaran. Reconectar
-        // con `me` ya puesto sería un login sin registro: se descarta y la
-        // pantalla ofrece pedir otro.
-        this.sockets.delete(userId);
-        this.modoCodigo.delete(userId);
-        this.qrMostrado.delete(userId);
-        this.reconnectAttempts.delete(userId);
-        this.sesionesMalas.delete(userId);
-        this.prisma.whatsappSession.deleteMany({ where: { userId, registered: false } }).catch((error: unknown) =>
-          this.logger.error(`No se pudo borrar el código vencido de ${userId}`, error as Error),
-        );
-        this.emit(userId, { state: 'expired' });
-        return;
-
-      case 'reiniciar':
-        // Quirk conocido de Baileys justo después del primer pairing: no cuenta
-        // como reintento ni se muestra como error.
-        this.connect(userId).catch((error: unknown) =>
-          this.logger.error(`Fallo al reconectar (restartRequired) a ${userId}`, error as Error),
-        );
-        return;
-
-      case 'rendirse':
-        await this.rendirse(userId, codigo, vinculado);
-        return;
-
-      case 'reintentar':
-        this.programarReconexion(userId, codigo, vinculado);
-        return;
-    }
+    // De a una y en orden: así le llegan al cliente.
+    for (const imagen of imagenes) await this.enviarFoto(sesion, generacion, remoteJid, imagen);
   }
 
-  /**
-   * Reintenta con backoff y jitter (reconexion.ts). Una sesión vinculada no
-   * tiene tope de intentos: un corte de red de varios minutos se recupera
-   * solo, y si dura más de MINUTOS_CAIDO_PARA_AVISAR se avisa una vez.
-   */
-  private programarReconexion(userId: string, codigo: number | undefined, vinculado: boolean): void {
-    this.sockets.delete(userId);
-    const intento = (this.reconnectAttempts.get(userId) ?? 0) + 1;
-    this.reconnectAttempts.set(userId, intento);
-    if (vinculado) {
-      if (!this.caidoDesde.has(userId)) this.caidoDesde.set(userId, Date.now());
-      this.avisarSiSigueCaido(userId, codigo, intento);
-    }
-
-    // randomInt y no Math.random: es sólo jitter, pero así no lo marca el análisis estático.
-    const demora = demoraDeReconexion(intento, randomInt(0, 1001) / 1000, codigo);
-    this.cancelarReconexion(userId);
-    const timer = setTimeout(() => {
-      this.reconexionesPendientes.delete(userId);
-      void this.reconectar(userId, intento, codigo, vinculado);
-    }, demora);
-    timer.unref();
-    this.reconexionesPendientes.set(userId, timer);
-  }
-
-  private async reconectar(userId: string, intento: number, codigo: number | undefined, vinculado: boolean): Promise<void> {
+  private async enviarFoto(sesion: SesionCanal, generacion: number, remoteJid: string, imagen: ImagenAEnviar): Promise<void> {
+    const { userId } = sesion;
     try {
-      if (vinculado) {
-        // Si mientras esperábamos se desvinculó (o se dio por perdida), no se revive.
-        await this.esperarGuardados(userId);
-        const sesion = await this.prisma.whatsappSession.findUnique({ where: { userId }, select: { registered: true } });
-        if (!sesion?.registered) {
-          this.reconnectAttempts.delete(userId);
-          this.olvidarCaida(userId);
-          return;
-        }
-      }
-      // Otro camino (un QR nuevo, una transferencia) ya abrió un socket: ése manda.
-      if (this.sockets.has(userId)) return;
-      await this.connect(userId);
+      const foto = esFotoDePregunta(imagen)
+        ? // Una pregunta del pedido o una de sus opciones (LAU-100): su texto va al pie.
+          await this.preguntas.paraEnviar(userId, imagen.imagenPreguntaId).then((datos) => datos && { datos, nombre: imagen.nombre })
+        : await this.imagenes.paraEnviar(userId, imagen.productoId, imagen.imagenId);
+      if (!foto) return;
+      // Las del listado traen nombre y precio; las demás, el nombre de la base.
+      await this.enviarAutomatico(sesion, generacion, remoteJid, { imagen: foto.datos, leyenda: imagen.leyenda ?? foto.nombre });
     } catch (error) {
-      this.logger.error(`Fallo al reconectar a ${userId} (intento ${intento})`, error as Error);
-      // Sin socket no va a llegar otro "close" que lo reprograme.
-      if (vinculado) this.programarReconexion(userId, codigo, vinculado);
-      else this.emit(userId, { state: 'error' });
+      if (error instanceof CanalCambiado) throw error;
+      // Sin el JID ni textos del dueño: sólo ids, como el resto de los logs de WhatsApp.
+      const id = esFotoDePregunta(imagen) ? `de pregunta ${imagen.imagenPreguntaId}` : `del producto ${imagen.productoId}`;
+      this.logger.error(`No se pudo mandar la foto ${id} (cuenta ${userId}): ${(error as Error).message}`);
     }
-  }
-
-  /**
-   * Reconectar no lo arregla (WhatsApp bloqueó los dispositivos vinculados, o
-   * la sesión quedó inservible). Una sesión vinculada se marca sin vincular,
-   * así ni el próximo arranque ni /vincular reanudan las mismas credenciales:
-   * /vincular arranca de cero con un QR nuevo.
-   */
-  private async rendirse(userId: string, codigo: number | undefined, vinculado: boolean): Promise<void> {
-    this.sockets.delete(userId);
-    this.reconnectAttempts.delete(userId);
-    this.sesionesMalas.delete(userId);
-    this.cancelarReconexion(userId);
-    this.olvidarCaida(userId);
-    this.emit(userId, { state: 'error' });
-    if (!vinculado) return;
-
-    await this.prisma.whatsappSession.updateMany({ where: { userId }, data: { registered: false } });
-    avisarASentry('WhatsApp dejó de aceptar una sesión vinculada', {
-      fingerprint: ['whatsapp-sin-reconexion'],
-      tags: { codigo },
-      userId,
-    });
-    await this.avisarAlDueno(userId, avisoWhatsappParaVolverAVincular());
-  }
-
-  /** Una vez por caída, pasados MINUTOS_CAIDO_PARA_AVISAR: a Sentry (sólo ids) y a la campanita del dueño. */
-  private avisarSiSigueCaido(userId: string, codigo: number | undefined, intento: number): void {
-    const desde = this.caidoDesde.get(userId);
-    if (desde === undefined || this.caidaAvisada.has(userId) || !correspondeAvisarCaida(desde, Date.now())) return;
-    this.caidaAvisada.add(userId);
-    avisarASentry('WhatsApp lleva un rato sin poder reconectar', {
-      fingerprint: ['whatsapp-caido'],
-      tags: { codigo, intentos: intento },
-      userId,
-    });
-    void this.avisarAlDueno(userId, avisoWhatsappCaido(MINUTOS_CAIDO_PARA_AVISAR));
-  }
-
-  private async avisarAlDueno(userId: string, aviso: Aviso): Promise<void> {
-    try {
-      await this.notificaciones.avisar(userId, aviso);
-    } catch (error) {
-      this.logger.warn(`No se pudo guardar el aviso de WhatsApp de ${userId}: ${(error as Error).message}`);
-    }
-  }
-
-  private cancelarReconexion(userId: string): void {
-    const timer = this.reconexionesPendientes.get(userId);
-    if (timer) clearTimeout(timer);
-    this.reconexionesPendientes.delete(userId);
-  }
-
-  private olvidarCaida(userId: string): void {
-    this.caidoDesde.delete(userId);
-    this.caidaAvisada.delete(userId);
-  }
-
-  /** Como `descartar`, pero el SSE sigue abierto para que llegue el error. */
-  private async descartarSinCerrarEventos(userId: string): Promise<void> {
-    await this.cerrarSocket(userId, 'logout');
-    await this.prisma.whatsappSession.deleteMany({ where: { userId } });
-    this.pendingSaves.delete(userId);
-    this.guardadosEnVuelo.delete(userId);
-  }
-
-  /** El último `saveCreds` y cualquier `keys.set` que siga escribiendo. */
-  private async esperarGuardados(userId: string): Promise<void> {
-    await (this.pendingSaves.get(userId) ?? Promise.resolve());
-    await this.guardadosEnVuelo.get(userId)?.();
-  }
-
-  private getOrCreateSubject(userId: string): ReplaySubject<LinkEvent> {
-    let subject = this.events.get(userId);
-    if (!subject) {
-      subject = new ReplaySubject<LinkEvent>(1);
-      this.events.set(userId, subject);
-    }
-    return subject;
-  }
-
-  private emit(userId: string, event: LinkEvent): void {
-    this.getOrCreateSubject(userId).next(event);
   }
 }

@@ -1,3 +1,5 @@
+import type { FalloCanal, IdProveedor } from './proveedor/proveedor.js';
+
 /** Estados que puede mostrar /vincular, empujados por SSE desde el backend. */
 export type LinkState = 'active' | 'connecting' | 'connected' | 'expired' | 'error';
 
@@ -18,4 +20,10 @@ export type MotivoError = 'numero_en_uso';
 export type WhatsappStatus = {
   linked: boolean;
   phoneNumber: string | null;
+  /** Lo siguiente es del canal del comercio (LAU-110); un proveedor sólo informa lo de arriba. */
+  proveedor?: IdProveedor;
+  /** Las respuestas automáticas están en pausa: atiende el dueño desde Chats o su teléfono. */
+  automatizacionPausada?: boolean;
+  /** Lo que el dueño tiene que resolver para que el canal vuelva a andar. */
+  fallo?: FalloCanal | null;
 };

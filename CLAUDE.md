@@ -70,7 +70,7 @@ Configuración, variables y despliegue: [README.md](README.md). La API requiere 
 
 ## Seguridad y documentación de consulta
 
-- No omitir el hook `Stop` de `.claude/settings.json` / `.claude/hooks/validar-seguridad.sh`: pide revisión paralela de `revisor-seguridad` y `security-auditor` sobre cambios sin pushear, corregir HIGH/MEDIUM y volver a revisar el diff modificado (máximo tres rondas). Sus instrucciones están en `.claude/agents/`.
+- No omitir el hook `Stop` de `.claude/settings.json` / `.claude/hooks/validar-seguridad.sh`: pide una revisión de seguridad (vulnerabilidades y secretos) de los cambios sin pushear, corregir HIGH/MEDIUM y volver a revisar el diff modificado (máximo tres rondas).
 - CI en `.github/workflows/`: mantener actions fijadas por SHA, imágenes sin root y controles de seguridad. Excepciones de auditoría sólo por el mecanismo existente de `.github/npm-audit-excepciones.json`; no quitar overrides de dependencias hasta que el padre incorpore el arreglo.
 - [Seguridad](docs/seguridad.md): controles y pendientes.
 - [Verificación de Google](docs/verificacion-google.md): scopes, datos, privacidad y pasos manuales.

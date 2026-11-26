@@ -29,8 +29,9 @@ test.describe('generación de agente: wizard de escritorio', () => {
     // Vincular se puede dejar para después: el atajo lleva al inicio, no a los planes.
     await expect(page.getByRole('link', { name: 'Ir al inicio' })).toHaveAttribute('href', '/inicio');
 
+    // Una cuenta nueva conecta WhatsApp Business por la API oficial.
     await page.getByRole('button', { name: 'Vincular WhatsApp y empezar' }).click();
-    await esperarRuta(page, '/vincular');
+    await esperarRuta(page, '/vincular/oficial');
   });
 
   test('regenerar desde /contanos pisa el agente anterior', async ({ page, context, usuarioDev }) => {

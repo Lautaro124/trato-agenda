@@ -53,7 +53,7 @@ export default function PrivacidadPage() {
         <h1 className="mt-4 mb-1 font-display text-[24px] font-bold tracking-[-0.02em] text-ink">
           Política de privacidad
         </h1>
-        <p className="text-[12.5px] text-muted">Última actualización: 24 de noviembre de 2026</p>
+        <p className="text-[12.5px] text-muted">Última actualización: 26 de noviembre de 2026</p>
 
         <Seccion titulo="Quiénes somos y cómo contactarnos">
           <p>
@@ -85,7 +85,11 @@ export default function PrivacidadPage() {
             <Fuerte>Si creás la cuenta con WhatsApp.</Fuerte> Tu número de WhatsApp es tu cuenta: lo
             usamos para reconocerte y, si olvidás tu contraseña, para mandarte a tu propio chat un
             código para recuperarla (guardamos sólo una huella del código, que vence a los 10
-            minutos). <Fuerte>Tu contraseña nunca se guarda en claro</Fuerte>: sólo una huella
+            minutos). Si sumás un <Fuerte>email de recuperación</Fuerte>, el mismo código también te
+            llega ahí, aunque WhatsApp esté desconectado: lo guardamos recién después de que
+            escribas el código que te mandamos para confirmarlo, y lo usamos sólo para la
+            recuperación y para avisarte si cambian tu contraseña o ese email. Nunca para
+            publicidad. <Fuerte>Tu contraseña nunca se guarda en claro</Fuerte>: sólo una huella
             (scrypt) que sirve para comprobarla y no para recuperarla. Tu agenda —los
             turnos y los horarios que bloqueás— queda guardada en nuestra base: título, inicio y fin
             de cada evento. Si más adelante querés pagar la suscripción, te pedimos un email para
@@ -114,7 +118,10 @@ export default function PrivacidadPage() {
             <Fuerte>De WhatsApp.</Fuerte> El número que vinculás, y de cada persona que le escribe a tu
             asistente: su número, el texto de los mensajes que intercambia con el asistente, el nombre
             que da para agendar y un resumen breve de lo que pidió. Es lo que le permite coordinar los
-            turnos y lo que ves en el historial de tu panel.
+            turnos y lo que ves en el historial de tu panel. Cuando conectás WhatsApp Business desde
+            Meta, guardamos además los identificadores de tu cuenta de WhatsApp Business y de tu número,
+            y el permiso que nos das para atenderlo, cifrado. Podés quitarlo cuando quieras desde Trato o
+            desde la configuración de tu cuenta de Meta.
           </p>
           <p>
             <Fuerte>Si atendés un chat vos.</Fuerte> En la pantalla Chats de tu panel ves el texto de
@@ -386,13 +393,19 @@ export default function PrivacidadPage() {
               llamada.
             </Punto>
             <Punto>
-              <Fuerte>WhatsApp (Meta)</Fuerte>: es la red por la que viajan los mensajes entre tus
-              clientes y tu asistente.
+              <Fuerte>WhatsApp (Meta)</Fuerte>: los mensajes entre tus clientes y tu asistente viajan
+              por la API oficial de WhatsApp Business (Cloud API), con el permiso que le das a Trato
+              desde tu cuenta de Meta.
             </Punto>
             <Punto>
               <Fuerte>Mercado Pago</Fuerte>: el cobro de la suscripción y, si lo conectás, el de tus
               ventas, en tu propia cuenta. Le mandamos el detalle y el total de cada pedido para armar
               el link de pago. Es quien maneja los datos de pago; nosotros no los vemos.
+            </Punto>
+            <Punto>
+              <Fuerte>Resend</Fuerte>: el envío de los emails de tu cuenta, sólo si sumás un email de
+              recuperación. Le llegan esa dirección y el texto del email (el código de acceso o el
+              aviso de un cambio en tu cuenta); nunca tus conversaciones, tu agenda ni tus ventas.
             </Punto>
             <Punto>
               <Fuerte>Railway</Fuerte>: la infraestructura donde corren la aplicación y la base de
@@ -468,8 +481,9 @@ export default function PrivacidadPage() {
               ofrecerse en el momento, y su foto se borra.
             </Punto>
             <Punto>
-              <Fuerte>Un registro con WhatsApp que no se terminó</Fuerte> (se pidió el código QR pero
-              nunca se escaneó): se borra dentro de las 24 horas.
+              <Fuerte>Un email de recuperación que no confirmaste:</Fuerte> la dirección y la huella
+              del código se borran dentro de las 24 horas de vencido el código. Uno confirmado queda
+              mientras tu cuenta exista o hasta que lo cambies.
             </Punto>
             <Punto>
               <Fuerte>Sugerencias que nos mandás:</Fuerte> nuestra copia se borra a los 90 días de

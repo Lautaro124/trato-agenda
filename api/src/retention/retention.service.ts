@@ -64,6 +64,7 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       const preguntas = await this.purgarPreguntas();
       const envios = await this.purgarConsultasEnvio();
       const recibidos = await this.purgarMensajesRecibidos();
+      const verificaciones = await this.purgarVerificacionesDeEmail();
       if (
         mensajes > 0 ||
         anonimizadas > 0 ||
@@ -74,14 +75,16 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
         performance > 0 ||
         preguntas > 0 ||
         envios > 0 ||
-        recibidos > 0
+        recibidos > 0 ||
+        verificaciones > 0
       ) {
         this.logger.log(
           `Retención: ${mensajes} mensajes borrados, ${anonimizadas} conversaciones anonimizadas, ` +
             `${ventas} ventas anonimizadas, ${avisos} avisos borrados, ${altas} altas sin terminar descartadas, ` +
             `${sugerencias} sugerencias ya enviadas borradas, ${performance} registros de performance desligados, ` +
             `${preguntas} preguntas de clientes sin texto, ${envios} consultas de envío sin resolver borradas, ` +
-            `${recibidos} ids de mensajes recibidos borrados.`,
+            `${recibidos} ids de mensajes recibidos borrados, ` +
+            `${verificaciones} verificaciones de email vencidas borradas.`,
         );
       }
     } catch (error) {
@@ -231,6 +234,15 @@ export class RetentionService implements OnModuleInit, OnModuleDestroy {
       },
       data: { texto: null },
     });
+    return count;
+  }
+
+  /**
+   * Verificaciones de email de recuperación que vencieron sin confirmarse
+   * (LAU-109): la dirección nunca se probó, así que no hay por qué guardarla.
+   */
+  private async purgarVerificacionesDeEmail(ahora: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.verificacionEmail.deleteMany({ where: { expiraAt: { lt: ahora } } });
     return count;
   }
 

@@ -7,6 +7,11 @@ import { NotificacionesModule } from '../notificaciones/notificaciones.module.js
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { AsistenteController } from './asistente.controller.js';
 import { AvisosPorWhatsapp } from './avisos-por-whatsapp.js';
+import { BaileysProveedor } from './baileys/baileys.proveedor.js';
+import { CloudController, CloudWebhookController } from './cloud/cloud.controller.js';
+import { CloudProveedor } from './cloud/cloud.proveedor.js';
+import { GraphClient } from './cloud/graph.client.js';
+import { CanalesWhatsapp } from './proveedor/canales.service.js';
 import { WhatsappController } from './whatsapp.controller.js';
 import { TranscripcionClient } from './transcripcion.client.js';
 import { WhatsappService } from './whatsapp.service.js';
@@ -23,9 +28,17 @@ import { WhatsappService } from './whatsapp.service.js';
     // Las fotos de productos que manda el asistente de ventas.
     ComercioModule,
   ],
-  // Exportado para la baja de cuenta, que necesita cerrar el socket de Baileys.
+  // Exportado para la baja de cuenta, que necesita cerrar la conexión del comercio.
   exports: [WhatsappService],
-  controllers: [WhatsappController, AsistenteController],
-  providers: [WhatsappService, AvisosPorWhatsapp, TranscripcionClient],
+  controllers: [WhatsappController, AsistenteController, CloudController, CloudWebhookController],
+  providers: [
+    WhatsappService,
+    BaileysProveedor,
+    CloudProveedor,
+    GraphClient,
+    CanalesWhatsapp,
+    AvisosPorWhatsapp,
+    TranscripcionClient,
+  ],
 })
 export class WhatsappModule {}
