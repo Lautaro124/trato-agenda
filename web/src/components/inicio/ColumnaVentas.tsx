@@ -75,7 +75,7 @@ export function ColumnaVentas() {
     {
       hecho: whatsapp === true,
       titulo: "Vinculá tu WhatsApp",
-      detalle: whatsapp ? "Tu asistente ya responde en tu número." : "Escaneá el QR para que el asistente atienda.",
+      detalle: whatsapp ? "Tu asistente ya responde en tu número." : "Conectá tu WhatsApp para que el asistente atienda.",
       href: "/vincular",
       accion: whatsapp ? "Ver vinculación" : "Vincular",
     },

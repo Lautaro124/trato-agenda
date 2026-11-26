@@ -85,7 +85,7 @@ describe('AuthService.upsertUsuarioDev con teléfono', () => {
     await service.upsertUsuarioDev('dev@trato.local', '5491100000000');
 
     expect(prisma.user.create).toHaveBeenCalledWith({
-      data: { phoneNumber: '5491100000000', name: 'Usuario dev', calendario: 'local' },
+      data: { phoneNumber: '5491100000000', name: 'Usuario dev', calendario: 'local', vinculaConBaileys: true },
     });
   });
 

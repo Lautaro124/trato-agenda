@@ -37,6 +37,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { AuthService } from './auth.service.js';
 import type { DestinoTrasLogin } from './auth.types.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
+import { EmailService } from '../email/email.service.js';
 import { normalizarTelefono } from './telefono.js';
 import { destinoTrasLogin, ponerCookieDeSesion } from './sesion.js';
 import { EMAIL_DEV_POR_DEFECTO, loginDevPermitido } from './usuario-dev.js';
@@ -147,6 +148,7 @@ export class DevAuthController {
     private readonly authService: AuthService,
     private readonly agentsService: AgentsService,
     private readonly codigos: CodigoAccesoService,
+    private readonly emails: EmailService,
     private readonly config: ConfigService<Env, true>,
     private readonly prisma: PrismaService,
   ) {}
@@ -186,6 +188,16 @@ export class DevAuthController {
    * Un usuario dev no tiene WhatsApp por donde recibir el código de acceso:
    * los E2E lo leen de acá. Mismos candados que el login.
    */
+  /** Lo último que la API "mandó" a ese email sin proveedor configurado. Mismos candados que el login. */
+  @Get('ultimo-email')
+  ultimoEmail(@Query('para') para = ''): { asunto: string | null; texto: string | null } {
+    if (!loginDevHabilitado(this.config)) {
+      throw new NotFoundException();
+    }
+    const email = this.emails.ultimoDev(para);
+    return { asunto: email?.asunto ?? null, texto: email?.texto ?? null };
+  }
+
   @Get('ultimo-codigo')
   ultimoCodigo(@Query('telefono') telefono = ''): { codigo: string | null } {
     if (!loginDevHabilitado(this.config)) {

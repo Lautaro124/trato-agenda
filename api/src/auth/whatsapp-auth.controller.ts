@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  GoneException,
   HttpCode,
   HttpStatus,
   Ip,
@@ -24,8 +25,9 @@ import { AltaWhatsappService } from './alta-whatsapp.service.js';
 import { AuthService } from './auth.service.js';
 import type { DestinoTrasLogin } from './auth.types.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
+import { EmailRecuperacionService } from './email-recuperacion.service.js';
 import { opcionesDeCookie } from './cookie.js';
-import { COOKIE_ALTA, SEGUNDOS_ALTA } from './cookies-de-paso.js';
+import { COOKIE_ALTA } from './cookies-de-paso.js';
 import { AltaGuard, type RequestConAlta } from './guards/alta.guard.js';
 import { normalizarTelefono } from './telefono.js';
 import { LoginWhatsappService } from './login-whatsapp.service.js';
@@ -61,8 +63,9 @@ export class VerificarCodigoDto extends SolicitarCodigoDto {
 /**
  * Las puertas de entrada sin Google: crear la cuenta escaneando el QR (o con
  * el código de vinculación, desde el mismo celular), entrar
- * con número + contraseña, y recuperar la contraseña con un código que llega
- * al chat propio de WhatsApp. Son públicas; los límites de abuso viven en los
+ * con número + contraseña (no toca la sesión de Baileys: anda con WhatsApp
+ * desconectado), y recuperar la contraseña con un código que llega al chat
+ * propio de WhatsApp y al email de recuperación verificado. Son públicas; los límites de abuso viven en los
  * servicios.
  */
 @Controller('auth/whatsapp')
@@ -72,18 +75,21 @@ export class WhatsappAuthController {
     private readonly altas: AltaWhatsappService,
     private readonly codigos: CodigoAccesoService,
     private readonly logins: LoginWhatsappService,
+    private readonly emailsRecuperacion: EmailRecuperacionService,
     private readonly whatsappService: WhatsappService,
     private readonly agentsService: AgentsService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  /** Crea el usuario pendiente, deja la cookie del alta y arranca el QR. */
+  /**
+   * Crear la cuenta escaneando el QR quedó cerrado: las cuentas nuevas se crean
+   * con Google y conectan WhatsApp Business por la API oficial. Sin la cookie
+   * que dejaba esta ruta, el resto de `alta/*` no tiene a quién atender; queda
+   * para borrar junto con `AltaWhatsappService`.
+   */
   @Post('alta')
-  @HttpCode(HttpStatus.ACCEPTED)
-  async iniciarAlta(@Ip() ip: string, @Res({ passthrough: true }) res: Response): Promise<void> {
-    const user = await this.altas.iniciar(ip);
-    const token = await this.authService.emitirTokenDePaso(user.id, 'alta', SEGUNDOS_ALTA);
-    res.cookie(COOKIE_ALTA, token, { ...opcionesDeCookie(this.config), maxAge: SEGUNDOS_ALTA * 1000 });
+  iniciarAlta(): never {
+    throw new GoneException('Las cuentas nuevas se crean con Google y conectan WhatsApp Business desde Trato.');
   }
 
   /** Mismo stream que /whatsapp/link/stream, pero para el usuario del alta. */
@@ -151,7 +157,9 @@ export class WhatsappAuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ destino: DestinoTrasLogin }> {
     const { id } = await this.codigos.verificar(dto.telefono, dto.codigo);
-    return this.entrar(await this.logins.guardar(id, dto.nuevaPassword), res);
+    const user = await this.logins.guardar(id, dto.nuevaPassword);
+    this.emailsRecuperacion.avisarCambioDePassword(user);
+    return this.entrar(user, res);
   }
 
   private async entrar(user: User, res: Response): Promise<{ destino: DestinoTrasLogin }> {

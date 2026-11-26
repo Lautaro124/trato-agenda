@@ -22,7 +22,7 @@ const PASOS = [
  * Vincular desde el mismo celular, sin QR: un celular no puede escanear lo
  * que muestra su propia pantalla. La persona escribe su número, la API pide
  * el código a WhatsApp y WhatsApp le manda una notificación para ingresarlo.
- * Lo usan /vincular y /entrar/whatsapp, igual que `TarjetaQr`.
+ * Lo usa /vincular, igual que `TarjetaQr`.
  */
 export function TarjetaCodigo({
   titulo,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Hook Stop: antes de que Claude dé por terminado un prompt que dejó cambios
-# sin pushear, le pide correr los subagentes de seguridad (revisor-seguridad y
-# security-auditor) sobre esos cambios y arreglar lo que encuentren.
+# sin pushear, le pide una revisión de seguridad de esos cambios
+# (vulnerabilidades y secretos) y que arregle lo que encuentre.
 #
 # - Sin cambios (árbol limpio y nada sin pushear) no hace nada: una pregunta
 #   suelta no paga el costo de la revisión.
@@ -76,7 +76,7 @@ mkdir -p .claude
 printf '%s\n%s\n' "$huella" "$((bloqueos + 1))" > "$estado"
 
 archivos=$( { git -c core.quotePath=true diff --name-only "$base" 2>/dev/null; printf '%s\n' "$nuevos"; } | sed '/^$/d' | sort -u | head -40 | tr '\n' ' ')
-motivo="Validación de seguridad pendiente: hay cambios sin pushear respecto de ${base:0:12} (${archivos}). Antes de terminar, lanzá EN PARALELO los subagentes 'revisor-seguridad' (vulnerabilidades, lo que marcaría CodeQL) y 'security-auditor' (secretos) sobre esos cambios. Arreglá todo hallazgo HIGH o MEDIUM, volvé a correr los checks del paquete tocado y recién ahí terminá, resumiendo al usuario el veredicto de cada uno. Si los dos dan LIMPIO, terminá sin más cambios."
+motivo="Validación de seguridad pendiente: hay cambios sin pushear respecto de ${base:0:12} (${archivos}). Antes de terminar, revisá esos cambios buscando vulnerabilidades (lo que marcaría CodeQL security-extended y los controles de CLAUDE.md y docs/seguridad.md: autorización por userId, CSRF, webhooks, datos personales hacia logs o Sentry, login dev) y secretos (claves, tokens, archivos .env). Arreglá todo hallazgo HIGH o MEDIUM, volvé a correr los checks del paquete tocado y recién ahí terminá, resumiendo al usuario el veredicto. Si no hay hallazgos HIGH ni MEDIUM, terminá sin más cambios."
 
 # El motivo no lleva comillas dobles ni barras invertidas salvo las de los
 # nombres de archivo, que se escapan acá para que el JSON sea válido.

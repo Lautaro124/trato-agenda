@@ -33,6 +33,14 @@ export type Usuario = {
   tipoAsistente: "agenda" | "ventas" | null;
   /** Recorridos guiados que ya vio o salteó: no se vuelven a abrir solos. */
   tutorialesVistos: ClaveTutorial[];
+  /** Email verificado para recuperar el acceso sin WhatsApp (LAU-109). Distinto de `email`, que es el de Google. */
+  emailRecuperacion: string | null;
+  /** Si la API puede mandar emails y la cuenta tiene número: se ofrece sumar el email de recuperación. */
+  puedeSumarEmailRecuperacion: boolean;
+  /** Cuenta de WhatsApp sin Google ni email de recuperación: se le muestra el aviso para sumarlo. */
+  debeSumarEmailRecuperacion: boolean;
+  /** Cuenta de antes de la API oficial: vincula por QR o código. Las nuevas sólo conectan WhatsApp Business. */
+  vinculaConBaileys: boolean;
 };
 
 /**

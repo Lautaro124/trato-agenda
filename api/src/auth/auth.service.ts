@@ -122,7 +122,10 @@ export class AuthService {
       const { whatsappSession: _sesion, ...user } = existente;
       return user;
     }
-    return this.prisma.user.create({ data: { phoneNumber: telefono, name: 'Usuario dev', calendario: 'local' } });
+    // Imita una cuenta de antes de la API oficial creada con WhatsApp: sigue vinculando por QR.
+    return this.prisma.user.create({
+      data: { phoneNumber: telefono, name: 'Usuario dev', calendario: 'local', vinculaConBaileys: true },
+    });
   }
 
   /** Usuario de un alta por WhatsApp antes de escanear: sin ninguna identidad todavía. */

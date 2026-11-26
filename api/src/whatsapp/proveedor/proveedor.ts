@@ -9,7 +9,7 @@ import type { WhatsappStatus } from '../whatsapp.types.js';
  * tocar la lógica de conversación de `WhatsappService` (ráfagas, atención
  * humana, suscripción, horario, audios, imágenes).
  */
-export const PROVEEDORES_WHATSAPP = ['baileys'] as const;
+export const PROVEEDORES_WHATSAPP = ['baileys', 'cloud'] as const;
 export type IdProveedor = (typeof PROVEEDORES_WHATSAPP)[number];
 
 /** Proveedor de las cuentas que nunca eligieron otro: las de antes de LAU-110. */

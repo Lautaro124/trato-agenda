@@ -1,3 +1,4 @@
+import type { APIRequestContext } from '@playwright/test';
 import { API_URL } from '../entorno';
 import {
   crearAgentePorApi,
@@ -13,22 +14,19 @@ import {
 import { completarWizard, perfilProduccion } from './onboarding';
 
 test.describe('después de generar: /listo y /vincular', () => {
-  test('/listo anuncia la prueba y lleva a la pantalla del QR', async ({ page, context, usuarioDev }) => {
+  test('una cuenta nueva va de /listo a conectar WhatsApp Business, sin QR', async ({ page, context, usuarioDev }) => {
     expect(usuarioDev.email).toBeTruthy();
     await crearAgentePorApi(context.request);
 
     await page.goto('/listo');
     await expect(page.getByText('Prueba activa')).toBeVisible();
     await page.getByRole('button', { name: 'Vincular WhatsApp y empezar' }).click();
-    await esperarRuta(page, '/vincular');
+    await esperarRuta(page, '/vincular/oficial');
 
-    // Sin escanear: el QR depende de los servidores de WhatsApp, así que alcanza
-    // con que la pantalla llegue a un estado conocido (código o error con reintento).
-    await expect(
-      page
-        .getByRole('heading', { name: 'Vinculá tu WhatsApp' })
-        .or(page.getByText('No pudimos vincular tu WhatsApp')),
-    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Conectá WhatsApp Business' })).toBeVisible();
+    await expect(page.getByText('Dispositivos vinculados')).toHaveCount(0);
+    // La API tampoco le arranca un QR.
+    expect((await context.request.post(`${API_URL}/whatsapp/link/start`)).status()).toBe(403);
   });
 
   test('una cuenta que ya escaneó el QR no vuelve a vincular: va a la agenda o a los planes', async ({ page, context }) => {
@@ -52,13 +50,18 @@ test.describe('después de generar: /listo y /vincular', () => {
 
 const AVISO_NUMERO_PERSONAL = 'No te recomendamos usar tu celular personal.';
 
+/** Con teléfono, el usuario dev imita una cuenta de antes de la API oficial: sigue vinculando por QR o código. */
+async function loginCuentaVieja(request: APIRequestContext): Promise<void> {
+  await loginDev(request, emailUnico(), telefonoUnico());
+  await ponerPassword(request, 'mi-clave-segura');
+}
+
 test.describe('/vincular: QR en la computadora, código en el celular', () => {
   test('en la computadora arranca con el QR, avisa del número personal y deja pasar al código', async ({
     page,
     context,
-    usuarioDev,
   }) => {
-    expect(usuarioDev.email).toBeTruthy();
+    await loginCuentaVieja(context.request);
     await crearAgentePorApi(context.request);
 
     await page.goto('/vincular');
@@ -77,14 +80,18 @@ test.describe('/vincular: QR en la computadora, código en el celular', () => {
     const invalido = await context.request.post(`${API_URL}/whatsapp/link/codigo`, { data: { telefono: '123' } });
     expect(invalido.status()).toBe(400);
 
+    // Una cuenta nueva no vincula por código: conecta por la API oficial.
+    const nueva = await context.request.post(`${API_URL}/whatsapp/link/codigo`, { data: { telefono: '5491122334455' } });
+    expect(nueva.status()).toBe(403);
+
     const sinSesion = await request.post(`${API_URL}/whatsapp/link/codigo`, { data: { telefono: '5491122334455' } });
     expect(sinSesion.status()).toBe(401);
   });
 });
 
 test.describe('/vincular en el celular', { tag: '@movil' }, () => {
-  test('arranca con el código, avisa del número personal y deja pasar al QR', async ({ page, context, usuarioDev }) => {
-    expect(usuarioDev.email).toBeTruthy();
+  test('arranca con el código, avisa del número personal y deja pasar al QR', async ({ page, context }) => {
+    await loginCuentaVieja(context.request);
     await crearAgentePorApi(context.request);
 
     await page.goto('/vincular');

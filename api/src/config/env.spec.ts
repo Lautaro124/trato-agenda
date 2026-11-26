@@ -11,6 +11,32 @@ const BASE = {
 };
 
 describe('validateEnv', () => {
+  const META = {
+    META_APP_ID: '1234567890',
+    META_APP_SECRET: 'secreto',
+    META_WHATSAPP_CONFIG_ID: '987654321',
+    META_WEBHOOK_VERIFY_TOKEN: 'v'.repeat(24),
+  };
+
+  it('sin las variables de Meta arranca sólo con Baileys', () => {
+    const env = validateEnv(BASE);
+    expect(env.META_APP_ID).toBe('');
+    expect(env.META_GRAPH_URL).toBe('https://graph.facebook.com');
+    expect(env.META_GRAPH_VERSION).toBe('v27.0');
+  });
+
+  it('acepta las cuatro variables de Meta juntas', () => {
+    expect(validateEnv({ ...BASE, ...META }).META_WHATSAPP_CONFIG_ID).toBe('987654321');
+  });
+
+  it('no arranca con las variables de Meta a medias, un token corto o una versión rara', () => {
+    expect(() => validateEnv({ ...BASE, META_APP_ID: '1' })).toThrow(/van juntas/);
+    expect(() => validateEnv({ ...BASE, ...META, META_WEBHOOK_VERIFY_TOKEN: 'corto' })).toThrow(/16 caracteres/);
+    expect(() => validateEnv({ ...BASE, ...META, META_APP_ID: 'abc' })).toThrow(/numéricos/);
+    expect(() => validateEnv({ ...BASE, META_GRAPH_VERSION: '27' })).toThrow(/META_GRAPH_VERSION/);
+    expect(() => validateEnv({ ...BASE, NODE_ENV: 'production', META_GRAPH_URL: 'http://graph.local' })).toThrow(/https/);
+  });
+
   it('permite DEV_LOGIN_PASSWORD en desarrollo', () => {
     const env = validateEnv({ ...BASE, NODE_ENV: 'development', DEV_LOGIN_PASSWORD: 'secreta' });
 

@@ -1,5 +1,5 @@
 import { chatEnAtencionHumana, guardarMensajeEnPausa, tomarChat } from '../chats/atencion.js';
-import { Injectable, Logger, type MessageEvent, type OnModuleDestroy } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, type MessageEvent, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomInt } from 'node:crypto';
 import type { Observable } from 'rxjs';
@@ -19,6 +19,7 @@ import { SubscriptionService } from '../subscription/subscription.service.js';
 import { VueltaCancelada, type Cancelacion } from '../conversation/cancelacion.js';
 import { AgrupadorDeRafagas } from './agrupador-rafagas.js';
 import { BaileysProveedor } from './baileys/baileys.proveedor.js';
+import { CloudProveedor, type AltaCloud } from './cloud/cloud.proveedor.js';
 import { CanalesWhatsapp, type EstadoCanal } from './proveedor/canales.service.js';
 import type {
   ContenidoEntrante,
@@ -201,8 +202,12 @@ export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
     private readonly preguntas: PreguntasService,
     private readonly baileys: BaileysProveedor,
     private readonly canales: CanalesWhatsapp,
+    private readonly cloud: CloudProveedor,
   ) {
-    this.proveedores = new Map<IdProveedor, ProveedorWhatsapp>([[baileys.id, baileys]]);
+    this.proveedores = new Map<IdProveedor, ProveedorWhatsapp>([
+      [baileys.id, baileys],
+      [cloud.id, cloud],
+    ]);
     for (const proveedor of this.proveedores.values()) proveedor.escuchar(this);
     // En el constructor y no como campo: necesita la configuración ya inyectada.
     this.rafagas = new AgrupadorDeRafagas<MensajeEntrante>(
@@ -221,7 +226,7 @@ export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
     this.rafagas.cerrar();
   }
 
-  // ─── Vinculación: es propia de Baileys (QR o código con SSE). ───────────────
+  // ─── Vinculación: QR o código con SSE (Baileys) o Embedded Signup (oficial). ─
 
   /** Stream de eventos de vinculación para un usuario, listo para `@Sse()`. */
   linkEvents$(userId: string): Observable<MessageEvent> {
@@ -229,13 +234,52 @@ export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
   }
 
   /** Arranca (o resume) la vinculación por QR. Idempotente si ya está conectada. */
-  startLink(userId: string): Promise<void> {
+  async startLink(userId: string): Promise<void> {
+    await this.volverABaileys(userId);
     return this.baileys.startLink(userId);
   }
 
   /** Vincular sin QR, desde el mismo celular (ver `BaileysProveedor.pedirCodigo`). */
-  pedirCodigo(userId: string, telefono: string): Promise<string> {
+  async pedirCodigo(userId: string, telefono: string): Promise<string> {
+    await this.volverABaileys(userId);
     return this.baileys.pedirCodigo(userId, telefono);
+  }
+
+  /**
+   * Vincular por QR o código es de Baileys y sólo lo conservan las cuentas que
+   * ya lo usaban (`User.vinculaConBaileys`): las nuevas conectan por la API
+   * oficial. Con un número conectado por la oficial tampoco se ofrece: habría
+   * dos emisores para el mismo comercio. Si la cuenta usaba la oficial y la
+   * desconectó, vuelve a Baileys.
+   */
+  private async volverABaileys(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { vinculaConBaileys: true } });
+    if (!user?.vinculaConBaileys) {
+      throw new ForbiddenException({
+        message: 'Conectá tu WhatsApp Business con la API oficial de Meta.',
+        motivo: 'solo_api_oficial',
+      });
+    }
+    const canal = await this.canales.estado(userId);
+    if (canal.proveedor === 'baileys') return;
+    if (this.proveedor(canal).sesionVinculada(userId)) {
+      throw new ConflictException('Tu WhatsApp está conectado por la API oficial: desconectalo antes de vincular otro.');
+    }
+    await this.cambiarProveedor(userId, 'baileys');
+  }
+
+  /**
+   * Conecta el número por la API oficial (Embedded Signup) y pasa el comercio
+   * a ese proveedor. Lo que esperaba respuesta queda para el dueño, y la
+   * sesión de Baileys se cierra: un solo emisor por comercio.
+   */
+  async conectarCloud(userId: string, alta: AltaCloud): Promise<WhatsappStatus> {
+    await this.cloud.conectar(userId, alta);
+    await this.cambiarProveedor(userId, 'cloud');
+    await this.baileys.unlink(userId).catch((error: unknown) =>
+      this.logger.warn(`No se pudo cerrar la sesión de Baileys de ${userId} al pasar a la API oficial: ${resumenDeError(error)}`),
+    );
+    return this.status(userId);
   }
 
   /** El número de un alta que ya es de otra cuenta pasa a esa cuenta (ver `BaileysProveedor.transferirSesion`). */

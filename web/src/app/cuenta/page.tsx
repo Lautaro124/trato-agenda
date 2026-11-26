@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { SeccionDatosCliente } from "@/components/cuenta/SeccionDatosCliente";
+import { SeccionEmailRecuperacion } from "@/components/cuenta/SeccionEmailRecuperacion";
 import { SeccionFormasDePago } from "@/components/cuenta/SeccionFormasDePago";
 import { SeccionHorarioAtencion } from "@/components/cuenta/SeccionHorarioAtencion";
 import { SeccionLocal } from "@/components/cuenta/SeccionLocal";
@@ -64,7 +65,7 @@ function Cargando() {
 }
 
 function CuentaContenido() {
-  const { user, status } = useRequireSession();
+  const { user, status, refrescar } = useRequireSession();
   const parametros = useSearchParams();
   const aviso = AVISOS_GOOGLE[parametros.get("google") ?? ""] ?? AVISOS_MP[parametros.get("mp") ?? ""];
   const [confirmacion, setConfirmacion] = useState("");
@@ -189,6 +190,14 @@ function CuentaContenido() {
           )}
 
           {user.phoneNumber && <SeccionContrasena tienePassword={user.tienePassword} />}
+
+          {user.puedeSumarEmailRecuperacion && (
+            <SeccionEmailRecuperacion
+              emailActual={user.emailRecuperacion}
+              tienePassword={user.tienePassword}
+              onConfirmado={() => void refrescar()}
+            />
+          )}
 
           <section className="rounded-lg border border-line bg-card p-5">
             <h2 className="mb-2 font-display text-[15px] font-bold text-danger-text">

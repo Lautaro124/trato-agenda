@@ -11,8 +11,8 @@ const PASOS = [
 ];
 
 /**
- * El QR con las instrucciones para escanearlo: lo usan /vincular (con sesión)
- * y /entrar/whatsapp (alta sin cuenta), que sólo cambian los textos.
+ * El QR con las instrucciones para escanearlo: lo usa /vincular, sólo para las
+ * cuentas de antes de la API oficial.
  */
 export function TarjetaQr({
   qr,

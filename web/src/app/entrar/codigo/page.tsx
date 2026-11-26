@@ -7,15 +7,16 @@ import { FooterLegal } from "@/components/FooterLegal";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
 import { CampoTelefono } from "@/components/ui/CampoTelefono";
-import { apiFetch } from "@/lib/api";
+import { API_URL, apiFetch } from "@/lib/api";
 import { INPUT_FORM as INPUT, PASSWORD_MIN, problemaDePassword } from "@/lib/password";
 import { useSession } from "@/lib/session";
 import { PAIS_POR_DEFECTO, soloDigitos, telefonoCompleto, type Pais } from "@/lib/telefono";
 
 /**
  * Recuperar la contraseña de una cuenta de WhatsApp: el código llega al chat
- * propio ("Vos") del número vinculado y, junto con él, se elige una contraseña
- * nueva. La API contesta igual exista o no la cuenta, así que la pantalla nunca
+ * propio ("Vos") del número vinculado y al email de recuperación confirmado
+ * (LAU-109), así que anda aunque WhatsApp esté desconectado. Junto con él se
+ * elige una contraseña nueva. La API contesta igual exista o no la cuenta, así que la pantalla nunca
  * dice "ese número no existe".
  */
 export default function RecuperarContrasenaPage() {
@@ -98,8 +99,9 @@ export default function RecuperarContrasenaPage() {
           <form onSubmit={(e) => void pedirCodigo(e)} aria-label="Pedir código" className="flex flex-col gap-3">
             <h1 className="font-display text-2xl font-bold tracking-[-0.02em] text-ink">Recuperá tu contraseña</h1>
             <p className="text-sm leading-[1.6] text-ink-secondary">
-              Te mandamos un código a tu propio chat de WhatsApp (el que dice “Vos”), desde el número que
-              vinculaste, y con él elegís una contraseña nueva.
+              Escribí el número de tu cuenta. Te mandamos un código a tu propio chat de WhatsApp (el que
+              dice “Vos”) y, si confirmaste uno, a tu email de recuperación. Con él elegís una contraseña
+              nueva.
             </p>
             <CampoTelefono pais={pais} onPais={setPais} nacional={nacional} onNacional={setNacional} />
             {error && (
@@ -117,10 +119,12 @@ export default function RecuperarContrasenaPage() {
             aria-label="Recuperar contraseña"
             className="flex flex-col gap-3"
           >
-            <h1 className="font-display text-2xl font-bold tracking-[-0.02em] text-ink">Revisá tu WhatsApp</h1>
+            <h1 className="font-display text-2xl font-bold tracking-[-0.02em] text-ink">
+              Revisá tu WhatsApp o tu email
+            </h1>
             <p className="text-sm leading-[1.6] text-ink-secondary">
               Si <strong className="font-semibold">+{telefono}</strong> tiene cuenta, le llegó un
-              código de 6 dígitos a su propio chat. Vence en 10 minutos.
+              código de 6 dígitos a su propio chat y a su email de recuperación. Vence en 10 minutos.
             </p>
             <input
               type="text"
@@ -185,11 +189,17 @@ export default function RecuperarContrasenaPage() {
         )}
 
         <div className="mt-6 rounded-md bg-sunken p-4 text-[12.5px] leading-[1.6] text-ink-secondary">
-          ¿No te llega? Si desvinculaste Trato de tu teléfono, el código no tiene por dónde salir.{" "}
-          <Link href="/entrar/whatsapp" className="text-link">
-            Escaneá el QR de nuevo
-          </Link>{" "}
-          y volvés a tu misma cuenta; ahí elegís la contraseña. ¿Te acordaste?{" "}
+          ¿No te llega? Revisá el spam de tu email. Si WhatsApp está desconectado y no confirmaste un email,
+          el código no tiene por dónde salir: escribinos a{" "}
+          <a href="mailto:soporte@tratoagenda.com" className="text-link">
+            soporte@tratoagenda.com
+          </a>{" "}
+          desde el email de tu negocio y te ayudamos a volver a tu cuenta. Si conectaste Google
+          desde Tu cuenta, también podés{" "}
+          <a href={`${API_URL}/auth/google`} className="text-link">
+            entrar con Google
+          </a>
+          . ¿Te acordaste?{" "}
           <Link href="/entrar" className="text-link">
             Volver a entrar
           </Link>
