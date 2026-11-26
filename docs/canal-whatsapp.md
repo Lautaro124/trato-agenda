@@ -63,7 +63,15 @@ códigos pendientes, `creds.me`) siguen dentro de `BaileysProveedor`.
 ## API oficial (Cloud API con Embedded Signup)
 
 Se activa con las variables `META_*` (ver README). Sin ellas `/whatsapp/cloud/config` devuelve
-`disponible: false` y la web no ofrece nada nuevo.
+`disponible: false` y `/vincular/oficial` avisa que todavía no está disponible.
+
+**Quién usa cada proveedor.** `User.vinculaConBaileys` marca las cuentas de antes de la API oficial
+que ya usaban WhatsApp (tenían número o sesión de Baileys al migrar): sólo esas vinculan por QR o
+código, y `/vincular` es eso. Las demás van a `/vincular/oficial`, y `WhatsappService` les rechaza
+`link/start` y `link/codigo` con 403 (`motivo: 'solo_api_oficial'`). Las cuentas nuevas se crean con
+Google: `POST /auth/whatsapp/alta` (crear la cuenta escaneando el QR) devuelve 410 y
+`/entrar/whatsapp` redirige a `/entrar`. El resto de `alta/*` y `AltaWhatsappService` quedan sin
+uso, para borrar.
 
 - **Alta** (`/vincular/oficial`): la web carga el SDK de Meta y abre Embedded Signup con el `config_id`.
   Con Coexistence manda `featureType: 'whatsapp_business_app_onboarding'`. Junta el código del

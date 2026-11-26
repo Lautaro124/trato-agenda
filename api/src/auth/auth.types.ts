@@ -48,6 +48,8 @@ export type UsuarioPublico = Pick<User, 'id' | 'email' | 'name' | 'avatarUrl' | 
    * aviso para sumar un email (LAU-109).
    */
   debeSumarEmailRecuperacion: boolean;
+  /** Cuenta vieja que vincula por QR o código; las nuevas sólo conectan por la API oficial. */
+  vinculaConBaileys: boolean;
 };
 
 /**
@@ -86,6 +88,7 @@ export function aUsuarioPublico(
     tutorialesVistos: tutorialesVistos(user.tutorialesVistos),
     puedeSumarEmailRecuperacion: emailDisponible && user.phoneNumber !== null,
     debeSumarEmailRecuperacion: debeSumarEmailRecuperacion(user, emailDisponible),
+    vinculaConBaileys: user.vinculaConBaileys,
   };
 }
 

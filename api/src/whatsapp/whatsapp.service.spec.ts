@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DisconnectReason, downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Readable } from 'node:stream';
@@ -53,7 +53,7 @@ vi.mock('../comercio/imagenes.rules.js', async (original) => ({
 /** El proveedor de Baileys del servicio: lo de sockets y conexión vive ahí (LAU-110). */
 const prov = (service: WhatsappService) => (service as unknown as { baileys: BaileysProveedor }).baileys;
 
-type UsuarioMock = { id: string; googleId: string | null; phoneNumber: string | null };
+type UsuarioMock = { id: string; googleId: string | null; phoneNumber: string | null; vinculaConBaileys?: boolean };
 
 function crearServicio(usuarios: UsuarioMock[] = []) {
   // Como la clave primaria de MensajeRecibido: cada id de WhatsApp se reclama una sola vez.
@@ -62,8 +62,13 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
   const filasCanal = new Map<string, { generacion: number } & Record<string, unknown>>();
   const prisma = {
     user: {
-      findUnique: vi.fn().mockImplementation(({ where }: { where: { id?: string; phoneNumber?: string } }) =>
-        usuarios.find((u) => (where.id ? u.id === where.id : u.phoneNumber === where.phoneNumber)) ?? null,
+      findUnique: vi.fn().mockImplementation(
+        ({ where, select }: { where: { id?: string; phoneNumber?: string }; select?: Record<string, boolean> }) => {
+          const usuario = usuarios.find((u) => (where.id ? u.id === where.id : u.phoneNumber === where.phoneNumber));
+          // Salvo que el test diga lo contrario, la cuenta es de antes de la API oficial y vincula por QR.
+          if (select?.vinculaConBaileys) return { vinculaConBaileys: usuario?.vinculaConBaileys ?? true };
+          return usuario ?? null;
+        },
       ),
       update: vi.fn().mockResolvedValue({}),
     },
@@ -1790,6 +1795,16 @@ describe('WhatsappService — API oficial (Cloud API)', () => {
     expect(unlinkBaileys).toHaveBeenCalledWith('user-1');
     expect((await canales.estado('user-1')).proveedor).toBe('cloud');
     expect(status).toMatchObject({ linked: true, proveedor: 'cloud' });
+  });
+
+  it('una cuenta nueva no vincula por QR ni por código: sólo por la API oficial', async () => {
+    const { service, connectSpy } = crearServicio([
+      { id: 'user-1', googleId: 'g', phoneNumber: null, vinculaConBaileys: false },
+    ]);
+
+    await expect(service.startLink('user-1')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.pedirCodigo('user-1', '5491122334455')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(connectSpy).not.toHaveBeenCalled();
   });
 
   it('no deja vincular por QR con la oficial conectada', async () => {

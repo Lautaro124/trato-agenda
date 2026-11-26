@@ -63,6 +63,11 @@ model User {
   /// catálogo de claves vive en src/auth/tutoriales.ts.
   tutorialesVistos String[] @default([])
 
+  /// Cuenta de antes de la API oficial que ya usaba WhatsApp por QR o código
+  /// (Baileys): sólo esas pueden volver a vincular así. Las nuevas conectan
+  /// WhatsApp Business por Embedded Signup.
+  vinculaConBaileys Boolean @default(false)
+
   whatsappSession       WhatsappSession?
   canalWhatsapp         CanalWhatsapp?
   whatsappCloud         CuentaWhatsappCloud?

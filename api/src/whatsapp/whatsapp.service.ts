@@ -1,5 +1,5 @@
 import { chatEnAtencionHumana, guardarMensajeEnPausa, tomarChat } from '../chats/atencion.js';
-import { ConflictException, Injectable, Logger, type MessageEvent, type OnModuleDestroy } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, type MessageEvent, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomInt } from 'node:crypto';
 import type { Observable } from 'rxjs';
@@ -246,11 +246,20 @@ export class WhatsappService implements ReceptorCanal, OnModuleDestroy {
   }
 
   /**
-   * Vincular por QR o código es de Baileys. Con un número conectado por la API
-   * oficial no se ofrece: habría dos emisores para el mismo comercio. Si la
-   * cuenta usaba la oficial y la desconectó, vuelve a Baileys.
+   * Vincular por QR o código es de Baileys y sólo lo conservan las cuentas que
+   * ya lo usaban (`User.vinculaConBaileys`): las nuevas conectan por la API
+   * oficial. Con un número conectado por la oficial tampoco se ofrece: habría
+   * dos emisores para el mismo comercio. Si la cuenta usaba la oficial y la
+   * desconectó, vuelve a Baileys.
    */
   private async volverABaileys(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { vinculaConBaileys: true } });
+    if (!user?.vinculaConBaileys) {
+      throw new ForbiddenException({
+        message: 'Conectá tu WhatsApp Business con la API oficial de Meta.',
+        motivo: 'solo_api_oficial',
+      });
+    }
     const canal = await this.canales.estado(userId);
     if (canal.proveedor === 'baileys') return;
     if (this.proveedor(canal).sesionVinculada(userId)) {

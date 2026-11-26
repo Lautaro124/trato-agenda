@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  GoneException,
   HttpCode,
   HttpStatus,
   Ip,
@@ -26,7 +27,7 @@ import type { DestinoTrasLogin } from './auth.types.js';
 import { CodigoAccesoService } from './codigo-acceso.service.js';
 import { EmailRecuperacionService } from './email-recuperacion.service.js';
 import { opcionesDeCookie } from './cookie.js';
-import { COOKIE_ALTA, SEGUNDOS_ALTA } from './cookies-de-paso.js';
+import { COOKIE_ALTA } from './cookies-de-paso.js';
 import { AltaGuard, type RequestConAlta } from './guards/alta.guard.js';
 import { normalizarTelefono } from './telefono.js';
 import { LoginWhatsappService } from './login-whatsapp.service.js';
@@ -80,13 +81,15 @@ export class WhatsappAuthController {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  /** Crea el usuario pendiente, deja la cookie del alta y arranca el QR. */
+  /**
+   * Crear la cuenta escaneando el QR quedó cerrado: las cuentas nuevas se crean
+   * con Google y conectan WhatsApp Business por la API oficial. Sin la cookie
+   * que dejaba esta ruta, el resto de `alta/*` no tiene a quién atender; queda
+   * para borrar junto con `AltaWhatsappService`.
+   */
   @Post('alta')
-  @HttpCode(HttpStatus.ACCEPTED)
-  async iniciarAlta(@Ip() ip: string, @Res({ passthrough: true }) res: Response): Promise<void> {
-    const user = await this.altas.iniciar(ip);
-    const token = await this.authService.emitirTokenDePaso(user.id, 'alta', SEGUNDOS_ALTA);
-    res.cookie(COOKIE_ALTA, token, { ...opcionesDeCookie(this.config), maxAge: SEGUNDOS_ALTA * 1000 });
+  iniciarAlta(): never {
+    throw new GoneException('Las cuentas nuevas se crean con Google y conectan WhatsApp Business desde Trato.');
   }
 
   /** Mismo stream que /whatsapp/link/stream, pero para el usuario del alta. */
