@@ -58,6 +58,7 @@ model User {
 
   whatsappSession   WhatsappSession?
   canalWhatsapp     CanalWhatsapp?
+  whatsappCloud     CuentaWhatsappCloud?
   agent             Agent?
   conversaciones    Conversation[]
   suscripcion       Subscription?
@@ -1125,7 +1126,7 @@ model CanalWhatsapp {
   userId String @id
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// "baileys" por ahora: el proveedor por el que entra y sale todo.
+  /// "baileys" o "cloud" (la API oficial de Meta): el proveedor por el que entra y sale todo.
   proveedor String @default("baileys")
 
   /// Pausa sólo las respuestas automáticas: la vinculación, Chats y los
@@ -1141,5 +1142,29 @@ model CanalWhatsapp {
   ultimoFallo   String?
   ultimoFalloAt DateTime?
 
+  updatedAt DateTime @updatedAt
+}
+
+/// El número del comercio conectado por la API oficial de WhatsApp (Cloud API),
+/// con Embedded Signup. Una fila por comercio; el número no puede ser de dos.
+model CuentaWhatsappCloud {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// La cuenta de WhatsApp Business (WABA) del comercio, en Meta.
+  wabaId        String
+  /// El id del número en la Cloud API: con él llegan los webhooks y se manda.
+  phoneNumberId String @unique
+  /// El número, sólo dígitos (sin '+'), como `User.phoneNumber`.
+  telefono      String
+
+  /// Token de negocio que da el canje del código de Embedded Signup, cifrado
+  /// con AES-256-GCM (TOKEN_ENCRYPTION_KEY). Nunca se expone por la API.
+  tokenCifrado String
+
+  /// El número sigue en la app WhatsApp Business del celular (Coexistence).
+  coexistencia Boolean @default(false)
+
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

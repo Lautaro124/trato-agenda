@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DisconnectReason, downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Readable } from 'node:stream';
@@ -33,6 +34,8 @@ import {
 } from './whatsapp.service.js';
 import type { LinkEvent } from './whatsapp.types.js';
 import { BaileysProveedor } from './baileys/baileys.proveedor.js';
+import { CloudProveedor } from './cloud/cloud.proveedor.js';
+import { GraphClient } from './cloud/graph.client.js';
 import { CanalesWhatsapp } from './proveedor/canales.service.js';
 import type { HorarioAtencionService } from '../horario-atencion/horario-atencion.service.js';
 
@@ -93,6 +96,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
         return Promise.resolve({ count });
       }),
     },
+    cuentaWhatsappCloud: { findMany: vi.fn().mockResolvedValue([]), deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     // Sin fila: la cuenta usa Baileys y no está en pausa, como todas las de antes de LAU-110.
     canalWhatsapp: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -141,6 +145,7 @@ function crearServicio(usuarios: UsuarioMock[] = []) {
     { paraEnviar: vi.fn() } as unknown as PreguntasService,
     new BaileysProveedor(prisma, config, notificaciones),
     canales,
+    new CloudProveedor(prisma, config, new GraphClient(config)),
   );
   // No queremos que handleConnectionUpdate dispare un makeWASocket real.
   const connectSpy = vi.spyOn(prov(service) as never as { connect: () => Promise<void> }, 'connect').mockResolvedValue(undefined);
@@ -1767,5 +1772,41 @@ describe('WhatsappService — canal por comercio: pausa, proveedor y un único e
       expect.objectContaining({ create: expect.objectContaining({ userId: 'user-1', ultimoFallo: 'volver_a_vincular' }) }),
     );
     expect((await service.status('user-1')).fallo).toBe('volver_a_vincular');
+  });
+});
+
+describe('WhatsappService — API oficial (Cloud API)', () => {
+  const cloudDe = (service: WhatsappService) => (service as unknown as { cloud: CloudProveedor }).cloud;
+
+  it('conectar por la oficial pasa el comercio a ese proveedor y cierra Baileys', async () => {
+    const { service, canales } = crearServicio();
+    const conectar = vi.spyOn(cloudDe(service), 'conectar').mockResolvedValue({ linked: true, phoneNumber: '549' });
+    const unlinkBaileys = vi.spyOn(prov(service), 'unlink').mockResolvedValue(undefined);
+    vi.spyOn(cloudDe(service), 'status').mockResolvedValue({ linked: true, phoneNumber: '549' });
+
+    const status = await service.conectarCloud('user-1', { codigo: 'c', wabaId: '1', phoneNumberId: '2', coexistencia: true });
+
+    expect(conectar).toHaveBeenCalledOnce();
+    expect(unlinkBaileys).toHaveBeenCalledWith('user-1');
+    expect((await canales.estado('user-1')).proveedor).toBe('cloud');
+    expect(status).toMatchObject({ linked: true, proveedor: 'cloud' });
+  });
+
+  it('no deja vincular por QR con la oficial conectada', async () => {
+    const { service, canales, connectSpy } = crearServicio();
+    await canales.cambiarProveedor('user-1', 'cloud');
+    vi.spyOn(cloudDe(service), 'sesionVinculada').mockReturnValue({} as never);
+
+    await expect(service.startLink('user-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it('si la oficial se desconectó, vincular por QR vuelve a Baileys', async () => {
+    const { service, canales } = crearServicio();
+    await canales.cambiarProveedor('user-1', 'cloud');
+
+    await service.startLink('user-1');
+
+    expect((await canales.estado('user-1')).proveedor).toBe('baileys');
   });
 });

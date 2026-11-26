@@ -95,6 +95,22 @@ export type Env = {
    * paró, antes de contestarle igual (ver AgrupadorDeRafagas).
    */
   WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: number;
+  /**
+   * App de Meta para la API oficial de WhatsApp (Cloud API con Embedded
+   * Signup). Las cuatro van juntas; vacías = sólo Baileys, como siempre. El id
+   * de la app y el de la configuración son públicos (los usa el SDK del
+   * navegador); el secreto y el token de verificación, no.
+   */
+  META_APP_ID: string;
+  META_APP_SECRET: string;
+  /** La configuración de Facebook Login for Business con la variación "WhatsApp Embedded Signup". */
+  META_WHATSAPP_CONFIG_ID: string;
+  /** Lo que se carga en Meta como "Verify token" del webhook. */
+  META_WEBHOOK_VERIFY_TOKEN: string;
+  /** Base de la Graph API. Sólo la cambiaría un stub. */
+  META_GRAPH_URL: string;
+  /** Versión de la Graph API (v27.0). */
+  META_GRAPH_VERSION: string;
 };
 
 const REQUIRED = [
@@ -118,6 +134,8 @@ export const OPENROUTER_DECISIONS_URL_POR_DEFECTO = 'https://openrouter.ai/api/a
 export const MERCADOPAGO_BASE_URL_POR_DEFECTO = 'https://api.mercadopago.com';
 export const LINEAR_API_URL_POR_DEFECTO = 'https://api.linear.app/graphql';
 export const MERCADOLIBRE_API_URL_POR_DEFECTO = 'https://api.mercadolibre.com';
+export const META_GRAPH_URL_POR_DEFECTO = 'https://graph.facebook.com';
+export const META_GRAPH_VERSION_POR_DEFECTO = 'v27.0';
 
 export const HISTORIAL_IA_VENTANA_POR_DEFECTO = '14d';
 
@@ -222,6 +240,37 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     );
   }
 
+  const meta = {
+    META_APP_ID: String(raw.META_APP_ID ?? '').trim(),
+    META_APP_SECRET: String(raw.META_APP_SECRET ?? '').trim(),
+    META_WHATSAPP_CONFIG_ID: String(raw.META_WHATSAPP_CONFIG_ID ?? '').trim(),
+    META_WEBHOOK_VERIFY_TOKEN: String(raw.META_WEBHOOK_VERIFY_TOKEN ?? '').trim(),
+  };
+  const metaDefinidas = Object.values(meta).filter(Boolean).length;
+  if (metaDefinidas !== 0 && metaDefinidas !== 4) {
+    throw new Error(
+      'META_APP_ID, META_APP_SECRET, META_WHATSAPP_CONFIG_ID y META_WEBHOOK_VERIFY_TOKEN van juntas: definí las cuatro o ninguna.',
+    );
+  }
+  if (metaDefinidas === 4) {
+    if (!/^\d{1,25}$/.test(meta.META_APP_ID) || !/^\d{1,25}$/.test(meta.META_WHATSAPP_CONFIG_ID)) {
+      throw new Error('META_APP_ID y META_WHATSAPP_CONFIG_ID son ids numéricos de Meta.');
+    }
+    // Cualquiera que lo adivine puede dar de alta otra URL de webhook con el nombre de la app.
+    if (meta.META_WEBHOOK_VERIFY_TOKEN.length < 16) {
+      throw new Error('META_WEBHOOK_VERIFY_TOKEN tiene que tener al menos 16 caracteres. Generalo con: openssl rand -hex 24');
+    }
+  }
+  const metaGraphUrl = sinBarrasFinales(String(raw.META_GRAPH_URL || META_GRAPH_URL_POR_DEFECTO));
+  // Los tokens de los comercios viajan en el header.
+  if (nodeEnv === 'production' && !metaGraphUrl.startsWith('https://')) {
+    throw new Error('META_GRAPH_URL tiene que ser https en producción.');
+  }
+  const metaGraphVersion = String(raw.META_GRAPH_VERSION || META_GRAPH_VERSION_POR_DEFECTO).trim();
+  if (!/^v\d{1,3}\.\d{1,2}$/.test(metaGraphVersion)) {
+    throw new Error(`META_GRAPH_VERSION tiene que ser como v27.0; vino "${metaGraphVersion}".`);
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: Number(raw.PORT ?? 4000),
@@ -261,5 +310,8 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     MERCADOLIBRE_CLIENT_SECRET: mercadoLibreClientSecret,
     IMPORTACION_HOSTS_DE_PRUEBA: hostsDePrueba,
     WHATSAPP_ESCRIBIENDO_VENCE_SEGUNDOS: escribiendoVenceSegundos,
+    ...meta,
+    META_GRAPH_URL: metaGraphUrl,
+    META_GRAPH_VERSION: metaGraphVersion,
   };
 }

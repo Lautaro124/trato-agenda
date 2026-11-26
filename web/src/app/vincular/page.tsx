@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { useEsCelular } from "@/lib/dispositivo";
 import { useRequireSession } from "@/lib/session";
 import { textoDeError, useVinculacion } from "@/lib/vinculacion";
+import { useConfigOficial } from "@/lib/whatsapp-oficial";
 
 export type { LinkState } from "@/lib/vinculacion";
 
@@ -35,6 +37,8 @@ export default function VincularPage() {
   const { state, qr, phone, motivo, regenerar, pedirCodigo } = useVinculacion(ENDPOINTS, status === "authenticated");
   // En el celular no se puede escanear la propia pantalla: ahí arranca con el código.
   const esCelular = useEsCelular();
+  // Sólo con las variables de Meta en la API se ofrece la conexión oficial.
+  const oficial = useConfigOficial(status === "authenticated");
   const [elegido, setElegido] = useState<"qr" | "codigo" | null>(null);
   const metodo = elegido ?? (esCelular ? "codigo" : "qr");
   // Con código, "vencido" se muestra en la misma tarjeta, que conserva el número tipeado.
@@ -89,6 +93,11 @@ export default function VincularPage() {
         )}
         {metodo === "qr" && state === "expired" && <ExpiredCard token={qr ?? ""} onRegenerate={regenerar} />}
         {state === "error" && <ErrorCard code={textoDeError(motivo)} onRetry={regenerar} />}
+        {oficial?.disponible && state !== "connected" && (
+          <Link href="/vincular/oficial" className="mt-4 text-[13px] text-primary underline">
+            ¿Tenés WhatsApp Business? Conectalo con la API oficial de Meta
+          </Link>
+        )}
       </main>
     </div>
   );
