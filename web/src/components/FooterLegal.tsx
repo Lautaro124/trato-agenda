@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { EMAIL_SOPORTE } from "@/lib/contacto";
+import { CUIT, EMAIL_SOPORTE, RESPONSABLE } from "@/lib/contacto";
 import { cn } from "@/lib/cn";
 
 /**
@@ -26,6 +26,9 @@ export function FooterLegal({ className, conEmail = true }: { className?: string
           {EMAIL_SOPORTE}
         </a>
       )}
+      <span className="basis-full text-center">
+        Trato es un servicio de {RESPONSABLE} · CUIT {CUIT}
+      </span>
     </footer>
   );
 }
