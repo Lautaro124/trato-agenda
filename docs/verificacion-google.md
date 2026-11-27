@@ -316,13 +316,12 @@ Sin cortes, con la URL visible en la barra del navegador todo el tiempo.
       homepage, así que tienen que coincidir antes de reenviar. Cambiar el
       nombre vuelve a pasar por la verificación de marca (unos días).
 
-- [ ] **Opcional, pero mejora la impresión: casilla en el dominio.** El
-      contacto publicado en `/privacidad`, `/terminos`, la landing y `/cuenta`
-      es hoy un Gmail personal (`EMAIL_SOPORTE` en `web/src/lib/contacto.ts`).
-      Funciona y se lee, que es lo que importa; un `soporte@tratoagenda.com`
-      queda mejor ante quien revisa, y para cambiarlo alcanza con esa constante.
-      Lo que **no** hay que hacer es publicar una dirección que todavía no
-      recibe mail.
+- [x] **Casilla en el dominio.** El contacto publicado en `/privacidad`,
+      `/terminos`, la landing y `/cuenta` es `lautarogonzalez@tratoagenda.com`
+      (`EMAIL_SOPORTE` en `web/src/lib/contacto.ts`). Tiene que seguir
+      recibiendo mail: una dirección que rebota es peor que un Gmail. El nombre
+      legal y el CUIT también figuran en los pies de página, porque la
+      verificación del negocio en Meta exige ver el nombre legal en el sitio.
 - [ ] **Verificar `tratoagenda.com` en Search Console**, con la misma cuenta de
       Google dueña del proyecto Cloud.
 - [ ] **Consola de Google**: pasar la pantalla de consentimiento de *Testing* a

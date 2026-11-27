@@ -3,7 +3,7 @@ import Link from "next/link";
 import { PlanesPrecio } from "@/components/PrecioPlan";
 import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/Button";
-import { EMAIL_SOPORTE } from "@/lib/contacto";
+import { CUIT, EMAIL_SOPORTE, RESPONSABLE } from "@/lib/contacto";
 
 export const metadata = {
   title: "Trato — la atención al cliente de tu negocio por WhatsApp",
@@ -337,6 +337,12 @@ export default function Home() {
               Ayuda
             </a>
           </div>
+          <p className="basis-full text-[12.5px]">
+            Trato es un servicio de {RESPONSABLE} · CUIT {CUIT} ·{" "}
+            <a href={`mailto:${EMAIL_SOPORTE}`} className="text-muted">
+              {EMAIL_SOPORTE}
+            </a>
+          </p>
         </div>
       </footer>
     </main>

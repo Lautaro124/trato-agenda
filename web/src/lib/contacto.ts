@@ -4,18 +4,19 @@
  * Google el contacto de la política tiene que coincidir con el del sitio.
  */
 /**
- * Contacto de soporte. Hoy es un Gmail personal porque es la casilla que
- * existe y que se lee: en la verificación de Google, una dirección del dominio
- * queda mejor, pero una que rebota es mucho peor. Si algún día hay
- * `soporte@tratoagenda.com`, se cambia sólo acá.
+ * Contacto de soporte, en el dominio propio: las verificaciones de Google y de
+ * Meta cruzan el contacto y el titular con lo que muestra el sitio. Tiene que
+ * ser una casilla que existe y se lee; una que rebota es mucho peor.
  */
-export const EMAIL_SOPORTE = "lautaro.gonzalez4949@gmail.com";
+export const EMAIL_SOPORTE = "lautarogonzalez@tratoagenda.com";
 export const DOMINIO = "tratoagenda.com";
 
 /**
  * Responsable del tratamiento de los datos. Una política de privacidad tiene
  * que identificar a quién reclamarle, y la verificación OAuth de Google lo
- * mira: tiene que coincidir con el titular del proyecto en Cloud Console.
+ * mira: tiene que coincidir con el titular del proyecto en Cloud Console. La
+ * verificación del negocio en Meta exige además que el nombre legal aparezca en
+ * el sitio, por eso también va en los pies de página (landing y FooterLegal).
  */
 export const RESPONSABLE = "LAUTARO GABRIEL GONZALEZ";
 export const CUIT = "20-42672267-5";
